@@ -465,7 +465,19 @@ def create_app():
         action_state.change(fn=handle_action, inputs=[action_state], outputs=[page_output])
         auth_state.change(fn=handle_auth, inputs=[auth_state], outputs=[page_output])
         lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
-        app.load(fn=lambda *_args: handle_nav("market"), outputs=[page_output])
+        def _safe_initial_load(*_args):
+            """Initial page load — returns a loading shell, then JS triggers actual render."""
+            try:
+                print("[Load] Rendering initial page...")
+                result = handle_nav("market")
+                print(f"[Load] OK ({len(result) if result else 0} chars)")
+                return result
+            except Exception as e:
+                import traceback as _tb
+                _tb.print_exc()
+                return f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><pre>{e}</pre></div>'
+
+        app.load(fn=_safe_initial_load, outputs=[page_output])
 
         # ── Client-side JS ──
         app.load(fn=lambda *_args: None, js="""
