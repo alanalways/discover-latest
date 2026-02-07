@@ -1,348 +1,398 @@
-/* 
- * DiscoverLatest V3.1 - Pro Trader Theme
- * Design: High Contrast, Sharp Borders, Solid Colors
- * Layout: Fixed Sidebar + Header (Gradio Compatible)
+/*
+ * DiscoverLatest 洞察運算 - UI/UX Pro Max Edition
+ * Theme: Cyberpunk Finance Pro
+ * Version: 3.0 (Reborn)
  */
 
-/* ===== 1. Design System ===== */
+/* =========================================
+   1. Design Tokens (The Foundation)
+   ========================================= */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700&display=swap');
+
 :root {
-    /* Backgrounds (Solid Slate) */
-    --bg-app: #0b0f19;
-    /* Deepest Slate */
-    --bg-surface: #151b2b;
-    /* Component Background */
-    --bg-header: #151b2b;
-    /* Solid Header */
-    --bg-hover: #1e293b;
-    /* Hover State */
+    /* --- Cyberpunk Palette --- */
+    --bg-void: #050510;
+    /* Deepest Black-Blue */
+    --bg-surface: #0f131c;
+    /* Card Surface */
+    --bg-elevated: #1a1f2e;
+    /* Hover/Dropdown */
 
-    /* Borders */
-    --border-subtle: #1e293b;
-    /* Slate 800 */
-    --border-highlight: #38bdf8;
-    /* Sky 400 */
+    --primary: #00f2ff;
+    /* Cyber Cyan */
+    --primary-dim: rgba(0, 242, 255, 0.1);
+    --secondary: #bc13fe;
+    /* Electric Purple */
+    --accent: #2979ff;
+    /* Tech Blue */
 
-    /* Text (High Contrast) */
-    --text-primary: #ffffff;
-    /* Pure White */
-    --text-secondary: #cbd5e1;
-    /* Slate 300 */
-    --text-tertiary: #94a3b8;
-    /* Slate 400 */
+    --success: #00ff9d;
+    /* Neon Green */
+    --danger: #ff0055;
+    /* Neon Red */
+    --warning: #ffb800;
+    /* Amber */
 
-    /* Accents */
-    --accent-primary: #0ea5e9;
-    /* Sky 500 */
-    --accent-hover: #0284c7;
-    /* Sky 600 */
-    --accent-success: #10b981;
-    /* Emerald 500 */
-    --accent-danger: #ef4444;
-    /* Red 500 */
+    /* --- Text System (High Contrast) --- */
+    --text-1: #ffffff;
+    /* Primary */
+    --text-2: #e2e8f0;
+    /* Secondary (Light Slate) */
+    --text-3: #94a3b8;
+    /* Muted (Slate 400) */
 
-    /* Dimensions */
-    --sidebar-width: 250px;
-    --header-height: 64px;
-    --radius-md: 6px;
-    --radius-lg: 8px;
+    /* --- Borders & Glass --- */
+    --border-glass: 1px solid rgba(255, 255, 255, 0.1);
+    --border-active: 1px solid rgba(0, 242, 255, 0.5);
 
-    /* Z-Index */
-    --z-sidebar: 1000;
-    --z-header: 900;
-    --z-content: 100;
+    /* --- Effects --- */
+    --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.5);
+    --glow-text: 0 0 10px rgba(0, 242, 255, 0.4);
+    --glow-box: 0 0 20px rgba(0, 242, 255, 0.15);
+
+    /* --- Dimensions --- */
+    --sidebar-w: 260px;
+    --topbar-h: 72px;
+    --radius-lg: 16px;
+    --radius-md: 8px;
+    --gap: 24px;
 }
 
-/* ===== 2. Reset & Global ===== */
+/* =========================================
+   2. Global Reset & Typography
+   ========================================= */
 * {
     box-sizing: border-box;
-    outline: none;
 }
 
 body,
 .gradio-container {
-    background-color: var(--bg-app) !important;
-    color: var(--text-primary) !important;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
+    background-color: var(--bg-void) !important;
+    color: var(--text-1) !important;
+    font-family: 'Inter', system-ui, sans-serif !important;
     margin: 0;
-    padding: 0;
+    overflow-x: hidden;
+    letter-spacing: 0.01em;
 }
 
-/* Scrollbar */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+h1,
+h2,
+h3,
+.brand-font {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
 }
 
-::-webkit-scrollbar-track {
-    background: var(--bg-app);
+.mono-font,
+.number-font {
+    font-family: 'JetBrains Mono', monospace;
 }
 
-::-webkit-scrollbar-thumb {
-    background: var(--border-subtle);
-    border-radius: 4px;
+/* =========================================
+   3. Layout Grid (Fixed Sidebar)
+   ========================================= */
+.main-layout {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    position: relative;
+    z-index: 0;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary);
-}
-
-/* ===== 3. Sidebar (Fixed) ===== */
+/* Sidebar Container */
 .sidebar {
     position: fixed;
     top: 0;
     left: 0;
-    width: var(--sidebar-width);
-    height: 100vh;
-    background-color: var(--bg-surface);
-    border-right: 1px solid var(--border-subtle);
+    bottom: 0;
+    width: var(--sidebar-w);
+    background: rgba(15, 19, 28, 0.98);
+    /* Less transp, more readable */
+    border-right: var(--border-glass);
     display: flex;
     flex-direction: column;
-    z-index: var(--z-sidebar);
-    overflow-y: auto;
+    z-index: 100;
+    /* Sidebar Top */
+    backdrop-filter: blur(20px);
+    transition: width 0.3s ease;
 }
 
-/* Sidebar Components */
-.sidebar-header {
-    height: var(--header-height);
+
+
+/* Topbar Fixed */
+.topbar-wrapper {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: var(--sidebar-w);
+    /* Snap to Sidebar */
+    height: var(--topbar-h);
+    background: rgba(5, 8, 16, 0.9);
+    backdrop-filter: blur(12px);
+    border-bottom: var(--border-glass);
+    z-index: 90;
     display: flex;
     align-items: center;
-    padding: 0 20px;
-    border-bottom: 1px solid var(--border-subtle);
+    padding: 0 32px;
+}
+
+/* Actual Content Scrollable Area */
+.content-area {
+    margin-left: var(--sidebar-w);
+    width: calc(100% - var(--sidebar-w)) !important;
+    margin-top: var(--topbar-h);
+    padding: 32px;
+    min-height: calc(100vh - var(--topbar-h));
+    /* Gradio overrides */
+    max-width: 1600px !important;
+    margin-right: auto;
+}
+
+/* =========================================
+   4. Component: Sidebar
+   ========================================= */
+.logo {
+    height: var(--topbar-h);
+    display: flex;
+    align-items: center;
+    padding: 0 24px;
+    border-bottom: var(--border-glass);
+}
+
+.logo-icon {
+    font-size: 24px;
+    filter: drop-shadow(0 0 5px var(--primary));
 }
 
 .logo-text {
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-left: 10px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 800;
+    font-size: 20px;
+    background: linear-gradient(90deg, #fff, var(--primary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: 1px;
+    margin-left: 12px;
 }
 
 .sidebar-nav {
-    padding: 20px 12px;
+    padding: 24px 16px;
     flex: 1;
 }
 
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-    margin-bottom: 4px;
+    gap: 16px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
     border-radius: var(--radius-md);
-    color: var(--text-tertiary);
+    color: var(--text-3);
     text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.15s;
+    transition: all 0.2s;
     border: 1px solid transparent;
+    font-weight: 500;
 }
 
 .nav-item:hover {
-    background-color: var(--bg-hover);
-    color: var(--text-primary);
-    border-color: var(--border-subtle);
+    background: var(--bg-hover);
+    color: var(--text-1);
+    transform: translateX(4px);
 }
 
 .nav-item.active {
-    background-color: rgba(14, 165, 233, 0.15);
-    color: var(--accent-primary);
-    border-color: rgba(14, 165, 233, 0.3);
+    background: linear-gradient(90deg, var(--primary-dim), transparent);
+    border-left: 3px solid var(--primary);
+    color: var(--primary);
+    box-shadow: var(--glow-box);
 }
 
-.sidebar-footer {
-    padding: 16px;
-    border-top: 1px solid var(--border-subtle);
-    background-color: var(--bg-app);
-}
-
-/* User Card */
-.user-card {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    padding: 8px;
-    border-radius: var(--radius-md);
-    background: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
-}
-
-.user-info {
-    display: flex;
-    flex-direction: column;
-}
-
-.user-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-}
-
-.user-tier {
-    font-size: 11px;
-    color: var(--accent-primary);
-}
-
-/* ===== 4. Header (Fixed) ===== */
-.topbar-wrapper {
-    position: fixed;
-    top: 0;
-    left: var(--sidebar-width);
-    right: 0;
-    height: var(--header-height);
-    z-index: var(--z-header);
-}
-
-.topbar {
-    height: 100%;
-    background-color: var(--bg-header);
-    /* Solid */
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-}
-
-/* Search */
-.search-box {
-    position: relative;
-    width: 300px;
-}
-
-.search-input {
-    width: 100%;
-    height: 36px;
-    background-color: var(--bg-app);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding-left: 36px;
-    color: var(--text-primary);
-    font-size: 13px;
-}
-
-.search-input:focus {
-    border-color: var(--accent-primary);
-}
-
-.search-icon {
-    position: absolute;
-    left: 10px;
-    top: 9px;
-    color: var(--text-tertiary);
-}
-
-/* ===== 5. Content Area (Fluid) ===== */
-.content-area {
-    margin-left: var(--sidebar-width);
-    padding: calc(var(--header-height) + 24px) 32px 32px;
-    width: auto !important;
-    background-color: var(--bg-app);
-    min-height: 100vh;
-}
-
-/* Cards (Solid & Sharp) */
+/* =========================================
+   5. Component: Cards (The "Pro" Look)
+   ========================================= */
 .dashboard-card,
 .index-card,
 .etf-card {
-    background-color: var(--bg-surface);
-    border: 1px solid var(--border-subtle);
+    background: var(--bg-surface);
+    border: var(--border-glass);
     border-radius: var(--radius-lg);
     padding: 24px;
-    transition: transform 0.2s, border-color 0.2s;
-    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+    box-shadow: var(--shadow-card);
 }
 
-.dashboard-card:hover,
+/* Top Accent Line */
+.dashboard-card::before,
+.index-card::before,
+.etf-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--primary), transparent);
+    opacity: 0.5;
+}
+
 .index-card:hover,
 .etf-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--accent-primary);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    transform: translateY(-4px);
+    border-color: var(--primary);
+    box-shadow: var(--glow-box);
 }
 
 /* Typography in Cards */
 .index-name,
 .etf-name {
-    color: var(--text-tertiary);
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .index-value,
 .etf-value {
-    color: var(--text-primary);
+    font-family: 'JetBrains Mono', monospace;
     font-size: 28px;
     font-weight: 700;
+    color: var(--text-1);
     margin: 8px 0;
-    letter-spacing: -0.5px;
 }
 
-.index-change,
-.etf-change {
-    font-size: 14px;
+.index-symbol,
+.etf-symbol {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--primary);
+    background: var(--primary-dim);
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+/* Changes */
+.change-up {
+    color: var(--success);
     font-weight: 600;
-    display: flex;
-    gap: 4px;
 }
 
-.green {
-    color: var(--accent-success);
+.change-down {
+    color: var(--danger);
+    font-weight: 600;
 }
 
-.red {
-    color: var(--accent-danger);
+/* Grid Systems */
+.indices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
 }
 
-/* Grids */
-.indices-grid,
 .etf-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 20px;
-    margin: 20px 0 40px;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 24px;
 }
 
-/* ===== 6. Gradio Overrides ===== */
+/* =========================================
+   6. Component: Topbar Elements
+   ========================================= */
+.search-box {
+    position: relative;
+    width: 360px;
+}
+
+.search-input {
+    width: 100%;
+    height: 44px;
+    background: rgba(0, 0, 0, 0.3);
+    border: var(--border-glass);
+    border-radius: 22px;
+    padding: 0 20px 0 50px;
+    color: var(--text-1);
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.search-input:focus {
+    border-color: var(--primary);
+    background: rgba(0, 0, 0, 0.5);
+    box-shadow: 0 0 15px var(--primary-dim);
+    outline: none;
+}
+
+.search-icon {
+    position: absolute;
+    left: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-3);
+    pointer-events: none;
+}
+
+/* =========================================
+   7. Gradio Overrides (Force Consistency)
+   ========================================= */
 .gradio-button {
-    background-color: var(--accent-primary) !important;
-    color: #fff !important;
-    font-weight: 600 !important;
-    border-radius: var(--radius-md) !important;
+    background: var(--primary) !important;
+    color: #000 !important;
+    font-family: 'Orbitron', sans-serif !important;
+    font-weight: 700 !important;
+    border: none !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: var(--max-glow) !important;
 }
 
-.gradio-button.secondary {
-    background-color: var(--bg-element) !important;
-    color: var(--text-secondary) !important;
-}
-
-/* Inputs */
 .gradio-input input,
 .gradio-input textarea,
 .gradio-dropdown-options {
-    background-color: var(--bg-surface) !important;
-    border: 1px solid var(--border-subtle) !important;
-    color: var(--text-primary) !important;
+    background: var(--bg-surface) !important;
+    border: var(--border-glass) !important;
+    color: var(--text-1) !important;
 }
 
-/* RWD */
-@media (max-width: 768px) {
+/* Fix "Welcome" */
+.welcome-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 36px;
+    font-weight: 900;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, #fff 0%, var(--text-3) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.welcome-subtitle {
+    font-size: 16px;
+    color: var(--text-2);
+    margin-bottom: 48px;
+}
+
+/* =========================================
+   8. Responsive
+   ========================================= */
+@media (max-width: 1024px) {
     .sidebar {
         transform: translateX(-100%);
-        transition: transform 0.3s;
+        width: 280px;
     }
 
-    .sidebar.collapsed {
+    .sidebar.active {
         transform: translateX(0);
+        box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
     }
 
-    /* Mobile Toggle Logic */
-    .content-area,
-    .topbar-wrapper {
-        margin-left: 0;
+    .topbar-wrapper,
+    .content-area {
         left: 0;
+        margin-left: 0;
         width: 100%;
     }
+
+
 }
-/* Wrapper Fix */
-.main-layout { position: fixed; top: 0; left: 0; width: 100%; height: 0; z-index: 900; pointer-events: none; }
-.sidebar, .topbar-wrapper { pointer-events: auto; }
