@@ -15,6 +15,7 @@ from components.i18n import t
 # ──────────────────────────────────────
 _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
 _CACHE_TTL = 300  # seconds
+_first_load = True  # Skip yfinance on first load for instant startup
 
 # ──────────────────────────────────────
 # Ticker definitions
@@ -61,12 +62,24 @@ _FALLBACK_ETFS = [
 # Batch fetcher (yf.download is MUCH faster than individual Ticker calls)
 # ──────────────────────────────────────
 def _fetch_market_data() -> Dict[str, list]:
-    """Fetch all indices + ETFs using batch download, return cached if fresh."""
-    global _market_cache
+    """Fetch all indices + ETFs. First load uses fallback for instant startup."""
+    global _market_cache, _first_load
     now = time.time()
+
+    # Return cache if fresh
     if _market_cache["indices"] is not None and (now - _market_cache["ts"]) < _CACHE_TTL:
         return {"indices": _market_cache["indices"], "etfs": _market_cache["etfs"]}
 
+    # FIRST LOAD: return fallback instantly (no network calls)
+    if _first_load:
+        _first_load = False
+        print("[Market] First load → using fallback data for instant startup")
+        indices = list(_FALLBACK_INDICES)
+        etfs = list(_FALLBACK_ETFS)
+        _market_cache = {"indices": indices, "etfs": etfs, "ts": now}
+        return {"indices": indices, "etfs": etfs}
+
+    # Subsequent loads: try batch download with timeout
     indices: list = []
     etfs: list = []
 
@@ -76,7 +89,6 @@ def _fetch_market_data() -> Dict[str, list]:
         all_tickers = {**_INDEX_TICKERS, **_ETF_TICKERS}
         all_syms = list(all_tickers.keys())
 
-        # Batch download with timeout — much faster than individual calls
         def _do_download():
             return yf.download(
                 all_syms,
@@ -88,14 +100,13 @@ def _fetch_market_data() -> Dict[str, list]:
 
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(_do_download)
-            df = future.result(timeout=12)
+            df = future.result(timeout=10)
 
         if df is not None and not df.empty:
             multi_ticker = len(all_syms) > 1
             for sym, meta in all_tickers.items():
                 try:
                     if multi_ticker:
-                        # MultiIndex: (ticker, field)
                         if sym not in df.columns.get_level_values(0):
                             continue
                         close_series = df[sym]["Close"].dropna()
@@ -128,20 +139,16 @@ def _fetch_market_data() -> Dict[str, list]:
                     continue
 
     except FuturesTimeout:
-        print("[Market] Batch download timed out (12s)")
+        print("[Market] Batch download timed out (10s)")
     except Exception as exc:
         print(f"[Market] Batch download error: {exc}")
-        traceback.print_exc()
 
-    # Fallback — always provide data
+    # Fallback
     if not indices:
-        print("[Market] Using fallback index data")
         indices = list(_FALLBACK_INDICES)
     if not etfs:
-        print("[Market] Using fallback ETF data")
         etfs = list(_FALLBACK_ETFS)
 
-    # Sort indices
     idx_order = ["TAIEX", "SPX", "IXIC", "DJI", "SOX"]
     indices.sort(key=lambda x: idx_order.index(x["symbol"]) if x["symbol"] in idx_order else 99)
 
