@@ -41,7 +41,7 @@ def create_backtest_page(
     
     return f'''
     <style>
-        .backtest-page {{ padding: 24px; }}
+        .backtest-page {{ padding: 0; }}
         .strategy-selector {{
             display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap;
         }}

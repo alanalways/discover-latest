@@ -41,20 +41,20 @@ _ETF_TICKERS = {
 # Realistic fallback data
 # ──────────────────────────────────────
 _FALLBACK_INDICES = [
-    {"name": "加權指數", "symbol": "TAIEX", "value": "23,458.72", "change": "+128.35", "change_pct": "+0.55%", "color": "green"},
-    {"name": "S&P 500",  "symbol": "SPX",   "value": "6,025.99", "change": "+22.09", "change_pct": "+0.37%", "color": "green"},
-    {"name": "NASDAQ",   "symbol": "IXIC",  "value": "19,523.40", "change": "+92.43", "change_pct": "+0.48%", "color": "green"},
-    {"name": "道瓊指數", "symbol": "DJI",   "value": "44,303.40", "change": "+125.65", "change_pct": "+0.28%", "color": "green"},
-    {"name": "費半指數", "symbol": "SOX",   "value": "5,118.32", "change": "-28.17", "change_pct": "-0.55%", "color": "red"},
+    {"name": "加權指數", "symbol": "TAIEX", "value": "23,128.56", "change": "+85.23", "change_pct": "+0.37%", "color": "green"},
+    {"name": "S&P 500",  "symbol": "SPX",   "value": "6,061.48", "change": "+34.55", "change_pct": "+0.57%", "color": "green"},
+    {"name": "NASDAQ",   "symbol": "IXIC",  "value": "19,654.02", "change": "+143.25", "change_pct": "+0.73%", "color": "green"},
+    {"name": "道瓊指數", "symbol": "DJI",   "value": "44,556.04", "change": "-22.16", "change_pct": "-0.05%", "color": "red"},
+    {"name": "費半指數", "symbol": "SOX",   "value": "5,042.16", "change": "+47.38", "change_pct": "+0.95%", "color": "green"},
 ]
 
 _FALLBACK_ETFS = [
-    {"name": "元大台灣50",     "symbol": "0050", "value": "185.40", "change": "+1.20", "change_pct": "+0.65%", "color": "green"},
-    {"name": "元大高股息",     "symbol": "0056", "value": "38.92", "change": "+0.15", "change_pct": "+0.39%", "color": "green"},
-    {"name": "國泰永續高股息", "symbol": "00878", "value": "23.55", "change": "-0.08", "change_pct": "-0.34%", "color": "red"},
-    {"name": "群益台灣精選高息", "symbol": "00919", "value": "24.18", "change": "+0.12", "change_pct": "+0.50%", "color": "green"},
-    {"name": "Vanguard S&P 500", "symbol": "VOO", "value": "553.20", "change": "+2.05", "change_pct": "+0.37%", "color": "green"},
-    {"name": "Invesco QQQ",      "symbol": "QQQ", "value": "525.88", "change": "+3.44", "change_pct": "+0.66%", "color": "green"},
+    {"name": "元大台灣50",     "symbol": "0050", "value": "186.25", "change": "+0.85", "change_pct": "+0.46%", "color": "green"},
+    {"name": "元大高股息",     "symbol": "0056", "value": "39.15", "change": "+0.10", "change_pct": "+0.26%", "color": "green"},
+    {"name": "國泰永續高股息", "symbol": "00878", "value": "23.42", "change": "-0.05", "change_pct": "-0.21%", "color": "red"},
+    {"name": "群益台灣精選高息", "symbol": "00919", "value": "24.06", "change": "+0.08", "change_pct": "+0.33%", "color": "green"},
+    {"name": "Vanguard S&P 500", "symbol": "VOO", "value": "556.34", "change": "+3.18", "change_pct": "+0.57%", "color": "green"},
+    {"name": "Invesco QQQ",      "symbol": "QQQ", "value": "530.12", "change": "+4.22", "change_pct": "+0.80%", "color": "green"},
 ]
 
 

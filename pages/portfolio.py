@@ -180,11 +180,11 @@ def create_portfolio_page(
 def _get_demo_holdings() -> List[Dict]:
     """示範投組（使用合理的預設價格）"""
     return [
-        {"symbol": "2330", "name": "台積電", "shares": 1000, "avg_cost": 580.00, "current_price": 1070.00, "market_value": 1070000, "pnl_pct": 84.48, "currency": "TWD"},
-        {"symbol": "0050", "name": "元大台灣50", "shares": 3000, "avg_cost": 145.00, "current_price": 185.40, "market_value": 556200, "pnl_pct": 27.86, "currency": "TWD"},
-        {"symbol": "AAPL", "name": "Apple", "shares": 50, "avg_cost": 175.00, "current_price": 227.63, "market_value": 11381.50, "pnl_pct": 30.07, "currency": "USD"},
-        {"symbol": "NVDA", "name": "NVIDIA", "shares": 30, "avg_cost": 480.00, "current_price": 128.88, "market_value": 3866.40, "pnl_pct": -73.15, "currency": "USD"},
-        {"symbol": "00878", "name": "國泰永續高股息", "shares": 5000, "avg_cost": 20.50, "current_price": 23.55, "market_value": 117750, "pnl_pct": 14.88, "currency": "TWD"},
+        {"symbol": "2330", "name": "台積電", "shares": 1000, "avg_cost": 580.00, "current_price": 1055.00, "market_value": 1055000, "pnl_pct": 81.90, "currency": "TWD"},
+        {"symbol": "0050", "name": "元大台灣50", "shares": 3000, "avg_cost": 145.00, "current_price": 186.25, "market_value": 558750, "pnl_pct": 28.45, "currency": "TWD"},
+        {"symbol": "AAPL", "name": "Apple", "shares": 50, "avg_cost": 175.00, "current_price": 232.80, "market_value": 11640.00, "pnl_pct": 33.03, "currency": "USD"},
+        {"symbol": "NVDA", "name": "NVIDIA", "shares": 30, "avg_cost": 48.00, "current_price": 132.50, "market_value": 3975.00, "pnl_pct": 176.04, "currency": "USD"},
+        {"symbol": "00878", "name": "國泰永續高股息", "shares": 5000, "avg_cost": 20.50, "current_price": 23.42, "market_value": 117100, "pnl_pct": 14.24, "currency": "TWD"},
     ]
 
 

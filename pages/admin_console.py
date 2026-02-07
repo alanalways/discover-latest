@@ -25,7 +25,7 @@ def create_admin_console_page(
     
     return f'''
     <style>
-        .admin-page {{ padding: 24px; }}
+        .admin-page {{ padding: 0; }}
         .admin-header {{
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 32px;
