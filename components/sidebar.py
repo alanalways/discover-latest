@@ -22,9 +22,10 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
     nav_items = [
         ('market', 'nav.market', '📊'),
         ('stock', 'nav.stock', '🔍'),
+        ('backtest', 'nav.backtest', '📈'),
         ('industry', 'nav.industry', '🌐'),
-        ('watchlist', 'nav.watchlist', '⭐'),
         ('portfolio', 'nav.portfolio', '💼'),
+        ('admin', 'nav.admin', '⚙️'),
     ]
     
     # 建立導航 HTML

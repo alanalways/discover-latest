@@ -16,6 +16,7 @@ class BacktestService:
         "breakout": "突破策略",
         "momentum": "動能策略",
         "rsi": "RSI 策略",
+        "martingale": "馬丁格爾策略",
     }
     
     def __init__(self):
@@ -58,6 +59,9 @@ class BacktestService:
             signals = self._momentum_strategy(history, params)
         elif strategy == "rsi":
             signals = self._rsi_strategy(history, params)
+        elif strategy == "martingale":
+            # 馬丁格爾使用專用模擬器
+            return self._run_martingale(history, params, initial_capital)
         else:
             return {"error": f"不支援的策略: {strategy}"}
         
@@ -83,6 +87,16 @@ class BacktestService:
             "breakout": {"period": 20, "threshold": 0.02},
             "momentum": {"period": 14, "threshold": 0.05},
             "rsi": {"period": 14, "oversold": 30, "overbought": 70},
+            "martingale": {
+                "multiplier": 2.0,        # 虧損倍率
+                "max_layers": 5,           # 最大加碼層數
+                "max_position_pct": 0.5,   # 最大倉位佔比 (50%)
+                "stop_loss_pct": 0.10,     # 停損 10%
+                "take_profit_pct": 0.05,   # 停利 5%
+                "commission": 0.001425,    # 手續費
+                "slippage": 0.001,         # 滑價 0.1%
+                "base_amount_pct": 0.02,   # 基礎買入金額佔比 2%
+            },
         }
         return defaults.get(strategy, {})
     
@@ -405,6 +419,274 @@ class BacktestService:
             "avg_loss": round(avg_loss, 2),
             "max_drawdown": round(max_drawdown, 2),
             "profit_factor": round(profit_factor, 2)
+        }
+
+
+    # ===== 馬丁格爾策略（專用模擬器）=====
+
+    def _run_martingale(
+        self,
+        history: List[Dict],
+        params: Dict,
+        initial_capital: float,
+    ) -> Dict[str, Any]:
+        """
+        馬丁格爾策略回測（含風控）
+        
+        風控機制：
+        - 倍率限制 (multiplier)
+        - 最大層數限制 (max_layers)
+        - 最大倉位占比限制 (max_position_pct)
+        - 停損/停利
+        - 手續費 + 滑價
+        """
+        if params is None:
+            params = self._get_default_params("martingale")
+        
+        multiplier = params.get("multiplier", 2.0)
+        max_layers = params.get("max_layers", 5)
+        max_position_pct = params.get("max_position_pct", 0.5)
+        stop_loss_pct = params.get("stop_loss_pct", 0.10)
+        take_profit_pct = params.get("take_profit_pct", 0.05)
+        commission = params.get("commission", 0.001425)
+        slippage = params.get("slippage", 0.001)
+        base_amount_pct = params.get("base_amount_pct", 0.02)
+        
+        capital = initial_capital
+        total_shares = 0
+        total_cost = 0.0
+        avg_price = 0.0
+        current_layer = 0
+        trades = []
+        equity_curve = [initial_capital]
+        peak_equity = initial_capital
+        max_drawdown = 0.0
+        capital_exhausted = False
+        
+        for i in range(1, len(history)):
+            price = float(history[i].get("close", 0))
+            prev_price = float(history[i - 1].get("close", 0))
+            date = history[i].get("date", "")
+            
+            if price <= 0 or prev_price <= 0:
+                continue
+            
+            daily_return = (price - prev_price) / prev_price
+            
+            # 計算當前持倉市值
+            position_value = total_shares * price
+            total_equity = capital + position_value
+            
+            # 記錄權益曲線
+            equity_curve.append(total_equity)
+            
+            # 最大回撤
+            if total_equity > peak_equity:
+                peak_equity = total_equity
+            dd = (peak_equity - total_equity) / peak_equity * 100
+            max_drawdown = max(max_drawdown, dd)
+            
+            # 資金耗盡檢查
+            if total_equity <= initial_capital * 0.1:
+                capital_exhausted = True
+                trades.append({
+                    "date": date,
+                    "action": "資金耗盡停止",
+                    "price": price,
+                    "shares": 0,
+                    "capital_after": total_equity,
+                    "layer": current_layer,
+                    "reason": "資金不足 10%，強制停止"
+                })
+                break
+            
+            # 持倉停損
+            if total_shares > 0 and avg_price > 0:
+                unrealized_pnl_pct = (price - avg_price) / avg_price
+                
+                # 停利：達到目標獲利
+                if unrealized_pnl_pct >= take_profit_pct:
+                    proceeds = total_shares * price * (1 - commission - slippage)
+                    pnl = proceeds - total_cost
+                    capital += proceeds
+                    trades.append({
+                        "date": date,
+                        "action": "停利賣出",
+                        "price": price,
+                        "shares": total_shares,
+                        "proceeds": round(proceeds, 2),
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round(unrealized_pnl_pct * 100, 2),
+                        "capital_after": round(capital, 2),
+                        "layer": current_layer,
+                        "reason": f"停利 +{unrealized_pnl_pct*100:.1f}%"
+                    })
+                    total_shares = 0
+                    total_cost = 0
+                    avg_price = 0
+                    current_layer = 0
+                    continue
+                
+                # 停損：虧損超過限制
+                if unrealized_pnl_pct <= -stop_loss_pct:
+                    proceeds = total_shares * price * (1 - commission - slippage)
+                    pnl = proceeds - total_cost
+                    capital += proceeds
+                    trades.append({
+                        "date": date,
+                        "action": "停損賣出",
+                        "price": price,
+                        "shares": total_shares,
+                        "proceeds": round(proceeds, 2),
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round(unrealized_pnl_pct * 100, 2),
+                        "capital_after": round(capital, 2),
+                        "layer": current_layer,
+                        "reason": f"停損 {unrealized_pnl_pct*100:.1f}%"
+                    })
+                    total_shares = 0
+                    total_cost = 0
+                    avg_price = 0
+                    current_layer = 0
+                    continue
+            
+            # 馬丁格爾加碼邏輯：價格下跌時加碼
+            if daily_return < -0.01:  # 日跌幅 > 1%
+                if current_layer < max_layers:
+                    # 計算加碼金額
+                    layer_amount = initial_capital * base_amount_pct * (multiplier ** current_layer)
+                    
+                    # 倉位限制
+                    current_position_pct = position_value / total_equity if total_equity > 0 else 0
+                    if current_position_pct >= max_position_pct:
+                        continue
+                    
+                    # 資金限制
+                    layer_amount = min(layer_amount, capital * 0.9)
+                    if layer_amount < price:
+                        continue
+                    
+                    buy_price = price * (1 + slippage)
+                    shares = int(layer_amount / buy_price)
+                    if shares <= 0:
+                        continue
+                    
+                    cost = shares * buy_price * (1 + commission)
+                    
+                    if cost > capital:
+                        continue
+                    
+                    capital -= cost
+                    total_cost += cost
+                    total_shares += shares
+                    avg_price = total_cost / total_shares if total_shares > 0 else 0
+                    current_layer += 1
+                    
+                    trades.append({
+                        "date": date,
+                        "action": f"加碼買入 L{current_layer}",
+                        "price": round(buy_price, 2),
+                        "shares": shares,
+                        "cost": round(cost, 2),
+                        "capital_after": round(capital, 2),
+                        "layer": current_layer,
+                        "avg_price": round(avg_price, 2),
+                        "reason": f"日跌 {daily_return*100:.1f}%，第 {current_layer} 層加碼"
+                    })
+            
+            # 無持倉時的初始買入
+            elif total_shares == 0 and daily_return < -0.005:
+                layer_amount = initial_capital * base_amount_pct
+                buy_price = price * (1 + slippage)
+                shares = int(layer_amount / buy_price)
+                if shares <= 0:
+                    continue
+                
+                cost = shares * buy_price * (1 + commission)
+                if cost > capital:
+                    continue
+                
+                capital -= cost
+                total_cost = cost
+                total_shares = shares
+                avg_price = buy_price
+                current_layer = 1
+                
+                trades.append({
+                    "date": date,
+                    "action": "初始買入 L1",
+                    "price": round(buy_price, 2),
+                    "shares": shares,
+                    "cost": round(cost, 2),
+                    "capital_after": round(capital, 2),
+                    "layer": 1,
+                    "avg_price": round(avg_price, 2),
+                    "reason": f"日跌 {daily_return*100:.1f}%，建立初始倉位"
+                })
+        
+        # 結算：若仍有持倉，以最後一日收盤價平倉
+        if total_shares > 0 and history:
+            last_price = float(history[-1].get("close", 0))
+            proceeds = total_shares * last_price * (1 - commission - slippage)
+            pnl = proceeds - total_cost
+            capital += proceeds
+            trades.append({
+                "date": history[-1].get("date", ""),
+                "action": "期末結算",
+                "price": last_price,
+                "shares": total_shares,
+                "proceeds": round(proceeds, 2),
+                "pnl": round(pnl, 2),
+                "capital_after": round(capital, 2),
+                "layer": current_layer,
+                "reason": "回測結束，強制平倉"
+            })
+        
+        # 績效計算
+        final_capital = capital
+        total_return = final_capital - initial_capital
+        total_return_pct = (final_capital / initial_capital - 1) * 100
+        
+        sell_trades = [t for t in trades if "賣出" in t.get("action", "") or t.get("action") == "期末結算"]
+        win_trades = [t for t in sell_trades if t.get("pnl", 0) > 0]
+        lose_trades = [t for t in sell_trades if t.get("pnl", 0) <= 0]
+        
+        # 最大連續虧損層數
+        max_layer_reached = max((t.get("layer", 0) for t in trades), default=0)
+        
+        metrics = {
+            "total_return": round(total_return, 2),
+            "total_return_pct": round(total_return_pct, 2),
+            "final_capital": round(final_capital, 2),
+            "total_trades": len(sell_trades),
+            "winning_trades": len(win_trades),
+            "losing_trades": len(lose_trades),
+            "win_rate": round(len(win_trades) / len(sell_trades) * 100, 1) if sell_trades else 0,
+            "max_drawdown": round(max_drawdown, 2),
+            "max_layer_reached": max_layer_reached,
+            "capital_exhausted": capital_exhausted,
+        }
+        
+        # 風險提示（必做）
+        risk_warnings = [
+            "馬丁格爾策略在連續虧損時資金需求呈指數增長，可能導致資金耗盡。",
+            f"本次回測最大回撤: {max_drawdown:.1f}%",
+            f"最高加碼層數: {max_layer_reached} 層（上限 {max_layers} 層）",
+        ]
+        if capital_exhausted:
+            risk_warnings.append("⚠️ 本次回測中資金已耗盡，策略失敗！")
+        if max_drawdown > 30:
+            risk_warnings.append("⚠️ 最大回撤超過 30%，策略風險極高！")
+        
+        return {
+            "strategy": "martingale",
+            "strategy_name": "馬丁格爾策略",
+            "params": params,
+            "initial_capital": initial_capital,
+            "trades": trades,
+            "metrics": metrics,
+            "risk_warnings": risk_warnings,
+            "equity_curve": equity_curve,
         }
 
 

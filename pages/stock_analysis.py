@@ -1,11 +1,12 @@
 """
-個股分析頁面
+個股分析頁面 + 價格預測卡片
 """
 import gradio as gr
 from components.i18n import t
 from components.chart_viewer import create_candlestick_chart, create_line_chart
 from components.smc_chart import create_smc_chart, create_smc_summary_card
 from services.smc_service import smc_service
+from services.prediction_service import prediction_service
 from typing import Dict, List, Optional
 
 
@@ -284,6 +285,10 @@ def create_stock_analysis_page(
         <h2 class="section-title">📊 {t('stock.riskMetrics', lang)}</h2>
         {risk_html}
         
+        <!-- 價格預測區 -->
+        <h2 class="section-title">🔮 價格預測</h2>
+        {_create_prediction_card(history, symbol, lang)}
+        
         <!-- 基本面 + 資訊 -->
         <div class="two-column">
             <div>
@@ -496,6 +501,165 @@ def _calculate_volatility(history: List[Dict], window: int = 20) -> float:
     annual_vol = std_dev * math.sqrt(252) * 100
     
     return annual_vol
+
+
+def _create_prediction_card(history: List[Dict], symbol: str, lang: str) -> str:
+    """建立價格預測卡片"""
+    import json
+    
+    # 執行預測 (預設 Naive 20 日)
+    pred = prediction_service.predict(history, model="naive", horizon=20)
+    
+    if pred.get("error"):
+        return f'''
+        <div class="chart-section" style="text-align: center; padding: 40px;">
+            <p style="color: var(--text-muted);">預測資料不足: {pred["error"]}</p>
+        </div>
+        '''
+    
+    # 預測線資料
+    forecast_data = []
+    for d, v, u, l in zip(
+        pred["forecast_dates"], pred["forecast_values"],
+        pred["upper_band"], pred["lower_band"]
+    ):
+        forecast_data.append({"date": d, "value": v, "upper": u, "lower": l})
+    
+    forecast_json = json.dumps(forecast_data)
+    metrics = pred.get("metrics", {})
+    chart_id = f"pred_chart_{symbol.replace('.', '_')}"
+    
+    return f'''
+    <div class="chart-section" id="prediction-section">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button class="period-tab active" onclick="changePredModel('naive')">Naive</button>
+                <button class="period-tab" onclick="changePredModel('arima')">ARIMA</button>
+                <button class="period-tab" onclick="changePredModel('prophet')">Prophet</button>
+                <span style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Horizon:</span>
+                <button class="period-tab" onclick="changePredHorizon(5)">5日</button>
+                <button class="period-tab active" onclick="changePredHorizon(20)">20日</button>
+                <button class="period-tab" onclick="changePredHorizon(60)">60日</button>
+            </div>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                <input type="checkbox" id="pred-toggle" checked onchange="togglePrediction()" style="accent-color: var(--accent-primary);" />
+                <span style="font-size: 12px; color: var(--text-muted);">顯示預測</span>
+            </label>
+        </div>
+        
+        <div id="{chart_id}" style="height: 300px; width: 100%;"></div>
+        
+        <!-- 誤差指標 -->
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px;">
+            <div style="text-align: center; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                <div style="font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: monospace;">
+                    {metrics.get('mae', 0):.2f}
+                </div>
+                <div style="font-size: 10px; color: var(--text-muted);">MAE</div>
+            </div>
+            <div style="text-align: center; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                <div style="font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: monospace;">
+                    {metrics.get('rmse', 0):.2f}
+                </div>
+                <div style="font-size: 10px; color: var(--text-muted);">RMSE</div>
+            </div>
+            <div style="text-align: center; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                <div style="font-size: 18px; font-weight: 700; color: var(--text-primary); font-family: monospace;">
+                    {metrics.get('mape', 0):.1f}%
+                </div>
+                <div style="font-size: 10px; color: var(--text-muted);">MAPE</div>
+            </div>
+            <div style="text-align: center; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                <div style="font-size: 14px; font-weight: 600; color: var(--accent-primary);">
+                    {pred.get('reliability', '-')}
+                </div>
+                <div style="font-size: 10px; color: var(--text-muted);">可靠度</div>
+            </div>
+        </div>
+        
+        <!-- 風險提示 -->
+        <div style="margin-top: 12px; padding: 10px 16px; background: rgba(255, 152, 0, 0.08); border: 1px solid rgba(255, 152, 0, 0.2); border-radius: 8px;">
+            <p style="color: #ffb800; font-size: 11px; margin: 0; line-height: 1.5;">
+                {pred.get('disclaimer', '')}
+            </p>
+            <p style="color: var(--text-muted); font-size: 10px; margin: 4px 0 0 0;">
+                訓練區間: {pred.get('training_period', '')} · 資料源: {pred.get('data_source', '')}
+            </p>
+        </div>
+    </div>
+    
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+    (function() {{
+        const container = document.getElementById('{chart_id}');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        const chart = LightweightCharts.createChart(container, {{
+            width: container.clientWidth,
+            height: 300,
+            layout: {{
+                background: {{ type: 'solid', color: 'transparent' }},
+                textColor: '#9ca3af',
+            }},
+            grid: {{
+                vertLines: {{ color: 'rgba(55, 65, 81, 0.2)' }},
+                horzLines: {{ color: 'rgba(55, 65, 81, 0.2)' }},
+            }},
+            rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.5)' }},
+            timeScale: {{ borderColor: 'rgba(55, 65, 81, 0.5)' }},
+        }});
+        
+        // 預測線
+        const forecastData = {forecast_json};
+        const predSeries = chart.addLineSeries({{
+            color: '#bc13fe',
+            lineWidth: 2,
+            lineStyle: 2,
+            title: '預測',
+        }});
+        predSeries.setData(forecastData.map(d => ({{ time: d.date, value: d.value }})));
+        
+        // 上界
+        const upperSeries = chart.addLineSeries({{
+            color: 'rgba(188, 19, 254, 0.3)',
+            lineWidth: 1,
+            lineStyle: 1,
+        }});
+        upperSeries.setData(forecastData.map(d => ({{ time: d.date, value: d.upper }})));
+        
+        // 下界
+        const lowerSeries = chart.addLineSeries({{
+            color: 'rgba(188, 19, 254, 0.3)',
+            lineWidth: 1,
+            lineStyle: 1,
+        }});
+        lowerSeries.setData(forecastData.map(d => ({{ time: d.date, value: d.lower }})));
+        
+        chart.timeScale().fitContent();
+        
+        new ResizeObserver(entries => {{
+            if (entries.length === 0) return;
+            chart.applyOptions({{ width: entries[0].contentRect.width }});
+        }}).observe(container);
+        
+        // Toggle
+        window.togglePrediction = function() {{
+            const visible = document.getElementById('pred-toggle')?.checked;
+            const section = document.getElementById('prediction-section');
+            const chartDiv = document.getElementById('{chart_id}');
+            if (chartDiv) chartDiv.style.display = visible ? 'block' : 'none';
+        }};
+        
+        window.changePredModel = function(model) {{
+            console.log('[Prediction] Model:', model);
+        }};
+        window.changePredHorizon = function(h) {{
+            console.log('[Prediction] Horizon:', h);
+        }};
+    }})();
+    </script>
+    '''
 
 
 def _get_mock_stock_data(symbol: str) -> Dict:

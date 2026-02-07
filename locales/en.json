@@ -1,18 +1,19 @@
 {
     "app": {
         "name": "DiscoverLatest",
-        "tagline": "AI-Powered Investment Analysis Platform"
+        "tagline": "AI Smart Investment Analytics"
     },
     "nav": {
         "market": "Market Overview",
         "stock": "Stock Analysis",
-        "industry": "Industry Map",
+        "backtest": "Backtesting",
+        "industry": "Industry + Beta",
         "watchlist": "Watchlist",
         "portfolio": "Portfolio",
         "admin": "Admin Console"
     },
     "common": {
-        "search": "Search stock symbol...",
+        "search": "Search symbol...",
         "loading": "Loading...",
         "login": "Login",
         "logout": "Logout",
@@ -20,7 +21,7 @@
         "save": "Save",
         "cancel": "Cancel",
         "confirm": "Confirm",
-        "error": "An error occurred",
+        "error": "Error",
         "success": "Success"
     },
     "tier": {
@@ -43,16 +44,17 @@
         "changePercent": "Change %"
     },
     "stock": {
-        "title": "AI Stock Analysis",
-        "enterSymbol": "Enter stock symbol",
+        "title": "AI Stock Diagnosis",
+        "enterSymbol": "Enter symbol",
         "analyze": "Analyze",
         "fundamental": "Fundamental Analysis",
         "fundamentals": "Fundamentals",
         "technical": "Technical Analysis",
         "risk": "Risk Metrics",
         "riskMetrics": "Risk Metrics",
-        "backtest": "Backtest Results",
+        "backtest": "Backtest Result",
         "smcIct": "SMC/ICT Signals",
+        "prediction": "Price Prediction",
         "info": "Stock Info",
         "industry": "Industry",
         "marketCap": "Market Cap",
@@ -64,25 +66,57 @@
         "eps": "EPS",
         "dividend": "Dividend Yield",
         "beta": "Beta",
-        "betaDesc": "Sensitivity to market movements",
+        "betaDesc": "Sensitivity to market",
         "maxDrawdown": "Max Drawdown",
-        "maxDrawdownDesc": "Largest historical decline",
-        "volatility": "Annual Volatility",
-        "volatilityDesc": "Annualized standard deviation",
+        "maxDrawdownDesc": "Historical max decline",
+        "volatility": "Annualized Volatility",
+        "volatilityDesc": "Price std dev (annualized)",
         "sharpe": "Sharpe Ratio",
         "sharpeDesc": "Risk-adjusted return",
-        "searchGuide": "Enter a stock symbol to begin analysis",
-        "searchHint": "Type a stock symbol or name in the search box above, e.g. 'AAPL' or 'Apple'"
+        "searchGuide": "Enter a stock symbol to start",
+        "searchHint": "Enter a ticker or company name, e.g. 'AAPL' or 'Apple'"
+    },
+    "backtest": {
+        "title": "Backtesting",
+        "maCross": "MA Cross",
+        "breakout": "Breakout",
+        "momentum": "Momentum",
+        "rsi": "RSI",
+        "martingale": "Martingale",
+        "riskWarning": "Martingale has extreme risk and may exhaust capital",
+        "runBacktest": "Run Backtest"
+    },
+    "prediction": {
+        "title": "Price Prediction",
+        "naive": "Naive (Flat/Drift)",
+        "arima": "ARIMA",
+        "prophet": "Prophet",
+        "disclaimer": "Predictions are statistical estimates, not investment advice.",
+        "reliability": "Reliability",
+        "horizon": "Forecast Horizon"
     },
     "portfolio": {
         "title": "Portfolio",
         "holdings": "Holdings",
         "healthScore": "Health Score",
-        "rebalance": "Rebalance Suggestions",
+        "rebalance": "Rebalance Suggestion",
         "addPosition": "Add Position"
+    },
+    "industry": {
+        "title": "Industry + Beta",
+        "nodeCount": "Node Count",
+        "avgBeta": "Avg Beta"
+    },
+    "admin": {
+        "title": "Admin Console",
+        "userSearch": "User Search",
+        "tierManage": "Tier Management",
+        "keyRegistry": "Key Registry",
+        "keyPool": "Gemini Key Pool",
+        "logs": "Action Logs"
     },
     "disclaimer": {
         "title": "Disclaimer",
-        "content": "Information provided on this platform is for reference only and does not constitute investment advice. Investing involves risks, please evaluate carefully."
+        "content": "Information on this platform is for reference only and does not constitute investment advice."
     }
 }

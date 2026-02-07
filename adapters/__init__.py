@@ -7,6 +7,7 @@ from .tpex_adapter import TPEXAdapter, tpex_adapter
 from .yahoo_adapter import YahooAdapter, yahoo_adapter
 from .stooq_adapter import StooqAdapter, stooq_adapter
 from .fx_adapter import FXAdapter, fx_adapter
+from .finmind_adapter import FinMindAdapter, finmind_adapter
 
 __all__ = [
     # Supabase
@@ -27,4 +28,7 @@ __all__ = [
     # FX
     "FXAdapter",
     "fx_adapter",
+    # FinMind
+    "FinMindAdapter",
+    "finmind_adapter",
 ]

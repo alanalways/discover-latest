@@ -6,7 +6,8 @@
     "nav": {
         "market": "市場總覽",
         "stock": "個股分析",
-        "industry": "產業圖譜",
+        "backtest": "策略回測",
+        "industry": "產業 + Beta",
         "watchlist": "我的自選",
         "portfolio": "投資組合",
         "admin": "後台管理"
@@ -53,6 +54,7 @@
         "riskMetrics": "風險指標",
         "backtest": "回測結果",
         "smcIct": "SMC/ICT 訊號",
+        "prediction": "價格預測",
         "info": "個股資訊",
         "industry": "產業",
         "marketCap": "市值",
@@ -74,12 +76,44 @@
         "searchGuide": "請輸入股票代號開始分析",
         "searchHint": "在上方搜尋框輸入股票代號或名稱，例如「2330」或「台積電」"
     },
+    "backtest": {
+        "title": "策略回測",
+        "maCross": "均線交叉",
+        "breakout": "突破策略",
+        "momentum": "動能策略",
+        "rsi": "RSI 策略",
+        "martingale": "馬丁格爾",
+        "riskWarning": "馬丁格爾策略風險極高，可能導致資金耗盡",
+        "runBacktest": "執行回測"
+    },
+    "prediction": {
+        "title": "價格預測",
+        "naive": "Naive (持平/漂移)",
+        "arima": "ARIMA",
+        "prophet": "Prophet",
+        "disclaimer": "價格預測為統計推估，非投資建議，過去不代表未來。",
+        "reliability": "預測可靠度",
+        "horizon": "預測天數"
+    },
     "portfolio": {
         "title": "投資組合",
         "holdings": "持股明細",
         "healthScore": "投組健康度",
         "rebalance": "再平衡建議",
         "addPosition": "新增持股"
+    },
+    "industry": {
+        "title": "產業 + Beta",
+        "nodeCount": "節點數",
+        "avgBeta": "平均 Beta"
+    },
+    "admin": {
+        "title": "Admin Console",
+        "userSearch": "用戶查詢",
+        "tierManage": "方案管理",
+        "keyRegistry": "Key Registry",
+        "keyPool": "Gemini Key Pool",
+        "logs": "操作紀錄"
     },
     "disclaimer": {
         "title": "風險提示",
