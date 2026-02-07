@@ -1,7 +1,9 @@
 """
 Industry + Beta 頁面
-產業分布圖（節點）+ Beta 值顯示
+產業分布圖（泡泡）+ Beta 值顯示
+（不在頁面載入時呼叫 yfinance，使用預設值）
 """
+import json
 import gradio as gr
 from typing import Dict, List, Optional
 from components.i18n import t
@@ -11,17 +13,15 @@ def create_industry_beta_page(
     lang: str = "zh-TW",
 ) -> str:
     """建立產業 + Beta 頁面"""
-    
-    # 產業資料（使用本地定義 + 嘗試更新 beta）
-    industries = _get_mock_industry_data()
-    _try_update_betas(industries)
-    
+
+    industries = _get_industry_data()
+
     # 產業卡片
     industry_cards = ""
     for ind in industries:
         stocks_html = ""
         for s in ind.get("stocks", [])[:5]:
-            beta_color = "#00ff9d" if s.get("beta", 1) < 1 else "#ff0055" if s.get("beta", 1) > 1.5 else "#ffb800"
+            beta_color = "#22c55e" if s.get("beta", 1) < 1 else "#ef4444" if s.get("beta", 1) > 1.5 else "#f59e0b"
             stocks_html += f'''
             <div class="ind-stock" onclick="selectStock('{s['symbol']}')">
                 <span class="ind-stock-sym">{s['symbol']}</span>
@@ -29,7 +29,7 @@ def create_industry_beta_page(
                 <span class="ind-stock-beta" style="color: {beta_color};">β {s.get('beta', 1):.2f}</span>
             </div>
             '''
-        
+
         industry_cards += f'''
         <div class="industry-card">
             <div class="industry-header">
@@ -46,31 +46,19 @@ def create_industry_beta_page(
             <div class="industry-stocks">{stocks_html}</div>
         </div>
         '''
-    
-    # 節點圖資料
-    nodes_json = _generate_nodes_json(industries)
-    
+
     return f'''
     <style>
-        .industry-page {{ padding: 24px; }}
-        .industry-controls {{
-            display: flex; gap: 12px; margin-bottom: 24px; align-items: center;
-        }}
-        .node-count-btn {{
-            padding: 8px 16px; border: 1px solid var(--border-glass); border-radius: 8px;
-            background: var(--bg-surface); color: var(--text-2); font-size: 13px; cursor: pointer;
-            transition: all 0.2s;
-        }}
-        .node-count-btn.active {{ background: var(--primary); color: #000; border-color: var(--primary); }}
+        .industry-page {{ padding: 0; }}
         .industry-grid {{
             display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 20px; margin-bottom: 32px;
         }}
         .industry-card {{
-            background: var(--bg-surface); border: var(--border-glass);
+            background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 12px; padding: 20px; transition: all 0.3s;
         }}
-        .industry-card:hover {{ border-color: var(--primary); transform: translateY(-2px); }}
+        .industry-card:hover {{ border-color: rgba(0,212,255,0.3); transform: translateY(-2px); }}
         .industry-header {{
             display: flex; align-items: center; gap: 10px; margin-bottom: 12px;
         }}
@@ -89,7 +77,7 @@ def create_industry_beta_page(
             display: flex; align-items: center; gap: 8px; padding: 8px 10px;
             border-radius: 6px; cursor: pointer; transition: all 0.2s;
         }}
-        .ind-stock:hover {{ background: rgba(0,242,255,0.05); }}
+        .ind-stock:hover {{ background: rgba(0,212,255,0.05); }}
         .ind-stock-sym {{
             font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--primary);
             min-width: 50px;
@@ -99,83 +87,44 @@ def create_industry_beta_page(
             font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
         }}
         .bubble-chart {{
-            background: var(--bg-surface); border: var(--border-glass);
+            background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 16px; padding: 24px; margin-bottom: 32px;
-            min-height: 400px; position: relative;
+            min-height: 400px; position: relative; overflow: hidden;
         }}
         .bubble {{
             position: absolute; border-radius: 50%; display: flex; align-items: center;
             justify-content: center; flex-direction: column; cursor: pointer;
             transition: all 0.3s; border: 1px solid rgba(255,255,255,0.1);
         }}
-        .bubble:hover {{ transform: scale(1.1); z-index: 10; }}
-        .bubble-label {{ font-size: 10px; color: var(--text-1); font-weight: 600; text-align: center; }}
-        .bubble-beta {{ font-family: 'JetBrains Mono', monospace; font-size: 9px; }}
+        .bubble:hover {{ transform: translate(-50%, -50%) scale(1.1); z-index: 10; }}
+        .bubble-label {{ font-size: 11px; color: var(--text-1); font-weight: 600; text-align: center; }}
+        .bubble-beta {{ font-family: 'JetBrains Mono', monospace; font-size: 10px; }}
     </style>
-    
+
     <div class="industry-page">
         <h1 style="font-family: 'Outfit', sans-serif; font-size: 28px; margin: 0 0 8px 0; color: var(--text-1);">
             產業分布 + Beta
         </h1>
         <p style="color: var(--text-3); margin-bottom: 24px;">產業板塊分析與系統性風險（Beta）概覽</p>
-        
-        <!-- 節點數切換 -->
-        <div class="industry-controls">
-            <span style="color: var(--text-3); font-size: 13px;">節點數：</span>
-            <button class="node-count-btn active" onclick="setNodeCount(60)">60</button>
-            <button class="node-count-btn" onclick="setNodeCount(90)">90</button>
-            <button class="node-count-btn" onclick="setNodeCount(120)">120</button>
-        </div>
-        
+
         <!-- 泡泡圖 -->
         <div class="bubble-chart" id="industry-bubble-chart">
             {_generate_bubble_html(industries)}
         </div>
-        
+
         <!-- 產業卡片 -->
-        <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px;">📂 產業明細</h2>
+        <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+            <span>📂</span> 產業明細
+        </h2>
         <div class="industry-grid">
             {industry_cards}
         </div>
     </div>
-    
-    <script>
-    (function() {{
-        window.setNodeCount = function(count) {{
-            document.querySelectorAll('.node-count-btn').forEach(b => b.classList.remove('active'));
-            event.target.classList.add('active');
-            console.log('[Industry] Node count:', count);
-            // 觸發重新渲染
-        }};
-    }})();
-    </script>
     '''
 
 
-def _try_update_betas(industries: List[Dict]):
-    """嘗試用 yfinance 更新 Beta 值"""
-    try:
-        import yfinance as yf
-        for ind in industries:
-            for s in ind.get("stocks", []):
-                try:
-                    sym = s["symbol"]
-                    yf_sym = f"{sym}.TW" if sym.isdigit() else sym
-                    info = yf.Ticker(yf_sym).info
-                    if info and info.get("beta"):
-                        s["beta"] = round(float(info["beta"]), 2)
-                except Exception:
-                    pass
-            # Update avg beta
-            betas = [s.get("beta", 1.0) for s in ind.get("stocks", [])]
-            if betas:
-                ind["avg_beta"] = round(sum(betas) / len(betas), 2)
-    except ImportError:
-        pass
-
-
-def _get_mock_industry_data() -> List[Dict]:
-    """模擬產業資料"""
+def _get_industry_data() -> List[Dict]:
+    """產業資料（含合理的 Beta 預設值）"""
     return [
         {
             "name": "半導體", "icon": "💾", "count": 45, "avg_beta": 1.32,
@@ -237,42 +186,27 @@ def _get_mock_industry_data() -> List[Dict]:
 def _generate_bubble_html(industries: List[Dict]) -> str:
     """產生泡泡圖 HTML"""
     bubbles = ""
-    colors = ["#00f2ff", "#bc13fe", "#2979ff", "#00ff9d", "#ff0055", "#ffb800"]
-    
+    colors = ["#00d4ff", "#a855f7", "#2979ff", "#22c55e", "#ef4444", "#f59e0b"]
+
     positions = [
-        (15, 30), (45, 20), (70, 35), (25, 65), (55, 60), (80, 55),
+        (18, 28), (48, 22), (75, 32), (22, 65), (55, 62), (80, 58),
     ]
-    
+
     for i, ind in enumerate(industries[:6]):
-        size = max(60, min(120, ind.get("count", 0) * 2))
+        size = max(70, min(130, ind.get("count", 0) * 2 + 20))
         x, y = positions[i] if i < len(positions) else (50, 50)
         color = colors[i % len(colors)]
-        
+
         bubbles += f'''
         <div class="bubble" style="
             left: {x}%; top: {y}%;
             width: {size}px; height: {size}px;
-            background: {color}20;
+            background: {color}15;
             transform: translate(-50%, -50%);
         ">
             <span class="bubble-label">{ind['name']}</span>
             <span class="bubble-beta" style="color: {color};">β {ind.get('avg_beta', 1):.2f}</span>
         </div>
         '''
-    
+
     return bubbles
-
-
-def _generate_nodes_json(industries: List[Dict]) -> str:
-    """產生節點圖 JSON"""
-    import json
-    nodes = []
-    for ind in industries:
-        for s in ind.get("stocks", []):
-            nodes.append({
-                "symbol": s["symbol"],
-                "name": s["name"],
-                "industry": ind["name"],
-                "beta": s.get("beta", 1.0),
-            })
-    return json.dumps(nodes)

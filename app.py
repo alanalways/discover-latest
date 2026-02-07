@@ -33,10 +33,10 @@ _current_lang = DEFAULT_LANG
 
 
 def validate_models_on_startup():
+    """Non-blocking model validation — never hangs startup."""
     global _model_validation
     errors = []
     try:
-        import google.generativeai as genai
         api_key = os.environ.get("GEMINI_API_KEY", "")
         if not api_key:
             try:
@@ -47,22 +47,18 @@ def validate_models_on_startup():
             except Exception:
                 pass
         if api_key:
-            genai.configure(api_key=api_key)
-            available = [m.name for m in genai.list_models()]
-            for required in [MODEL_GROUNDING, MODEL_FINAL]:
-                if f"models/{required}" not in available:
-                    errors.append(f"模型不可用: {required}")
+            # Skip genai.list_models() — it can hang/timeout on HF Space.
+            # Models are validated lazily on first use.
+            print(f"[Models] API key found, models will be validated on first use")
         else:
             errors.append("未設定 Gemini API Key，AI 功能將停用")
-    except ImportError:
-        errors.append("google-generativeai 未安裝")
     except Exception as e:
-        errors.append(f"模型驗證失敗: {type(e).__name__}")
+        errors.append(f"模型驗證: {type(e).__name__}")
     _model_validation = {"valid": len(errors) == 0, "errors": errors}
     if errors:
         print(f"[Models] ⚠️ {errors}")
     else:
-        print("[Models] ✅ OK")
+        print("[Models] ✅ Ready")
     return _model_validation
 
 

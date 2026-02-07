@@ -1,6 +1,7 @@
 """
 Portfolio 頁面 - 投組管理
 TWD 換算、市值/佔比、健康度、再平衡
+（不在頁面載入時呼叫 yfinance，使用快取或預設值）
 """
 import gradio as gr
 from typing import Dict, List, Optional
@@ -10,45 +11,29 @@ from components.i18n import t
 def create_portfolio_page(
     user_data: Dict = None,
     holdings: List[Dict] = None,
-    fx_rate: float = 32.0,
+    fx_rate: float = 32.45,
     lang: str = "zh-TW",
 ) -> str:
     """建立投組管理頁面"""
-    
-    if not user_data:
-        # Show demo portfolio for non-logged-in users
-        pass
-    
-    if not holdings:
-        holdings = _get_mock_holdings()
-        # Try to update with real prices
-        holdings = _update_holdings_prices(holdings)
 
-    # Try to get real FX rate
-    try:
-        import yfinance as yf
-        fx_ticker = yf.Ticker("USDTWD=X")
-        fx_hist = fx_ticker.history(period="2d")
-        if fx_hist is not None and not fx_hist.empty:
-            fx_rate = float(fx_hist["Close"].iloc[-1])
-    except Exception:
-        pass
-    
+    if not holdings:
+        holdings = _get_demo_holdings()
+
     # 計算投組統計
     stats = _calculate_portfolio_stats(holdings, fx_rate)
-    
+
     # 持股卡片
     holdings_html = ""
     for h in holdings:
         pnl_class = "up" if h.get("pnl_pct", 0) >= 0 else "down"
         pnl_sign = "+" if h.get("pnl_pct", 0) >= 0 else ""
-        
+
         market_value_twd = h.get("market_value", 0)
         if h.get("currency") == "USD":
             market_value_twd = h.get("market_value", 0) * fx_rate
-        
+
         weight = market_value_twd / stats["total_value_twd"] * 100 if stats["total_value_twd"] > 0 else 0
-        
+
         holdings_html += f'''
         <tr onclick="selectStock('{h.get('symbol', '')}')">
             <td>
@@ -63,13 +48,13 @@ def create_portfolio_page(
             <td class="mono-font">{weight:.1f}%</td>
         </tr>
         '''
-    
+
     # 健康度分析
     health = _analyze_health(holdings, stats)
-    
+
     return f'''
     <style>
-        .portfolio-page {{ padding: 24px; }}
+        .portfolio-page {{ padding: 0; }}
         .portfolio-header {{
             display: flex; justify-content: space-between; align-items: flex-start;
             margin-bottom: 32px; flex-wrap: wrap; gap: 16px;
@@ -79,45 +64,47 @@ def create_portfolio_page(
             gap: 16px; margin-bottom: 32px;
         }}
         .stat-card {{
-            background: var(--bg-surface); border: var(--border-glass);
+            background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 12px; padding: 20px; text-align: center;
+            transition: all 0.2s;
         }}
-        .stat-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; }}
+        .stat-card:hover {{ border-color: rgba(0,212,255,0.3); }}
+        .stat-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }}
         .stat-value {{ font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: var(--text-1); }}
         .stat-sub {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
         .holdings-table {{
-            width: 100%; border-collapse: collapse; background: var(--bg-surface);
-            border: var(--border-glass); border-radius: 12px; overflow: hidden;
+            width: 100%; border-collapse: collapse; background: var(--bg-card);
+            border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
         }}
         .holdings-table th {{
             text-align: left; padding: 14px 16px; color: var(--text-3);
             font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
-            border-bottom: var(--border-glass); background: rgba(0,0,0,0.2);
+            border-bottom: 1px solid var(--border); background: rgba(0,0,0,0.2);
         }}
         .holdings-table td {{
-            padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);
             color: var(--text-2); font-size: 13px;
         }}
-        .holdings-table tr:hover {{ background: rgba(0,242,255,0.03); cursor: pointer; }}
+        .holdings-table tr:hover {{ background: rgba(0,212,255,0.03); cursor: pointer; }}
         .up {{ color: var(--success) !important; }}
         .down {{ color: var(--danger) !important; }}
         .health-card {{
-            background: var(--bg-surface); border: var(--border-glass);
+            background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 12px; padding: 24px; margin-top: 24px;
         }}
         .health-item {{
             display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
         }}
         .health-score {{
             font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 700;
         }}
         .rebalance-card {{
-            background: var(--bg-surface); border: var(--border-glass);
+            background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 12px; padding: 24px; margin-top: 24px;
         }}
     </style>
-    
+
     <div class="portfolio-page">
         <div class="portfolio-header">
             <div>
@@ -125,7 +112,7 @@ def create_portfolio_page(
                 <span style="color: var(--text-3); font-size: 14px;">USD/TWD: {fx_rate:.2f}</span>
             </div>
         </div>
-        
+
         <!-- 統計 -->
         <div class="portfolio-stats">
             <div class="stat-card">
@@ -149,9 +136,11 @@ def create_portfolio_page(
                 <div class="stat-sub">{health['label']}</div>
             </div>
         </div>
-        
+
         <!-- 持股明細 -->
-        <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px;">📊 持股明細</h2>
+        <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+            <span>📊</span> 持股明細
+        </h2>
         <table class="holdings-table">
             <thead>
                 <tr>
@@ -161,10 +150,12 @@ def create_portfolio_page(
             </thead>
             <tbody>{holdings_html}</tbody>
         </table>
-        
+
         <!-- 健康度 -->
         <div class="health-card">
-            <h3 style="margin: 0 0 16px 0; color: var(--text-1);">🩺 投組健康度分析</h3>
+            <h3 style="margin: 0 0 16px 0; color: var(--text-1); display: flex; align-items: center; gap: 8px;">
+                <span>🩺</span> 投組健康度分析
+            </h3>
             {''.join(f"""
             <div class="health-item">
                 <span style="color: var(--text-2);">{item['label']}</span>
@@ -172,10 +163,12 @@ def create_portfolio_page(
             </div>
             """ for item in health['items'])}
         </div>
-        
+
         <!-- 再平衡建議 -->
         <div class="rebalance-card">
-            <h3 style="margin: 0 0 16px 0; color: var(--text-1);">⚖️ 再平衡建議</h3>
+            <h3 style="margin: 0 0 16px 0; color: var(--text-1); display: flex; align-items: center; gap: 8px;">
+                <span>⚖️</span> 再平衡建議
+            </h3>
             <p style="color: var(--text-3); font-size: 13px; line-height: 1.8;">
                 {_generate_rebalance_advice(holdings, stats)}
             </p>
@@ -184,52 +177,14 @@ def create_portfolio_page(
     '''
 
 
-def _login_required(lang: str) -> str:
-    return '''
-    <div style="text-align: center; padding: 120px 24px;">
-        <div style="font-size: 72px; margin-bottom: 24px;">🔐</div>
-        <h2 style="font-size: 24px; color: var(--text-1); margin-bottom: 12px;">
-            請先登入
-        </h2>
-        <p style="color: var(--text-3);">投組管理需要登入才能使用</p>
-    </div>
-    '''
-
-
-def _update_holdings_prices(holdings: List[Dict]) -> List[Dict]:
-    """使用 yfinance 更新持股現價"""
-    try:
-        import yfinance as yf
-        for h in holdings:
-            sym = h.get("symbol", "")
-            if not sym:
-                continue
-            try:
-                yf_sym = f"{sym}.TW" if sym.isdigit() else sym
-                ticker = yf.Ticker(yf_sym)
-                hist = ticker.history(period="2d")
-                if hist is not None and not hist.empty:
-                    price = float(hist["Close"].iloc[-1])
-                    h["current_price"] = price
-                    h["market_value"] = price * h.get("shares", 0)
-                    cost = h.get("avg_cost", 0)
-                    if cost > 0:
-                        h["pnl_pct"] = (price - cost) / cost * 100
-            except Exception:
-                pass
-    except ImportError:
-        pass
-    return holdings
-
-
-def _get_mock_holdings() -> List[Dict]:
-    """模擬持股"""
+def _get_demo_holdings() -> List[Dict]:
+    """示範投組（使用合理的預設價格）"""
     return [
-        {"symbol": "2330", "name": "台積電", "shares": 1000, "avg_cost": 580, "current_price": 620, "market_value": 620000, "pnl_pct": 6.9, "currency": "TWD"},
-        {"symbol": "0050", "name": "元大台灣50", "shares": 3000, "avg_cost": 168, "current_price": 178, "market_value": 534000, "pnl_pct": 5.95, "currency": "TWD"},
-        {"symbol": "AAPL", "name": "蘋果", "shares": 50, "avg_cost": 175, "current_price": 192, "market_value": 9600, "pnl_pct": 9.71, "currency": "USD"},
-        {"symbol": "NVDA", "name": "輝達", "shares": 30, "avg_cost": 480, "current_price": 520, "market_value": 15600, "pnl_pct": 8.33, "currency": "USD"},
-        {"symbol": "00878", "name": "國泰永續高股息", "shares": 5000, "avg_cost": 22.5, "current_price": 23.2, "market_value": 116000, "pnl_pct": 3.11, "currency": "TWD"},
+        {"symbol": "2330", "name": "台積電", "shares": 1000, "avg_cost": 580.00, "current_price": 1070.00, "market_value": 1070000, "pnl_pct": 84.48, "currency": "TWD"},
+        {"symbol": "0050", "name": "元大台灣50", "shares": 3000, "avg_cost": 145.00, "current_price": 185.40, "market_value": 556200, "pnl_pct": 27.86, "currency": "TWD"},
+        {"symbol": "AAPL", "name": "Apple", "shares": 50, "avg_cost": 175.00, "current_price": 227.63, "market_value": 11381.50, "pnl_pct": 30.07, "currency": "USD"},
+        {"symbol": "NVDA", "name": "NVIDIA", "shares": 30, "avg_cost": 480.00, "current_price": 128.88, "market_value": 3866.40, "pnl_pct": -73.15, "currency": "USD"},
+        {"symbol": "00878", "name": "國泰永續高股息", "shares": 5000, "avg_cost": 20.50, "current_price": 23.55, "market_value": 117750, "pnl_pct": 14.88, "currency": "TWD"},
     ]
 
 
@@ -237,21 +192,21 @@ def _calculate_portfolio_stats(holdings: List[Dict], fx_rate: float) -> Dict:
     """計算投組統計"""
     total_value_twd = 0
     total_cost_twd = 0
-    
+
     for h in holdings:
         mv = h.get("market_value", 0)
         cost = h.get("shares", 0) * h.get("avg_cost", 0)
-        
+
         if h.get("currency") == "USD":
             mv *= fx_rate
             cost *= fx_rate
-        
+
         total_value_twd += mv
         total_cost_twd += cost
-    
+
     total_pnl = total_value_twd - total_cost_twd
     total_pnl_pct = (total_pnl / total_cost_twd * 100) if total_cost_twd > 0 else 0
-    
+
     return {
         "total_value_twd": total_value_twd,
         "total_cost_twd": total_cost_twd,
@@ -264,10 +219,10 @@ def _analyze_health(holdings: List[Dict], stats: Dict) -> Dict:
     """分析投組健康度"""
     items = []
     score = 100
-    
+
     # 集中度
-    if holdings:
-        max_weight = max(h.get("market_value", 0) for h in holdings) / stats["total_value_twd"] * 100 if stats["total_value_twd"] > 0 else 0
+    if holdings and stats["total_value_twd"] > 0:
+        max_weight = max(h.get("market_value", 0) for h in holdings) / stats["total_value_twd"] * 100
         if max_weight > 40:
             items.append({"label": "集中度風險", "value": f"最大持股佔 {max_weight:.0f}%", "color": "var(--danger)"})
             score -= 20
@@ -276,7 +231,7 @@ def _analyze_health(holdings: List[Dict], stats: Dict) -> Dict:
             score -= 10
         else:
             items.append({"label": "集中度", "value": f"最大持股佔 {max_weight:.0f}%", "color": "var(--success)"})
-    
+
     # 分散性
     n = len(holdings)
     if n < 3:
@@ -287,7 +242,7 @@ def _analyze_health(holdings: List[Dict], stats: Dict) -> Dict:
         score -= 5
     else:
         items.append({"label": "分散性", "value": f"{n} 檔持股，良好", "color": "var(--success)"})
-    
+
     # 跨市場
     markets = set()
     for h in holdings:
@@ -300,9 +255,9 @@ def _analyze_health(holdings: List[Dict], stats: Dict) -> Dict:
     else:
         items.append({"label": "跨市場", "value": "僅單一市場", "color": "var(--warning)"})
         score -= 5
-    
+
     score = max(0, min(100, score))
-    
+
     if score >= 80:
         color = "var(--success)"
         label = "健康"
@@ -312,7 +267,7 @@ def _analyze_health(holdings: List[Dict], stats: Dict) -> Dict:
     else:
         color = "var(--danger)"
         label = "需調整"
-    
+
     return {"score": score, "color": color, "label": label, "items": items}
 
 
@@ -320,20 +275,21 @@ def _generate_rebalance_advice(holdings: List[Dict], stats: Dict) -> str:
     """產生再平衡建議"""
     if not holdings:
         return "尚無持股資料"
-    
+
     lines = []
-    
-    # 檢查集中度
+
     for h in holdings:
         mv = h.get("market_value", 0)
+        if h.get("currency") == "USD":
+            mv *= 32.45
         weight = mv / stats["total_value_twd"] * 100 if stats["total_value_twd"] > 0 else 0
         if weight > 35:
             lines.append(f"• {h['symbol']} ({h['name']}) 佔比 {weight:.0f}%，考慮減碼至 25% 以下。")
-    
+
     if not lines:
         lines.append("• 當前投組佔比分配合理，暫無需調整。")
-    
+
     lines.append("• 建議每季檢視一次投組佔比，維持目標配置。")
     lines.append("• 可考慮加入債券 ETF（如 00679B）降低波動度。")
-    
+
     return "<br>".join(lines)
