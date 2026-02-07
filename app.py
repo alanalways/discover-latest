@@ -625,7 +625,7 @@ def create_app():
         nav_state.change(fn=handle_nav, inputs=[nav_state], outputs=[page_output], api_name="navigate")
         symbol_state.change(fn=handle_symbol, inputs=[symbol_state], outputs=[page_output])
         action_state.change(fn=handle_action, inputs=[action_state], outputs=[page_output])
-        auth_state.change(fn=handle_auth, inputs=[auth_state], outputs=[page_output])
+        auth_state.change(fn=lambda v: handle_auth(v), inputs=[auth_state], outputs=[page_output])
         lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
         def _safe_initial_load(*_args):
             """Initial page load — show login if not authenticated, else market page."""
@@ -651,38 +651,51 @@ def create_app():
 
             // ── OAuth callback 檢查（立即執行）──
             (function checkOAuthCallback() {
+                const searchParams = new URLSearchParams(window.location.search);
+                const hashParams = new URLSearchParams(window.location.hash.substring(1));
+
+                // 檢查 Supabase 回傳的錯誤
+                const error = searchParams.get('error') || hashParams.get('error');
+                if (error) {
+                    const desc = searchParams.get('error_description') || hashParams.get('error_description') || '';
+                    console.error('[Auth] Supabase OAuth error:', error, desc);
+                    try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
+                    // 顯示錯誤訊息
+                    setTimeout(function() {
+                        const card = document.querySelector('.login-card');
+                        if (card) {
+                            const errDiv = document.createElement('p');
+                            errDiv.style.cssText = 'color:#ef4444;font-size:12px;margin-top:12px;';
+                            errDiv.textContent = '登入失敗: ' + decodeURIComponent(desc).replace(/\\+/g, ' ');
+                            card.appendChild(errDiv);
+                        }
+                    }, 1000);
+                    return;
+                }
+
                 let credential = null;
 
-                // 1. 檢查 hash fragment（Supabase implicit flow: #access_token=...）
-                const hash = window.location.hash;
-                if (hash && hash.includes('access_token=')) {
-                    const params = new URLSearchParams(hash.substring(1));
-                    credential = params.get('access_token');
-                    if (credential) console.log('[Auth] Found access_token in hash');
+                // 1. #access_token=...（implicit flow）
+                if (hashParams.get('access_token')) {
+                    credential = hashParams.get('access_token');
+                    console.log('[Auth] Found access_token in hash');
                 }
 
-                // 2. 檢查 query parameter: ?code=... （Supabase PKCE flow）
-                if (!credential) {
-                    const searchParams = new URLSearchParams(window.location.search);
-                    const code = searchParams.get('code');
-                    if (code) {
-                        credential = code;
-                        console.log('[Auth] Found PKCE code in query params');
-                    }
+                // 2. ?code=...（PKCE flow）
+                if (!credential && searchParams.get('code')) {
+                    credential = searchParams.get('code');
+                    console.log('[Auth] Found PKCE code in query params');
                 }
 
-                // 3. Fallback: ?access_token=...
-                if (!credential) {
-                    const searchParams = new URLSearchParams(window.location.search);
+                // 3. ?access_token=...
+                if (!credential && searchParams.get('access_token')) {
                     credential = searchParams.get('access_token');
-                    if (credential) console.log('[Auth] Found access_token in query params');
+                    console.log('[Auth] Found access_token in query params');
                 }
 
                 if (credential) {
                     console.log('[Auth] Credential found (len=' + credential.length + '), sending to backend...');
-                    // 清除 URL 避免重複觸發
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
-                    // 等待 Gradio textarea 就緒後送出
                     let attempts = 0;
                     function sendCredential() {
                         const as_ = document.querySelector('#auth-state textarea');
