@@ -277,6 +277,8 @@ def create_app():
     validate_models_on_startup()
 
     # Compute login URL for injection into HTML head
+    # 重要：redirect_to 必須指向 Gradio 的直接 URL（非 HF Space 頂層頁面）
+    # 這樣 Supabase 會把 #access_token 附在 Gradio URL 上，JS 可以直接讀取
     _supabase_url = os.environ.get("SUPABASE_URL", "")
     _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
@@ -290,22 +292,7 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
-        <script>
-            window._supabaseLoginUrl="{_login_url}";
-            // 頂層頁面攔截 OAuth hash token → 存入 localStorage 供 Gradio iframe 讀取
-            (function() {{
-                var h = window.location.hash;
-                if (h && h.indexOf('access_token=') !== -1) {{
-                    var p = new URLSearchParams(h.substring(1));
-                    var t = p.get('access_token');
-                    if (t) {{
-                        try {{ localStorage.setItem('dl_oauth_token', t); }} catch(e) {{}}
-                        // 清除 hash 避免重複
-                        history.replaceState(null, '', window.location.pathname);
-                    }}
-                }}
-            }})();
-        </script>
+        <script>window._supabaseLoginUrl="{_login_url}";</script>
         ''',
     ) as app:
 
@@ -650,22 +637,14 @@ def create_app():
             (function checkOAuthCallback() {
                 let token = null;
 
-                // 1. 檢查 localStorage（由 <head> script 在頂層頁面寫入）
-                try {
-                    token = localStorage.getItem('dl_oauth_token');
-                    if (token) localStorage.removeItem('dl_oauth_token');
-                } catch(e) {}
-
-                // 2. Fallback: 檢查當前頁面 hash（直接訪問 Gradio URL 的場景）
-                if (!token) {
-                    const hash = window.location.hash;
-                    if (hash && hash.includes('access_token=')) {
-                        const params = new URLSearchParams(hash.substring(1));
-                        token = params.get('access_token');
-                    }
+                // 檢查當前頁面 hash（Supabase implicit flow 回傳）
+                const hash = window.location.hash;
+                if (hash && hash.includes('access_token=')) {
+                    const params = new URLSearchParams(hash.substring(1));
+                    token = params.get('access_token');
                 }
 
-                // 3. Fallback: query parameter
+                // Fallback: query parameter（PKCE flow）
                 if (!token) {
                     const searchParams = new URLSearchParams(window.location.search);
                     token = searchParams.get('access_token');
@@ -673,16 +652,21 @@ def create_app():
 
                 if (token) {
                     console.log('[Auth] OAuth token found, authenticating...');
+                    // 清除 URL hash/params 避免重複觸發
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
                     // 等待 Gradio textarea 就緒後送出 token
+                    let attempts = 0;
                     function sendToken() {
                         const as_ = document.querySelector('#auth-state textarea');
                         if (as_) {
                             console.log('[Auth] Sending token to Gradio backend');
                             as_.value = token;
                             as_.dispatchEvent(new Event('input', {bubbles:true}));
-                        } else {
+                        } else if (attempts < 50) {
+                            attempts++;
                             setTimeout(sendToken, 200);
+                        } else {
+                            console.error('[Auth] Failed: #auth-state textarea not found after 10s');
                         }
                     }
                     sendToken();
@@ -732,11 +716,16 @@ def create_app():
 
                 // ── Google OAuth Login ──
                 window.handleGoogleLogin = function() {
-                    const loginUrl = window._supabaseLoginUrl || '';
-                    if (loginUrl) {
-                        // 使用 top.location 導向整個頁面（避免 HF iframe 問題）
-                        try { window.top.location.href = loginUrl; }
-                        catch(e) { window.location.href = loginUrl; }
+                    // 組建 login URL，redirect_to 指向 Gradio 自身 origin
+                    // 這樣 Supabase 回傳的 #access_token 會出現在 Gradio 的 URL 上
+                    const baseLoginUrl = window._supabaseLoginUrl || '';
+                    if (baseLoginUrl) {
+                        // 用 Gradio iframe 自身的 origin 作為 redirect target
+                        const gradioOrigin = window.location.origin;
+                        const url = new URL(baseLoginUrl);
+                        url.searchParams.set('redirect_to', gradioOrigin + '/');
+                        console.log('[Auth] Redirecting to:', url.toString());
+                        window.location.href = url.toString();
                     } else {
                         alert('Supabase Auth 尚未設定，請聯絡管理員');
                     }
