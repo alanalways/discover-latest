@@ -1,72 +1,50 @@
 /*
- * DiscoverLatest 洞察運算 - Dashboard 主題 (Visual Upgrade v2.7)
- * 風格：Cyberpunk / Dark Neon / Glassmorphism
- * 修正：對比度增強、Layout 層級與被擋住的問題
+ * DiscoverLatest 洞察運算 - Dashboard 主題 (Visual Upgrade v2.8 - Sharp & Clear)
+ * 風格：Modern Clean / High Contrast Neon
+ * 修正：移除模糊光暈、增強文字清晰度、修復遮擋問題
  */
 
 /* ===== 1. 設計系統 (Design System) ===== */
 :root {
-    /* --- 核心色調 (High Contrast Neon) --- */
-    --hue-primary: 220;
-    /* 深藍底 */
-    --hue-accent-1: 190;
-    /* Cyan */
-    --hue-accent-2: 280;
-    /* Purple */
+    /* --- 核心色調 --- */
+    --bg-main: #0b0f19;
+    /* 純深色底 */
+    --bg-card: #151a25;
+    /* 卡片實色底 (減少過度透明造成的模糊) */
+    --bg-hover: #1e2433;
 
-    /* 背景色階 - 稍微提亮以顯示陰影 */
-    --bg-main: #0a0e17;
-    --bg-depth-1: #111625;
-    --bg-depth-2: #1a2133;
-    --bg-overlay: rgba(5, 8, 20, 0.9);
+    /* 邊框與光暈 */
+    --border-color: #2d3748;
+    --border-highlight: #4a5568;
 
-    /* 玻璃擬態 (更強的對比) */
-    --glass-surface: rgba(20, 25, 40, 0.7);
-    --glass-border: rgba(255, 255, 255, 0.15);
-    --glass-highlight: rgba(255, 255, 255, 0.05);
-    --glass-shine: rgba(255, 255, 255, 0.08);
-    --blur-strength: 20px;
+    /* 霓虹點綴 (僅用於邊框或圖標，不用於文字光暈) */
+    --neon-cyan: #06b6d4;
+    /* Cyan 500 - 更實的顏色 */
+    --neon-purple: #a855f7;
+    /* Purple 500 */
+    --neon-green: #10b981;
+    /* Emerald 500 */
+    --neon-red: #ef4444;
+    /* Red 500 */
 
-    /* 霓虹光暈 */
-    --neon-cyan: #00f2ff;
-    --neon-purple: #bc13fe;
-    --neon-blue: #2979ff;
-
-    /* 文字顏色 (增强對比) */
-    --text-main: #ffffff;
+    /* 文字系統 (高對比實色) */
     --text-primary: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.85);
-    /* 提亮 */
+    /* 純白 */
+    --text-secondary: #cbd5e1;
+    /* Slate 300 - 亮灰 */
     --text-muted: #94a3b8;
-    /* 提亮 */
-    --text-dim: #64748b;
-
-    /* 陰影 */
-    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.6);
-    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.8);
-    --glow-cyan: 0 0 15px rgba(0, 242, 255, 0.3);
+    /* Slate 400 */
 
     /* 尺寸 */
-    --sidebar-width: 260px;
+    --sidebar-width: 250px;
     --topbar-height: 64px;
-    --border-radius: 16px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
 
-    /* 動畫 */
-    --trans-speed: 0.3s;
-
-    /* --- Legacy Compatibility (Aliasing) --- */
-    --bg-card: var(--glass-surface);
-    --bg-secondary: var(--bg-depth-1);
-    --bg-tertiary: rgba(255, 255, 255, 0.05);
-    --accent-primary: var(--neon-cyan);
-    --accent-secondary: var(--neon-purple);
-    --accent-success: #00ff9d;
-    --accent-danger: #ff0055;
-    --border-color: var(--glass-border);
-    --glow-primary: var(--glow-cyan);
+    /* 層級 */
+    --z-sidebar: 1000;
+    --z-topbar: 900;
+    --z-dropdown: 1100;
 }
 
 /* ===== 2. 全局重置 ===== */
@@ -77,35 +55,18 @@
 body,
 .gradio-container {
     background-color: var(--bg-main) !important;
-    color: var(--text-main) !important;
+    color: var(--text-primary) !important;
     font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
     margin: 0;
     overflow-x: hidden;
-    /* 防止水平捲軸 */
 }
 
-/* 捲軸美化 */
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+/* 移除所有預設陰影與模糊，追求清晰 */
+* {
+    text-shadow: none !important;
 }
 
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
-}
-
-/* ===== 3. 佈局修正 (Z-Index & Positioning) ===== */
-
-/* 主要容器：設為 Fixed 避免隨頁面捲動 */
+/* ===== 3. 佈局架構 (Fixed Layout) ===== */
 .main-layout {
     position: fixed;
     top: 0;
@@ -113,159 +74,129 @@ body,
     width: 100%;
     height: 100vh;
     pointer-events: none;
-    /* 讓點擊穿透 */
-    z-index: 900;
+    z-index: 100;
 }
 
-/* 恢復子元素的 pointer-events */
 .sidebar,
 .topbar-wrapper {
     pointer-events: auto;
 }
 
-/* Sidebar: 固定左側，最高層級 */
+/* Sidebar */
 .sidebar {
     position: fixed;
     top: 0;
     left: 0;
     width: var(--sidebar-width);
     height: 100vh;
-    background: rgba(10, 14, 23, 0.95);
-    /* 加深背景避免透視干擾 */
-    backdrop-filter: blur(20px);
-    border-right: 1px solid var(--glass-border);
+    background-color: var(--bg-main);
+    /* 實色背景 */
+    border-right: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
-    z-index: 1002;
-    /* 最高 */
-    transition: width var(--trans-speed) cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
-    overflow-y: auto;
+    z-index: var(--z-sidebar);
+    transition: width 0.3s ease;
 }
 
 .sidebar.collapsed {
-    width: 70px;
+    width: 64px;
 }
 
-/* Topbar: 固定頂部，扣除 Sidebar 寬度 */
+/* Topbar */
 .topbar-wrapper {
     position: fixed;
     top: 0;
     left: var(--sidebar-width);
-    /* 緊接 Sidebar */
     right: 0;
     height: var(--topbar-height);
-    z-index: 1001;
-    /* 次高 */
-    transition: left var(--trans-speed) ease;
+    z-index: var(--z-topbar);
+    transition: left 0.3s ease;
 }
 
 .topbar {
     height: 100%;
+    background-color: rgba(11, 15, 25, 0.95);
+    /* 近乎實色 */
+    backdrop-filter: blur(8px);
+    /* 輕微模糊 */
+    border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 0 24px;
-    background: rgba(10, 14, 23, 0.85);
-    /* 加深背景 */
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--glass-border);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-/* 內容區: 預留 Sidebar 和 Topbar 的空間 */
+/* Content Area */
 .content-area {
     margin-left: var(--sidebar-width) !important;
     padding: calc(var(--topbar-height) + 24px) 32px 32px !important;
     width: auto !important;
     min-height: 100vh;
-    transition: margin-left var(--trans-speed) ease;
-    overflow-x: hidden;
-    position: relative;
-    z-index: 1;
+    transition: margin-left 0.3s ease;
+    background-color: var(--bg-main);
 }
 
-/* ===== 4. Sidebar 樣式優化 ===== */
-.sidebar-header {
+/* ===== 4. Sidebar 元件 ===== */
+.logo {
+    padding: 0 24px;
     height: var(--topbar-height);
     display: flex;
     align-items: center;
-    padding: 0 24px;
-    border-bottom: 1px solid var(--glass-border);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .logo-text {
     font-size: 18px;
     font-weight: 700;
-    color: var(--text-main);
-    background: linear-gradient(135deg, #fff 0%, var(--neon-cyan) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-primary);
     margin-left: 12px;
 }
 
 .sidebar-nav {
     flex: 1;
-    padding: 24px 12px;
+    padding: 16px;
+    overflow-y: auto;
 }
 
-/* 導航項目: 增加對比度與可視性 */
 .nav-item {
     display: flex;
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
-    margin-bottom: 8px;
+    margin-bottom: 4px;
     border-radius: var(--radius-md);
-    color: var(--text-secondary);
-    /* 亮灰 */
+    color: var(--text-muted);
     text-decoration: none;
-    transition: all 0.2s ease;
-    border: 1px solid transparent;
+    transition: all 0.2s;
+    font-weight: 500;
 }
 
 .nav-item:hover {
-    background: rgba(255, 255, 255, 0.08);
-    color: var(--text-main);
-    transform: translateX(4px);
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
 }
 
 .nav-item.active {
-    background: linear-gradient(90deg, rgba(0, 242, 255, 0.15), transparent);
+    background-color: rgba(6, 182, 212, 0.1);
+    color: var(--neon-cyan);
     border-left: 3px solid var(--neon-cyan);
-    color: var(--neon-cyan);
-    box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
 }
 
-/* Sidebar Footer & User Card */
-.sidebar-footer {
-    padding: 16px;
-    border-top: 1px solid var(--glass-border);
-    background: rgba(0, 0, 0, 0.3);
+/* ===== 5. Topbar 元件 ===== */
+.sidebar-toggle {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 4px;
 }
 
-.user-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: var(--radius-md);
-    border: 1px solid transparent;
+.sidebar-toggle:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
 }
 
-.user-info .user-name {
-    color: var(--text-main);
-    font-weight: 600;
-    font-size: 14px;
-}
-
-.user-info .user-tier {
-    color: var(--neon-cyan);
-    font-size: 12px;
-}
-
-/* ===== 5. Topbar 樣式優化 ===== */
 .search-box {
     position: relative;
     width: 320px;
@@ -273,143 +204,70 @@ body,
 
 .search-input {
     width: 100%;
-    height: 40px;
-    background: rgba(0, 0, 0, 0.3);
-    border: 1px solid var(--glass-border);
-    border-radius: 20px;
-    padding: 0 20px 0 44px;
-    color: var(--text-main);
+    height: 38px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0 16px 0 40px;
+    color: var(--text-primary);
+    font-size: 14px;
 }
 
 .search-input:focus {
-    background: rgba(0, 0, 0, 0.5);
     border-color: var(--neon-cyan);
-    box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
     outline: none;
 }
 
-.search-results {
+.search-icon {
     position: absolute;
-    top: 50px;
-    left: 0;
-    width: 100%;
-    background: #141b2d;
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
-    z-index: 1100;
-    /* 高於 Topbar */
-    display: none;
-    /* JS 控制顯示 */
-}
-
-.search-results.active {
-    display: block;
-}
-
-.lang-selector select {
-    background: #141b2d;
-    color: var(--text-main);
-    border: 1px solid var(--glass-border);
-    padding: 4px 8px;
-    border-radius: 6px;
-}
-
-/* ===== 6. 內容區卡片優化 (對比度重點) ===== */
-.market-page {
-    padding: 0;
-}
-
-.welcome-section {
-    margin-bottom: 32px;
-    position: relative;
-}
-
-.welcome-title {
-    font-size: 32px;
-    font-weight: 800;
-    color: var(--text-main);
-    margin-bottom: 8px;
-    text-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
-}
-
-.welcome-subtitle {
-    font-size: 16px;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
     color: var(--text-muted);
 }
 
-.section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    border-bottom: 1px solid var(--glass-border);
-    padding-bottom: 12px;
+/* 下拉選單修復 */
+.lang-selector select {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
 }
 
-.section-title {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--text-main);
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.lang-selector select:focus {
+    outline: none;
+    border-color: var(--neon-cyan);
 }
 
-/* Grid Layout */
-.indices-grid,
-.etf-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-    gap: 20px;
-    margin-bottom: 40px;
-}
-
-/* 卡片設計 - 增強可視性 */
+/* ===== 6. 卡片與數據 (清晰度優先) ===== */
 .index-card,
 .etf-card,
 .dashboard-card {
-    background: var(--glass-surface);
-    border: 1px solid var(--glass-border);
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    padding: 24px;
-    backdrop-filter: blur(12px);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
-    /* 加深陰影 */
-    transition: all 0.3s ease;
+    padding: 20px;
+    margin-bottom: 20px;
+    transition: transform 0.2s, border-color 0.2s;
     position: relative;
-    overflow: hidden;
-}
-
-/* 頂部光條 */
-.index-card::after,
-.etf-card::after,
-.dashboard-card::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 3px;
-    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
-    opacity: 0.5;
+    /* 移除所有 blur 和 transparency 以確保清晰 */
 }
 
 .index-card:hover,
 .etf-card:hover {
-    transform: translateY(-4px);
+    transform: translateY(-2px);
     border-color: var(--neon-cyan);
-    box-shadow: 0 8px 32px rgba(0, 242, 255, 0.15);
-    /* 霓虹光暈 */
 }
 
-/* 文字對比度修正 */
+/* 數據文字 */
 .index-header,
 .etf-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
 }
 
 .index-name,
@@ -417,50 +275,86 @@ body,
     font-size: 15px;
     font-weight: 500;
     color: var(--text-secondary);
-    /* 亮灰取代暗灰 */
 }
 
-.index-symbol,
-.etf-symbol {
+.index-symbol {
+    font-family: monospace;
     font-size: 12px;
-    font-family: 'JetBrains Mono', monospace;
     padding: 2px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-muted);
     border-radius: 4px;
-    background: rgba(0, 242, 255, 0.1);
-    color: var(--neon-cyan);
 }
 
 .index-value,
 .etf-value {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 700;
-    color: var(--text-main);
-    /* 純白 */
+    color: var(--text-primary);
     margin-bottom: 8px;
     letter-spacing: 0.5px;
-    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
+/* 漲跌幅 - 使用實色，無光暈 */
 .index-change,
 .etf-change {
     font-size: 14px;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-/* 漲跌顏色 (高對比) */
-.green,
-.index-change.green {
-    color: #00ff9d;
-    text-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
+.index-change.green,
+.etf-change.green {
+    color: var(--neon-green);
 }
 
-.red,
-.index-change.red {
-    color: #ff3366;
-    text-shadow: 0 0 10px rgba(255, 51, 102, 0.2);
+.index-change.red,
+.etf-change.red {
+    color: var(--neon-red);
 }
 
-/* RWD 修正 */
+/* 歡迎區塊 */
+.welcome-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.welcome-subtitle {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
+/* 時期選擇器 */
+.period-selector {
+    display: flex;
+    gap: 4px;
+    background: var(--bg-card);
+    padding: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+
+.period-btn {
+    padding: 4px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 4px;
+}
+
+.period-btn.active {
+    background: var(--border-color);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+/* RWD */
 @media (max-width: 768px) {
     .sidebar {
         transform: translateX(-100%);
@@ -473,15 +367,23 @@ body,
     .content-area,
     .topbar-wrapper {
         margin-left: 0 !important;
-        width: 100%;
-        left: 0;
     }
 
     .search-box {
         width: 180px;
     }
+}
 
-    .welcome-title {
-        font-size: 24px;
-    }
+/* Fix Gradio Overrides */
+.gradio-button {
+    background-color: var(--neon-cyan) !important;
+    color: #000 !important;
+    border: none !important;
+    font-weight: 600 !important;
+}
+
+.gradio-input input {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-color) !important;
 }
