@@ -172,7 +172,7 @@ def create_stock_analysis_page(
     </script>
     '''
     
-    return gr.HTML(value=page_html)
+    return page_html
 
 
 def _create_search_guide(lang: str) -> gr.HTML:
@@ -188,7 +188,7 @@ def _create_search_guide(lang: str) -> gr.HTML:
         </p>
     </div>
     '''
-    return gr.HTML(value=html)
+    return html
 
 
 def _create_info_card(info: Dict, lang: str) -> str:

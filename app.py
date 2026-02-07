@@ -90,20 +90,31 @@ def create_app():
 
         def handle_nav(page_id: str):
             print(f"[Nav] → {page_id}")
-            pages = {
-                "market": lambda: create_market_overview_page(DEFAULT_LANG),
-                "stock": lambda: create_stock_analysis_page(lang=DEFAULT_LANG),
-                "backtest": lambda: create_backtest_page(lang=DEFAULT_LANG),
-                "portfolio": lambda: create_portfolio_page(lang=DEFAULT_LANG),
-                "industry": lambda: create_industry_beta_page(lang=DEFAULT_LANG),
-                "admin": lambda: create_admin_console_page(lang=DEFAULT_LANG),
-            }
-            builder = pages.get(page_id)
-            if builder:
-                result = builder()
-                inner = result.value if hasattr(result, 'value') else str(result)
-            else:
-                inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>{page_id} 頁面開發中</h2></div>'
+            try:
+                pages = {
+                    "market": lambda: create_market_overview_page(DEFAULT_LANG),
+                    "stock": lambda: create_stock_analysis_page(lang=DEFAULT_LANG),
+                    "backtest": lambda: create_backtest_page(lang=DEFAULT_LANG),
+                    "portfolio": lambda: create_portfolio_page(lang=DEFAULT_LANG),
+                    "industry": lambda: create_industry_beta_page(lang=DEFAULT_LANG),
+                    "admin": lambda: create_admin_console_page(lang=DEFAULT_LANG),
+                }
+                builder = pages.get(page_id)
+                if builder:
+                    result = builder()
+                    # 頁面函式回傳 str 或 gr.HTML
+                    if isinstance(result, str):
+                        inner = result
+                    elif hasattr(result, 'value'):
+                        inner = str(result.value)
+                    else:
+                        inner = str(result)
+                else:
+                    inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>{page_id} 頁面開發中</h2></div>'
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                inner = f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><p>{type(e).__name__}: {e}</p></div>'
             return build_full_page(inner, DEFAULT_LANG)
 
         nav_state.change(fn=handle_nav, inputs=[nav_state], outputs=[page_output], api_name="navigate")

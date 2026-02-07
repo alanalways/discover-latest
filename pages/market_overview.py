@@ -93,19 +93,33 @@ def _fetch_market_data() -> Dict[str, list]:
                 pool.submit(_fetch_one, sym, meta): meta
                 for sym, meta in all_tickers.items()
             }
-            for future in as_completed(futures, timeout=25):
+            for future in as_completed(futures, timeout=20):
                 meta = futures[future]
                 try:
-                    result = future.result()
+                    result = future.result(timeout=15)
                     if result:
                         if meta["_type"] == "index":
                             indices.append(result)
                         else:
                             etfs.append(result)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[Market] future error: {e}")
     except Exception as exc:
         print(f"[Market] ThreadPool error: {exc}")
+        traceback.print_exc()
+
+    # Fallback: 如果完全無資料，提供最基本的靜態佔位
+    if not indices and not etfs:
+        print("[Market] No data fetched, using fallback")
+        indices = [
+            {"name": "加權指數", "symbol": "TAIEX", "value": "—", "change": "—", "change_pct": "—", "color": "green"},
+            {"name": "S&P 500", "symbol": "SPX", "value": "—", "change": "—", "change_pct": "—", "color": "green"},
+            {"name": "NASDAQ", "symbol": "IXIC", "value": "—", "change": "—", "change_pct": "—", "color": "green"},
+        ]
+        etfs = [
+            {"name": "元大台灣50", "symbol": "0050", "value": "—", "change": "—", "change_pct": "—", "color": "green"},
+            {"name": "Vanguard S&P 500", "symbol": "VOO", "value": "—", "change": "—", "change_pct": "—", "color": "green"},
+        ]
 
     # Sort: indices by a predefined order, etfs by display symbol
     idx_order = ["TAIEX", "SPX", "IXIC", "DJI", "SOX"]
@@ -182,4 +196,4 @@ def create_market_overview_page(lang: str = "zh-TW"):
         <div class="etf-grid">{etf_html}</div>
     </div>'''
 
-    return gr.HTML(value=page_html)
+    return page_html
