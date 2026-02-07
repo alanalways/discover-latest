@@ -81,33 +81,34 @@ def create_app():
             
             // 確保 Gradio 完全載入
             setTimeout(() => {
-                console.log('[Init] Setting up event handlers...');
+                console.log('[Init] Setting up UI & interactions...');
                 
-                // 側邊欄切換
+                // 1. 側邊欄切換 (RWD)
                 window.toggleSidebar = function() {
-                    console.log('[Sidebar] Toggle clicked');
                     const sidebar = document.querySelector('.sidebar');
                     const content = document.querySelector('.content-area');
-                    const topbar = document.querySelector('.topbar');
+                    const topbar = document.querySelector('.topbar-wrapper');
                     
                     if (sidebar) sidebar.classList.toggle('collapsed');
-                    if (content) content.classList.toggle('sidebar-collapsed');
-                    if (topbar) topbar.classList.toggle('sidebar-collapsed');
+                    
+                    // 桌面版調整 margin
+                    if (window.innerWidth > 768) {
+                        if (content) content.style.marginLeft = sidebar.classList.contains('collapsed') ? '0' : 'var(--sidebar-width)';
+                        if (topbar) topbar.style.left = sidebar.classList.contains('collapsed') ? '0' : 'var(--sidebar-width)';
+                    }
                 };
                 
-                // 頁面導航：直接修改 page_content
+                // 2. 頁面導航 (Navigation)
                 window.navigateTo = function(page) {
-                    console.log('[Navigate] Navigating to:', page);
+                    console.log('[Navigate] To:', page);
                     
-                    // 找到 page-content-html 元素
                     const pageContainer = document.getElementById('page-content-html');
-                    if (!pageContainer) {
-                        console.error('[Navigate] page-content-html not found');
-                        return;
-                    }
+                    if (!pageContainer) return;
                     
-                    // 顯示 loading
-                    pageContainer.innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted);">載入中...</div>';
+                    // 過場動畫：先淡出
+                    pageContainer.style.opacity = '0';
+                    pageContainer.style.transform = 'translateY(10px)';
+                    pageContainer.style.transition = 'all 0.3s ease';
                     
                     // 更新導航 active 狀態
                     document.querySelectorAll('.nav-item').forEach(item => {
@@ -117,40 +118,71 @@ def create_app():
                         }
                     });
                     
-                    // 模擬頁面切換（實際應該觸發 Gradio 事件）
+                    // 模擬載入並切換內容
                     setTimeout(() => {
+                        // 這裡未來應整合 Gradio 的動態內容
+                        let content = '';
                         if (page === 'market') {
-                            pageContainer.innerHTML = '<div style="padding: 20px;"><h2>市場總覽</h2><p>市場總覽內容正在開發中...</p></div>';
+                            content = `
+                                <div class="welcome-section fade-in">
+                                    <h1 class="welcome-title">早安，Alan 👋</h1>
+                                    <p class="welcome-subtitle">今日市場情緒：<span style="color: var(--neon-cyan)">貪婪 (75)</span></p>
+                                </div>
+                                <div class="dashboard-card fade-in" style="animation-delay: 0.1s">
+                                    <div class="card-header">
+                                        <div class="card-title">大盤指數</div>
+                                    </div>
+                                    <div style="height: 200px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                                        Chart Visualization Placeholder
+                                    </div>
+                                </div>
+                            `;
                         } else if (page === 'stock') {
-                            pageContainer.innerHTML = '<div style="padding: 20px;"><h2>個股分析</h2><p>請使用上方搜尋框搜尋股票代號</p></div>';
-                        } else if (page === 'industry') {
-                            pageContainer.innerHTML = '<div style="padding: 20px;"><h2>產業圖譜</h2><p>產業圖譜功能正在開發中...</p></div>';
-                        } else if (page === 'watchlist') {
-                            pageContainer.innerHTML = '<div style="padding: 20px;"><h2>我的自選</h2><p>自選清單功能正在開發中...</p></div>';
-                        } else if (page === 'portfolio') {
-                            pageContainer.innerHTML = '<div style="padding: 20px;"><h2>投資組合</h2><p>投資組合功能正在開發中...</p></div>';
+                            content = `
+                                <div class="dashboard-card fade-in">
+                                    <div class="card-header">
+                                        <div class="card-title">個股分析</div>
+                                    </div>
+                                    <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+                                        請使用上方搜尋框輸入代號 (e.g. 2330, AAPL)
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            content = `
+                                <div class="dashboard-card fade-in">
+                                    <div class="card-header"><div class="card-title">開發中</div></div>
+                                    <p style="color: var(--text-muted)">此功能 (${page}) 即將推出...</p>
+                                </div>
+                            `;
                         }
+                        
+                        pageContainer.innerHTML = content;
+                        
+                        // 淡入
+                        pageContainer.style.opacity = '1';
+                        pageContainer.style.transform = 'translateY(0)';
+                        
                     }, 300);
                 };
                 
-                // 搜尋框互動
+                // 3. 搜尋互動 (Search)
                 const searchInput = document.getElementById('global-search');
                 const searchResults = document.getElementById('search-results');
                 
                 if (searchInput && searchResults) {
-                    console.log('[Search] Search input found, binding events');
-                    
+                    // 輸入監聽
                     searchInput.addEventListener('input', function(e) {
                         const query = e.target.value.toLowerCase();
-                        console.log('[Search] Query:', query);
                         
                         if (query.length >= 2) {
-                            // 模擬搜尋（實際應該調用 Gradio 函數）
+                            // 模擬搜尋邏輯
                             const mockResults = [
                                 {symbol: '2330', name_zh: '台積電', name_en: 'TSMC', market: 'TW'},
                                 {symbol: '2317', name_zh: '鴻海', name_en: 'Hon Hai', market: 'TW'},
                                 {symbol: 'AAPL', name_zh: '蘋果', name_en: 'Apple Inc.', market: 'US'},
-                                {symbol: 'MSFT', name_zh: '微軟', name_en: 'Microsoft Corp.', market: 'US'}
+                                {symbol: 'NVDA', name_zh: '輝達', name_en: 'NVIDIA', market: 'US'},
+                                {symbol: 'BTC', name_zh: '比特幣', name_en: 'Bitcoin', market: 'CRYPTO'}
                             ].filter(item => 
                                 item.symbol.toLowerCase().includes(query) ||
                                 item.name_zh.includes(query) ||
@@ -158,21 +190,19 @@ def create_app():
                             );
                             
                             if (mockResults.length > 0) {
-                                let html = '<div class="search-results active">';
+                                let html = '';
                                 mockResults.forEach(item => {
                                     html += `
                                     <div class="search-result-item" onclick="selectStock('${item.symbol}')">
                                         <span class="result-symbol">${item.symbol}</span>
                                         <span class="result-name">${item.name_zh}</span>
-                                        <span class="result-market">${item.market}</span>
                                     </div>
                                     `;
                                 });
-                                html += '</div>';
                                 searchResults.innerHTML = html;
                                 searchResults.classList.add('active');
                             } else {
-                                searchResults.innerHTML = '<div class="search-no-result">找不到相符的股票</div>';
+                                searchResults.innerHTML = '<div style="padding:12px; color:var(--text-muted)">無相符結果</div>';
                                 searchResults.classList.add('active');
                             }
                         } else {
@@ -180,78 +210,56 @@ def create_app():
                         }
                     });
                     
-                    searchInput.addEventListener('focus', function() {
-                        if (this.value.length >= 2) {
-                            searchResults.classList.add('active');
-                        }
+                    // 聚焦/失焦
+                    searchInput.addEventListener('focus', () => {
+                        if (searchInput.value.length >= 2) searchResults.classList.add('active');
                     });
                     
-                    document.addEventListener('click', function(e) {
+                    // 點擊外部關閉
+                    document.addEventListener('click', (e) => {
                         if (!e.target.closest('.search-box')) {
                             searchResults.classList.remove('active');
                         }
                     });
-                } else {
-                    console.error('[Search] Search input or results not found');
                 }
                 
-                // 選擇股票
+                // 4. 選股動作
                 window.selectStock = function(symbol) {
-                    console.log('[Stock] Selected:', symbol);
+                    console.log('[Stock] Select:', symbol);
                     
+                    // 更新 UI
                     const pageContainer = document.getElementById('page-content-html');
                     if (pageContainer) {
-                        pageContainer.innerHTML = `
-                            <div style="padding: 20px;">
-                                <h2>個股分析 - ${symbol}</h2>
-                                <p>載入 ${symbol} 的詳細資料...</p>
-                                <p style="color: var(--text-muted); margin-top: 20px;">注意：完整的個股分析功能正在開發中</p>
-                            </div>
-                        `;
+                        pageContainer.style.opacity = '0';
+                        setTimeout(() => {
+                            pageContainer.innerHTML = `
+                                <div class="dashboard-card fade-in">
+                                    <div class="card-header">
+                                        <div class="card-title">
+                                            <span style="color:var(--neon-cyan)">${symbol}</span> 分析報告
+                                        </div>
+                                    </div>
+                                    <div style="height: 300px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                                        Loading SMC Configuration...
+                                    </div>
+                                </div>
+                            `;
+                            pageContainer.style.opacity = '1';
+                        }, 300);
                     }
                     
-                    // 隱藏搜尋結果
-                    const searchResults = document.getElementById('search-results');
-                    if (searchResults) {
-                        searchResults.classList.remove('active');
-                    }
+                    // 清理搜尋狀態
+                    if (searchResults) searchResults.classList.remove('active');
+                    if (searchInput) searchInput.value = '';
                     
-                    // 清空搜尋框
-                    const searchInput = document.getElementById('global-search');
-                    if (searchInput) {
-                        searchInput.value = '';
-                    }
-                    
-                    // 切換到個股分析頁
-                    document.querySelectorAll('.nav-item').forEach(item => {
-                        item.classList.remove('active');
-                        if (item.getAttribute('data-page') === 'stock') {
-                            item.classList.add('active');
-                        }
-                    });
+                    // 切換導航狀態
+                    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                    const stockNav = document.querySelector('.nav-item[data-page="stock"]');
+                    if (stockNav) stockNav.classList.add('active');
                 };
-                
-                // 語言切換
-                window.handleLangChange = function(lang) {
-                    console.log('[Lang] Language changed to:', lang);
-                    // TODO: 實作語言切換
-                };
-                
-                // Google 登入
-                window.handleGoogleLogin = function() {
-                    console.log('[Auth] Google login clicked');
-                    alert('登入功能開發中，敬請期待！');
-                };
-                
-                // 登出
-                window.handleLogout = function() {
-                    console.log('[Auth] Logout clicked');
-                };
-                
-                console.log('[Init] DiscoverLatest 洞察運算 initialized successfully ✓');
-            }, 500);
-            
-            return null;
+
+                console.log('[Init] Ready.');
+            }, 800); // 延遲確保 DOM 渲染
         }
         """)
     
