@@ -65,10 +65,8 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW') -> str:
     return f'''
     <div class="app-shell">
         {sidebar}
-        <div class="app-main">
-            <header class="topbar-wrapper">{topbar}</header>
-            <main class="main-content">{page_html_str}</main>
-        </div>
+        <div class="topbar-wrapper">{topbar}</div>
+        <div class="main-content">{page_html_str}</div>
     </div>'''
 
 

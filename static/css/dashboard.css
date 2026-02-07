@@ -79,7 +79,9 @@ body, .gradio-container {
 .contain { padding: 0 !important; }
 #component-0 { padding: 0 !important; }
 #app-root { min-height: 100vh; }
-#app-root > .prose { max-width: 100% !important; }
+#app-root > .prose,
+.prose { max-width: 100% !important; width: 100% !important; }
+.prose > * { max-width: 100% !important; }
 footer { display: none !important; }
 
 h1, h2, h3, .brand-font { font-family: 'Outfit', sans-serif; font-weight: 700; }
@@ -89,21 +91,14 @@ h1, h2, h3, .brand-font { font-family: 'Outfit', sans-serif; font-weight: 700; }
    App Shell (Sidebar + Main)
    ========================================= */
 .app-shell {
-    display: flex;
     min-height: 100vh;
     background: var(--bg-void);
 }
-.app-main {
-    flex: 1;
-    margin-left: var(--sidebar-w);
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-}
 .main-content {
-    flex: 1;
-    padding: 28px 32px 40px;
+    margin-left: var(--sidebar-w);
     margin-top: var(--topbar-h);
+    padding: 28px 32px 40px;
+    min-height: calc(100vh - var(--topbar-h));
 }
 
 /* =========================================
@@ -331,10 +326,9 @@ h1, h2, h3, .brand-font { font-family: 'Outfit', sans-serif; font-weight: 700; }
 @media (max-width: 1024px) {
     .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; }
     .sidebar.active { transform: translateX(0); box-shadow: 0 0 60px rgba(0,0,0,0.8); }
-    .app-main { margin-left: 0; }
+    .main-content { margin-left: 0; padding: 20px 16px; }
     .topbar-wrapper { left: 0; }
     .sidebar-toggle { display: block; }
-    .main-content { padding: 20px 16px; }
     .indices-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
 }
 @media (max-width: 640px) {
