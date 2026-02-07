@@ -63,181 +63,35 @@ def create_stock_analysis_page(
     
     page_html = f'''
     <style>
-        .stock-page {{
-            padding: 24px;
-        }}
-        
-        .stock-header {{
-            display: flex;
-            align-items: flex-start;
-            justify-content: space-between;
-            margin-bottom: 24px;
-            flex-wrap: wrap;
-            gap: 16px;
-        }}
-        
-        .stock-title-section {{
-            flex: 1;
-        }}
-        
-        .stock-symbol {{
-            font-size: 14px;
-            color: var(--accent-primary);
-            background: rgba(6, 182, 212, 0.1);
-            padding: 4px 12px;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            display: inline-block;
-        }}
-        
-        .stock-name {{
-            font-size: 28px;
-            font-weight: 700;
-            color: var(--text-primary);
-            margin: 0 0 8px 0;
-        }}
-        
-        .stock-market {{
-            font-size: 14px;
-            color: var(--text-muted);
-        }}
-        
-        .stock-price-section {{
-            text-align: right;
-        }}
-        
-        .stock-price {{
-            font-size: 36px;
-            font-weight: 700;
-            color: var(--text-primary);
-        }}
-        
-        .stock-change {{
-            font-size: 18px;
-            margin-top: 4px;
-        }}
-        
-        .stock-change.up {{
-            color: var(--accent-success);
-        }}
-        
-        .stock-change.down {{
-            color: var(--accent-danger);
-        }}
-        
-        .period-tabs {{
-            display: flex;
-            gap: 8px;
-            margin-bottom: 16px;
-        }}
-        
-        .period-tab {{
-            padding: 8px 16px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            background: var(--bg-secondary);
-            color: var(--text-secondary);
-            font-size: 13px;
-            cursor: pointer;
-            transition: all var(--transition-fast);
-        }}
-        
-        .period-tab:hover {{
-            border-color: var(--accent-primary);
-            color: var(--text-primary);
-        }}
-        
-        .period-tab.active {{
-            background: var(--accent-primary);
-            border-color: var(--accent-primary);
-            color: white;
-        }}
-        
-        .chart-section {{
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-lg);
-            padding: 20px;
-            margin-bottom: 24px;
-        }}
-        
-        .section-title {{
-            font-size: 16px;
-            font-weight: 600;
-            color: var(--text-primary);
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }}
-        
-        .metrics-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 24px;
-        }}
-        
-        .metric-card {{
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-lg);
-            padding: 16px;
-        }}
-        
-        .metric-label {{
-            font-size: 12px;
-            color: var(--text-muted);
-            margin-bottom: 4px;
-        }}
-        
-        .metric-value {{
-            font-size: 20px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }}
-        
-        .metric-subtext {{
-            font-size: 11px;
-            color: var(--text-muted);
-            margin-top: 4px;
-        }}
-        
-        .two-column {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 24px;
-        }}
-        
-        @media (max-width: 768px) {{
-            .two-column {{
-                grid-template-columns: 1fr;
-            }}
-        }}
-        
-        .fundamentals-table {{
-            width: 100%;
-            border-collapse: collapse;
-        }}
-        
-        .fundamentals-table tr {{
-            border-bottom: 1px solid var(--border-color);
-        }}
-        
-        .fundamentals-table td {{
-            padding: 12px 0;
-        }}
-        
-        .fundamentals-table td:first-child {{
-            color: var(--text-muted);
-            font-size: 13px;
-        }}
-        
-        .fundamentals-table td:last-child {{
-            text-align: right;
-            font-weight: 500;
-            color: var(--text-primary);
-        }}
+        .stock-page {{ max-width: 1200px; }}
+        .stock-header {{ display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }}
+        .stock-title-section {{ flex: 1; }}
+        .stock-symbol {{ font-size: 14px; color: var(--primary); background: var(--primary-dim); padding: 4px 12px; border-radius: 6px; margin-bottom: 8px; display: inline-block; }}
+        .stock-name {{ font-size: 28px; font-weight: 700; color: var(--text-1); margin: 0 0 8px 0; }}
+        .stock-market {{ font-size: 14px; color: var(--text-3); }}
+        .stock-price-section {{ text-align: right; }}
+        .stock-price {{ font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 700; color: var(--text-1); }}
+        .stock-change {{ font-family: 'JetBrains Mono', monospace; font-size: 18px; margin-top: 4px; }}
+        .stock-change.up {{ color: var(--success); }}
+        .stock-change.down {{ color: var(--danger); }}
+        .period-tabs {{ display: flex; gap: 8px; margin-bottom: 16px; }}
+        .period-tab {{ padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); color: var(--text-2); font-size: 13px; cursor: pointer; transition: all 0.15s; }}
+        .period-tab:hover {{ border-color: var(--primary); color: var(--text-1); }}
+        .period-tab.active {{ background: var(--primary); border-color: var(--primary); color: #000; }}
+        .chart-section {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }}
+        .section-title {{ font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }}
+        .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }}
+        .metric-card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }}
+        .metric-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; }}
+        .metric-value {{ font-size: 20px; font-weight: 600; color: var(--text-1); font-family: 'JetBrains Mono', monospace; }}
+        .metric-subtext {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
+        .two-column {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
+        @media (max-width: 768px) {{ .two-column {{ grid-template-columns: 1fr; }} }}
+        .fundamentals-table {{ width: 100%; border-collapse: collapse; }}
+        .fundamentals-table tr {{ border-bottom: 1px solid var(--border); }}
+        .fundamentals-table td {{ padding: 12px 0; }}
+        .fundamentals-table td:first-child {{ color: var(--text-3); font-size: 13px; }}
+        .fundamentals-table td:last-child {{ text-align: right; font-weight: 500; color: var(--text-1); }}
     </style>
     
     <div class="stock-page">

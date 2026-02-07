@@ -1,398 +1,344 @@
 /*
- * DiscoverLatest 洞察運算 - UI/UX Pro Max Edition
- * Theme: Cyberpunk Finance Pro
- * Version: 3.0 (Reborn)
+ * DiscoverLatest 洞察運算 v3.1
+ * Professional Finance Dashboard — Cyberpunk Neon Theme
  */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700;800&display=swap');
 
 /* =========================================
-   1. Design Tokens (The Foundation)
+   Design Tokens
    ========================================= */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700&display=swap');
-
 :root {
-    /* --- Cyberpunk Palette --- */
-    --bg-void: #050510;
-    /* Deepest Black-Blue */
-    --bg-surface: #0f131c;
-    /* Card Surface */
-    --bg-elevated: #1a1f2e;
-    /* Hover/Dropdown */
+    /* Background hierarchy */
+    --bg-void: #07080f;
+    --bg-surface: #0d1117;
+    --bg-card: #161b22;
+    --bg-elevated: #1c2333;
+    --bg-hover: #21283b;
 
-    --primary: #00f2ff;
-    /* Cyber Cyan */
-    --primary-dim: rgba(0, 242, 255, 0.1);
-    --secondary: #bc13fe;
-    /* Electric Purple */
+    /* Primary palette */
+    --primary: #00d4ff;
+    --primary-dim: rgba(0,212,255,0.10);
+    --secondary: #a855f7;
     --accent: #2979ff;
-    /* Tech Blue */
 
-    --success: #00ff9d;
-    /* Neon Green */
-    --danger: #ff0055;
-    /* Neon Red */
-    --warning: #ffb800;
-    /* Amber */
+    /* Semantic colors */
+    --success: #22c55e;
+    --danger: #ef4444;
+    --warning: #f59e0b;
 
-    /* --- Text System (High Contrast) --- */
-    --text-1: #ffffff;
-    /* Primary */
-    --text-2: #e2e8f0;
-    /* Secondary (Light Slate) */
-    --text-3: #94a3b8;
-    /* Muted (Slate 400) */
+    /* Text hierarchy */
+    --text-1: #f0f6fc;
+    --text-2: #c9d1d9;
+    --text-3: #8b949e;
 
-    /* --- Borders & Glass --- */
-    --border-glass: 1px solid rgba(255, 255, 255, 0.1);
-    --border-active: 1px solid rgba(0, 242, 255, 0.5);
+    /* Borders */
+    --border: rgba(255,255,255,0.08);
+    --border-glass: 1px solid rgba(255,255,255,0.08);
+    --border-active: 1px solid rgba(0,212,255,0.4);
 
-    /* --- Effects --- */
-    --shadow-card: 0 4px 20px rgba(0, 0, 0, 0.5);
-    --glow-text: 0 0 10px rgba(0, 242, 255, 0.4);
-    --glow-box: 0 0 20px rgba(0, 242, 255, 0.15);
+    /* Effects */
+    --shadow-card: 0 2px 12px rgba(0,0,0,0.4);
+    --glow-box: 0 0 20px rgba(0,212,255,0.12);
 
-    /* --- Dimensions --- */
-    --sidebar-w: 260px;
-    --topbar-h: 72px;
+    /* Layout */
+    --sidebar-w: 240px;
+    --topbar-h: 56px;
+    --radius: 12px;
     --radius-lg: 16px;
     --radius-md: 8px;
-    --gap: 24px;
+    --gap: 20px;
+
+    /* ---- Compatibility aliases used by page components ---- */
+    --accent-primary: var(--primary);
+    --accent-success: var(--success);
+    --accent-danger: var(--danger);
+    --bg-secondary: var(--bg-surface);
+    --border-color: var(--border);
+    --text-primary: var(--text-1);
+    --text-secondary: var(--text-2);
+    --text-muted: var(--text-3);
+    --border-radius-lg: var(--radius);
+    --transition-fast: 0.15s ease;
 }
 
 /* =========================================
-   2. Global Reset & Typography
+   Reset & Globals
    ========================================= */
-* {
-    box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-body,
-.gradio-container {
-    background-color: var(--bg-void) !important;
+body, .gradio-container {
+    background: var(--bg-void) !important;
     color: var(--text-1) !important;
-    font-family: 'Inter', system-ui, sans-serif !important;
-    margin: 0;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
     overflow-x: hidden;
-    letter-spacing: 0.01em;
 }
+.gradio-container {
+    padding: 0 !important; margin: 0 !important;
+    max-width: 100% !important;
+}
+.contain { padding: 0 !important; }
+#component-0 { padding: 0 !important; }
+#app-root { min-height: 100vh; }
+#app-root > .prose { max-width: 100% !important; }
+footer { display: none !important; }
 
-h1,
-h2,
-h3,
-.brand-font {
-    font-family: 'Outfit', sans-serif;
-    font-weight: 700;
-}
-
-.mono-font,
-.number-font {
-    font-family: 'JetBrains Mono', monospace;
-}
+h1, h2, h3, .brand-font { font-family: 'Outfit', sans-serif; font-weight: 700; }
+.mono-font, .number-font { font-family: 'JetBrains Mono', monospace; }
 
 /* =========================================
-   3. Layout Grid (Fixed Sidebar)
+   App Shell (Sidebar + Main)
    ========================================= */
-.main-layout {
+.app-shell {
     display: flex;
     min-height: 100vh;
-    width: 100%;
-    position: relative;
-    z-index: 0;
+    background: var(--bg-void);
+}
+.app-main {
+    flex: 1;
+    margin-left: var(--sidebar-w);
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+.main-content {
+    flex: 1;
+    padding: 28px 32px 40px;
+    margin-top: var(--topbar-h);
 }
 
-/* Sidebar Container */
+/* =========================================
+   Sidebar
+   ========================================= */
 .sidebar {
     position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
+    top: 0; left: 0; bottom: 0;
     width: var(--sidebar-w);
-    background: rgba(15, 19, 28, 0.98);
-    /* Less transp, more readable */
+    background: var(--bg-surface);
     border-right: var(--border-glass);
     display: flex;
     flex-direction: column;
     z-index: 100;
-    /* Sidebar Top */
-    backdrop-filter: blur(20px);
-    transition: width 0.3s ease;
+    overflow-y: auto;
 }
-
-
-
-/* Topbar Fixed */
-.topbar-wrapper {
-    position: fixed;
-    top: 0;
-    right: 0;
-    left: var(--sidebar-w);
-    /* Snap to Sidebar */
-    height: var(--topbar-h);
-    background: rgba(5, 8, 16, 0.9);
-    backdrop-filter: blur(12px);
-    border-bottom: var(--border-glass);
-    z-index: 90;
-    display: flex;
-    align-items: center;
-    padding: 0 32px;
-}
-
-/* Actual Content Scrollable Area */
-.content-area {
-    margin-left: var(--sidebar-w);
-    width: calc(100% - var(--sidebar-w)) !important;
-    margin-top: var(--topbar-h);
-    padding: 32px;
-    min-height: calc(100vh - var(--topbar-h));
-    /* Gradio overrides */
-    max-width: 1600px !important;
-    margin-right: auto;
-}
-
-/* =========================================
-   4. Component: Sidebar
-   ========================================= */
+.sidebar.collapsed { width: 0; overflow: hidden; }
+.sidebar-header { padding: 0; }
 .logo {
     height: var(--topbar-h);
     display: flex;
     align-items: center;
-    padding: 0 24px;
+    padding: 0 20px;
     border-bottom: var(--border-glass);
+    gap: 10px;
 }
-
-.logo-icon {
-    font-size: 24px;
-    filter: drop-shadow(0 0 5px var(--primary));
-}
-
+.logo-icon { font-size: 20px; }
 .logo-text {
-    font-family: 'Orbitron', sans-serif;
+    font-family: 'Outfit', sans-serif;
     font-weight: 800;
-    font-size: 20px;
-    background: linear-gradient(90deg, #fff, var(--primary));
+    font-size: 16px;
+    background: linear-gradient(135deg, #fff 30%, var(--primary));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
-    letter-spacing: 1px;
-    margin-left: 12px;
-}
-
-.sidebar-nav {
-    padding: 24px 16px;
-    flex: 1;
-}
-
-.nav-item {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 14px 16px;
-    margin-bottom: 8px;
-    border-radius: var(--radius-md);
-    color: var(--text-3);
-    text-decoration: none;
-    transition: all 0.2s;
-    border: 1px solid transparent;
-    font-weight: 500;
-}
-
-.nav-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-1);
-    transform: translateX(4px);
-}
-
-.nav-item.active {
-    background: linear-gradient(90deg, var(--primary-dim), transparent);
-    border-left: 3px solid var(--primary);
-    color: var(--primary);
-    box-shadow: var(--glow-box);
-}
-
-/* =========================================
-   5. Component: Cards (The "Pro" Look)
-   ========================================= */
-.dashboard-card,
-.index-card,
-.etf-card {
-    background: var(--bg-surface);
-    border: var(--border-glass);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    position: relative;
-    overflow: hidden;
-    transition: all 0.3s ease;
-    box-shadow: var(--shadow-card);
-}
-
-/* Top Accent Line */
-.dashboard-card::before,
-.index-card::before,
-.etf-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, var(--primary), transparent);
-    opacity: 0.5;
-}
-
-.index-card:hover,
-.etf-card:hover {
-    transform: translateY(-4px);
-    border-color: var(--primary);
-    box-shadow: var(--glow-box);
-}
-
-/* Typography in Cards */
-.index-name,
-.etf-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-3);
-    text-transform: uppercase;
     letter-spacing: 0.5px;
 }
+.sidebar-nav { padding: 16px 12px; flex: 1; }
+.nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 14px; margin-bottom: 2px;
+    border-radius: 10px;
+    color: var(--text-3);
+    text-decoration: none;
+    font-size: 14px; font-weight: 500;
+    transition: all 0.15s ease;
+    cursor: pointer; border: none; background: none;
+}
+.nav-item:hover { background: var(--bg-hover); color: var(--text-1); }
+.nav-item.active { background: var(--primary-dim); color: var(--primary); font-weight: 600; }
+.nav-icon { font-size: 17px; width: 24px; text-align: center; }
+.nav-label { font-size: 14px; }
+.sidebar-footer { padding: 14px; border-top: var(--border-glass); }
+.login-prompt { text-align: center; }
+.btn-google-login {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 16px; width: 100%; justify-content: center;
+    background: var(--bg-card); border: var(--border-glass);
+    border-radius: 10px; color: var(--text-2);
+    font-size: 13px; cursor: pointer; transition: all 0.2s;
+}
+.btn-google-login:hover { border-color: var(--primary); color: var(--text-1); }
 
-.index-value,
-.etf-value {
+/* =========================================
+   Topbar
+   ========================================= */
+.topbar-wrapper {
+    position: fixed;
+    top: 0; left: var(--sidebar-w); right: 0;
+    height: var(--topbar-h);
+    background: rgba(7,8,15,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: var(--border-glass);
+    z-index: 90;
+    display: flex; align-items: center;
+    padding: 0 24px;
+}
+.topbar { display: flex; align-items: center; width: 100%; gap: 16px; }
+.topbar-left { display: flex; align-items: center; }
+.topbar-center { flex: 1; display: flex; justify-content: center; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.sidebar-toggle {
+    background: none; border: none; color: var(--text-3);
+    cursor: pointer; padding: 6px; border-radius: 6px;
+    display: none;
+}
+.search-box { position: relative; width: min(380px, 100%); }
+.search-input {
+    width: 100%; height: 38px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 19px;
+    padding: 0 16px 0 42px;
+    color: var(--text-1); font-size: 13px;
+    transition: all 0.2s; outline: none;
+}
+.search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-dim); }
+.search-input::placeholder { color: var(--text-3); }
+.search-icon {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--text-3); pointer-events: none;
+}
+.search-results {
+    display: none; position: absolute; top: 46px; left: 0; right: 0;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: 0 12px 40px rgba(0,0,0,0.6);
+    max-height: 320px; overflow-y: auto; z-index: 200;
+}
+.search-results.active { display: block; }
+.search-result-item {
+    padding: 10px 16px; display: flex; align-items: center; gap: 12px;
+    cursor: pointer; transition: background 0.1s;
+}
+.search-result-item:hover { background: var(--bg-hover); }
+.result-symbol { color: var(--primary); font-weight: 600; font-size: 14px; min-width: 60px; }
+.result-name { color: var(--text-2); font-size: 13px; }
+.lang-selector { display: flex; align-items: center; gap: 6px; color: var(--text-3); }
+.lang-selector select {
+    background: transparent; border: none; color: var(--text-2);
+    font-size: 13px; outline: none; cursor: pointer;
+}
+.btn-login {
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text-2); padding: 7px 16px; border-radius: 8px;
+    font-size: 13px; cursor: pointer; transition: all 0.2s;
+}
+.btn-login:hover { border-color: var(--primary); color: var(--text-1); }
+
+/* =========================================
+   Cards (shared)
+   ========================================= */
+.dashboard-card, .index-card, .etf-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+.index-card:hover, .etf-card:hover, .dashboard-card:hover {
+    border-color: rgba(0,212,255,0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+}
+.index-header, .etf-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+}
+.index-name, .etf-name { font-size: 13px; color: var(--text-3); font-weight: 500; }
+.index-symbol, .etf-symbol {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 28px;
-    font-weight: 700;
-    color: var(--text-1);
-    margin: 8px 0;
+    font-size: 11px; color: var(--primary);
+    background: var(--primary-dim); padding: 3px 8px; border-radius: 4px;
 }
-
-.index-symbol,
-.etf-symbol {
+.index-value, .etf-value {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--primary);
-    background: var(--primary-dim);
-    padding: 4px 8px;
-    border-radius: 4px;
+    font-size: 26px; font-weight: 700; color: var(--text-1);
+    margin-bottom: 6px; line-height: 1.2;
 }
-
-/* Changes */
-.change-up {
-    color: var(--success);
-    font-weight: 600;
+.index-change, .etf-change {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px; font-weight: 600;
 }
+.index-change.green, .etf-change.green, .change-up { color: var(--success); }
+.index-change.red, .etf-change.red, .change-down { color: var(--danger); }
 
-.change-down {
-    color: var(--danger);
-    font-weight: 600;
-}
-
-/* Grid Systems */
+/* =========================================
+   Grids
+   ========================================= */
 .indices-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 24px;
-    margin-bottom: 40px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px; margin-bottom: 32px;
 }
-
 .etf-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 24px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
 }
 
 /* =========================================
-   6. Component: Topbar Elements
+   Market Page
    ========================================= */
-.search-box {
-    position: relative;
-    width: 360px;
+.market-page { max-width: 1200px; }
+.welcome-section { margin-bottom: 24px; }
+.welcome-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px; font-weight: 800; color: var(--text-1);
+    margin-bottom: 4px;
 }
-
-.search-input {
-    width: 100%;
-    height: 44px;
-    background: rgba(0, 0, 0, 0.3);
-    border: var(--border-glass);
-    border-radius: 22px;
-    padding: 0 20px 0 50px;
-    color: var(--text-1);
-    font-size: 14px;
-    transition: all 0.3s;
+.welcome-subtitle { font-size: 14px; color: var(--text-3); }
+.section-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 17px; font-weight: 700; color: var(--text-1);
+    margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
 }
-
-.search-input:focus {
-    border-color: var(--primary);
-    background: rgba(0, 0, 0, 0.5);
-    box-shadow: 0 0 15px var(--primary-dim);
-    outline: none;
+.data-note {
+    font-size: 11px; color: var(--text-3); margin-bottom: 6px;
+    font-style: italic;
 }
-
-.search-icon {
-    position: absolute;
-    left: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-3);
-    pointer-events: none;
+.loading-shimmer {
+    background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-elevated) 50%, var(--bg-card) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+    border-radius: var(--radius);
 }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* =========================================
-   7. Gradio Overrides (Force Consistency)
+   Gradio Overrides
    ========================================= */
 .gradio-button {
-    background: var(--primary) !important;
-    color: #000 !important;
-    font-family: 'Orbitron', sans-serif !important;
-    font-weight: 700 !important;
-    border: none !important;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    box-shadow: var(--max-glow) !important;
+    background: var(--primary) !important; color: #000 !important;
+    font-weight: 700 !important; border: none !important;
 }
-
-.gradio-input input,
-.gradio-input textarea,
-.gradio-dropdown-options {
+.gradio-input input, .gradio-input textarea, .gradio-dropdown-options {
     background: var(--bg-surface) !important;
     border: var(--border-glass) !important;
     color: var(--text-1) !important;
 }
 
-/* Fix "Welcome" */
-.welcome-title {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 36px;
-    font-weight: 900;
-    margin-bottom: 8px;
-    background: linear-gradient(135deg, #fff 0%, var(--text-3) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.welcome-subtitle {
-    font-size: 16px;
-    color: var(--text-2);
-    margin-bottom: 48px;
-}
-
 /* =========================================
-   8. Responsive
+   Responsive
    ========================================= */
 @media (max-width: 1024px) {
-    .sidebar {
-        transform: translateX(-100%);
-        width: 280px;
-    }
-
-    .sidebar.active {
-        transform: translateX(0);
-        box-shadow: 0 0 50px rgba(0, 0, 0, 0.8);
-    }
-
-    .topbar-wrapper,
-    .content-area {
-        left: 0;
-        margin-left: 0;
-        width: 100%;
-    }
-
-
+    .sidebar { transform: translateX(-100%); transition: transform 0.3s ease; }
+    .sidebar.active { transform: translateX(0); box-shadow: 0 0 60px rgba(0,0,0,0.8); }
+    .app-main { margin-left: 0; }
+    .topbar-wrapper { left: 0; }
+    .sidebar-toggle { display: block; }
+    .main-content { padding: 20px 16px; }
+    .indices-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+}
+@media (max-width: 640px) {
+    .indices-grid, .etf-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .index-value, .etf-value { font-size: 20px; }
+    .search-box { width: 100%; }
 }
