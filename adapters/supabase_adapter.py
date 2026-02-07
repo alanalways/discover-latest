@@ -1,38 +1,77 @@
 """
-DiscoverLatest 洞察運算 - Supabase Adapter
-處理與 Supabase 的所有互動，包括 Vault secrets 取得
+DiscoverLatest 洞察運算 - Supabase Adapter (REST API 版本)
+使用 httpx 直接調用 Supabase REST API，避免 realtime 依賴的 websockets 版本衝突
 """
 import os
-from supabase import create_client, Client
+import httpx
 from typing import Optional, Dict, Any, List
+from datetime import date
 
 
 class SupabaseAdapter:
-    """Supabase 資料庫與 Vault 操作封裝"""
+    """Supabase 資料庫操作封裝（使用 REST API）"""
     
     def __init__(self):
-        self._client: Optional[Client] = None
-        self._service_client: Optional[Client] = None
-        
-    def _get_client(self) -> Client:
-        """取得一般用戶端（使用 anon key）"""
-        if self._client is None:
-            url = os.environ.get('SUPABASE_URL')
-            key = os.environ.get('SUPABASE_ANON_KEY')
-            if not url or not key:
-                raise ValueError("缺少 SUPABASE_URL 或 SUPABASE_ANON_KEY 環境變數")
-            self._client = create_client(url, key)
-        return self._client
+        self._url: Optional[str] = None
+        self._anon_key: Optional[str] = None
+        self._service_key: Optional[str] = None
+        self._client: Optional[httpx.Client] = None
     
-    def _get_service_client(self) -> Client:
-        """取得服務端用戶端（使用 service_role key，可繞過 RLS）"""
-        if self._service_client is None:
-            url = os.environ.get('SUPABASE_URL')
-            key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
-            if not url or not key:
-                raise ValueError("缺少 SUPABASE_URL 或 SUPABASE_SERVICE_ROLE_KEY 環境變數")
-            self._service_client = create_client(url, key)
-        return self._service_client
+    def _get_config(self):
+        """取得 Supabase 配置"""
+        if not self._url:
+            self._url = os.environ.get('SUPABASE_URL')
+            self._anon_key = os.environ.get('SUPABASE_ANON_KEY')
+            self._service_key = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')
+        return self._url, self._anon_key, self._service_key
+    
+    def _get_headers(self, use_service_key: bool = False) -> Dict[str, str]:
+        """取得 API 請求標頭"""
+        url, anon_key, service_key = self._get_config()
+        key = service_key if use_service_key and service_key else anon_key
+        
+        return {
+            "apikey": key or "",
+            "Authorization": f"Bearer {key}" if key else "",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation"
+        }
+    
+    def _get_rest_url(self) -> str:
+        """取得 REST API URL"""
+        url, _, _ = self._get_config()
+        return f"{url}/rest/v1" if url else ""
+    
+    def _request(
+        self, 
+        method: str, 
+        endpoint: str, 
+        params: Dict = None,
+        json: Any = None,
+        use_service_key: bool = False
+    ) -> Optional[Any]:
+        """發送 REST API 請求"""
+        try:
+            url = f"{self._get_rest_url()}/{endpoint}"
+            headers = self._get_headers(use_service_key)
+            
+            with httpx.Client(timeout=30.0) as client:
+                response = client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    params=params or {},
+                    json=json
+                )
+                response.raise_for_status()
+                
+                if response.text:
+                    return response.json()
+                return None
+                
+        except Exception as e:
+            print(f"[Supabase API] {method} {endpoint} 失敗: {type(e).__name__}")
+            return None
     
     # ===== Vault 操作 =====
     
@@ -40,52 +79,41 @@ class SupabaseAdapter:
         """
         從 Vault 取得 secret（僅後端可用）
         注意：永遠不要把取得的 secret 回傳給前端或記錄到 log
-        
-        Args:
-            secret_name: secret 名稱
-            
-        Returns:
-            secret 值（若不存在則為 None）
         """
-        try:
-            client = self._get_service_client()
-            # 使用 Supabase Vault 的 decrypted_secrets view
-            result = client.table('decrypted_secrets').select('decrypted_secret').eq('name', secret_name).single().execute()
-            if result.data:
-                return result.data.get('decrypted_secret')
-            return None
-        except Exception as e:
-            # 只記錄錯誤類型，不記錄 secret 內容
-            print(f"[Vault] 取得 secret 失敗: {type(e).__name__}")
-            return None
+        result = self._request(
+            "GET", 
+            "decrypted_secrets",
+            params={"name": f"eq.{secret_name}", "select": "decrypted_secret"},
+            use_service_key=True
+        )
+        if result and len(result) > 0:
+            return result[0].get('decrypted_secret')
+        return None
     
     def get_gemini_keys(self) -> List[str]:
-        """
-        取得 Gemini Key Pool（從 Vault）
-        
-        Returns:
-            key 清單
-        """
-        try:
-            client = self._get_service_client()
-            result = client.table('gemini_keys').select('key_value, status').execute()
-            if result.data:
-                return [row['key_value'] for row in result.data if row['status'] == 'active']
-            return []
-        except Exception as e:
-            print(f"[Vault] 取得 Gemini keys 失敗: {type(e).__name__}")
-            return []
+        """取得 Gemini Key Pool"""
+        result = self._request(
+            "GET",
+            "gemini_keys",
+            params={"status": "eq.active", "select": "key_value"},
+            use_service_key=True
+        )
+        if result:
+            return [row['key_value'] for row in result]
+        return []
     
     # ===== 用戶操作 =====
     
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """取得用戶資料"""
-        try:
-            client = self._get_client()
-            result = client.table('users').select('*').eq('id', user_id).single().execute()
-            return result.data
-        except Exception:
-            return None
+        result = self._request(
+            "GET",
+            "users",
+            params={"id": f"eq.{user_id}", "select": "*"}
+        )
+        if result and len(result) > 0:
+            return result[0]
+        return None
     
     def get_user_tier(self, user_id: str) -> str:
         """取得用戶方案等級"""
@@ -96,42 +124,44 @@ class SupabaseAdapter:
     
     def update_user_tier(self, user_id: str, tier: str, expires_at: Optional[str] = None) -> bool:
         """更新用戶方案（需 admin 權限）"""
-        try:
-            client = self._get_service_client()
-            data = {'tier': tier}
-            if expires_at:
-                data['expires_at'] = expires_at
-            client.table('users').update(data).eq('id', user_id).execute()
-            return True
-        except Exception as e:
-            print(f"[DB] 更新用戶方案失敗: {type(e).__name__}")
-            return False
+        data = {'tier': tier}
+        if expires_at:
+            data['expires_at'] = expires_at
+        
+        result = self._request(
+            "PATCH",
+            "users",
+            params={"id": f"eq.{user_id}"},
+            json=data,
+            use_service_key=True
+        )
+        return result is not None
     
     # ===== AI 用量追蹤 =====
     
     def get_ai_usage_today(self, user_id: str) -> int:
         """取得用戶今日 AI 使用次數"""
-        try:
-            client = self._get_client()
-            from datetime import date
-            today = date.today().isoformat()
-            result = client.table('ai_usage').select('count').eq('user_id', user_id).eq('date', today).single().execute()
-            if result.data:
-                return result.data.get('count', 0)
-            return 0
-        except Exception:
-            return 0
+        today = date.today().isoformat()
+        result = self._request(
+            "GET",
+            "ai_usage",
+            params={"user_id": f"eq.{user_id}", "date": f"eq.{today}", "select": "count"}
+        )
+        if result and len(result) > 0:
+            return result[0].get('count', 0)
+        return 0
     
     def increment_ai_usage(self, user_id: str) -> bool:
-        """增加用戶 AI 使用次數"""
+        """增加用戶 AI 使用次數（使用 RPC）"""
+        url, _, service_key = self._get_config()
         try:
-            client = self._get_service_client()
-            from datetime import date
-            today = date.today().isoformat()
-            
-            # 使用 upsert 來處理新增或更新
-            client.rpc('increment_ai_usage', {'p_user_id': user_id, 'p_date': today}).execute()
-            return True
+            with httpx.Client(timeout=30.0) as client:
+                response = client.post(
+                    f"{url}/rest/v1/rpc/increment_ai_usage",
+                    headers=self._get_headers(use_service_key=True),
+                    json={"p_user_id": user_id, "p_date": date.today().isoformat()}
+                )
+                return response.is_success
         except Exception as e:
             print(f"[DB] 增加 AI 用量失敗: {type(e).__name__}")
             return False
@@ -140,19 +170,33 @@ class SupabaseAdapter:
     
     def get_stock_daily(self, symbol: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """取得股票日線資料"""
-        try:
-            client = self._get_client()
-            result = client.table('stock_daily').select('*').eq('symbol', symbol).gte('date', start_date).lte('date', end_date).order('date').execute()
-            return result.data or []
-        except Exception:
-            return []
+        result = self._request(
+            "GET",
+            "stock_daily",
+            params={
+                "symbol": f"eq.{symbol}",
+                "date": f"gte.{start_date}",
+                "date": f"lte.{end_date}",
+                "select": "*",
+                "order": "date"
+            }
+        )
+        return result or []
     
     def upsert_stock_daily(self, records: List[Dict[str, Any]]) -> bool:
         """批次更新股票日線資料"""
+        url, _, _ = self._get_config()
         try:
-            client = self._get_service_client()
-            client.table('stock_daily').upsert(records).execute()
-            return True
+            with httpx.Client(timeout=60.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "resolution=merge-duplicates"
+                
+                response = client.post(
+                    f"{url}/rest/v1/stock_daily",
+                    headers=headers,
+                    json=records
+                )
+                return response.is_success
         except Exception as e:
             print(f"[DB] 更新股票資料失敗: {type(e).__name__}")
             return False
@@ -161,14 +205,143 @@ class SupabaseAdapter:
     
     def search_symbols(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
         """搜尋股票代號（支援中英文混搜）"""
+        result = self._request(
+            "GET",
+            "symbol_index",
+            params={
+                "searchable": f"ilike.*{query}*",
+                "select": "symbol,name_zh,name_en,market,type",
+                "limit": str(limit)
+            }
+        )
+        return result or []
+    
+    # ===== 相容性別名 =====
+    
+    def get_client(self):
+        """回傳自身（相容現有代碼）"""
+        return self
+    
+    def table(self, name: str):
+        """模擬 table 操作（相容現有代碼）"""
+        return TableQuery(self, name)
+
+
+class TableQuery:
+    """模擬 Supabase Table Query Builder"""
+    
+    def __init__(self, adapter: SupabaseAdapter, table_name: str):
+        self._adapter = adapter
+        self._table = table_name
+        self._params = {}
+        self._select_cols = "*"
+    
+    def select(self, columns: str = "*"):
+        self._select_cols = columns
+        self._params["select"] = columns
+        return self
+    
+    def eq(self, column: str, value: Any):
+        self._params[column] = f"eq.{value}"
+        return self
+    
+    def gte(self, column: str, value: Any):
+        self._params[column] = f"gte.{value}"
+        return self
+    
+    def lte(self, column: str, value: Any):
+        self._params[column] = f"lte.{value}"
+        return self
+    
+    def ilike(self, column: str, pattern: str):
+        self._params[column] = f"ilike.{pattern}"
+        return self
+    
+    def order(self, column: str, desc: bool = False):
+        order_str = f"{column}.desc" if desc else column
+        self._params["order"] = order_str
+        return self
+    
+    def limit(self, count: int):
+        self._params["limit"] = str(count)
+        return self
+    
+    def single(self):
+        self._params["limit"] = "1"
+        return self
+    
+    def execute(self):
+        result = self._adapter._request("GET", self._table, params=self._params)
+        return QueryResult(result)
+    
+    def upsert(self, data: Any):
+        return UpsertQuery(self._adapter, self._table, data)
+    
+    def update(self, data: Dict):
+        return UpdateQuery(self._adapter, self._table, data, self._params)
+
+
+class QueryResult:
+    """模擬 Supabase Query Result"""
+    def __init__(self, data):
+        if isinstance(data, list):
+            self.data = data[0] if len(data) == 1 else data if data else None
+        else:
+            self.data = data
+
+
+class UpsertQuery:
+    """模擬 Upsert Query"""
+    def __init__(self, adapter: SupabaseAdapter, table: str, data: Any):
+        self._adapter = adapter
+        self._table = table
+        self._data = data
+    
+    def execute(self):
+        url, _, _ = self._adapter._get_config()
         try:
-            client = self._get_client()
-            # 使用 ilike 進行模糊搜尋
-            result = client.table('symbol_index').select('symbol, name_zh, name_en, market, type').ilike('searchable', f'%{query}%').limit(limit).execute()
-            return result.data or []
+            with httpx.Client(timeout=60.0) as client:
+                headers = self._adapter._get_headers(use_service_key=True)
+                headers["Prefer"] = "resolution=merge-duplicates"
+                
+                response = client.post(
+                    f"{url}/rest/v1/{self._table}",
+                    headers=headers,
+                    json=self._data
+                )
+                return QueryResult(response.json() if response.text else None)
         except Exception:
-            return []
+            return QueryResult(None)
+
+
+class UpdateQuery:
+    """模擬 Update Query"""
+    def __init__(self, adapter: SupabaseAdapter, table: str, data: Dict, params: Dict):
+        self._adapter = adapter
+        self._table = table
+        self._data = data
+        self._params = params
+    
+    def eq(self, column: str, value: Any):
+        self._params[column] = f"eq.{value}"
+        return self
+    
+    def execute(self):
+        url, _, _ = self._adapter._get_config()
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                response = client.patch(
+                    f"{url}/rest/v1/{self._table}",
+                    headers=self._adapter._get_headers(use_service_key=True),
+                    params=self._params,
+                    json=self._data
+                )
+                return QueryResult(response.json() if response.text else None)
+        except Exception:
+            return QueryResult(None)
 
 
 # 全域實例
 supabase_adapter = SupabaseAdapter()
+# 相容別名
+supabase = supabase_adapter
