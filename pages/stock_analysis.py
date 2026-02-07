@@ -4,6 +4,8 @@
 import gradio as gr
 from components.i18n import t
 from components.chart_viewer import create_candlestick_chart, create_line_chart
+from components.smc_chart import create_smc_chart, create_smc_summary_card
+from services.smc_service import smc_service
 from typing import Dict, List, Optional
 
 
@@ -41,6 +43,16 @@ def create_stock_analysis_page(
         height=450,
         show_volume=True
     )
+    
+    # SMC 分析
+    smc_analysis = smc_service.analyze(history)
+    smc_chart_html = create_smc_chart(
+        data=history,
+        smc_analysis=smc_analysis,
+        symbol=symbol,
+        height=500
+    )
+    smc_summary_html = create_smc_summary_card(smc_analysis, lang)
     
     # 風險指標
     risk_html = _create_risk_metrics(info, history, lang)
@@ -255,6 +267,17 @@ def create_stock_analysis_page(
                 <button class="period-tab" onclick="changePeriod('5y')">5Y</button>
             </div>
             {chart_html}
+        </div>
+        
+        <!-- SMC/ICT 分析區 -->
+        <h2 class="section-title">🎯 SMC/ICT 技術分析</h2>
+        <div class="two-column" style="margin-bottom: 24px;">
+            <div>
+                {smc_chart_html}
+            </div>
+            <div>
+                {smc_summary_html}
+            </div>
         </div>
         
         <!-- 風險指標 -->

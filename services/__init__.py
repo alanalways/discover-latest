@@ -4,6 +4,7 @@ Services 模組
 from .rate_limiter import RateLimiter, rate_limiter, TIER_LIMITS
 from .stock_service import StockService, stock_service
 from .backtest_service import BacktestService, backtest_service
+from .smc_service import smc_service, SMCService
 
 __all__ = [
     # Rate Limiter
@@ -16,4 +17,7 @@ __all__ = [
     # Backtest Service
     "BacktestService",
     "backtest_service",
+    # SMC Service
+    "smc_service",
+    "SMCService",
 ]
