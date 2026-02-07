@@ -1,12 +1,25 @@
 """
-DiscoverLatest 洞察運算 - Components 模組
+Components 模組
 """
-from .i18n import t, get_supported_langs, DEFAULT_LANG, SUPPORTED_LANGS
-from .sidebar import create_sidebar_html, create_sidebar_component
-from .topbar import create_topbar_html, create_topbar_component, search_symbols
+from .i18n import t, get_translations, get_supported_languages, set_language, load_translations
+from .sidebar import create_sidebar
+from .topbar import create_topbar, perform_search
+from .chart_viewer import create_candlestick_chart, create_line_chart, create_chart_viewer_component
 
 __all__ = [
-    't', 'get_supported_langs', 'DEFAULT_LANG', 'SUPPORTED_LANGS',
-    'create_sidebar_html', 'create_sidebar_component',
-    'create_topbar_html', 'create_topbar_component', 'search_symbols'
+    # i18n
+    "t",
+    "get_translations",
+    "get_supported_languages",
+    "set_language",
+    "load_translations",
+    # Sidebar
+    "create_sidebar",
+    # Topbar
+    "create_topbar",
+    "perform_search",
+    # Chart Viewer
+    "create_candlestick_chart",
+    "create_line_chart",
+    "create_chart_viewer_component",
 ]

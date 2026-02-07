@@ -1,12 +1,12 @@
 {
     "app": {
         "name": "DiscoverLatest",
-        "tagline": "AI-Powered Investment Analytics"
+        "tagline": "AI-Powered Investment Analysis Platform"
     },
     "nav": {
         "market": "Market Overview",
         "stock": "Stock Analysis",
-        "industry": "Industry Graph",
+        "industry": "Industry Map",
         "watchlist": "Watchlist",
         "portfolio": "Portfolio",
         "admin": "Admin Console"
@@ -20,7 +20,7 @@
         "save": "Save",
         "cancel": "Cancel",
         "confirm": "Confirm",
-        "error": "Error occurred",
+        "error": "An error occurred",
         "success": "Success"
     },
     "tier": {
@@ -43,14 +43,36 @@
         "changePercent": "Change %"
     },
     "stock": {
-        "title": "AI Stock Diagnosis",
+        "title": "AI Stock Analysis",
         "enterSymbol": "Enter stock symbol",
         "analyze": "Analyze",
         "fundamental": "Fundamental Analysis",
+        "fundamentals": "Fundamentals",
         "technical": "Technical Analysis",
-        "risk": "Risk Indicators",
+        "risk": "Risk Metrics",
+        "riskMetrics": "Risk Metrics",
         "backtest": "Backtest Results",
-        "smcIct": "SMC/ICT Signals"
+        "smcIct": "SMC/ICT Signals",
+        "info": "Stock Info",
+        "industry": "Industry",
+        "marketCap": "Market Cap",
+        "avgVolume": "Avg Volume",
+        "52weekHigh": "52-Week High",
+        "52weekLow": "52-Week Low",
+        "pe": "P/E Ratio",
+        "pb": "P/B Ratio",
+        "eps": "EPS",
+        "dividend": "Dividend Yield",
+        "beta": "Beta",
+        "betaDesc": "Sensitivity to market movements",
+        "maxDrawdown": "Max Drawdown",
+        "maxDrawdownDesc": "Largest historical decline",
+        "volatility": "Annual Volatility",
+        "volatilityDesc": "Annualized standard deviation",
+        "sharpe": "Sharpe Ratio",
+        "sharpeDesc": "Risk-adjusted return",
+        "searchGuide": "Enter a stock symbol to begin analysis",
+        "searchHint": "Type a stock symbol or name in the search box above, e.g. 'AAPL' or 'Apple'"
     },
     "portfolio": {
         "title": "Portfolio",
@@ -60,7 +82,7 @@
         "addPosition": "Add Position"
     },
     "disclaimer": {
-        "title": "Risk Disclaimer",
+        "title": "Disclaimer",
         "content": "Information provided on this platform is for reference only and does not constitute investment advice. Investing involves risks, please evaluate carefully."
     }
 }
