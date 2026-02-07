@@ -290,7 +290,22 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
-        <script>window._supabaseLoginUrl="{_login_url}";</script>
+        <script>
+            window._supabaseLoginUrl="{_login_url}";
+            // 頂層頁面攔截 OAuth hash token → 存入 localStorage 供 Gradio iframe 讀取
+            (function() {{
+                var h = window.location.hash;
+                if (h && h.indexOf('access_token=') !== -1) {{
+                    var p = new URLSearchParams(h.substring(1));
+                    var t = p.get('access_token');
+                    if (t) {{
+                        try {{ localStorage.setItem('dl_oauth_token', t); }} catch(e) {{}}
+                        // 清除 hash 避免重複
+                        history.replaceState(null, '', window.location.pathname);
+                    }}
+                }}
+            }})();
+        </script>
         ''',
     ) as app:
 
@@ -631,44 +646,39 @@ def create_app():
         () => {
             console.log('[Init] DiscoverLatest v5.1');
 
-            // ── OAuth callback 檢查（立即執行，不等 setTimeout）──
+            // ── OAuth callback 檢查（立即執行）──
             (function checkOAuthCallback() {
                 let token = null;
 
-                // 1. 檢查當前 iframe 的 hash
-                const hash = window.location.hash;
-                if (hash && hash.includes('access_token=')) {
-                    const params = new URLSearchParams(hash.substring(1));
-                    token = params.get('access_token');
-                }
+                // 1. 檢查 localStorage（由 <head> script 在頂層頁面寫入）
+                try {
+                    token = localStorage.getItem('dl_oauth_token');
+                    if (token) localStorage.removeItem('dl_oauth_token');
+                } catch(e) {}
 
-                // 2. 嘗試從頂層 window 取得（HF Space iframe 場景）
+                // 2. Fallback: 檢查當前頁面 hash（直接訪問 Gradio URL 的場景）
                 if (!token) {
-                    try {
-                        const topHash = window.top.location.hash;
-                        if (topHash && topHash.includes('access_token=')) {
-                            const params = new URLSearchParams(topHash.substring(1));
-                            token = params.get('access_token');
-                        }
-                    } catch(e) { /* 跨域限制，忽略 */ }
+                    const hash = window.location.hash;
+                    if (hash && hash.includes('access_token=')) {
+                        const params = new URLSearchParams(hash.substring(1));
+                        token = params.get('access_token');
+                    }
                 }
 
-                // 3. 檢查 query parameter（PKCE flow）
+                // 3. Fallback: query parameter
                 if (!token) {
                     const searchParams = new URLSearchParams(window.location.search);
                     token = searchParams.get('access_token');
                 }
 
                 if (token) {
-                    console.log('[Auth] OAuth callback token detected');
-                    // 清除 URL 避免重複觸發
+                    console.log('[Auth] OAuth token found, authenticating...');
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
-                    try { window.top.history.replaceState(null, '', window.top.location.pathname); } catch(e) {}
-                    // 等待 Gradio textarea 就緒
+                    // 等待 Gradio textarea 就緒後送出 token
                     function sendToken() {
                         const as_ = document.querySelector('#auth-state textarea');
                         if (as_) {
-                            console.log('[Auth] Sending token to Gradio');
+                            console.log('[Auth] Sending token to Gradio backend');
                             as_.value = token;
                             as_.dispatchEvent(new Event('input', {bubbles:true}));
                         } else {
