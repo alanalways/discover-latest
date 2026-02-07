@@ -1,0 +1,66 @@
+{
+    "app": {
+        "name": "DiscoverLatest",
+        "tagline": "AI-Powered Investment Analytics"
+    },
+    "nav": {
+        "market": "Market Overview",
+        "stock": "Stock Analysis",
+        "industry": "Industry Graph",
+        "watchlist": "Watchlist",
+        "portfolio": "Portfolio",
+        "admin": "Admin Console"
+    },
+    "common": {
+        "search": "Search stock symbol...",
+        "loading": "Loading...",
+        "login": "Login",
+        "logout": "Logout",
+        "language": "Language",
+        "save": "Save",
+        "cancel": "Cancel",
+        "confirm": "Confirm",
+        "error": "Error occurred",
+        "success": "Success"
+    },
+    "tier": {
+        "free": "Free",
+        "pro": "Pro",
+        "premium": "Premium",
+        "usage": "Today's Usage",
+        "remaining": "{count} remaining"
+    },
+    "auth": {
+        "loginWithGoogle": "Sign in with Google",
+        "welcome": "Welcome back, {name}",
+        "guestWelcome": "Welcome to DiscoverLatest"
+    },
+    "market": {
+        "title": "Market Overview",
+        "indices": "Major Indices",
+        "etf": "Popular ETFs",
+        "change": "Change",
+        "changePercent": "Change %"
+    },
+    "stock": {
+        "title": "AI Stock Diagnosis",
+        "enterSymbol": "Enter stock symbol",
+        "analyze": "Analyze",
+        "fundamental": "Fundamental Analysis",
+        "technical": "Technical Analysis",
+        "risk": "Risk Indicators",
+        "backtest": "Backtest Results",
+        "smcIct": "SMC/ICT Signals"
+    },
+    "portfolio": {
+        "title": "Portfolio",
+        "holdings": "Holdings",
+        "healthScore": "Health Score",
+        "rebalance": "Rebalance Suggestions",
+        "addPosition": "Add Position"
+    },
+    "disclaimer": {
+        "title": "Risk Disclaimer",
+        "content": "Information provided on this platform is for reference only and does not constitute investment advice. Investing involves risks, please evaluate carefully."
+    }
+}

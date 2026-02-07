@@ -1,0 +1,12 @@
+# DiscoverLatest 洞察運算
+# Hugging Face Spaces 專案
+
+*.pyc
+__pycache__/
+.env
+.env.local
+*.egg-info/
+dist/
+build/
+.venv/
+venv/

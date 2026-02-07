@@ -1,0 +1,66 @@
+{
+    "app": {
+        "name": "洞察運算",
+        "tagline": "AI 智慧投資分析平台"
+    },
+    "nav": {
+        "market": "市場總覽",
+        "stock": "個股分析",
+        "industry": "產業圖譜",
+        "watchlist": "我的自選",
+        "portfolio": "投資組合",
+        "admin": "後台管理"
+    },
+    "common": {
+        "search": "搜尋股票代號...",
+        "loading": "載入中...",
+        "login": "登入",
+        "logout": "登出",
+        "language": "語言",
+        "save": "儲存",
+        "cancel": "取消",
+        "confirm": "確認",
+        "error": "發生錯誤",
+        "success": "成功"
+    },
+    "tier": {
+        "free": "免費版",
+        "pro": "專業版",
+        "premium": "旗艦版",
+        "usage": "今日用量",
+        "remaining": "剩餘 {count} 次"
+    },
+    "auth": {
+        "loginWithGoogle": "使用 Google 登入",
+        "welcome": "歡迎回來，{name}",
+        "guestWelcome": "歡迎使用洞察運算"
+    },
+    "market": {
+        "title": "市場總覽",
+        "indices": "主要指數",
+        "etf": "熱門 ETF",
+        "change": "漲跌",
+        "changePercent": "漲跌幅"
+    },
+    "stock": {
+        "title": "AI 股票診斷",
+        "enterSymbol": "輸入股票代號",
+        "analyze": "開始分析",
+        "fundamental": "基本面分析",
+        "technical": "技術分析",
+        "risk": "風險指標",
+        "backtest": "回測結果",
+        "smcIct": "SMC/ICT 訊號"
+    },
+    "portfolio": {
+        "title": "投資組合",
+        "holdings": "持股明細",
+        "healthScore": "投組健康度",
+        "rebalance": "再平衡建議",
+        "addPosition": "新增持股"
+    },
+    "disclaimer": {
+        "title": "風險提示",
+        "content": "本平台提供之資訊僅供參考，不構成投資建議。投資有風險，請審慎評估。"
+    }
+}
