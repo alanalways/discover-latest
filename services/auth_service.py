@@ -6,7 +6,7 @@ import os
 import hashlib
 import time
 from datetime import datetime
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from adapters.supabase_adapter import supabase_adapter
 
 
