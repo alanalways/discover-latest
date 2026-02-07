@@ -316,9 +316,9 @@ def create_app():
                 return _create_login_page(lang)
 
             try:
-            if page_id == "market":
+                if page_id == "market":
                     inner = create_market_overview_page(lang)
-            elif page_id == "stock":
+                elif page_id == "stock":
                     if _current_symbol:
                         data = _fetch_stock_data_sync(_current_symbol)
                         inner = create_stock_analysis_page(
