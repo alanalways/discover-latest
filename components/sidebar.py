@@ -32,7 +32,7 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
     for page_id, label_key, icon in nav_items:
         active_class = 'active' if page_id == current_page else ''
         nav_html += f'''
-        <a href="#{page_id}" class="nav-item {active_class}" data-page="{page_id}">
+        <a href="#{page_id}" class="nav-item {active_class}" data-page="{page_id}" onclick="event.preventDefault(); navigateTo('{page_id}');">
             <span class="nav-icon">{icon}</span>
             <span class="nav-label">{t(label_key, lang)}</span>
         </a>
