@@ -72,9 +72,9 @@ def create_app():
             elem_id="main-layout-html"
         )
         
-        # 主內容區
+        # 主內容區 (初始為空，透過 load 事件載入)
         page_content = gr.HTML(
-            value=create_market_overview_page(DEFAULT_LANG).value,
+            value="",
             elem_id="page-content-html",
             elem_classes=["content-area"]
         )
@@ -88,7 +88,7 @@ def create_app():
             if page_id == "market":
                 return create_market_overview_page(DEFAULT_LANG)
             elif page_id == "stock":
-                return create_stock_analysis_page(lang=DEFAULT_LANG) # 預設顯示空的搜尋引導
+                return create_stock_analysis_page(lang=DEFAULT_LANG)
             else:
                 return f"""
                 <div class="dashboard-card fade-in">
@@ -97,12 +97,19 @@ def create_app():
                 </div>
                 """
 
-        # 綁定事件
+        # 綁定導航事件
         nav_state.change(
             fn=handle_nav,
             inputs=[nav_state],
             outputs=[page_content],
             api_name="navigate"
+        )
+        
+        # 初始載入 (Server-side Trigger)
+        app.load(
+            fn=handle_nav,
+            inputs=[nav_state],
+            outputs=[page_content]
         )
         
         # 自定義 JS：只負責傳遞 State
