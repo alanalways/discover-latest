@@ -114,9 +114,20 @@ body,
 
 /* ===== 3. 主要佈局結構 ===== */
 .main-layout {
-    display: flex;
-    min-height: 100vh;
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 0;
+    z-index: 100;
+    pointer-events: none;
+    /* 讓點擊穿透到下方內容 (除了子元素) */
+}
+
+/* 恢復子元素的 pointer-events */
+.sidebar,
+.topbar-wrapper {
+    pointer-events: auto;
 }
 
 /* --- Sidebar (左側導航) --- */
