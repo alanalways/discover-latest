@@ -48,7 +48,11 @@ def create_app():
     
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
-        css=CUSTOM_CSS,
+        css=CUSTOM_CSS + """
+        .gradio-container { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+        .contain { padding: 0 !important; margin: 0 !important; max-width: 100% !important; }
+        #component-0 { padding: 0 !important; }
+        """,
         theme=gr.themes.Base(
             primary_hue="cyan",
             secondary_hue="purple",
