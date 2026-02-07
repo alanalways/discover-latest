@@ -50,7 +50,8 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
                 洞察運算 · AI 智慧投資分析平台<br>
                 整合 SMC/ICT 技術分析、價格預測與 Discover Latest AI
             </p>
-            <button class="login-google-btn" onclick="handleGoogleLogin()">
+            <div id="g-signin-btn" style="display:flex;justify-content:center;margin:16px 0;min-height:44px;"></div>
+            <button class="login-google-btn" id="fallback-login-btn" onclick="handleGoogleLogin()" style="display:none;">
                 <svg viewBox="0 0 24 24" width="20" height="20">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -276,10 +277,10 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW') -> str:
 def create_app():
     validate_models_on_startup()
 
-    # Compute login URL for injection into HTML head
-    # 重要：redirect_to 必須指向 Gradio 的直接 URL（非 HF Space 頂層頁面）
-    # 這樣 Supabase 會把 #access_token 附在 Gradio URL 上，JS 可以直接讀取
+    # ── Auth config for client-side JS injection ──
     _supabase_url = os.environ.get("SUPABASE_URL", "")
+    _supabase_anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+    _google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
     
@@ -292,7 +293,13 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
-        <script>window._supabaseLoginUrl="{_login_url}";</script>
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+        <script>
+          window._supabaseLoginUrl="{_login_url}";
+          window._supabaseUrl="{_supabase_url}";
+          window._supabaseAnonKey="{_supabase_anon_key}";
+          window._googleClientId="{_google_client_id}";
+        </script>
         ''',
     ) as app:
         
@@ -647,70 +654,144 @@ def create_app():
         # ── Client-side JS ──
         app.load(fn=lambda *_args: None, js="""
         () => {
-            console.log('[Init] DiscoverLatest v5.1');
+            console.log('[Init] DiscoverLatest v6.0 (GIS Auth)');
 
-            // ── OAuth callback 檢查（立即執行）──
+            // ── Helper: 把 Supabase access_token 送給 Gradio backend ──
+            function sendTokenToBackend(accessToken) {
+                let attempts = 0;
+                function trySend() {
+                    const as_ = document.querySelector('#auth-state textarea');
+                    if (as_) {
+                        console.log('[Auth] Sending access_token to Gradio backend');
+                        as_.value = accessToken;
+                        as_.dispatchEvent(new Event('input', {bubbles:true}));
+                    } else if (attempts < 50) {
+                        attempts++;
+                        setTimeout(trySend, 200);
+                    } else {
+                        console.error('[Auth] Failed: #auth-state not found after 10s');
+                    }
+                }
+                trySend();
+            }
+
+            // ── Google GIS signInWithIdToken callback ──
+            window.handleSignInWithGoogle = async function(response) {
+                console.log('[Auth] Google ID token received (GIS callback)');
+                const idToken = response.credential;
+                if (!idToken) {
+                    console.error('[Auth] No credential in Google response');
+                    return;
+                }
+                // 顯示 loading 狀態
+                const btn = document.getElementById('g-signin-btn');
+                if (btn) btn.innerHTML = '<p style="color:#00FFFF;font-size:13px;">驗證中...</p>';
+
+                try {
+                    const supabaseUrl = window._supabaseUrl;
+                    const anonKey = window._supabaseAnonKey;
+                    if (!supabaseUrl || !anonKey) {
+                        console.error('[Auth] Missing Supabase config');
+                        if (btn) btn.innerHTML = '<p style="color:#ef4444;font-size:12px;">Supabase 設定缺失</p>';
+                        return;
+                    }
+                    // POST to Supabase /auth/v1/token?grant_type=id_token
+                    const resp = await fetch(supabaseUrl + '/auth/v1/token?grant_type=id_token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': anonKey,
+                        },
+                        body: JSON.stringify({
+                            provider: 'google',
+                            id_token: idToken,
+                        }),
+                    });
+                    const data = await resp.json();
+                    console.log('[Auth] Supabase signInWithIdToken:', resp.status);
+                    if (resp.ok && data.access_token) {
+                        console.log('[Auth] Got Supabase access_token, sending to backend');
+                        sendTokenToBackend(data.access_token);
+                    } else {
+                        const errMsg = data.error_description || data.msg || data.message || JSON.stringify(data);
+                        console.error('[Auth] signInWithIdToken failed:', errMsg);
+                        if (btn) btn.innerHTML = '<p style="color:#ef4444;font-size:12px;">登入失敗: ' + errMsg + '</p>';
+                    }
+                } catch (e) {
+                    console.error('[Auth] signInWithIdToken error:', e);
+                    if (btn) btn.innerHTML = '<p style="color:#ef4444;font-size:12px;">網路錯誤: ' + e.message + '</p>';
+                }
+            };
+
+            // ── 初始化 Google GIS (Sign In with Google) ──
+            function initGoogleSignIn() {
+                const clientId = window._googleClientId;
+                if (!clientId) {
+                    console.warn('[Auth] GOOGLE_CLIENT_ID not set, showing fallback button');
+                    const fb = document.getElementById('fallback-login-btn');
+                    if (fb) fb.style.display = '';
+                    return;
+                }
+                if (typeof google !== 'undefined' && google.accounts && google.accounts.id) {
+                    console.log('[Auth] Initializing Google GIS');
+                    google.accounts.id.initialize({
+                        client_id: clientId,
+                        callback: window.handleSignInWithGoogle,
+                        use_fedcm_for_prompt: true,
+                    });
+                    // 渲染 Google 官方按鈕
+                    const container = document.getElementById('g-signin-btn');
+                    if (container) {
+                        google.accounts.id.renderButton(container, {
+                            type: 'standard',
+                            theme: 'filled_black',
+                            size: 'large',
+                            width: 300,
+                            text: 'signin_with',
+                            shape: 'pill',
+                            locale: 'zh-TW',
+                        });
+                        console.log('[Auth] Google Sign-In button rendered');
+                    }
+                    // 也嘗試 One Tap
+                    google.accounts.id.prompt((notification) => {
+                        console.log('[Auth] One Tap notification:', notification.getMomentType());
+                    });
+                } else {
+                    // GIS 還沒載入，等一下再試
+                    setTimeout(initGoogleSignIn, 500);
+                }
+            }
+            // 延遲啟動，讓 GIS script 有時間載入
+            setTimeout(initGoogleSignIn, 1000);
+
+            // ── Legacy OAuth callback 檢查（向下相容）──
             (function checkOAuthCallback() {
                 const searchParams = new URLSearchParams(window.location.search);
                 const hashParams = new URLSearchParams(window.location.hash.substring(1));
 
-                // 檢查 Supabase 回傳的錯誤
+                // 檢查錯誤
                 const error = searchParams.get('error') || hashParams.get('error');
                 if (error) {
                     const desc = searchParams.get('error_description') || hashParams.get('error_description') || '';
-                    console.error('[Auth] Supabase OAuth error:', error, desc);
+                    console.error('[Auth] OAuth redirect error:', error, desc);
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
-                    // 顯示錯誤訊息
-                    setTimeout(function() {
-                        const card = document.querySelector('.login-card');
-                        if (card) {
-                            const errDiv = document.createElement('p');
-                            errDiv.style.cssText = 'color:#ef4444;font-size:12px;margin-top:12px;';
-                            errDiv.textContent = '登入失敗: ' + decodeURIComponent(desc).replace(/\\+/g, ' ');
-                            card.appendChild(errDiv);
-                        }
-                    }, 1000);
                     return;
                 }
 
                 let credential = null;
-
-                // 1. #access_token=...（implicit flow）
                 if (hashParams.get('access_token')) {
                     credential = hashParams.get('access_token');
                     console.log('[Auth] Found access_token in hash');
                 }
-
-                // 2. ?code=...（PKCE flow）
-                if (!credential && searchParams.get('code')) {
-                    credential = searchParams.get('code');
-                    console.log('[Auth] Found PKCE code in query params');
-                }
-
-                // 3. ?access_token=...
                 if (!credential && searchParams.get('access_token')) {
                     credential = searchParams.get('access_token');
-                    console.log('[Auth] Found access_token in query params');
+                    console.log('[Auth] Found access_token in query');
                 }
-
                 if (credential) {
-                    console.log('[Auth] Credential found (len=' + credential.length + '), sending to backend...');
+                    console.log('[Auth] Legacy credential found, sending to backend');
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
-                    let attempts = 0;
-                    function sendCredential() {
-                        const as_ = document.querySelector('#auth-state textarea');
-                        if (as_) {
-                            console.log('[Auth] Sending credential to Gradio backend');
-                            as_.value = credential;
-                            as_.dispatchEvent(new Event('input', {bubbles:true}));
-                        } else if (attempts < 50) {
-                            attempts++;
-                            setTimeout(sendCredential, 200);
-                        } else {
-                            console.error('[Auth] Failed: #auth-state not found after 10s');
-                        }
-                    }
-                    sendCredential();
+                    sendTokenToBackend(credential);
                 }
             })();
             
@@ -731,7 +812,7 @@ def create_app():
                     if (ns) { ns.value = page; ns.dispatchEvent(new Event('input', {bubbles:true})); }
                 };
 
-                // ── Stock selection (writes to symbol_state → triggers Python) ──
+                // ── Stock selection ──
                 window.selectStock = function(sym) {
                     console.log('[Stock] Select:', sym);
                     const sr = document.getElementById('search-results');
@@ -745,7 +826,7 @@ def create_app():
                     }
                 };
 
-                // ── Action dispatcher (writes JSON to action_state) ──
+                // ── Action dispatcher ──
                 window.dispatchAction = function(payload) {
                     console.log('[Action]', payload);
                     const as_ = document.querySelector('#action-state textarea');
@@ -755,17 +836,13 @@ def create_app():
                     }
                 };
 
-                // ── Google OAuth Login ──
+                // ── Fallback Google Login (redirect flow) ──
                 window.handleGoogleLogin = function() {
-                    // 組建 login URL，redirect_to 指向 Gradio 自身 origin
-                    // 這樣 Supabase 回傳的 #access_token 會出現在 Gradio 的 URL 上
                     const baseLoginUrl = window._supabaseLoginUrl || '';
                     if (baseLoginUrl) {
-                        // 用 Gradio iframe 自身的 origin 作為 redirect target
-                        const gradioOrigin = window.location.origin;
                         const url = new URL(baseLoginUrl);
-                        url.searchParams.set('redirect_to', gradioOrigin + '/');
-                        console.log('[Auth] Redirecting to:', url.toString());
+                        url.searchParams.set('redirect_to', window.location.origin + '/');
+                        console.log('[Auth] Fallback redirect to:', url.toString());
                         window.location.href = url.toString();
                     } else {
                         alert('Supabase Auth 尚未設定，請聯絡管理員');
@@ -778,7 +855,6 @@ def create_app():
                         as_.dispatchEvent(new Event('input', {bubbles:true}));
                     }
                 };
-                // OAuth callback 已在 setTimeout 外部處理
 
                 // ── Admin Actions ──
                 window.adminSearchUser = function() {
@@ -862,7 +938,6 @@ def create_app():
                             }
                         } else { sr.classList.remove('active'); }
                     });
-                    // Enter key = direct symbol search
                     si.addEventListener('keydown', function(e) {
                         if (e.key === 'Enter' && si.value.trim()) {
                             selectStock(si.value.trim().toUpperCase());
