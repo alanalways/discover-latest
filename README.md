@@ -1,3 +1,14 @@
+---
+title: Discover Latest V2
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: gradio
+sdk_version: 4.19.2
+app_file: app.py
+pinned: false
+---
+
 # DiscoverLatest 洞察運算
 
 AI 智慧投資分析平台
