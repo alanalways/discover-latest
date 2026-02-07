@@ -629,7 +629,56 @@ def create_app():
         # ── Client-side JS ──
         app.load(fn=lambda *_args: None, js="""
         () => {
-            console.log('[Init] DiscoverLatest v5.0');
+            console.log('[Init] DiscoverLatest v5.1');
+
+            // ── OAuth callback 檢查（立即執行，不等 setTimeout）──
+            (function checkOAuthCallback() {
+                let token = null;
+
+                // 1. 檢查當前 iframe 的 hash
+                const hash = window.location.hash;
+                if (hash && hash.includes('access_token=')) {
+                    const params = new URLSearchParams(hash.substring(1));
+                    token = params.get('access_token');
+                }
+
+                // 2. 嘗試從頂層 window 取得（HF Space iframe 場景）
+                if (!token) {
+                    try {
+                        const topHash = window.top.location.hash;
+                        if (topHash && topHash.includes('access_token=')) {
+                            const params = new URLSearchParams(topHash.substring(1));
+                            token = params.get('access_token');
+                        }
+                    } catch(e) { /* 跨域限制，忽略 */ }
+                }
+
+                // 3. 檢查 query parameter（PKCE flow）
+                if (!token) {
+                    const searchParams = new URLSearchParams(window.location.search);
+                    token = searchParams.get('access_token');
+                }
+
+                if (token) {
+                    console.log('[Auth] OAuth callback token detected');
+                    // 清除 URL 避免重複觸發
+                    try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
+                    try { window.top.history.replaceState(null, '', window.top.location.pathname); } catch(e) {}
+                    // 等待 Gradio textarea 就緒
+                    function sendToken() {
+                        const as_ = document.querySelector('#auth-state textarea');
+                        if (as_) {
+                            console.log('[Auth] Sending token to Gradio');
+                            as_.value = token;
+                            as_.dispatchEvent(new Event('input', {bubbles:true}));
+                        } else {
+                            setTimeout(sendToken, 200);
+                        }
+                    }
+                    sendToken();
+                }
+            })();
+
             setTimeout(() => {
                 // ── Sidebar toggle ──
                 window.toggleSidebar = function() {
@@ -675,8 +724,9 @@ def create_app():
                 window.handleGoogleLogin = function() {
                     const loginUrl = window._supabaseLoginUrl || '';
                     if (loginUrl) {
-                        // 使用 location.href 直接導向（非彈出視窗），確保 redirect 回到同一頁面
-                        window.location.href = loginUrl;
+                        // 使用 top.location 導向整個頁面（避免 HF iframe 問題）
+                        try { window.top.location.href = loginUrl; }
+                        catch(e) { window.location.href = loginUrl; }
                     } else {
                         alert('Supabase Auth 尚未設定，請聯絡管理員');
                     }
@@ -688,31 +738,7 @@ def create_app():
                         as_.dispatchEvent(new Event('input', {bubbles:true}));
                     }
                 };
-                // Check for OAuth callback token in URL hash or query params
-                (function checkOAuthCallback() {
-                    let token = null;
-                    // 優先檢查 hash fragment（Supabase implicit flow）
-                    const hash = window.location.hash;
-                    if (hash && hash.includes('access_token=')) {
-                        const params = new URLSearchParams(hash.substring(1));
-                        token = params.get('access_token');
-                    }
-                    // 備援：檢查 query parameter（PKCE flow）
-                    if (!token) {
-                        const searchParams = new URLSearchParams(window.location.search);
-                        token = searchParams.get('access_token');
-                    }
-                    if (token) {
-                        console.log('[Auth] OAuth callback token detected');
-                        const as_ = document.querySelector('#auth-state textarea');
-                        if (as_) {
-                            as_.value = token;
-                            as_.dispatchEvent(new Event('input', {bubbles:true}));
-                        }
-                        // Clean hash and query params
-                        history.replaceState(null, '', window.location.pathname);
-                    }
-                })();
+                // OAuth callback 已在 setTimeout 外部處理
 
                 // ── Admin Actions ──
                 window.adminSearchUser = function() {
