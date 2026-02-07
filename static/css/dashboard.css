@@ -1,102 +1,93 @@
 /*
- * DiscoverLatest 洞察運算 - Dashboard 主題 (Visual Upgrade v2)
+ * DiscoverLatest 洞察運算 - Dashboard 主題 (Visual Upgrade v2.7)
  * 風格：Cyberpunk / Dark Neon / Glassmorphism
+ * 修正：對比度增強、Layout 層級與被擋住的問題
  */
 
 /* ===== 1. 設計系統 (Design System) ===== */
 :root {
-    /* --- 核心色調 (基于 HSL 以便衍生) --- */
+    /* --- 核心色調 (High Contrast Neon) --- */
     --hue-primary: 220;
     /* 深藍底 */
     --hue-accent-1: 190;
     /* Cyan */
-    --hue-accent-2: 270;
+    --hue-accent-2: 280;
     /* Purple */
-    --hue-danger: 0;
-    /* Red */
-    --hue-success: 150;
-    /* Green */
-    --hue-warning: 35;
-    /* Orange */
 
-    /* --- 背景層級 (Depth System) --- */
-    --bg-depth-0: #050510;
-    /* 最底層：近乎黑的深藍 */
-    --bg-depth-1: #0a0f1e;
-    /* 次底層：Sidebar/Card */
-    --bg-depth-2: #141b2d;
-    /* 懸浮層：Hover/Dropdown */
-    --bg-overlay: rgba(5, 5, 16, 0.8);
+    /* 背景色階 - 稍微提亮以顯示陰影 */
+    --bg-main: #0a0e17;
+    --bg-depth-1: #111625;
+    --bg-depth-2: #1a2133;
+    --bg-overlay: rgba(5, 8, 20, 0.9);
 
-    /* --- 玻璃擬態 (Glassmorphism) --- */
-    --glass-surface: rgba(20, 27, 45, 0.6);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-shine: rgba(255, 255, 255, 0.03);
-    --blur-strength: 16px;
+    /* 玻璃擬態 (更強的對比) */
+    --glass-surface: rgba(20, 25, 40, 0.7);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --glass-highlight: rgba(255, 255, 255, 0.05);
+    --glass-shine: rgba(255, 255, 255, 0.08);
+    --blur-strength: 20px;
 
-    /* --- 霓虹強調色 (Neon Accents) --- */
-    --neon-cyan: #00f0ff;
+    /* 霓虹光暈 */
+    --neon-cyan: #00f2ff;
     --neon-purple: #bc13fe;
     --neon-blue: #2979ff;
 
-    /* 文字系統 */
+    /* 文字顏色 (增强對比) */
+    --text-main: #ffffff;
     --text-primary: #ffffff;
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.4);
+    --text-secondary: rgba(255, 255, 255, 0.85);
+    /* 提亮 */
+    --text-muted: #94a3b8;
+    /* 提亮 */
+    --text-dim: #64748b;
 
-    /* --- 陰影與光暈 (Glows & Shadows) --- */
+    /* 陰影 */
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.6);
     --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.8);
+    --glow-cyan: 0 0 15px rgba(0, 242, 255, 0.3);
 
-    --glow-cyan: 0 0 10px rgba(0, 240, 255, 0.3), 0 0 20px rgba(0, 240, 255, 0.1);
-    --glow-purple: 0 0 10px rgba(188, 19, 254, 0.3), 0 0 20px rgba(188, 19, 254, 0.1);
-
-    /* --- 尺寸與間距 --- */
+    /* 尺寸 */
     --sidebar-width: 260px;
-    --topbar-height: 70px;
-    --radius-sm: 8px;
+    --topbar-height: 64px;
+    --border-radius: 16px;
     --radius-md: 12px;
-    --radius-lg: 20px;
+    --radius-lg: 16px;
+
+    /* 動畫 */
+    --trans-speed: 0.3s;
 
     /* --- Legacy Compatibility (Aliasing) --- */
-    /* 為了相容尚未完全重構的頁面 (如 stock_analysis.py) */
     --bg-card: var(--glass-surface);
     --bg-secondary: var(--bg-depth-1);
     --bg-tertiary: rgba(255, 255, 255, 0.05);
-
     --accent-primary: var(--neon-cyan);
     --accent-secondary: var(--neon-purple);
     --accent-success: #00ff9d;
     --accent-danger: #ff0055;
-
     --border-color: var(--glass-border);
     --glow-primary: var(--glow-cyan);
 }
 
-/* ===== 2. 全局重置與基礎樣式 ===== */
+/* ===== 2. 全局重置 ===== */
 * {
     box-sizing: border-box;
-    scrollbar-width: thin;
-    scrollbar-color: var(--glass-border) transparent;
 }
 
 body,
 .gradio-container {
-    background-color: var(--bg-depth-0) !important;
-    background-image:
-        radial-gradient(circle at 15% 50%, rgba(41, 121, 255, 0.08), transparent 25%),
-        radial-gradient(circle at 85% 30%, rgba(188, 19, 254, 0.08), transparent 25%);
-    color: var(--text-primary);
-    font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-main) !important;
+    color: var(--text-main) !important;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif !important;
     margin: 0;
     overflow-x: hidden;
+    /* 防止水平捲軸 */
 }
 
 /* 捲軸美化 */
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -104,24 +95,26 @@ body,
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.3);
 }
 
-/* ===== 3. 主要佈局結構 ===== */
+/* ===== 3. 佈局修正 (Z-Index & Positioning) ===== */
+
+/* 主要容器：設為 Fixed 避免隨頁面捲動 */
 .main-layout {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
     width: 100%;
-    height: 0;
-    z-index: 100;
+    height: 100vh;
     pointer-events: none;
-    /* 讓點擊穿透到下方內容 (除了子元素) */
+    /* 讓點擊穿透 */
+    z-index: 900;
 }
 
 /* 恢復子元素的 pointer-events */
@@ -130,199 +123,171 @@ body,
     pointer-events: auto;
 }
 
-/* --- Sidebar (左側導航) --- */
+/* Sidebar: 固定左側，最高層級 */
 .sidebar {
     position: fixed;
     top: 0;
     left: 0;
     width: var(--sidebar-width);
     height: 100vh;
-    background: rgba(10, 15, 30, 0.7);
-    backdrop-filter: blur(var(--blur-strength));
+    background: rgba(10, 14, 23, 0.95);
+    /* 加深背景避免透視干擾 */
+    backdrop-filter: blur(20px);
     border-right: 1px solid var(--glass-border);
     display: flex;
     flex-direction: column;
-    z-index: 1000;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+    z-index: 1002;
+    /* 最高 */
+    transition: width var(--trans-speed) cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.4);
+    overflow-y: auto;
 }
 
+.sidebar.collapsed {
+    width: 70px;
+}
+
+/* Topbar: 固定頂部，扣除 Sidebar 寬度 */
+.topbar-wrapper {
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-width);
+    /* 緊接 Sidebar */
+    right: 0;
+    height: var(--topbar-height);
+    z-index: 1001;
+    /* 次高 */
+    transition: left var(--trans-speed) ease;
+}
+
+.topbar {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    background: rgba(10, 14, 23, 0.85);
+    /* 加深背景 */
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* 內容區: 預留 Sidebar 和 Topbar 的空間 */
+.content-area {
+    margin-left: var(--sidebar-width) !important;
+    padding: calc(var(--topbar-height) + 24px) 32px 32px !important;
+    width: auto !important;
+    min-height: 100vh;
+    transition: margin-left var(--trans-speed) ease;
+    overflow-x: hidden;
+    position: relative;
+    z-index: 1;
+}
+
+/* ===== 4. Sidebar 樣式優化 ===== */
 .sidebar-header {
     height: var(--topbar-height);
     display: flex;
     align-items: center;
     padding: 0 24px;
     border-bottom: 1px solid var(--glass-border);
-    background: linear-gradient(to right, rgba(0, 240, 255, 0.05), transparent);
-}
-
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.logo-icon {
-    font-size: 24px;
-    filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.6));
-    animation: pulse-glow 3s infinite alternate;
 }
 
 .logo-text {
     font-size: 18px;
     font-weight: 700;
-    letter-spacing: 0.5px;
+    color: var(--text-main);
     background: linear-gradient(135deg, #fff 0%, var(--neon-cyan) 100%);
     -webkit-background-clip: text;
-    background-clip: text;
     -webkit-text-fill-color: transparent;
+    margin-left: 12px;
 }
 
 .sidebar-nav {
     flex: 1;
-    padding: 24px 16px;
-    overflow-y: auto;
+    padding: 24px 12px;
 }
 
+/* 導航項目: 增加對比度與可視性 */
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 12px;
     padding: 12px 16px;
     margin-bottom: 8px;
     border-radius: var(--radius-md);
     color: var(--text-secondary);
+    /* 亮灰 */
     text-decoration: none;
     transition: all 0.2s ease;
     border: 1px solid transparent;
 }
 
 .nav-item:hover {
-    background: var(--glass-shine);
-    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-main);
     transform: translateX(4px);
-    border-color: rgba(255, 255, 255, 0.05);
 }
 
 .nav-item.active {
-    background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), transparent);
+    background: linear-gradient(90deg, rgba(0, 242, 255, 0.15), transparent);
     border-left: 3px solid var(--neon-cyan);
     color: var(--neon-cyan);
-    box-shadow: var(--glow-cyan);
+    box-shadow: 0 0 15px rgba(0, 242, 255, 0.1);
 }
 
-.nav-icon {
-    font-size: 18px;
-    width: 24px;
-    display: flex;
-    justify-content: center;
-}
-
-/* User Profile (Bottom Sidebar) */
+/* Sidebar Footer & User Card */
 .sidebar-footer {
-    padding: 20px;
+    padding: 16px;
     border-top: 1px solid var(--glass-border);
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.3);
 }
 
 .user-card {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px;
-    background: var(--glass-shine);
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.05);
     border-radius: var(--radius-md);
-    border: 1px solid var(--glass-border);
-    transition: all 0.2s ease;
+    border: 1px solid transparent;
 }
 
-.user-card:hover {
-    border-color: rgba(255, 255, 255, 0.2);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.user-avatar img {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.user-info {
-    flex: 1;
-}
-
-.user-name {
-    font-size: 14px;
+.user-info .user-name {
+    color: var(--text-main);
     font-weight: 600;
-    color: var(--text-primary);
+    font-size: 14px;
 }
 
-.user-tier {
-    font-size: 11px;
+.user-info .user-tier {
     color: var(--neon-cyan);
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 12px;
 }
 
-/* --- Topbar (頂部工具列) --- */
-.topbar-wrapper {
-    position: fixed;
-    top: 0;
-    left: var(--sidebar-width);
-    right: 0;
-    height: var(--topbar-height);
-    background: rgba(10, 15, 30, 0.6);
-    backdrop-filter: blur(var(--blur-strength));
-    border-bottom: 1px solid var(--glass-border);
-    z-index: 900;
-    padding: 0 32px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 搜尋框 (Search Bar) */
+/* ===== 5. Topbar 樣式優化 ===== */
 .search-box {
     position: relative;
-    width: 400px;
+    width: 320px;
 }
 
 .search-input {
     width: 100%;
-    height: 42px;
-    background: rgba(0, 0, 0, 0.2);
+    height: 40px;
+    background: rgba(0, 0, 0, 0.3);
     border: 1px solid var(--glass-border);
-    border-radius: 24px;
-    padding: 0 20px 0 48px;
-    color: var(--text-primary);
-    font-size: 14px;
-    transition: all 0.3s ease;
+    border-radius: 20px;
+    padding: 0 20px 0 44px;
+    color: var(--text-main);
 }
 
 .search-input:focus {
-    background: rgba(0, 0, 0, 0.4);
-    border-color: var(--neon-blue);
-    box-shadow: 0 0 15px rgba(41, 121, 255, 0.2);
+    background: rgba(0, 0, 0, 0.5);
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 10px rgba(0, 242, 255, 0.2);
     outline: none;
 }
 
-.search-icon {
-    position: absolute;
-    left: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-muted);
-    pointer-events: none;
-    transition: color 0.3s;
-}
-
-.search-input:focus+.search-icon {
-    color: var(--neon-blue);
-}
-
-/* 搜尋結果下拉 (Search Dropdown) */
 .search-results {
     position: absolute;
     top: 50px;
@@ -332,112 +297,113 @@ body,
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
-    opacity: 0;
-    transform: translateY(-10px);
-    pointer-events: none;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 1100;
-    overflow: hidden;
+    /* 高於 Topbar */
+    display: none;
+    /* JS 控制顯示 */
 }
 
 .search-results.active {
-    opacity: 1;
-    transform: translateY(0);
-    pointer-events: auto;
+    display: block;
 }
 
-.search-result-item {
-    padding: 12px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    cursor: pointer;
-    transition: background 0.2s;
+.lang-selector select {
+    background: #141b2d;
+    color: var(--text-main);
+    border: 1px solid var(--glass-border);
+    padding: 4px 8px;
+    border-radius: 6px;
 }
 
-.search-result-item:last-child {
-    border-bottom: none;
-}
-
-.search-result-item:hover {
-    background: rgba(0, 240, 255, 0.1);
-}
-
-.result-symbol {
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--neon-cyan);
-    font-weight: 700;
-}
-
-.result-name {
-    color: var(--text-secondary);
-    font-size: 13px;
-}
-
-/* --- 主內容區 (Content Area) --- */
-.content-area {
-    margin-left: var(--sidebar-width);
-    padding: calc(var(--topbar-height) + 32px) 32px 32px;
-    width: calc(100% - var(--sidebar-width));
-    min-height: 100vh;
-    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    z-index: 1;
-    /* 確保在背景之上 */
-}
-
-/* 強制背景色 (Fix for "Terrible" UI) */
-.gradio-container,
-.main-layout {
-    background-color: var(--bg-depth-0) !important;
-}
-
-/* 市場總覽頁面樣式 (Market Overview) */
+/* ===== 6. 內容區卡片優化 (對比度重點) ===== */
 .market-page {
     padding: 0;
 }
 
+.welcome-section {
+    margin-bottom: 32px;
+    position: relative;
+}
+
+.welcome-title {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--text-main);
+    margin-bottom: 8px;
+    text-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
+}
+
+.welcome-subtitle {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
 .section-header {
     display: flex;
-    align-items: center;
-    margin-bottom: 24px;
     justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--glass-border);
+    padding-bottom: 12px;
 }
 
-.indices-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 20px;
-    margin-bottom: 48px;
+.section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
+/* Grid Layout */
+.indices-grid,
 .etf-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 20px;
+    margin-bottom: 40px;
 }
 
+/* 卡片設計 - 增強可視性 */
 .index-card,
-.etf-card {
+.etf-card,
+.dashboard-card {
     background: var(--glass-surface);
     border: 1px solid var(--glass-border);
-    backdrop-filter: blur(10px);
     border-radius: var(--radius-lg);
     padding: 24px;
-    cursor: pointer;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    /* 加深陰影 */
     transition: all 0.3s ease;
     position: relative;
     overflow: hidden;
+}
+
+/* 頂部光條 */
+.index-card::after,
+.etf-card::after,
+.dashboard-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+    opacity: 0.5;
 }
 
 .index-card:hover,
 .etf-card:hover {
     transform: translateY(-4px);
     border-color: var(--neon-cyan);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 15px rgba(0, 240, 255, 0.1);
+    box-shadow: 0 8px 32px rgba(0, 242, 255, 0.15);
+    /* 霓虹光暈 */
 }
 
+/* 文字對比度修正 */
 .index-header,
 .etf-header {
     display: flex;
@@ -446,242 +412,76 @@ body,
     margin-bottom: 16px;
 }
 
-.index-name {
+.index-name,
+.etf-name {
     font-size: 15px;
-    color: var(--text-secondary);
     font-weight: 500;
+    color: var(--text-secondary);
+    /* 亮灰取代暗灰 */
 }
 
 .index-symbol,
 .etf-symbol {
     font-size: 12px;
-    color: var(--neon-cyan);
-    background: rgba(0, 240, 255, 0.1);
-    padding: 4px 8px;
-    border-radius: 6px;
     font-family: 'JetBrains Mono', monospace;
-}
-
-.etf-name {
-    font-size: 14px;
-    color: var(--text-secondary);
-    flex: 1;
-    margin-left: 12px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(0, 242, 255, 0.1);
+    color: var(--neon-cyan);
 }
 
 .index-value,
 .etf-value {
     font-size: 28px;
     font-weight: 700;
-    color: var(--text-primary);
+    color: var(--text-main);
+    /* 純白 */
     margin-bottom: 8px;
-    letter-spacing: -0.5px;
+    letter-spacing: 0.5px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 
 .index-change,
 .etf-change {
     font-size: 14px;
     font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
 }
 
-.index-change.green,
-.etf-change.green {
-    color: var(--hue-success);
-    /* Fallback */
+/* 漲跌顏色 (高對比) */
+.green,
+.index-change.green {
     color: #00ff9d;
-    text-shadow: 0 0 10px rgba(0, 255, 157, 0.3);
+    text-shadow: 0 0 10px rgba(0, 255, 157, 0.2);
 }
 
-.index-change.red,
-.etf-change.red {
-    color: var(--hue-danger);
-    /* Fallback */
-    color: #ff0055;
-    text-shadow: 0 0 10px rgba(255, 0, 85, 0.3);
+.red,
+.index-change.red {
+    color: #ff3366;
+    text-shadow: 0 0 10px rgba(255, 51, 102, 0.2);
 }
 
-.period-selector {
-    display: flex;
-    gap: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    padding: 4px;
-    border-radius: 12px;
-}
-
-.period-btn {
-    padding: 6px 16px;
-    border: none;
-    border-radius: 8px;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-
-.period-btn:hover {
-    color: var(--text-primary);
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.period-btn.active {
-    background: var(--neon-cyan);
-    color: #000;
-    box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
-    font-weight: 700;
-}
-
-/* 卡片與容器 */
-.card,
-.dashboard-card {
-    background: var(--glass-surface);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--radius-lg);
-    padding: 24px;
-    margin-bottom: 24px;
-    position: relative;
-    overflow: hidden;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-md), 0 0 20px rgba(0, 240, 255, 0.05);
-    border-color: rgba(0, 240, 255, 0.2);
-}
-
-/* 卡片頂部流光動畫 (Shimmer Effect) */
-.card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
-    transition: left 0.5s ease;
-    opacity: 0;
-}
-
-.card:hover::before {
-    left: 100%;
-    opacity: 1;
-}
-
-/* 標題樣式 */
-h1,
-h2,
-h3 {
-    color: var(--text-primary);
-    font-weight: 700;
-    margin-bottom: 16px;
-    letter-spacing: -0.5px;
-}
-
-h2 {
-    font-size: 24px;
-    border-left: 4px solid var(--neon-purple);
-    padding-left: 12px;
-}
-
-/* ===== 4. Gradio 覆蓋 (Overwrites) ===== */
-/* 按鈕 */
-.gradio-button,
-button.primary {
-    background: linear-gradient(135deg, rgba(41, 121, 255, 0.8), rgba(188, 19, 254, 0.8));
-    border: none;
-    color: white;
-    font-weight: 600;
-    border-radius: var(--radius-md);
-    padding: 10px 20px;
-    box-shadow: 0 4px 12px rgba(41, 121, 255, 0.3);
-    transition: all 0.2s;
-}
-
-.gradio-button:hover {
-    box-shadow: 0 6px 20px rgba(188, 19, 254, 0.4);
-    transform: translateY(-2px);
-}
-
-/* 輸入框 */
-.gradio-input textarea,
-.gradio-input input {
-    background: rgba(0, 0, 0, 0.3) !important;
-    border: 1px solid var(--glass-border) !important;
-    color: var(--text-primary) !important;
-}
-
-/* 表格 */
-.gradio-dataframe {
-    background: transparent !important;
-    border: none !important;
-}
-
-.gradio-dataframe th {
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: var(--text-secondary) !important;
-}
-
-.gradio-dataframe td {
-    border-bottom: 1px solid var(--glass-border) !important;
-    color: var(--text-primary) !important;
-}
-
-/* ===== 5. 動畫 (Animations) ===== */
-@keyframes pulse-glow {
-    from {
-        opacity: 0.8;
-        filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.4));
-    }
-
-    to {
-        opacity: 1;
-        filter: drop-shadow(0 0 15px rgba(0, 240, 255, 0.8));
-    }
-}
-
-.fade-in {
-    animation: fadeIn 0.4s ease-out forwards;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ===== 6. RWD 響應式調整 ===== */
+/* RWD 修正 */
 @media (max-width: 768px) {
     .sidebar {
         transform: translateX(-100%);
     }
 
     .sidebar.collapsed {
-        /* 反邏輯：手機版 collapsed 代表展開 */
         transform: translateX(0);
     }
 
     .content-area,
     .topbar-wrapper {
-        margin-left: 0;
+        margin-left: 0 !important;
         width: 100%;
         left: 0;
     }
 
     .search-box {
-        width: 200px;
+        width: 180px;
+    }
+
+    .welcome-title {
+        font-size: 24px;
     }
 }
