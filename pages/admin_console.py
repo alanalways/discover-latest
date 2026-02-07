@@ -9,7 +9,9 @@ from components.i18n import t
 
 def create_admin_console_page(
     user_data: Dict = None,
-    lang: str = "zh-TW"
+    lang: str = "zh-TW",
+    user_result: Dict = None,
+    status_msg: str = "",
 ) -> str:
     """建立 Admin Console 頁面（僅 admin 可見）"""
     
@@ -107,7 +109,10 @@ def create_admin_console_page(
                     <input class="admin-input" id="admin-user-search" placeholder="搜尋 Email 或 UID..." />
                     <button class="admin-btn" onclick="adminSearchUser()">查詢用戶</button>
                 </div>
-                <div id="admin-user-result" style="margin-top: 16px;"></div>
+                <div id="admin-user-result" style="margin-top: 16px;">
+                    {_render_user_result(user_result) if user_result else ''}
+                    {f'<div style="padding:10px;color:var(--success);font-size:13px;">{status_msg}</div>' if status_msg else ''}
+                </div>
             </div>
             
             <!-- Tier 管理 -->
@@ -187,27 +192,26 @@ def create_admin_console_page(
         </div>
     </div>
     
-    <script>
-    (function() {{
-        // Admin 操作 placeholder (實際連接 Gradio 事件)
-        window.adminSearchUser = function() {{
-            const q = document.getElementById('admin-user-search')?.value;
-            console.log('[Admin] Search user:', q);
-            // 觸發 Gradio API
-        }};
-        window.adminUpdateTier = function() {{
-            const uid = document.getElementById('admin-tier-uid')?.value;
-            const tier = document.getElementById('admin-tier-select')?.value;
-            const expires = document.getElementById('admin-tier-expires')?.value;
-            console.log('[Admin] Update tier:', uid, tier, expires);
-        }};
-        window.adminAddKey = function() {{
-            const name = document.getElementById('admin-key-name')?.value;
-            console.log('[Admin] Add key:', name);
-            // 注意：key_value 只在後端處理，不顯示在前端
-        }};
-    }})();
-    </script>
+    <!-- Admin JS functions are registered globally in app.py -->
+    '''
+
+
+def _render_user_result(user: Dict) -> str:
+    """渲染用戶查詢結果"""
+    if not user:
+        return '<p style="color:var(--text-3);font-size:13px;">未找到用戶</p>'
+    tier = user.get('tier', 'free')
+    tier_cls = f"tier-{tier}"
+    return f'''
+    <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:16px;margin-top:8px;">
+        <table class="admin-table">
+            <tr><td style="color:var(--text-3);width:100px;">UID</td><td>{user.get('id','—')}</td></tr>
+            <tr><td style="color:var(--text-3);">Email</td><td>{user.get('email','—')}</td></tr>
+            <tr><td style="color:var(--text-3);">Tier</td><td><span class="tier-badge {tier_cls}">{tier.upper()}</span></td></tr>
+            <tr><td style="color:var(--text-3);">到期日</td><td>{user.get('expires_at','永久')}</td></tr>
+            <tr><td style="color:var(--text-3);">建立</td><td>{user.get('created_at','—')}</td></tr>
+        </table>
+    </div>
     '''
 
 

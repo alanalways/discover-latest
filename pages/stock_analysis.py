@@ -13,8 +13,11 @@ from typing import Dict, List, Optional
 def create_stock_analysis_page(
     symbol: str = None,
     stock_data: Dict = None,
-    lang: str = 'zh-TW'
-) -> gr.HTML:
+    lang: str = 'zh-TW',
+    pred_model: str = "naive",
+    pred_horizon: int = 20,
+    ai_result: Dict = None,
+) -> str:
     """
     建立個股分析頁面
     
@@ -141,8 +144,12 @@ def create_stock_analysis_page(
         
         <!-- 價格預測區 -->
         <h2 class="section-title">🔮 價格預測</h2>
-        {_create_prediction_card(history, symbol, lang)}
+        {_create_prediction_card(history, symbol, lang, pred_model, pred_horizon)}
         
+        <!-- AI 分析 -->
+        <h2 class="section-title">🤖 AI 智慧分析</h2>
+        {_create_ai_analysis_card(symbol, ai_result, lang)}
+
         <!-- 基本面 + 資訊 -->
         <div class="two-column">
             <div>
@@ -175,7 +182,7 @@ def create_stock_analysis_page(
     return page_html
 
 
-def _create_search_guide(lang: str) -> gr.HTML:
+def _create_search_guide(lang: str) -> str:
     """建立搜尋引導頁面"""
     html = f'''
     <div style="text-align: center; padding: 80px 24px;">
@@ -357,12 +364,53 @@ def _calculate_volatility(history: List[Dict], window: int = 20) -> float:
     return annual_vol
 
 
-def _create_prediction_card(history: List[Dict], symbol: str, lang: str) -> str:
+def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:
+    """建立 AI 分析卡片"""
+    if ai_result and ai_result.get("success"):
+        analysis = ai_result.get("analysis", "")
+        sources = ai_result.get("grounding_sources", [])
+        sources_html = ""
+        if sources:
+            sources_html = '<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px;"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">Grounding 來源：</div>'
+            for s in sources[:5]:
+                title = s.get("title", "")
+                uri = s.get("uri", "#")
+                sources_html += f'<a href="{uri}" target="_blank" style="display:block;font-size:11px;color:var(--primary);text-decoration:none;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title or uri}</a>'
+            sources_html += '</div>'
+
+        return f'''
+        <div class="chart-section" style="margin-bottom:24px;">
+            <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;">{analysis}</div>
+            {sources_html}
+            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Model: {ai_result.get("model_used","")} · Grounding: {ai_result.get("grounding_model","")}</div>
+        </div>
+        '''
+    elif ai_result and ai_result.get("error"):
+        return f'''
+        <div class="chart-section" style="margin-bottom:24px;">
+            <p style="color:var(--danger);font-size:13px;">{ai_result["error"]}</p>
+            <button class="period-tab" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">重試 AI 分析</button>
+        </div>
+        '''
+    else:
+        return f'''
+        <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:32px;">
+            <p style="color:var(--text-3);margin-bottom:12px;">點擊下方按鈕啟動 Gemini AI 雙段分析</p>
+            <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
+                🤖 啟動 AI 分析
+            </button>
+            <p style="color:var(--text-3);font-size:11px;margin-top:8px;">使用 Google Search grounding + Gemini 生成</p>
+        </div>
+        '''
+
+
+def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
+                           model: str = "naive", horizon: int = 20) -> str:
     """建立價格預測卡片"""
     import json
     
-    # 執行預測 (預設 Naive 20 日)
-    pred = prediction_service.predict(history, model="naive", horizon=20)
+    # 執行預測
+    pred = prediction_service.predict(history, model=model, horizon=horizon)
     
     if pred.get("error"):
         return f'''
@@ -386,14 +434,14 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str) -> str:
     return f'''
     <div class="chart-section" id="prediction-section">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <div style="display: flex; gap: 8px; align-items: center;">
-                <button class="period-tab active" onclick="changePredModel('naive')">Naive</button>
-                <button class="period-tab" onclick="changePredModel('arima')">ARIMA</button>
-                <button class="period-tab" onclick="changePredModel('prophet')">Prophet</button>
+            <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button class="period-tab {'active' if model == 'naive' else ''}" onclick="changePredModel('naive')">Naive</button>
+                <button class="period-tab {'active' if model == 'arima' else ''}" onclick="changePredModel('arima')">ARIMA</button>
+                <button class="period-tab {'active' if model == 'prophet' else ''}" onclick="changePredModel('prophet')">Prophet</button>
                 <span style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Horizon:</span>
-                <button class="period-tab" onclick="changePredHorizon(5)">5日</button>
-                <button class="period-tab active" onclick="changePredHorizon(20)">20日</button>
-                <button class="period-tab" onclick="changePredHorizon(60)">60日</button>
+                <button class="period-tab {'active' if horizon == 5 else ''}" onclick="changePredHorizon(5)">5日</button>
+                <button class="period-tab {'active' if horizon == 20 else ''}" onclick="changePredHorizon(20)">20日</button>
+                <button class="period-tab {'active' if horizon == 60 else ''}" onclick="changePredHorizon(60)">60日</button>
             </div>
             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                 <input type="checkbox" id="pred-toggle" checked onchange="togglePrediction()" style="accent-color: var(--accent-primary);" />
@@ -505,11 +553,15 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str) -> str:
             if (chartDiv) chartDiv.style.display = visible ? 'block' : 'none';
         }};
         
-        window.changePredModel = function(model) {{
-            console.log('[Prediction] Model:', model);
+        window.changePredModel = function(m) {{
+            if (typeof dispatchAction === 'function') {{
+                dispatchAction({{action:'predict', symbol:'{symbol}', model: m, horizon: {horizon}}});
+            }}
         }};
         window.changePredHorizon = function(h) {{
-            console.log('[Prediction] Horizon:', h);
+            if (typeof dispatchAction === 'function') {{
+                dispatchAction({{action:'predict', symbol:'{symbol}', model: '{model}', horizon: h}});
+            }}
         }};
     }})();
     </script>

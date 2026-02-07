@@ -16,10 +16,23 @@ def create_portfolio_page(
     """建立投組管理頁面"""
     
     if not user_data:
-        return _login_required(lang)
+        # Show demo portfolio for non-logged-in users
+        pass
     
     if not holdings:
         holdings = _get_mock_holdings()
+        # Try to update with real prices
+        holdings = _update_holdings_prices(holdings)
+
+    # Try to get real FX rate
+    try:
+        import yfinance as yf
+        fx_ticker = yf.Ticker("USDTWD=X")
+        fx_hist = fx_ticker.history(period="2d")
+        if fx_hist is not None and not fx_hist.empty:
+            fx_rate = float(fx_hist["Close"].iloc[-1])
+    except Exception:
+        pass
     
     # 計算投組統計
     stats = _calculate_portfolio_stats(holdings, fx_rate)
@@ -181,6 +194,32 @@ def _login_required(lang: str) -> str:
         <p style="color: var(--text-3);">投組管理需要登入才能使用</p>
     </div>
     '''
+
+
+def _update_holdings_prices(holdings: List[Dict]) -> List[Dict]:
+    """使用 yfinance 更新持股現價"""
+    try:
+        import yfinance as yf
+        for h in holdings:
+            sym = h.get("symbol", "")
+            if not sym:
+                continue
+            try:
+                yf_sym = f"{sym}.TW" if sym.isdigit() else sym
+                ticker = yf.Ticker(yf_sym)
+                hist = ticker.history(period="2d")
+                if hist is not None and not hist.empty:
+                    price = float(hist["Close"].iloc[-1])
+                    h["current_price"] = price
+                    h["market_value"] = price * h.get("shares", 0)
+                    cost = h.get("avg_cost", 0)
+                    if cost > 0:
+                        h["pnl_pct"] = (price - cost) / cost * 100
+            except Exception:
+                pass
+    except ImportError:
+        pass
+    return holdings
 
 
 def _get_mock_holdings() -> List[Dict]:

@@ -147,7 +147,7 @@ def create_market_overview_page(lang: str = "zh-TW"):
     indices_html = ""
     for idx in indices:
         indices_html += f'''
-        <div class="index-card" onclick="navigateTo('stock')">
+        <div class="index-card">
             <div class="index-header">
                 <span class="index-name">{idx["name"]}</span>
                 <span class="index-symbol">{idx["symbol"]}</span>
@@ -164,8 +164,10 @@ def create_market_overview_page(lang: str = "zh-TW"):
     # ---------- Build ETF cards ----------
     etf_html = ""
     for etf in etfs:
+        # Map display symbol → yfinance-friendly symbol for selectStock
+        raw_sym = etf["symbol"]  # e.g. "0050", "VOO"
         etf_html += f'''
-        <div class="etf-card" onclick="navigateTo('stock')">
+        <div class="etf-card" onclick="selectStock('{raw_sym}')" style="cursor:pointer;">
             <div class="etf-header">
                 <span class="etf-symbol">{etf["symbol"]}</span>
                 <span class="etf-name">{etf["name"]}</span>

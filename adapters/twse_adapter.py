@@ -1,17 +1,18 @@
 """
 TWSE Adapter - 台灣證券交易所資料抓取
 """
+import time
 import httpx
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import json
 
 
 class TWSEAdapter:
-    """台灣證券交易所資料 Adapter"""
+    """台灣證券交易所資料 Adapter（含快取）"""
     
     BASE_URL = "https://www.twse.com.tw"
+    _CACHE_TTL = 3600  # 1 hour
     
     def __init__(self):
         self.client = httpx.AsyncClient(
@@ -21,18 +22,35 @@ class TWSEAdapter:
                 "Accept": "application/json"
             }
         )
+        self._cache: Dict = {}  # key → (data, timestamp)
     
+    def _cache_get(self, key: str):
+        """從快取取得資料"""
+        if key in self._cache:
+            data, ts = self._cache[key]
+            if time.time() - ts < self._CACHE_TTL:
+                return data
+            del self._cache[key]
+        return None
+
+    def _cache_set(self, key: str, data):
+        """寫入快取"""
+        self._cache[key] = (data, time.time())
+        # LRU cleanup
+        if len(self._cache) > 500:
+            oldest = min(self._cache, key=lambda k: self._cache[k][1])
+            del self._cache[oldest]
+
     async def get_daily_quote(self, symbol: str, date: datetime = None) -> Optional[Dict]:
-        """
-        取得個股日成交資訊
-        
-        Args:
-            symbol: 股票代號（如 2330）
-            date: 日期，預設今日
-        """
+        """取得個股日成交資訊（含快取）"""
         if date is None:
             date = datetime.now()
         
+        cache_key = f"twse_daily_{symbol}_{date.strftime('%Y%m%d')}"
+        cached = self._cache_get(cache_key)
+        if cached:
+            return cached
+
         date_str = date.strftime("%Y%m%d")
         
         try:
@@ -54,18 +72,20 @@ class TWSEAdapter:
             # 取最後一筆資料（最新日期）
             latest = data["data"][-1]
             
-            return {
+            result = {
                 "symbol": symbol,
-                "date": latest[0],  # 日期
-                "volume": self._parse_number(latest[1]),  # 成交股數
-                "value": self._parse_number(latest[2]),  # 成交金額
-                "open": self._parse_price(latest[3]),  # 開盤價
-                "high": self._parse_price(latest[4]),  # 最高價
-                "low": self._parse_price(latest[5]),  # 最低價
-                "close": self._parse_price(latest[6]),  # 收盤價
-                "change": latest[7],  # 漲跌價差
-                "transactions": self._parse_number(latest[8])  # 成交筆數
+                "date": latest[0],
+                "volume": self._parse_number(latest[1]),
+                "value": self._parse_number(latest[2]),
+                "open": self._parse_price(latest[3]),
+                "high": self._parse_price(latest[4]),
+                "low": self._parse_price(latest[5]),
+                "close": self._parse_price(latest[6]),
+                "change": latest[7],
+                "transactions": self._parse_number(latest[8]),
             }
+            self._cache_set(cache_key, result)
+            return result
             
         except Exception as e:
             print(f"[TWSE] 取得 {symbol} 日成交失敗: {e}")

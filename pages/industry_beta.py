@@ -12,8 +12,9 @@ def create_industry_beta_page(
 ) -> str:
     """建立產業 + Beta 頁面"""
     
-    # 模擬產業資料
+    # 產業資料（使用本地定義 + 嘗試更新 beta）
     industries = _get_mock_industry_data()
+    _try_update_betas(industries)
     
     # 產業卡片
     industry_cards = ""
@@ -149,6 +150,28 @@ def create_industry_beta_page(
     }})();
     </script>
     '''
+
+
+def _try_update_betas(industries: List[Dict]):
+    """嘗試用 yfinance 更新 Beta 值"""
+    try:
+        import yfinance as yf
+        for ind in industries:
+            for s in ind.get("stocks", []):
+                try:
+                    sym = s["symbol"]
+                    yf_sym = f"{sym}.TW" if sym.isdigit() else sym
+                    info = yf.Ticker(yf_sym).info
+                    if info and info.get("beta"):
+                        s["beta"] = round(float(info["beta"]), 2)
+                except Exception:
+                    pass
+            # Update avg beta
+            betas = [s.get("beta", 1.0) for s in ind.get("stocks", [])]
+            if betas:
+                ind["avg_beta"] = round(sum(betas) / len(betas), 2)
+    except ImportError:
+        pass
 
 
 def _get_mock_industry_data() -> List[Dict]:

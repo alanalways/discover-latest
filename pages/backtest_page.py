@@ -11,6 +11,7 @@ def create_backtest_page(
     symbol: str = None,
     history: List[Dict] = None,
     lang: str = "zh-TW",
+    result: Dict = None,
 ) -> str:
     """建立回測頁面"""
     
@@ -24,22 +25,27 @@ def create_backtest_page(
         </button>
         '''
     
-    # 如果有資料，執行預設回測
+    # 如果有回測結果，渲染
     result_html = ""
-    if history and len(history) >= 30:
+    if result and not result.get("error"):
+        result_html = _render_backtest_result(result, lang)
+    elif result and result.get("error"):
+        result_html = f'<p style="color: var(--danger);">回測執行失敗: {result["error"]}</p>'
+    elif history and len(history) >= 30:
+        # 有資料但尚未執行，自動跑一次 MA Cross
         import asyncio
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
                 with concurrent.futures.ThreadPoolExecutor() as pool:
-                    result = pool.submit(
+                    auto_result = pool.submit(
                         asyncio.run,
                         backtest_service.run_backtest(history, "ma_cross")
-                    ).result()
+                    ).result(timeout=30)
             else:
-                result = asyncio.run(backtest_service.run_backtest(history, "ma_cross"))
-            result_html = _render_backtest_result(result, lang)
+                auto_result = asyncio.run(backtest_service.run_backtest(history, "ma_cross"))
+            result_html = _render_backtest_result(auto_result, lang)
         except Exception as e:
             result_html = f'<p style="color: var(--danger);">回測執行失敗: {e}</p>'
     
@@ -144,23 +150,90 @@ def create_backtest_page(
         <!-- 回測結果 -->
         <div id="backtest-result">
             {result_html if result_html else _no_result_placeholder()}
+            {_generate_smc_interpretation(history, result or {}) if result_html and history else ''}
         </div>
     </div>
     
     <script>
     (function() {{
+        let _selectedStrategy = 'ma_cross';
         window.selectStrategy = function(strategy) {{
+            _selectedStrategy = strategy;
             document.querySelectorAll('.strategy-btn[data-strategy]').forEach(b => b.classList.remove('active'));
             document.querySelector(`.strategy-btn[data-strategy="${{strategy}}"]`)?.classList.add('active');
-            console.log('[Backtest] Strategy:', strategy);
         }};
         window.runBacktest = function() {{
-            console.log('[Backtest] Running...');
-            // 觸發 Gradio 事件
+            const capital = parseInt(document.getElementById('param-capital')?.value || '1000000');
+            const symbol = '{symbol or ""}';
+            if (!symbol) {{
+                alert('請先在個股分析頁選擇標的');
+                return;
+            }}
+            if (typeof dispatchAction === 'function') {{
+                dispatchAction({{
+                    action: 'run_backtest',
+                    symbol: symbol,
+                    strategy: _selectedStrategy,
+                    capital: capital,
+                }});
+            }}
         }};
     }})();
     </script>
     '''
+
+
+def _generate_smc_interpretation(history: list, result: Dict) -> str:
+    """生成 SMC/ICT 解讀"""
+    try:
+        from services.smc_service import smc_service
+        if not history or len(history) < 20:
+            return ""
+        smc = smc_service.analyze(history)
+        trend = smc.get("trend", "neutral")
+        obs = smc.get("order_blocks", [])
+        fvgs = smc.get("fvg", [])
+        structs = smc.get("structures", [])
+        liq = smc.get("liquidity", [])
+
+        active_obs = [ob for ob in obs if not ob.get("mitigated")]
+        open_fvgs = [f for f in fvgs if not f.get("filled")]
+
+        trend_labels = {"bullish": "看漲 (HH+HL)", "bearish": "看跌 (LH+LL)", "neutral": "盤整"}
+        trend_color = {"bullish": "var(--success)", "bearish": "var(--danger)", "neutral": "var(--text-3)"}
+
+        items = [
+            f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--text-3);">市場結構</span><span style="color:{trend_color.get(trend,"var(--text-3)")};font-weight:600;">{trend_labels.get(trend, trend)}</span></div>',
+            f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--text-3);">BOS/CHoCH 數</span><span style="font-weight:600;color:var(--text-1);">{len(structs)}</span></div>',
+            f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--text-3);">有效 OB</span><span style="font-weight:600;color:var(--text-1);">{len(active_obs)}</span></div>',
+            f'<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:var(--text-3);">未填 FVG</span><span style="font-weight:600;color:var(--text-1);">{len(open_fvgs)}</span></div>',
+            f'<div style="display:flex;justify-content:space-between;padding:8px 0;"><span style="color:var(--text-3);">流動性池</span><span style="font-weight:600;color:var(--text-1);">{len(liq)}</span></div>',
+        ]
+
+        # Interpretation text
+        strategy = result.get("strategy", "")
+        interp = ""
+        if trend == "bullish":
+            interp = "目前市場結構偏多，順勢策略（動能/突破）可能表現較佳。均線交叉策略在趨勢初期可提供進場訊號。"
+        elif trend == "bearish":
+            interp = "目前市場結構偏空，逆勢策略需注意停損。RSI 超賣反彈可在 OB 需求區附近尋找進場。"
+        else:
+            interp = "市場處於盤整結構，突破策略容易出現假突破。建議等待 BOS/CHoCH 確認後再進場。"
+
+        if strategy == "martingale":
+            interp += " ⚠️ 馬丁格爾策略在趨勢市場中風險尤高，連續虧損層數可能快速增長。"
+
+        return f'''
+        <div class="result-card" style="margin-top:16px;">
+            <h3 style="margin:0 0 16px 0;font-size:16px;color:var(--text-1);">🎯 SMC/ICT 策略解讀</h3>
+            {"".join(items)}
+            <div style="margin-top:16px;padding:12px;background:rgba(188,19,254,0.06);border:1px solid rgba(188,19,254,0.15);border-radius:8px;">
+                <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin:0;">{interp}</p>
+            </div>
+        </div>
+        '''
+    except Exception as e:
+        return f'<!-- SMC interp error: {e} -->'
 
 
 def _render_backtest_result(result: Dict, lang: str) -> str:
@@ -225,6 +298,11 @@ def _render_backtest_result(result: Dict, lang: str) -> str:
             <td style="font-size: 11px; color: var(--text-3);">{t.get('reason', '')}</td>
         </tr>
         '''
+    
+    # Get SMC interpretation if history available
+    smc_html = ""
+    # The history is not directly available here, so we add it from the caller
+    # The caller (create_backtest_page) has access to history
     
     return f'''
     <div class="result-card">
