@@ -282,7 +282,7 @@ def create_app():
     _supabase_url = os.environ.get("SUPABASE_URL", "")
     _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
-
+    
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
         css=CUSTOM_CSS,
@@ -295,7 +295,7 @@ def create_app():
         <script>window._supabaseLoginUrl="{_login_url}";</script>
         ''',
     ) as app:
-
+        
         # ── UI Components ──
         page_output = gr.HTML(value="", elem_id="app-root")
         nav_state = gr.Textbox(visible=False, elem_id="nav-state", value="market")
@@ -303,7 +303,7 @@ def create_app():
         action_state = gr.Textbox(visible=False, elem_id="action-state", value="")
         auth_state = gr.Textbox(visible=False, elem_id="auth-state", value="")
         lang_state = gr.Textbox(visible=False, elem_id="lang-state", value="")
-
+        
         # ── Page Navigation Handler ──
         def handle_nav(page_id: str):
             global _current_symbol
@@ -316,9 +316,9 @@ def create_app():
                 return _create_login_page(lang)
 
             try:
-                if page_id == "market":
+            if page_id == "market":
                     inner = create_market_overview_page(lang)
-                elif page_id == "stock":
+            elif page_id == "stock":
                     if _current_symbol:
                         data = _fetch_stock_data_sync(_current_symbol)
                         inner = create_stock_analysis_page(
@@ -569,19 +569,35 @@ def create_app():
             return build_full_page(inner, DEFAULT_LANG)
 
         # ── Auth Handler ──
-        def handle_auth(token: str):
+        def handle_auth(token_or_code: str):
             global _current_user
-            token = token.strip()
-            if not token:
+            token_or_code = token_or_code.strip()
+            if not token_or_code:
                 return gr.update()
-            if token == "logout":
+            if token_or_code == "logout":
                 _current_user = None
                 print("[Auth] Logged out")
                 return handle_nav("market")
-            # Verify token via Supabase
-            user = auth_service.verify_session(token)
+
+            user = None
+
+            # 判斷是 PKCE code 還是 access_token
+            # PKCE code 通常比 JWT 短很多，且不含 '.'（JWT 有 header.payload.signature）
+            if '.' not in token_or_code and len(token_or_code) < 200:
+                # 可能是 PKCE authorization code
+                print(f"[Auth] Received code (len={len(token_or_code)}), exchanging...")
+                access_token = auth_service.exchange_code_for_token(token_or_code)
+                if access_token:
+                    print(f"[Auth] Code exchanged successfully, verifying session...")
+                    user = auth_service.verify_session(access_token)
+                else:
+                    print("[Auth] Code exchange failed")
+            else:
+                # 視為 access_token（JWT）
+                print(f"[Auth] Received token (len={len(token_or_code)}), verifying...")
+                user = auth_service.verify_session(token_or_code)
+
             if user:
-                # Admin role designation
                 email = user.get("email", "")
                 if email == _ADMIN_EMAIL:
                     if "app_metadata" not in user:
@@ -592,7 +608,7 @@ def create_app():
                 print(f"[Auth] Logged in: {email}")
             else:
                 _current_user = None
-                print("[Auth] Token verification failed")
+                print("[Auth] Authentication failed")
             return handle_nav("market")
 
         # ── Language Handler ──
@@ -635,44 +651,56 @@ def create_app():
 
             // ── OAuth callback 檢查（立即執行）──
             (function checkOAuthCallback() {
-                let token = null;
+                let credential = null;
 
-                // 檢查當前頁面 hash（Supabase implicit flow 回傳）
+                // 1. 檢查 hash fragment（Supabase implicit flow: #access_token=...）
                 const hash = window.location.hash;
                 if (hash && hash.includes('access_token=')) {
                     const params = new URLSearchParams(hash.substring(1));
-                    token = params.get('access_token');
+                    credential = params.get('access_token');
+                    if (credential) console.log('[Auth] Found access_token in hash');
                 }
 
-                // Fallback: query parameter（PKCE flow）
-                if (!token) {
+                // 2. 檢查 query parameter: ?code=... （Supabase PKCE flow）
+                if (!credential) {
                     const searchParams = new URLSearchParams(window.location.search);
-                    token = searchParams.get('access_token');
+                    const code = searchParams.get('code');
+                    if (code) {
+                        credential = code;
+                        console.log('[Auth] Found PKCE code in query params');
+                    }
                 }
 
-                if (token) {
-                    console.log('[Auth] OAuth token found, authenticating...');
-                    // 清除 URL hash/params 避免重複觸發
+                // 3. Fallback: ?access_token=...
+                if (!credential) {
+                    const searchParams = new URLSearchParams(window.location.search);
+                    credential = searchParams.get('access_token');
+                    if (credential) console.log('[Auth] Found access_token in query params');
+                }
+
+                if (credential) {
+                    console.log('[Auth] Credential found (len=' + credential.length + '), sending to backend...');
+                    // 清除 URL 避免重複觸發
                     try { history.replaceState(null, '', window.location.pathname); } catch(e) {}
-                    // 等待 Gradio textarea 就緒後送出 token
+                    // 等待 Gradio textarea 就緒後送出
                     let attempts = 0;
-                    function sendToken() {
+                    function sendCredential() {
                         const as_ = document.querySelector('#auth-state textarea');
                         if (as_) {
-                            console.log('[Auth] Sending token to Gradio backend');
-                            as_.value = token;
+                            console.log('[Auth] Sending credential to Gradio backend');
+                            as_.value = credential;
                             as_.dispatchEvent(new Event('input', {bubbles:true}));
                         } else if (attempts < 50) {
                             attempts++;
-                            setTimeout(sendToken, 200);
+                            setTimeout(sendCredential, 200);
                         } else {
-                            console.error('[Auth] Failed: #auth-state textarea not found after 10s');
+                            console.error('[Auth] Failed: #auth-state not found after 10s');
                         }
                     }
-                    sendToken();
+                    sendCredential();
                 }
             })();
-
+            
             setTimeout(() => {
                 // ── Sidebar toggle ──
                 window.toggleSidebar = function() {

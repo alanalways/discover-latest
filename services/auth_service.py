@@ -39,6 +39,88 @@ class AuthService:
         space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
         return space_url
 
+    def exchange_code_for_session(self, code: str) -> Optional[Dict]:
+        """PKCE flow: 用 authorization code 交換 access_token，然後取得用戶資料"""
+        if not code:
+            return None
+        try:
+            url = os.environ.get("SUPABASE_URL", "")
+            anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+            if not url or not anon_key:
+                print(f"[Auth] 缺少 Supabase 設定: URL={bool(url)}, ANON_KEY={bool(anon_key)}")
+                return None
+            import httpx
+            with httpx.Client(timeout=15.0) as client:
+                # 用 code 交換 token
+                resp = client.post(
+                    f"{url}/auth/v1/token?grant_type=pkce",
+                    headers={
+                        "apikey": anon_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "auth_code": code,
+                        "code_verifier": "",  # 伺服器端不需要 verifier
+                    },
+                )
+                print(f"[Auth] PKCE token exchange: status={resp.status_code}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    access_token = data.get("access_token", "")
+                    if access_token:
+                        # 用 access_token 取得用戶資訊
+                        user_data = self.verify_session(access_token)
+                        if user_data:
+                            return user_data
+                        # 如果 verify_session 失敗，嘗試直接從 token response 取得 user
+                        if data.get("user"):
+                            return data["user"]
+                else:
+                    print(f"[Auth] PKCE exchange 失敗: {resp.text[:300]}")
+        except Exception as e:
+            print(f"[Auth] PKCE exchange 錯誤: {type(e).__name__}: {e}")
+        return None
+
+    def exchange_code_for_token(self, code: str) -> Optional[str]:
+        """PKCE flow: 用 authorization code 交換 access_token（只回傳 token 字串）"""
+        if not code:
+            return None
+        try:
+            url = os.environ.get("SUPABASE_URL", "")
+            anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+            if not url or not anon_key:
+                return None
+            import httpx
+            with httpx.Client(timeout=15.0) as client:
+                # 嘗試 PKCE grant
+                resp = client.post(
+                    f"{url}/auth/v1/token?grant_type=pkce",
+                    headers={
+                        "apikey": anon_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={"auth_code": code, "code_verifier": ""},
+                )
+                if resp.status_code == 200:
+                    return resp.json().get("access_token")
+
+                # Fallback: 嘗試 authorization_code grant
+                resp2 = client.post(
+                    f"{url}/auth/v1/token?grant_type=authorization_code",
+                    headers={
+                        "apikey": anon_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={"code": code, "code_verifier": ""},
+                )
+                print(f"[Auth] code exchange fallback: status={resp2.status_code}")
+                if resp2.status_code == 200:
+                    return resp2.json().get("access_token")
+                print(f"[Auth] code exchange 全部失敗: pkce={resp.status_code}, authcode={resp2.status_code}")
+        except Exception as e:
+            print(f"[Auth] code exchange 錯誤: {type(e).__name__}: {e}")
+        return None
+
     def verify_session(self, access_token: str) -> Optional[Dict]:
         """驗證 session token"""
         if not access_token:
