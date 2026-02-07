@@ -71,7 +71,8 @@ def create_app():
         # 主內容區
         page_content = gr.HTML(
             value=create_market_overview_page(DEFAULT_LANG).value,
-            elem_id="page-content-html"
+            elem_id="page-content-html",
+            elem_classes=["content-area"]
         )
         
         # 自定義 JS：直接在元件載入後執行
