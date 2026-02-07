@@ -465,10 +465,10 @@ def create_app():
         action_state.change(fn=handle_action, inputs=[action_state], outputs=[page_output])
         auth_state.change(fn=handle_auth, inputs=[auth_state], outputs=[page_output])
         lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
-        app.load(fn=lambda: handle_nav("market"), outputs=[page_output])
+        app.load(fn=lambda *_args: handle_nav("market"), outputs=[page_output])
 
         # ── Client-side JS ──
-        app.load(fn=None, js="""
+        app.load(fn=lambda *_args: None, js="""
         () => {
             console.log('[Init] DiscoverLatest v4.0');
             setTimeout(() => {

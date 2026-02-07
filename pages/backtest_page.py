@@ -32,22 +32,12 @@ def create_backtest_page(
     elif result and result.get("error"):
         result_html = f'<p style="color: var(--danger);">回測執行失敗: {result["error"]}</p>'
     elif history and len(history) >= 30:
-        # 有資料但尚未執行，自動跑一次 MA Cross
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    auto_result = pool.submit(
-                        asyncio.run,
-                        backtest_service.run_backtest(history, "ma_cross")
-                    ).result(timeout=30)
-            else:
-                auto_result = asyncio.run(backtest_service.run_backtest(history, "ma_cross"))
-            result_html = _render_backtest_result(auto_result, lang)
-        except Exception as e:
-            result_html = f'<p style="color: var(--danger);">回測執行失敗: {e}</p>'
+        # 有資料但尚未執行，顯示提示（不自動執行回測以避免阻塞）
+        result_html = '''
+        <div style="text-align:center;padding:40px;color:var(--text-3);">
+            <p>已載入歷史資料，請點擊「執行回測」開始分析</p>
+        </div>
+        '''
     
     return f'''
     <style>
