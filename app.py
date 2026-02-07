@@ -61,7 +61,7 @@ def create_app():
         ),
         head="""
         <script>
-        console.log('DiscoverLatest initializing...');
+        console.log('DiscoverLatest initializing... v2.5.1 (Cache Buster)');
         </script>
         """
     ) as app:
