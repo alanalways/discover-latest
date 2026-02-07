@@ -80,7 +80,10 @@ def create_app():
             primary_hue="cyan", secondary_hue="purple", neutral_hue="slate",
             font=["Inter", "system-ui", "sans-serif"],
         ),
-        head='<script>console.log("DiscoverLatest v3.1");</script>',
+        head='''
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700;800&display=swap">
+        <script>console.log("DiscoverLatest v3.1");</script>
+        ''',
     ) as app:
 
         page_output = gr.HTML(value="", elem_id="app-root")
@@ -116,7 +119,7 @@ def create_app():
             return build_full_page(inner, DEFAULT_LANG)
 
         nav_state.change(fn=handle_nav, inputs=[nav_state], outputs=[page_output], api_name="navigate")
-        app.load(fn=handle_nav, inputs=[nav_state], outputs=[page_output])
+        app.load(fn=lambda: handle_nav("market"), outputs=[page_output])
 
         app.load(fn=None, js="""
         () => {
