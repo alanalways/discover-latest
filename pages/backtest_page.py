@@ -18,7 +18,7 @@ def create_backtest_page(
     strategies_html = ""
     for key, name in backtest_service.STRATEGIES.items():
         is_martin = key == "martingale"
-        badge = '<span style="color: #ff0055; font-size: 10px; margin-left: 4px;">⚠️ 高風險</span>' if is_martin else ''
+        badge = '<span style="color: #ff0055; font-size: 10px; margin-left: 4px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> 高風險</span>' if is_martin else ''
         strategies_html += f'''
         <button class="strategy-btn" data-strategy="{key}" onclick="selectStrategy('{key}')">
             {name}{badge}
@@ -77,7 +77,7 @@ def create_backtest_page(
             border-radius: 8px;
         }}
         .metric-val {{
-            font-family: 'JetBrains Mono', monospace;
+            font-family: var(--font-mono);
             font-size: 20px; font-weight: 700; color: var(--text-1);
         }}
         .metric-lbl {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
@@ -104,7 +104,7 @@ def create_backtest_page(
     </style>
     
     <div class="backtest-page">
-        <h1 style="font-family: 'Outfit', sans-serif; font-size: 28px; margin: 0 0 8px 0; color: var(--text-1);">
+        <h1 style="font-family: var(--font-sans); font-size: 28px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-1);">
             策略回測
         </h1>
         <p style="color: var(--text-3); margin-bottom: 24px;">
@@ -118,7 +118,7 @@ def create_backtest_page(
         
         <!-- 參數設定 -->
         <div class="params-card" id="backtest-params">
-            <h3 style="margin: 0 0 16px 0; font-size: 15px; color: var(--text-1);">📋 參數設定</h3>
+            <h3 style="margin: 0 0 16px 0; font-size: 15px; color: var(--text-1); display: flex; align-items: center; gap: 8px;"><span class="section-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg></span> 參數設定</h3>
             <div class="param-row">
                 <span class="param-label">初始資金</span>
                 <input class="param-input" id="param-capital" type="number" value="1000000" />
@@ -215,7 +215,7 @@ def _generate_smc_interpretation(history: list, result: Dict) -> str:
 
         return f'''
         <div class="result-card" style="margin-top:16px;">
-            <h3 style="margin:0 0 16px 0;font-size:16px;color:var(--text-1);">🎯 SMC/ICT 策略解讀</h3>
+            <h3 style="margin:0 0 16px 0;font-size:16px;color:var(--text-1);">SMC/ICT 策略解讀</h3>
             {"".join(items)}
             <div style="margin-top:16px;padding:12px;background:rgba(188,19,254,0.06);border:1px solid rgba(188,19,254,0.15);border-radius:8px;">
                 <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin:0;">{interp}</p>
@@ -267,7 +267,7 @@ def _render_backtest_result(result: Dict, lang: str) -> str:
         warnings_text = "<br>".join(f"• {w}" for w in risk_warnings)
         risk_html = f'''
         <div class="risk-warning">
-            <div class="risk-warning-title">⚠️ 風險提示</div>
+            <div class="risk-warning-title"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> 風險提示</div>
             <div class="risk-warning-text">{warnings_text}</div>
         </div>
         '''
@@ -297,14 +297,14 @@ def _render_backtest_result(result: Dict, lang: str) -> str:
     return f'''
     <div class="result-card">
         <h3 style="margin: 0 0 16px 0; font-size: 16px; color: var(--text-1);">
-            📊 {result.get('strategy_name', '')} 回測結果
+            {result.get('strategy_name', '')} 回測結果
         </h3>
         {metrics_html}
         {risk_html}
     </div>
     
     <div class="result-card">
-        <h3 style="margin: 0 0 16px 0; font-size: 16px; color: var(--text-1);">📋 交易明細 (最近 20 筆)</h3>
+        <h3 style="margin: 0 0 16px 0; font-size: 16px; color: var(--text-1);">交易明細 (最近 20 筆)</h3>
         <div style="overflow-x: auto;">
             <table class="trade-table">
                 <thead><tr><th>日期</th><th>動作</th><th>價格</th><th>股數</th><th>損益</th><th>原因</th></tr></thead>
@@ -318,7 +318,7 @@ def _render_backtest_result(result: Dict, lang: str) -> str:
 def _no_result_placeholder() -> str:
     return '''
     <div style="text-align: center; padding: 60px 24px; color: var(--text-3);">
-        <div style="font-size: 48px; margin-bottom: 16px;">📈</div>
+        <div style="margin-bottom: 16px; color: var(--text-3);"><svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></div>
         <p>選擇策略並設定參數，點擊「執行回測」開始分析</p>
     </div>
     '''

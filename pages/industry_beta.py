@@ -33,7 +33,7 @@ def create_industry_beta_page(
         industry_cards += f'''
         <div class="industry-card">
             <div class="industry-header">
-                <span class="industry-icon">{ind.get('icon', '📊')}</span>
+                <span class="industry-icon">{ind.get('icon', '')}</span>
                 <span class="industry-name">{ind['name']}</span>
                 <span class="industry-count">{ind.get('count', 0)} 檔</span>
             </div>
@@ -79,12 +79,12 @@ def create_industry_beta_page(
         }}
         .ind-stock:hover {{ background: rgba(0,212,255,0.05); }}
         .ind-stock-sym {{
-            font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--primary);
+            font-family: var(--font-mono); font-size: 12px; color: var(--primary);
             min-width: 50px;
         }}
         .ind-stock-name {{ font-size: 13px; color: var(--text-2); flex: 1; }}
         .ind-stock-beta {{
-            font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600;
+            font-family: var(--font-mono); font-size: 12px; font-weight: 600;
         }}
         .bubble-chart {{
             background: var(--bg-card); border: 1px solid var(--border);
@@ -98,11 +98,11 @@ def create_industry_beta_page(
         }}
         .bubble:hover {{ transform: translate(-50%, -50%) scale(1.1); z-index: 10; }}
         .bubble-label {{ font-size: 11px; color: var(--text-1); font-weight: 600; text-align: center; }}
-        .bubble-beta {{ font-family: 'JetBrains Mono', monospace; font-size: 10px; }}
+        .bubble-beta {{ font-family: var(--font-mono); font-size: 10px; }}
     </style>
 
     <div class="industry-page">
-        <h1 style="font-family: 'Outfit', sans-serif; font-size: 28px; margin: 0 0 8px 0; color: var(--text-1);">
+        <h1 style="font-family: var(--font-sans); font-size: 28px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-1);">
             產業分布 + Beta
         </h1>
         <p style="color: var(--text-3); margin-bottom: 24px;">產業板塊分析與系統性風險（Beta）概覽</p>
@@ -114,7 +114,7 @@ def create_industry_beta_page(
 
         <!-- 產業卡片 -->
         <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-            <span>📂</span> 產業明細
+            <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span> 產業明細
         </h2>
         <div class="industry-grid">
             {industry_cards}
@@ -127,7 +127,7 @@ def _get_industry_data() -> List[Dict]:
     """產業資料（含合理的 Beta 預設值）"""
     return [
         {
-            "name": "半導體", "icon": "💾", "count": 45, "avg_beta": 1.32,
+            "name": "半導體", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>', "count": 45, "avg_beta": 1.32,
             "stocks": [
                 {"symbol": "2330", "name": "台積電", "beta": 1.15},
                 {"symbol": "2454", "name": "聯發科", "beta": 1.38},
@@ -137,7 +137,7 @@ def _get_industry_data() -> List[Dict]:
             ]
         },
         {
-            "name": "金融保險", "icon": "🏦", "count": 38, "avg_beta": 0.85,
+            "name": "金融保險", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="22" x2="21" y2="22"></line><line x1="6" y1="18" x2="6" y2="11"></line><line x1="10" y1="18" x2="10" y2="11"></line><line x1="14" y1="18" x2="14" y2="11"></line><line x1="18" y1="18" x2="18" y2="11"></line><polygon points="12 2 20 7 4 7"></polygon></svg>', "count": 38, "avg_beta": 0.85,
             "stocks": [
                 {"symbol": "2882", "name": "國泰金", "beta": 0.92},
                 {"symbol": "2881", "name": "富邦金", "beta": 0.88},
@@ -147,7 +147,7 @@ def _get_industry_data() -> List[Dict]:
             ]
         },
         {
-            "name": "電子零組件", "icon": "🔌", "count": 52, "avg_beta": 1.18,
+            "name": "電子零組件", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"></path><path d="M9 8V2"></path><path d="M15 8V2"></path><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"></path></svg>', "count": 52, "avg_beta": 1.18,
             "stocks": [
                 {"symbol": "2317", "name": "鴻海", "beta": 1.05},
                 {"symbol": "3231", "name": "緯創", "beta": 1.45},
@@ -157,7 +157,7 @@ def _get_industry_data() -> List[Dict]:
             ]
         },
         {
-            "name": "電信", "icon": "📡", "count": 8, "avg_beta": 0.55,
+            "name": "電信", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>', "count": 8, "avg_beta": 0.55,
             "stocks": [
                 {"symbol": "2412", "name": "中華電", "beta": 0.42},
                 {"symbol": "3045", "name": "台灣大", "beta": 0.55},
@@ -165,7 +165,7 @@ def _get_industry_data() -> List[Dict]:
             ]
         },
         {
-            "name": "生技醫療", "icon": "🧬", "count": 28, "avg_beta": 1.45,
+            "name": "生技醫療", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg>', "count": 28, "avg_beta": 1.45,
             "stocks": [
                 {"symbol": "6446", "name": "藥華藥", "beta": 1.65},
                 {"symbol": "4743", "name": "合一", "beta": 1.72},
@@ -173,7 +173,7 @@ def _get_industry_data() -> List[Dict]:
             ]
         },
         {
-            "name": "傳產", "icon": "🏭", "count": 35, "avg_beta": 0.78,
+            "name": "傳產", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8l-7 5V8l-7 5V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"></path></svg>', "count": 35, "avg_beta": 0.78,
             "stocks": [
                 {"symbol": "1301", "name": "台塑", "beta": 0.82},
                 {"symbol": "1303", "name": "南亞", "beta": 0.79},

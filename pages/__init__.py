@@ -7,3 +7,4 @@ from .admin_console import create_admin_console_page
 from .portfolio import create_portfolio_page
 from .industry_beta import create_industry_beta_page
 from .backtest_page import create_backtest_page
+from .watchlist import create_watchlist_page

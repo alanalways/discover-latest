@@ -17,6 +17,7 @@ from pages.admin_console import create_admin_console_page
 from pages.portfolio import create_portfolio_page
 from pages.industry_beta import create_industry_beta_page
 from pages.backtest_page import create_backtest_page
+from pages.watchlist import create_watchlist_page
 from config.models import MODEL_GROUNDING, MODEL_FINAL
 from services.auth_service import auth_service
 from services.rate_limiter import rate_limiter, TIER_LIMITS
@@ -30,6 +31,41 @@ _model_validation = {"valid": None, "errors": []}
 _current_symbol = None          # 目前選中的股票代號
 _current_user = None            # 目前登入的用戶
 _current_lang = DEFAULT_LANG
+_watchlist = ["2330", "AAPL", "NVDA", "0050"]  # 自選清單（Session 層級）
+_ADMIN_EMAIL = "cmshj30326@gmail.com"
+
+
+def _create_login_page(lang: str = 'zh-TW') -> str:
+    """建立 OLED Dark 風格登入頁面（未登入時顯示）"""
+    return '''
+    <div class="login-page">
+        <div class="login-card">
+            <div class="login-logo">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#00FFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                </svg>
+                <span class="login-brand">DiscoverLatest</span>
+            </div>
+            <p class="login-tagline">
+                洞察運算 · AI 智慧投資分析平台<br>
+                整合 SMC/ICT 技術分析、價格預測與 Gemini AI
+            </p>
+            <button class="login-google-btn" onclick="handleGoogleLogin()">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+                </svg>
+                使用 Google 帳號登入
+            </button>
+            <p class="login-disclaimer">
+                登入即表示您同意本平台的使用條款。<br>
+                本平台提供之資訊僅供參考，不構成投資建議。
+            </p>
+        </div>
+    </div>
+    '''
 
 
 def validate_models_on_startup():
@@ -37,28 +73,31 @@ def validate_models_on_startup():
     global _model_validation
     errors = []
     try:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        if not api_key:
+        # Check multi-key pool first, then single key
+        multi_keys = os.environ.get("GEMINI_API_KEYS", "")
+        single_key = os.environ.get("GEMINI_API_KEY", "")
+        if multi_keys:
+            count = len([k for k in multi_keys.split(",") if k.strip()])
+            print(f"[Models] {count} API keys found (round-robin), models validated on first use")
+        elif single_key:
+            print(f"[Models] 1 API key found, models validated on first use")
+        else:
             try:
                 from adapters.supabase_adapter import supabase_adapter
                 keys = supabase_adapter.get_gemini_keys()
                 if keys:
-                    api_key = keys[0]
+                    print(f"[Models] {len(keys)} keys from Vault, models validated on first use")
+                else:
+                    errors.append("Gemini API Key not set - AI features disabled")
             except Exception:
-                pass
-        if api_key:
-            # Skip genai.list_models() — it can hang/timeout on HF Space.
-            # Models are validated lazily on first use.
-            print(f"[Models] API key found, models will be validated on first use")
-        else:
-            errors.append("未設定 Gemini API Key，AI 功能將停用")
+                errors.append("Gemini API Key not set - AI features disabled")
     except Exception as e:
-        errors.append(f"模型驗證: {type(e).__name__}")
+        errors.append(f"Model validation: {type(e).__name__}")
     _model_validation = {"valid": len(errors) == 0, "errors": errors}
     if errors:
-        print(f"[Models] ⚠️ {errors}")
+        print(f"[Models] Warning: {errors}")
     else:
-        print("[Models] ✅ Ready")
+        print("[Models] Ready")
     return _model_validation
 
 
@@ -172,10 +211,10 @@ def create_app():
         css=CUSTOM_CSS,
         theme=gr.themes.Base(
             primary_hue="cyan", secondary_hue="purple", neutral_hue="slate",
-            font=["Inter", "system-ui", "sans-serif"],
+            font=["IBM Plex Sans", "system-ui", "sans-serif"],
         ),
         head=f'''
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Orbitron:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;700;800&display=swap">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
         <script>window._supabaseLoginUrl="{_login_url}";</script>
         ''',
     ) as app:
@@ -193,6 +232,12 @@ def create_app():
             global _current_symbol
             lang = _current_lang
             print(f"[Nav] → {page_id} (lang={lang})")
+
+            # Auth gate — redirect to login if not authenticated
+            if _current_user is None:
+                print("[Nav] No user → login page")
+                return _create_login_page(lang)
+
             try:
                 if page_id == "market":
                     inner = create_market_overview_page(lang)
@@ -224,6 +269,11 @@ def create_app():
                     )
                 elif page_id == "industry":
                     inner = create_industry_beta_page(lang=lang)
+                elif page_id == "watchlist":
+                    inner = create_watchlist_page(
+                        watchlist=_watchlist,
+                        lang=lang,
+                    )
                 elif page_id == "admin":
                     inner = create_admin_console_page(
                         user_data=_current_user,
@@ -276,6 +326,18 @@ def create_app():
                     return _handle_ai_action(payload)
                 elif action == "admin_search":
                     return _handle_admin_action(payload)
+                elif action == "watchlist_add":
+                    sym = payload.get("symbol", "").strip().upper()
+                    if sym and sym not in _watchlist:
+                        _watchlist.append(sym)
+                        print(f"[Watchlist] Added: {sym}")
+                    return handle_nav("watchlist")
+                elif action == "watchlist_remove":
+                    sym = payload.get("symbol", "").strip().upper()
+                    if sym in _watchlist:
+                        _watchlist.remove(sym)
+                        print(f"[Watchlist] Removed: {sym}")
+                    return handle_nav("watchlist")
                 else:
                     print(f"[Action] Unknown: {action}")
                     return gr.update()
@@ -442,8 +504,15 @@ def create_app():
             # Verify token via Supabase
             user = auth_service.verify_session(token)
             if user:
+                # Admin role designation
+                email = user.get("email", "")
+                if email == _ADMIN_EMAIL:
+                    if "app_metadata" not in user:
+                        user["app_metadata"] = {}
+                    user["app_metadata"]["role"] = "admin"
+                    print(f"[Auth] Admin user detected: {email}")
                 _current_user = user
-                print(f"[Auth] Logged in: {user.get('email', 'unknown')}")
+                print(f"[Auth] Logged in: {email}")
             else:
                 _current_user = None
                 print("[Auth] Token verification failed")
@@ -466,9 +535,12 @@ def create_app():
         auth_state.change(fn=handle_auth, inputs=[auth_state], outputs=[page_output])
         lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
         def _safe_initial_load(*_args):
-            """Initial page load — returns a loading shell, then JS triggers actual render."""
+            """Initial page load — show login if not authenticated, else market page."""
             try:
                 print("[Load] Rendering initial page...")
+                if _current_user is None:
+                    print("[Load] No user → login page")
+                    return _create_login_page(_current_lang)
                 result = handle_nav("market")
                 print(f"[Load] OK ({len(result) if result else 0} chars)")
                 return result
@@ -482,7 +554,7 @@ def create_app():
         # ── Client-side JS ──
         app.load(fn=lambda *_args: None, js="""
         () => {
-            console.log('[Init] DiscoverLatest v4.0');
+            console.log('[Init] DiscoverLatest v5.0');
             setTimeout(() => {
                 // ── Sidebar toggle ──
                 window.toggleSidebar = function() {
@@ -588,6 +660,21 @@ def create_app():
                     if (ls) {
                         ls.value = lang;
                         ls.dispatchEvent(new Event('input', {bubbles:true}));
+                    }
+                };
+
+                // ── Watchlist ──
+                window.watchlistAdd = function() {
+                    const input = document.getElementById('watchlist-add-input');
+                    const sym = (input?.value || '').trim().toUpperCase();
+                    if (sym && typeof dispatchAction === 'function') {
+                        dispatchAction({action: 'watchlist_add', symbol: sym});
+                        if (input) input.value = '';
+                    }
+                };
+                window.watchlistRemove = function(sym) {
+                    if (typeof dispatchAction === 'function') {
+                        dispatchAction({action: 'watchlist_remove', symbol: sym});
                     }
                 };
 

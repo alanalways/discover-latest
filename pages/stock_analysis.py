@@ -69,12 +69,12 @@ def create_stock_analysis_page(
         .stock-page {{ max-width: 1200px; }}
         .stock-header {{ display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }}
         .stock-title-section {{ flex: 1; }}
-        .stock-symbol {{ font-size: 14px; color: var(--primary); background: var(--primary-dim); padding: 4px 12px; border-radius: 6px; margin-bottom: 8px; display: inline-block; }}
+        .stock-symbol {{ font-size: 14px; color: var(--primary); background: var(--primary-dim); padding: 4px 12px; border-radius: 6px; margin-bottom: 8px; display: inline-block; font-family: var(--font-mono); }}
         .stock-name {{ font-size: 28px; font-weight: 700; color: var(--text-1); margin: 0 0 8px 0; }}
         .stock-market {{ font-size: 14px; color: var(--text-3); }}
         .stock-price-section {{ text-align: right; }}
-        .stock-price {{ font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 700; color: var(--text-1); }}
-        .stock-change {{ font-family: 'JetBrains Mono', monospace; font-size: 18px; margin-top: 4px; }}
+        .stock-price {{ font-family: var(--font-mono); font-size: 36px; font-weight: 700; color: var(--text-1); }}
+        .stock-change {{ font-family: var(--font-mono); font-size: 18px; margin-top: 4px; }}
         .stock-change.up {{ color: var(--success); }}
         .stock-change.down {{ color: var(--danger); }}
         .period-tabs {{ display: flex; gap: 8px; margin-bottom: 16px; }}
@@ -86,7 +86,7 @@ def create_stock_analysis_page(
         .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }}
         .metric-card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }}
         .metric-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; }}
-        .metric-value {{ font-size: 20px; font-weight: 600; color: var(--text-1); font-family: 'JetBrains Mono', monospace; }}
+        .metric-value {{ font-size: 20px; font-weight: 600; color: var(--text-1); font-family: var(--font-mono); }}
         .metric-subtext {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
         .two-column {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
         @media (max-width: 768px) {{ .two-column {{ grid-template-columns: 1fr; }} }}
@@ -128,7 +128,7 @@ def create_stock_analysis_page(
         </div>
         
         <!-- SMC/ICT 分析區 -->
-        <h2 class="section-title">🎯 SMC/ICT 技術分析</h2>
+        <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg></span> SMC/ICT 技術分析</h2>
         <div class="two-column" style="margin-bottom: 24px;">
             <div>
                 {smc_chart_html}
@@ -139,25 +139,25 @@ def create_stock_analysis_page(
         </div>
         
         <!-- 風險指標 -->
-        <h2 class="section-title">📊 {t('stock.riskMetrics', lang)}</h2>
+        <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span> {t('stock.riskMetrics', lang)}</h2>
         {risk_html}
         
         <!-- 價格預測區 -->
-        <h2 class="section-title">🔮 價格預測</h2>
+        <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span> 價格預測</h2>
         {_create_prediction_card(history, symbol, lang, pred_model, pred_horizon)}
         
         <!-- AI 分析 -->
-        <h2 class="section-title">🤖 AI 智慧分析</h2>
+        <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
         {_create_ai_analysis_card(symbol, ai_result, lang)}
 
         <!-- 基本面 + 資訊 -->
         <div class="two-column">
             <div>
-                <h2 class="section-title">📈 {t('stock.fundamentals', lang)}</h2>
+                <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg></span> {t('stock.fundamentals', lang)}</h2>
                 {fundamentals_html}
             </div>
             <div>
-                <h2 class="section-title">ℹ️ {t('stock.info', lang)}</h2>
+                <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span> {t('stock.info', lang)}</h2>
                 {info_html}
             </div>
         </div>
@@ -186,7 +186,7 @@ def _create_search_guide(lang: str) -> str:
     """建立搜尋引導頁面"""
     html = f'''
     <div style="text-align: center; padding: 80px 24px;">
-        <div style="font-size: 64px; margin-bottom: 24px;">🔍</div>
+        <div style="margin-bottom: 24px; color: var(--text-3);"><svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>
         <h2 style="font-size: 24px; color: var(--text-primary); margin-bottom: 16px;">
             {t('stock.searchGuide', lang)}
         </h2>
@@ -397,7 +397,7 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
         <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:32px;">
             <p style="color:var(--text-3);margin-bottom:12px;">點擊下方按鈕啟動 Gemini AI 雙段分析</p>
             <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
-                🤖 啟動 AI 分析
+                啟動 AI 分析
             </button>
             <p style="color:var(--text-3);font-size:11px;margin-top:8px;">使用 Google Search grounding + Gemini 生成</p>
         </div>

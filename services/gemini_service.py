@@ -2,33 +2,79 @@
 Gemini AI Service - 雙段 AI 生成（Grounding + Final）
 Stage 1: 使用 MODEL_GROUNDING + Google Search grounding 取得事實基礎
 Stage 2: 使用 MODEL_FINAL 產生最終分析輸出
+支援 7 組 API Key 輪流使用（Round-robin）
 """
 import os
+import threading
 import traceback
 from typing import Optional, Dict, Any, List
 from config.models import MODEL_GROUNDING, MODEL_FINAL
 
+# ── Key Rotation ──
+_key_pool: List[str] = []
+_key_index: int = 0
+_key_lock = threading.Lock()
+
+
+def _load_key_pool() -> List[str]:
+    """從環境變數載入 API Key 池"""
+    global _key_pool
+    if _key_pool:
+        return _key_pool
+
+    # 1. 優先：GEMINI_API_KEYS（逗號分隔，支援 7 組 Key 輪流使用）
+    multi_keys = os.environ.get("GEMINI_API_KEYS", "")
+    if multi_keys:
+        keys = [k.strip() for k in multi_keys.split(",") if k.strip()]
+        if keys:
+            _key_pool = keys
+            print(f"[Gemini] Loaded {len(keys)} API keys from GEMINI_API_KEYS")
+            return _key_pool
+
+    # 2. 備援：單一 GEMINI_API_KEY
+    single = os.environ.get("GEMINI_API_KEY", "")
+    if single:
+        _key_pool = [single]
+        print("[Gemini] Loaded 1 API key from GEMINI_API_KEY")
+        return _key_pool
+
+    # 3. 最後備援：Supabase Vault
+    try:
+        from adapters.supabase_adapter import supabase_adapter
+        vault_keys = supabase_adapter.get_gemini_keys()
+        if vault_keys:
+            _key_pool = vault_keys
+            print(f"[Gemini] Loaded {len(vault_keys)} API keys from Supabase Vault")
+            return _key_pool
+    except Exception:
+        pass
+
+    print("[Gemini] No API keys found")
+    return []
+
+
+def _get_next_key() -> str:
+    """Round-robin 取得下一組 API Key"""
+    global _key_index
+    pool = _load_key_pool()
+    if not pool:
+        return ""
+    with _key_lock:
+        key = pool[_key_index % len(pool)]
+        _key_index += 1
+    return key
+
 
 class GeminiService:
-    """Gemini AI 雙段生成服務"""
+    """Gemini AI 雙段生成服務（支援 Key 輪流使用）"""
 
     def __init__(self):
-        self._api_key: Optional[str] = None
         self._models_valid: bool = False
         self._errors: List[str] = []
 
     def _get_api_key(self) -> str:
-        if not self._api_key:
-            self._api_key = os.environ.get("GEMINI_API_KEY", "")
-            if not self._api_key:
-                try:
-                    from adapters.supabase_adapter import supabase_adapter
-                    keys = supabase_adapter.get_gemini_keys()
-                    if keys:
-                        self._api_key = keys[0]
-                except Exception:
-                    pass
-        return self._api_key or ""
+        """取得 API Key（Round-robin 輪流）"""
+        return _get_next_key()
 
     def is_available(self) -> bool:
         """AI 功能是否可用"""
@@ -125,8 +171,13 @@ class GeminiService:
             traceback.print_exc()
             grounding_text = "(Grounding 階段失敗，使用本地資料)"
 
-        # ── Stage 2: Final Output ──
+        # ── Stage 2: Final Output (may use a different key for load distribution) ──
         try:
+            # Get another key for Stage 2 (round-robin continues)
+            api_key_2 = self._get_api_key()
+            if api_key_2 and api_key_2 != api_key:
+                genai.configure(api_key=api_key_2)
+
             final_prompt = f"""你是「DiscoverLatest 洞察運算」AI 分析師。
 請根據以下資訊，產生一份精簡的投資分析報告（繁體中文）。
 

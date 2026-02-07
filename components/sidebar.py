@@ -1,44 +1,51 @@
 """
 DiscoverLatest 洞察運算 - Sidebar 元件
 左側導航列，包含頁面導航與用戶資訊卡
+使用 Lucide SVG 圖示取代 Emoji
 """
 import gradio as gr
 from components.i18n import t
 
+# ── Lucide SVG Icons (inline, 18x18, stroke-width 2) ──
+_ICONS = {
+    "logo": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>',
+    "layout-dashboard": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>',
+    "search": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>',
+    "trending-up": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>',
+    "globe": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>',
+    "briefcase": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
+    "star": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
+    "settings": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+}
+
 
 def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_page: str = 'market') -> str:
     """
-    建立 Sidebar HTML
-    
-    Args:
-        lang: 語言代碼
-        user_info: 用戶資訊（若已登入）
-        current_page: 目前頁面
-        
-    Returns:
-        HTML 字串
+    建立 Sidebar HTML（SVG 圖示版）
     """
-    # 導航項目
+    # 導航項目：(page_id, label_key, icon_key)
     nav_items = [
-        ('market', 'nav.market', '📊'),
-        ('stock', 'nav.stock', '🔍'),
-        ('backtest', 'nav.backtest', '📈'),
-        ('industry', 'nav.industry', '🌐'),
-        ('portfolio', 'nav.portfolio', '💼'),
-        ('admin', 'nav.admin', '⚙️'),
+        ('market', 'nav.market', 'layout-dashboard'),
+        ('stock', 'nav.stock', 'search'),
+        ('backtest', 'nav.backtest', 'trending-up'),
+        ('industry', 'nav.industry', 'globe'),
+        ('portfolio', 'nav.portfolio', 'briefcase'),
+        ('watchlist', 'nav.watchlist', 'star'),
+        ('admin', 'nav.admin', 'settings'),
     ]
-    
+
     # 建立導航 HTML
     nav_html = ""
-    for page_id, label_key, icon in nav_items:
+    for page_id, label_key, icon_key in nav_items:
         active_class = 'active' if page_id == current_page else ''
+        icon_svg = _ICONS.get(icon_key, '')
         nav_html += f'''
         <a href="#{page_id}" class="nav-item {active_class}" data-page="{page_id}" onclick="event.preventDefault(); navigateTo('{page_id}');">
-            <span class="nav-icon">{icon}</span>
+            <span class="nav-icon">{icon_svg}</span>
             <span class="nav-label">{t(label_key, lang)}</span>
         </a>
         '''
-    
+
     # 用戶資訊卡
     if user_info:
         tier = user_info.get('tier', 'free')
@@ -77,20 +84,20 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
             </button>
         </div>
         '''
-    
+
     return f'''
     <div class="sidebar">
         <div class="sidebar-header">
             <div class="logo">
-                <span class="logo-icon">📈</span>
+                <span class="logo-icon">{_ICONS["logo"]}</span>
                 <span class="logo-text">{t('app.name', lang)}</span>
             </div>
         </div>
-        
+
         <nav class="sidebar-nav">
             {nav_html}
         </nav>
-        
+
         <div class="sidebar-footer">
             {user_card}
         </div>

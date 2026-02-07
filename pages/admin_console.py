@@ -31,8 +31,8 @@ def create_admin_console_page(
             margin-bottom: 32px;
         }}
         .admin-title {{
-            font-family: 'Orbitron', sans-serif;
-            font-size: 28px; font-weight: 800;
+            font-family: var(--font-sans);
+            font-size: 28px; font-weight: 700;
             background: linear-gradient(135deg, #ff0055, #bc13fe);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }}
@@ -87,9 +87,9 @@ def create_admin_console_page(
         .tier-free {{ background: rgba(107,114,128,0.2); color: #9ca3af; }}
         .tier-pro {{ background: rgba(0,242,255,0.15); color: #00f2ff; }}
         .tier-premium {{ background: rgba(188,19,254,0.15); color: #bc13fe; }}
-        .key-masked {{ font-family: 'JetBrains Mono', monospace; color: var(--text-3); font-size: 12px; }}
+        .key-masked {{ font-family: var(--font-mono); color: var(--text-3); font-size: 12px; }}
         .log-entry {{ font-size: 12px; color: var(--text-3); padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }}
-        .log-time {{ color: var(--primary); font-family: 'JetBrains Mono', monospace; font-size: 11px; }}
+        .log-time {{ color: var(--primary); font-family: var(--font-mono); font-size: 11px; }}
         @media (max-width: 768px) {{
             .admin-grid {{ grid-template-columns: 1fr; }}
         }}
@@ -104,7 +104,7 @@ def create_admin_console_page(
         <div class="admin-grid">
             <!-- 用戶查詢 -->
             <div class="admin-card">
-                <div class="admin-card-title">👥 用戶管理</div>
+                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> 用戶管理</div>
                 <div class="admin-form">
                     <input class="admin-input" id="admin-user-search" placeholder="搜尋 Email 或 UID..." />
                     <button class="admin-btn" onclick="adminSearchUser()">查詢用戶</button>
@@ -117,7 +117,7 @@ def create_admin_console_page(
             
             <!-- Tier 管理 -->
             <div class="admin-card">
-                <div class="admin-card-title">⚡ 方案升降級</div>
+                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg> 方案升降級</div>
                 <div class="admin-form">
                     <input class="admin-input" id="admin-tier-uid" placeholder="User ID" />
                     <select class="admin-input" id="admin-tier-select">
@@ -132,24 +132,24 @@ def create_admin_console_page(
             
             <!-- Key Registry -->
             <div class="admin-card">
-                <div class="admin-card-title">🔑 Key Registry</div>
+                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path></svg> Key Registry</div>
                 <table class="admin-table">
                     <thead>
                         <tr><th>Key 名稱</th><th>用途</th><th>存放位置</th><th>前端安全</th></tr>
                     </thead>
                     <tbody>
-                        <tr><td>SUPABASE_URL</td><td>DB 連線</td><td>HF Secrets</td><td>❌</td></tr>
-                        <tr><td>SUPABASE_ANON_KEY</td><td>匿名存取</td><td>HF Secrets</td><td>✅</td></tr>
-                        <tr><td>GEMINI_KEYS</td><td>AI 呼叫</td><td>Vault</td><td>❌</td></tr>
-                        <tr><td>GOOGLE_CLIENT_ID</td><td>OAuth</td><td>Vault</td><td>✅</td></tr>
-                        <tr><td>FINMIND_TOKEN</td><td>資料 API</td><td>HF Secrets</td><td>❌</td></tr>
+                        <tr><td>SUPABASE_URL</td><td>DB 連線</td><td>HF Secrets</td><td style="color:var(--danger);">Private</td></tr>
+                        <tr><td>SUPABASE_ANON_KEY</td><td>匿名存取</td><td>HF Secrets</td><td style="color:var(--success);">Public</td></tr>
+                        <tr><td>GEMINI_KEYS</td><td>AI 呼叫</td><td>Vault</td><td style="color:var(--danger);">Private</td></tr>
+                        <tr><td>GOOGLE_CLIENT_ID</td><td>OAuth</td><td>Vault</td><td style="color:var(--success);">Public</td></tr>
+                        <tr><td>FINMIND_TOKEN</td><td>資料 API</td><td>HF Secrets</td><td style="color:var(--danger);">Private</td></tr>
                     </tbody>
                 </table>
             </div>
             
             <!-- Gemini Key Pool -->
             <div class="admin-card">
-                <div class="admin-card-title">🤖 Gemini Key Pool</div>
+                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg> Gemini Key Pool</div>
                 <div id="admin-key-pool">
                     <p style="color: var(--text-3); font-size: 13px;">載入中...</p>
                 </div>
@@ -163,7 +163,7 @@ def create_admin_console_page(
         
         <!-- 操作紀錄 -->
         <div class="admin-card" style="margin-bottom: 24px;">
-            <div class="admin-card-title">📋 操作紀錄</div>
+            <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg> 操作紀錄</div>
             <div id="admin-logs">
                 <div class="log-entry">
                     <span class="log-time">系統啟動</span> - Admin Console 載入完成
@@ -173,7 +173,7 @@ def create_admin_console_page(
         
         <!-- 模型狀態 -->
         <div class="admin-card">
-            <div class="admin-card-title">🧠 Gemini 模型狀態</div>
+            <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Gemini 模型狀態</div>
             <table class="admin-table">
                 <thead><tr><th>模型</th><th>用途</th><th>狀態</th></tr></thead>
                 <tbody>
@@ -219,7 +219,7 @@ def _access_denied(lang: str) -> str:
     """存取被拒絕頁面"""
     return '''
     <div style="text-align: center; padding: 120px 24px;">
-        <div style="font-size: 72px; margin-bottom: 24px;">🔒</div>
+        <div style="margin-bottom: 24px; color: var(--text-3);"><svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div>
         <h2 style="font-size: 24px; color: var(--text-1); margin-bottom: 12px;">
             權限不足
         </h2>

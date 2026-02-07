@@ -70,7 +70,7 @@ def create_portfolio_page(
         }}
         .stat-card:hover {{ border-color: rgba(0,212,255,0.3); }}
         .stat-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .stat-value {{ font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 700; color: var(--text-1); }}
+        .stat-value {{ font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--text-1); }}
         .stat-sub {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
         .holdings-table {{
             width: 100%; border-collapse: collapse; background: var(--bg-card);
@@ -97,7 +97,7 @@ def create_portfolio_page(
             padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
         }}
         .health-score {{
-            font-family: 'JetBrains Mono', monospace; font-size: 36px; font-weight: 700;
+            font-family: var(--font-mono); font-size: 36px; font-weight: 700;
         }}
         .rebalance-card {{
             background: var(--bg-card); border: 1px solid var(--border);
@@ -108,7 +108,7 @@ def create_portfolio_page(
     <div class="portfolio-page">
         <div class="portfolio-header">
             <div>
-                <h1 style="font-family: 'Outfit', sans-serif; font-size: 28px; margin: 0 0 8px 0; color: var(--text-1);">投資組合</h1>
+                <h1 style="font-family: var(--font-sans); font-size: 28px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-1);">投資組合</h1>
                 <span style="color: var(--text-3); font-size: 14px;">USD/TWD: {fx_rate:.2f}</span>
             </div>
         </div>
@@ -139,7 +139,7 @@ def create_portfolio_page(
 
         <!-- 持股明細 -->
         <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
-            <span>📊</span> 持股明細
+            <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span> 持股明細
         </h2>
         <table class="holdings-table">
             <thead>
@@ -154,7 +154,7 @@ def create_portfolio_page(
         <!-- 健康度 -->
         <div class="health-card">
             <h3 style="margin: 0 0 16px 0; color: var(--text-1); display: flex; align-items: center; gap: 8px;">
-                <span>🩺</span> 投組健康度分析
+                <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg></span> 投組健康度分析
             </h3>
             {''.join(f"""
             <div class="health-item">
@@ -167,7 +167,7 @@ def create_portfolio_page(
         <!-- 再平衡建議 -->
         <div class="rebalance-card">
             <h3 style="margin: 0 0 16px 0; color: var(--text-1); display: flex; align-items: center; gap: 8px;">
-                <span>⚖️</span> 再平衡建議
+                <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 17 2 2 4-4"></path><path d="m3 7 2 2 4-4"></path><path d="M13 6h8"></path><path d="M13 12h8"></path><path d="M13 18h8"></path></svg></span> 再平衡建議
             </h3>
             <p style="color: var(--text-3); font-size: 13px; line-height: 1.8;">
                 {_generate_rebalance_advice(holdings, stats)}
