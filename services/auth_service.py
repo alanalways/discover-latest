@@ -36,7 +36,7 @@ class AuthService:
 
     def _get_redirect_url(self) -> str:
         """取得 OAuth redirect URL"""
-        space_url = os.environ.get("SPACE_URL", "https://huggingface.co/spaces/alanalways/discover-latest-v2")
+        space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
         return space_url
 
     def verify_session(self, access_token: str) -> Optional[Dict]:
@@ -45,19 +45,25 @@ class AuthService:
             return None
         try:
             url = os.environ.get("SUPABASE_URL", "")
+            anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+            if not url or not anon_key:
+                print(f"[Auth] 缺少 Supabase 設定: URL={bool(url)}, ANON_KEY={bool(anon_key)}")
+                return None
             import httpx
             with httpx.Client(timeout=10.0) as client:
                 resp = client.get(
                     f"{url}/auth/v1/user",
                     headers={
                         "Authorization": f"Bearer {access_token}",
-                        "apikey": os.environ.get("SUPABASE_ANON_KEY", ""),
+                        "apikey": anon_key,
                     },
                 )
                 if resp.status_code == 200:
                     return resp.json()
+                else:
+                    print(f"[Auth] Session 驗證回應: status={resp.status_code}, body={resp.text[:200]}")
         except Exception as e:
-            print(f"[Auth] Session 驗證失敗: {type(e).__name__}")
+            print(f"[Auth] Session 驗證失敗: {type(e).__name__}: {e}")
         return None
 
     def get_user_role(self, user_data: Dict) -> str:

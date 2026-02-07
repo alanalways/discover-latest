@@ -140,7 +140,7 @@ def create_admin_console_page(
                     <tbody>
                         <tr><td>SUPABASE_URL</td><td>DB 連線</td><td>HF Secrets</td><td style="color:var(--danger);">Private</td></tr>
                         <tr><td>SUPABASE_ANON_KEY</td><td>匿名存取</td><td>HF Secrets</td><td style="color:var(--success);">Public</td></tr>
-                        <tr><td>GEMINI_KEYS</td><td>AI 呼叫</td><td>Vault</td><td style="color:var(--danger);">Private</td></tr>
+                        <tr><td>GEMINI_KEYS</td><td>DL AI 呼叫</td><td>Vault</td><td style="color:var(--danger);">Private</td></tr>
                         <tr><td>GOOGLE_CLIENT_ID</td><td>OAuth</td><td>Vault</td><td style="color:var(--success);">Public</td></tr>
                         <tr><td>FINMIND_TOKEN</td><td>資料 API</td><td>HF Secrets</td><td style="color:var(--danger);">Private</td></tr>
                     </tbody>
@@ -149,7 +149,7 @@ def create_admin_console_page(
             
             <!-- Gemini Key Pool -->
             <div class="admin-card">
-                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg> Gemini Key Pool</div>
+                <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg> Discover Latest AI Key Pool</div>
                 <div id="admin-key-pool">
                     <p style="color: var(--text-3); font-size: 13px;">載入中...</p>
                 </div>
@@ -173,7 +173,7 @@ def create_admin_console_page(
         
         <!-- 模型狀態 -->
         <div class="admin-card">
-            <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Gemini 模型狀態</div>
+            <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg> Discover Latest AI 模型狀態</div>
             <table class="admin-table">
                 <thead><tr><th>模型</th><th>用途</th><th>狀態</th></tr></thead>
                 <tbody>

@@ -216,6 +216,85 @@ class FinMindAdapter:
                     break
         return results
 
+    # ===== 同步包裝 =====
+
+    def get_tw_stock_price_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步版本的 get_tw_stock_price，供非 async 函式呼叫"""
+        token = self._get_token()
+        if not token:
+            print("[FinMind] FINMIND_TOKEN 未設定，跳過")
+            return []
+        params = {
+            "dataset": "TaiwanStockPrice",
+            "data_id": symbol,
+            "start_date": start_date,
+            "token": token,
+        }
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        params["end_date"] = end_date
+
+        try:
+            import httpx as _httpx
+            with _httpx.Client(timeout=30.0) as client:
+                resp = client.get(f"{self.BASE_URL}/data", params=params)
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("status") == 200 and result.get("data"):
+                    self._available = True
+                    data = result["data"]
+                    return [
+                        {
+                            "symbol": d.get("stock_id", symbol),
+                            "date": d.get("date"),
+                            "open": float(d.get("open", 0)),
+                            "high": float(d.get("max", 0)),
+                            "low": float(d.get("min", 0)),
+                            "close": float(d.get("close", 0)),
+                            "volume": int(d.get("Trading_Volume", 0)),
+                            "value": float(d.get("Trading_money", 0)),
+                        }
+                        for d in data
+                    ]
+                print(f"[FinMind] 台股 {symbol} 回傳空資料: status={result.get('status')}")
+                return []
+        except Exception as e:
+            print(f"[FinMind] 同步請求失敗 ({symbol}): {type(e).__name__}: {e}")
+            self._available = False
+            return []
+
+    def get_tw_stock_info_sync(self, symbol: str = None) -> List[Dict]:
+        """同步版本的 get_tw_stock_info"""
+        token = self._get_token()
+        if not token:
+            return []
+        params = {"dataset": "TaiwanStockInfo", "token": token}
+        if symbol:
+            params["data_id"] = symbol
+        try:
+            import httpx as _httpx
+            with _httpx.Client(timeout=30.0) as client:
+                resp = client.get(f"{self.BASE_URL}/data", params=params)
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("status") == 200 and result.get("data"):
+                    return [
+                        {
+                            "symbol": d.get("stock_id"),
+                            "name": d.get("stock_name"),
+                            "industry": d.get("industry_category"),
+                            "market": "TWSE" if d.get("type") == "twse" else "TPEX",
+                            "type": d.get("type", "stock"),
+                        }
+                        for d in result["data"]
+                    ]
+                return []
+        except Exception as e:
+            print(f"[FinMind] 股票資訊同步請求失敗: {type(e).__name__}: {e}")
+            return []
+
 
 # 單例
 finmind_adapter = FinMindAdapter()

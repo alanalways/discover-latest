@@ -48,7 +48,7 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
             </div>
             <p class="login-tagline">
                 洞察運算 · AI 智慧投資分析平台<br>
-                整合 SMC/ICT 技術分析、價格預測與 Gemini AI
+                整合 SMC/ICT 技術分析、價格預測與 Discover Latest AI
             </p>
             <button class="login-google-btn" onclick="handleGoogleLogin()">
                 <svg viewBox="0 0 24 24" width="20" height="20">
@@ -88,9 +88,9 @@ def validate_models_on_startup():
                 if keys:
                     print(f"[Models] {len(keys)} keys from Vault, models validated on first use")
                 else:
-                    errors.append("Gemini API Key not set - AI features disabled")
+                    errors.append("Discover Latest AI 金鑰未設定 - AI 功能已停用")
             except Exception:
-                errors.append("Gemini API Key not set - AI features disabled")
+                errors.append("Discover Latest AI 金鑰未設定 - AI 功能已停用")
     except Exception as e:
         errors.append(f"Model validation: {type(e).__name__}")
     _model_validation = {"valid": len(errors) == 0, "errors": errors}
@@ -101,18 +101,90 @@ def validate_models_on_startup():
     return _model_validation
 
 
-# ── Sync data helpers (yfinance) ──────────
+# ── Sync data helpers ─────────────────────
 def _fetch_stock_data_sync(symbol: str):
-    """同步取得個股資料（yfinance）供個股頁使用"""
-    import yfinance as yf
+    """同步取得個股資料（台股優先 FinMind，失敗再 yfinance）"""
+    from adapters.finmind_adapter import finmind_adapter
+    from datetime import datetime, timedelta
 
     # 判斷市場
-    if symbol.isdigit() and len(symbol) >= 4:
+    is_tw = symbol.isdigit() and len(symbol) >= 4
+    market = "TWSE" if is_tw else "US"
+
+    # ── 台股：優先使用 FinMind ──
+    if is_tw:
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            fm_data = finmind_adapter.get_tw_stock_price_sync(symbol, start_date, end_date)
+            if fm_data and len(fm_data) > 2:
+                print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
+                # 取得股票名稱（嘗試 FinMind 股票資訊）
+                stock_name = symbol
+                try:
+                    info_list = finmind_adapter.get_tw_stock_info_sync(symbol)
+                    if info_list:
+                        stock_name = info_list[0].get("name", symbol)
+                        market = info_list[0].get("market", "TWSE")
+                except Exception:
+                    pass
+
+                price = fm_data[-1]["close"]
+                prev = fm_data[-2]["close"] if len(fm_data) > 1 else price
+                chg = price - prev
+                pct = (chg / prev * 100) if prev else 0
+
+                info = {
+                    "symbol": symbol,
+                    "name": stock_name,
+                    "sector": "",
+                    "industry": "",
+                    "exchange": market,
+                    "currency": "TWD",
+                    "price": price,
+                    "change": chg,
+                    "change_percent": pct,
+                    "market_cap": 0,
+                    "pe_ratio": None,
+                    "pb_ratio": None,
+                    "eps": None,
+                    "dividend_yield": None,
+                    "beta": None,
+                    "52_week_high": max(d["high"] for d in fm_data),
+                    "52_week_low": min(d["low"] for d in fm_data),
+                    "avg_volume": int(sum(d["volume"] for d in fm_data) / len(fm_data)),
+                }
+
+                history = [
+                    {
+                        "date": d["date"],
+                        "open": round(d["open"], 2),
+                        "high": round(d["high"], 2),
+                        "low": round(d["low"], 2),
+                        "close": round(d["close"], 2),
+                        "volume": d["volume"],
+                    }
+                    for d in fm_data
+                ]
+
+                return {"info": info, "history": history}
+            else:
+                print(f"[DataSource] FinMind 回傳空資料: {symbol}, fallback yfinance")
+        except Exception as e:
+            print(f"[DataSource] FinMind failed ({symbol}): {type(e).__name__}: {e}")
+
+    # ── Fallback: yfinance（台股 + 美股）──
+    return _fetch_stock_data_yfinance(symbol, market)
+
+
+def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
+    """使用 yfinance 取得個股資料（作為 fallback 或美股主要來源）"""
+    import yfinance as yf
+
+    if market in ("TWSE", "TPEX"):
         yf_sym = f"{symbol}.TW"
-        market = "TWSE"
     else:
         yf_sym = symbol
-        market = "US"
 
     try:
         ticker = yf.Ticker(yf_sym)
@@ -128,7 +200,10 @@ def _fetch_stock_data_sync(symbol: str):
             hist = ticker.history(period="1y")
 
         if hist.empty:
+            print(f"[DataSource] yfinance 也無資料: {symbol}")
             return None
+
+        print(f"[DataSource] yfinance OK: {symbol} ({len(hist)} rows)")
 
         price = float(hist["Close"].iloc[-1])
         prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else price
@@ -203,7 +278,7 @@ def create_app():
 
     # Compute login URL for injection into HTML head
     _supabase_url = os.environ.get("SUPABASE_URL", "")
-    _space_url = os.environ.get("SPACE_URL", "https://huggingface.co/spaces/alanalways/discover-latest-v2")
+    _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
 
     with gr.Blocks(
@@ -418,7 +493,7 @@ def create_app():
             return build_full_page(inner, DEFAULT_LANG)
 
         def _handle_ai_action(payload):
-            """Gemini AI 分析"""
+            """Discover Latest AI 分析"""
             from services.gemini_service import gemini_service
             symbol = payload.get("symbol", _current_symbol)
             question = payload.get("question", "")
@@ -600,9 +675,10 @@ def create_app():
                 window.handleGoogleLogin = function() {
                     const loginUrl = window._supabaseLoginUrl || '';
                     if (loginUrl) {
-                        window.open(loginUrl, '_blank', 'width=500,height=600');
+                        // 使用 location.href 直接導向（非彈出視窗），確保 redirect 回到同一頁面
+                        window.location.href = loginUrl;
                     } else {
-                        alert('Supabase Auth 尚未設定');
+                        alert('Supabase Auth 尚未設定，請聯絡管理員');
                     }
                 };
                 window.handleLogout = function() {
@@ -612,21 +688,29 @@ def create_app():
                         as_.dispatchEvent(new Event('input', {bubbles:true}));
                     }
                 };
-                // Check for OAuth callback token in URL hash
+                // Check for OAuth callback token in URL hash or query params
                 (function checkOAuthCallback() {
+                    let token = null;
+                    // 優先檢查 hash fragment（Supabase implicit flow）
                     const hash = window.location.hash;
                     if (hash && hash.includes('access_token=')) {
                         const params = new URLSearchParams(hash.substring(1));
-                        const token = params.get('access_token');
-                        if (token) {
-                            const as_ = document.querySelector('#auth-state textarea');
-                            if (as_) {
-                                as_.value = token;
-                                as_.dispatchEvent(new Event('input', {bubbles:true}));
-                            }
-                            // Clean hash
-                            history.replaceState(null, '', window.location.pathname);
+                        token = params.get('access_token');
+                    }
+                    // 備援：檢查 query parameter（PKCE flow）
+                    if (!token) {
+                        const searchParams = new URLSearchParams(window.location.search);
+                        token = searchParams.get('access_token');
+                    }
+                    if (token) {
+                        console.log('[Auth] OAuth callback token detected');
+                        const as_ = document.querySelector('#auth-state textarea');
+                        if (as_) {
+                            as_.value = token;
+                            as_.dispatchEvent(new Event('input', {bubbles:true}));
                         }
+                        // Clean hash and query params
+                        history.replaceState(null, '', window.location.pathname);
                     }
                 })();
 

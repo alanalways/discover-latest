@@ -395,11 +395,11 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
     else:
         return f'''
         <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:32px;">
-            <p style="color:var(--text-3);margin-bottom:12px;">點擊下方按鈕啟動 Gemini AI 雙段分析</p>
+            <p style="color:var(--text-3);margin-bottom:12px;">點擊下方按鈕啟動 Discover Latest AI 分析</p>
             <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
                 啟動 AI 分析
             </button>
-            <p style="color:var(--text-3);font-size:11px;margin-top:8px;">使用 Google Search grounding + Gemini 生成</p>
+            <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Discover Latest AI 智慧分析引擎</p>
         </div>
         '''
 

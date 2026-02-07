@@ -106,7 +106,7 @@ class GeminiService:
         """
         api_key = self._get_api_key()
         if not api_key:
-            return {"success": False, "error": "Gemini API Key 未設定", "analysis": "", "grounding_sources": []}
+            return {"success": False, "error": "Discover Latest AI 金鑰未設定", "analysis": "", "grounding_sources": []}
 
         try:
             import google.generativeai as genai

@@ -8,7 +8,8 @@ import asyncio
 
 from adapters import (
     supabase, twse_adapter, tpex_adapter, 
-    yahoo_adapter, stooq_adapter, fx_adapter
+    yahoo_adapter, stooq_adapter, fx_adapter,
+    finmind_adapter
 )
 
 
@@ -84,24 +85,41 @@ class StockService:
         market: str,
         period: str = "1y"
     ) -> List[Dict]:
-        """取得歷史資料（優先從 DB，否則從 API）"""
-        # 先嘗試從資料庫取得
+        """取得歷史資料（優先 FinMind → DB → TWSE/TPEX/Yahoo）"""
+        end_date = datetime.now()
+        period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "5y": 1825}
+        start_date = end_date - timedelta(days=period_days.get(period, 365))
+
+        # 台股優先使用 FinMind
+        if market in ["TWSE", "TPEX"]:
+            try:
+                fm_data = await finmind_adapter.get_tw_stock_price(
+                    symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+                )
+                if fm_data:
+                    print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
+                    return fm_data
+                else:
+                    print(f"[DataSource] FinMind 回傳空資料: {symbol}")
+            except Exception as e:
+                print(f"[DataSource] FinMind failed ({symbol}): {e}")
+
+        # Fallback: 嘗試從資料庫取得
         try:
-            end_date = datetime.now()
-            period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "5y": 1825}
-            start_date = end_date - timedelta(days=period_days.get(period, 365))
-            
             result = await supabase.get_client().from_("stock_daily").select("*").eq("symbol", symbol).gte("date", start_date.strftime("%Y-%m-%d")).order("date", desc=False).execute()
             
             if result.data and len(result.data) > 0:
+                print(f"[DataSource] Supabase DB OK: {symbol}")
                 return result.data
         except:
             pass
         
-        # 從 API 取得
+        # Fallback: 從其他 API 取得
         if market == "TWSE":
+            print(f"[DataSource] fallback TWSE adapter: {symbol}")
             return await twse_adapter.get_stock_history(symbol, end_date - timedelta(days=365), end_date)
         elif market == "TPEX":
+            print(f"[DataSource] fallback TPEX adapter: {symbol}")
             return await tpex_adapter.get_stock_history(symbol, end_date - timedelta(days=365), end_date)
         else:
             return await yahoo_adapter.get_stock_history(symbol, "US", period)
