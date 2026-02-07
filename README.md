@@ -1,7 +1,7 @@
 ---
 title: DiscoverLatest 洞察運算 v3.0
 emoji: 📈
-colorFrom: cyan
+colorFrom: blue
 colorTo: purple
 sdk: gradio
 sdk_version: 4.44.1
