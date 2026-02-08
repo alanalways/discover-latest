@@ -37,6 +37,39 @@ def _calc_bollinger(prices: List[float], period: int = 20, std_mult: float = 2.0
     return ma, upper, lower
 
 
+def normalize_chart_data(raw_data: List[Dict]) -> List[Dict]:
+    """
+    正規化 K 線資料格式供 Lightweight Charts 使用。
+    - time 必須是字串 "YYYY-MM-DD"（LWC 視為 UTC）。
+    - 若為 ISO 8601 含 'T' 則只取日期部分；無法解析則跳過該筆。
+    """
+    normalized = []
+    for item in raw_data:
+        try:
+            date_str = item.get("date", "")
+            if not date_str:
+                continue
+            if isinstance(date_str, (int, float)):
+                from datetime import datetime as dt
+                date_str = dt.utcfromtimestamp(int(date_str)).strftime("%Y-%m-%d")
+            else:
+                date_str = str(date_str).strip()
+                if "T" in date_str:
+                    date_str = date_str.split("T")[0]
+            datetime.strptime(date_str, "%Y-%m-%d")
+            normalized.append({
+                "time": date_str,
+                "open": float(item.get("open", 0)),
+                "high": float(item.get("high", 0)),
+                "low": float(item.get("low", 0)),
+                "close": float(item.get("close", 0)),
+                "volume": int(item.get("volume", 0)),
+            })
+        except (ValueError, TypeError) as e:
+            continue
+    return normalized
+
+
 def create_candlestick_chart(
     data: List[Dict] = None,
     symbol: str = "AAPL",
@@ -61,19 +94,22 @@ def create_candlestick_chart(
     if not data:
         data = _get_mock_data()
 
-    # 轉換 K 線與成交量資料
+    data = normalize_chart_data(data)
+    if not data:
+        return '<div class="chart-section" style="padding:40px;text-align:center;color:var(--text-3);">無有效圖表資料</div>'
+
+    # 轉換 K 線與成交量資料（已正規化為 YYYY-MM-DD）
     candle_data = []
     volume_data = []
     close_prices = []
-
     for d in data:
-        date_str = d.get("date", "")
-        o, h, l, c = float(d.get("open", 0)), float(d.get("high", 0)), float(d.get("low", 0)), float(d.get("close", 0))
+        date_str = d["time"]
+        o, h, l, c = d["open"], d["high"], d["low"], d["close"]
         candle_data.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
         close_prices.append(c)
         if show_volume:
             color = "rgba(0,255,255,0.35)" if c >= o else "rgba(239,68,68,0.35)"
-            volume_data.append({"time": date_str, "value": int(d.get("volume", 0)), "color": color})
+            volume_data.append({"time": date_str, "value": d["volume"], "color": color})
 
     # MA 計算
     ma5 = _calc_ma(close_prices, 5) if show_ma else []
@@ -177,6 +213,10 @@ def create_candlestick_chart(
         if (!container) return;
         function runChart() {{
             if (!window.LightweightCharts) return;
+            if (container.clientWidth === 0) {{
+                setTimeout(runChart, 100);
+                return;
+            }}
             container.innerHTML = '';
             var chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
@@ -314,6 +354,10 @@ def create_line_chart(
         if (!container) return;
         function runChart() {{
             if (!window.LightweightCharts) return;
+            if (container.clientWidth === 0) {{
+                setTimeout(runChart, 100);
+                return;
+            }}
             container.innerHTML = '';
             var chart = LightweightCharts.createChart(container, {{
                 width: container.clientWidth, height: {height},

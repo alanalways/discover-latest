@@ -117,6 +117,11 @@ def create_backtest_page(
                 參數設定
             </h3>
             <div class="param-row">
+                <span class="param-label">標的</span>
+                <input class="param-input" id="param-symbol" type="text" value="{symbol or ''}" placeholder="例如 2330、AAPL" style="width:140px;" />
+                <span style="color:var(--text-3);font-size:12px;">股票代號</span>
+            </div>
+            <div class="param-row">
                 <span class="param-label">初始資金</span>
                 <input class="param-input" id="param-capital" type="number" value="1000000" />
                 <span style="color:var(--text-3);font-size:12px;">TWD</span>
@@ -143,10 +148,11 @@ def create_backtest_page(
         }};
         window.runBacktest = function() {{
             var capital = parseInt(document.getElementById('param-capital')?.value || '1000000');
-            var symbol = '{symbol or ""}';
-            if (!symbol) {{ alert('請先在個股分析頁選擇標的'); return; }}
-            if (typeof dispatchAction === 'function') {{
-                dispatchAction({{ action:'run_backtest', symbol:symbol, strategy:_selectedStrategy, capital:capital }});
+            var symbolInput = document.getElementById('param-symbol');
+            var symbol = (symbolInput && symbolInput.value && symbolInput.value.trim()) ? symbolInput.value.trim().toUpperCase() : '';
+            if (!symbol) {{ alert('請輸入回測標的（股票代號）'); return; }}
+            if (typeof window.dispatchAction === 'function') {{
+                window.dispatchAction({{ action:'run_backtest', symbol:symbol, strategy:_selectedStrategy, capital:capital }});
             }}
         }};
     }})();

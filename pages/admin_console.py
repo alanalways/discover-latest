@@ -106,7 +106,7 @@ def create_admin_console_page(
             <div class="admin-card">
                 <div class="admin-card-title"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg> 用戶管理</div>
                 <div class="admin-form">
-                    <input class="admin-input" id="admin-user-search" placeholder="搜尋 Email 或 UID..." />
+                    <input class="admin-input" id="admin-user-search" placeholder="可輸入完整 Email 或 User UID 查詢" />
                     <button class="admin-btn" onclick="adminSearchUser()">查詢用戶</button>
                 </div>
                 <div id="admin-user-result" style="margin-top: 16px;">
@@ -197,20 +197,25 @@ def create_admin_console_page(
 
 
 def _render_user_result(user: Dict) -> str:
-    """渲染用戶查詢結果"""
+    """渲染用戶查詢結果（含今日 AI 使用次數）；查詢成功後可帶入 UID 至更新表單"""
     if not user:
-        return '<p style="color:var(--text-3);font-size:13px;">未找到用戶</p>'
+        return '<p style="color:var(--text-3);font-size:13px;">未找到用戶（請確認 Email 或 UID 是否正確）</p>'
     tier = user.get('tier', 'free')
     tier_cls = f"tier-{tier}"
+    uid = user.get('id', '')
+    daily_ai = user.get('daily_ai_usage', 0)
     return f'''
-    <div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:16px;margin-top:8px;">
+    <div id="admin-user-result-card" style="background:rgba(0,0,0,0.2);border-radius:8px;padding:16px;margin-top:8px;" data-fill-uid="{uid}">
+        <input type="hidden" id="admin-fill-uid" value="{uid}" />
         <table class="admin-table">
-            <tr><td style="color:var(--text-3);width:100px;">UID</td><td>{user.get('id','—')}</td></tr>
+            <tr><td style="color:var(--text-3);width:100px;">UID</td><td>{uid or '—'}</td></tr>
             <tr><td style="color:var(--text-3);">Email</td><td>{user.get('email','—')}</td></tr>
             <tr><td style="color:var(--text-3);">Tier</td><td><span class="tier-badge {tier_cls}">{tier.upper()}</span></td></tr>
-            <tr><td style="color:var(--text-3);">到期日</td><td>{user.get('expires_at','永久')}</td></tr>
+            <tr><td style="color:var(--text-3);">到期日</td><td>{user.get('expires_at','—')}</td></tr>
+            <tr><td style="color:var(--text-3);">今日 AI 使用次數</td><td style="font-family:var(--font-mono);font-weight:600;">{daily_ai}</td></tr>
             <tr><td style="color:var(--text-3);">建立</td><td>{user.get('created_at','—')}</td></tr>
         </table>
+        <script>(function(){{ var u = document.getElementById('admin-fill-uid'); var el = document.getElementById('admin-tier-uid'); if(u && el) el.value = u.value || ''; }})();</script>
     </div>
     '''
 

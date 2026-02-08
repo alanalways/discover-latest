@@ -22,9 +22,9 @@ def create_portfolio_page(
     # 計算投組統計
     stats = _calculate_portfolio_stats(holdings, fx_rate)
 
-    # 持股卡片
+    # 持股卡片（含刪除按鈕）
     holdings_html = ""
-    for h in holdings:
+    for i, h in enumerate(holdings):
         pnl_class = "up" if h.get("pnl_pct", 0) >= 0 else "down"
         pnl_sign = "+" if h.get("pnl_pct", 0) >= 0 else ""
 
@@ -35,8 +35,8 @@ def create_portfolio_page(
         weight = market_value_twd / stats["total_value_twd"] * 100 if stats["total_value_twd"] > 0 else 0
 
         holdings_html += f'''
-        <tr onclick="selectStock('{h.get('symbol', '')}')">
-            <td>
+        <tr>
+            <td onclick="selectStock('{h.get('symbol', '')}')" style="cursor:pointer;">
                 <span style="color: var(--primary); font-weight: 600;">{h.get('symbol', '')}</span>
                 <br><span style="font-size: 11px; color: var(--text-3);">{h.get('name', '')}</span>
             </td>
@@ -46,6 +46,7 @@ def create_portfolio_page(
             <td class="mono-font">TWD {market_value_twd:,.0f}</td>
             <td class="mono-font {pnl_class}">{pnl_sign}{h.get('pnl_pct', 0):.2f}%</td>
             <td class="mono-font">{weight:.1f}%</td>
+            <td><button type="button" class="portfolio-row-btn" onclick="event.stopPropagation(); window.portfolioDelete && window.portfolioDelete({i});" title="刪除">刪除</button></td>
         </tr>
         '''
 
@@ -103,6 +104,24 @@ def create_portfolio_page(
             background: var(--bg-card); border: 1px solid var(--border);
             border-radius: 12px; padding: 24px; margin-top: 24px;
         }}
+        .portfolio-add-card {{
+            display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+            padding: 12px 16px; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border);
+        }}
+        .portfolio-add-input {{
+            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+            padding: 8px 10px; color: var(--text-1); font-size: 13px;
+        }}
+        .portfolio-add-btn {{
+            background: var(--primary); color: #0f172a; border: none; border-radius: 6px;
+            padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 13px;
+        }}
+        .portfolio-add-btn:hover {{ opacity: 0.9; }}
+        .portfolio-row-btn {{
+            background: transparent; border: 1px solid rgba(239,68,68,0.4); color: #ef4444;
+            padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+        }}
+        .portfolio-row-btn:hover {{ background: rgba(239,68,68,0.15); }}
     </style>
 
     <div class="portfolio-page">
@@ -141,11 +160,18 @@ def create_portfolio_page(
         <h2 style="font-size: 18px; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
             <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span> 持股明細
         </h2>
+        <div class="portfolio-add-card" style="margin-bottom:16px;">
+            <span style="color:var(--text-2);font-size:13px;margin-right:8px;">新增持股</span>
+            <input type="text" id="portfolio-add-symbol" class="portfolio-add-input" placeholder="代號" style="width:80px;" />
+            <input type="number" id="portfolio-add-shares" class="portfolio-add-input" placeholder="股數" min="1" style="width:80px;" />
+            <input type="number" id="portfolio-add-price" class="portfolio-add-input" placeholder="均價" min="0" step="0.01" style="width:90px;" />
+            <button type="button" class="portfolio-add-btn" onclick="window.portfolioAdd && window.portfolioAdd();">新增</button>
+        </div>
         <table class="holdings-table">
             <thead>
                 <tr>
                     <th>標的</th><th>股數</th><th>均成本</th><th>現價</th>
-                    <th>市值(TWD)</th><th>損益%</th><th>佔比</th>
+                    <th>市值(TWD)</th><th>損益%</th><th>佔比</th><th></th>
                 </tr>
             </thead>
             <tbody>{holdings_html}</tbody>

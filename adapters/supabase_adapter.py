@@ -42,6 +42,49 @@ class SupabaseAdapter:
         url, _, _ = self._get_config()
         return f"{url}/rest/v1" if url else ""
     
+    def _auth_admin_request(self, method: str, path: str, json: Any = None) -> Optional[Any]:
+        """Auth Admin API（需 SUPABASE_SERVICE_ROLE_KEY）"""
+        url, _, service_key = self._get_config()
+        if not url or not service_key:
+            return None
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.request(
+                    method=method,
+                    url=f"{url}/auth/v1/{path}",
+                    headers={
+                        "apikey": service_key,
+                        "Authorization": f"Bearer {service_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=json,
+                )
+                if resp.status_code != 200:
+                    return None
+                return resp.json() if resp.text else None
+        except Exception as e:
+            print(f"[Supabase Auth Admin] {method} {path} 失敗: {type(e).__name__}")
+            return None
+    
+    def _rpc(self, name: str, params: Dict) -> Optional[Any]:
+        """呼叫 PostgREST RPC"""
+        url, _, _ = self._get_config()
+        if not url:
+            return None
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.post(
+                    f"{url}/rest/v1/rpc/{name}",
+                    headers=self._get_headers(use_service_key=True),
+                    json=params,
+                )
+                if resp.status_code != 200:
+                    return None
+                return resp.json() if resp.text else None
+        except Exception as e:
+            print(f"[Supabase RPC] {name} 失敗: {type(e).__name__}")
+            return None
+    
     def _request(
         self, 
         method: str, 
@@ -105,7 +148,7 @@ class SupabaseAdapter:
     # ===== 用戶操作 =====
     
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """取得用戶資料"""
+        """取得用戶資料（public.users）"""
         result = self._request(
             "GET",
             "users",
@@ -114,6 +157,113 @@ class SupabaseAdapter:
         if result and len(result) > 0:
             return result[0]
         return None
+
+    def auth_admin_get_user_by_id(self, uid: str) -> Optional[Dict[str, Any]]:
+        """Auth Admin API：依 UID 取得 auth.users 用戶"""
+        if not uid:
+            return None
+        data = self._auth_admin_request("GET", f"admin/users/{uid}")
+        if data and isinstance(data, dict) and data.get("id"):
+            return data
+        # 部分 API 回傳包在 user 鍵內
+        if data and isinstance(data, dict) and data.get("user"):
+            return data["user"]
+        return None
+
+    def rpc_get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """RPC get_user_by_email(email)：查 auth.users，回傳 id, email, created_at"""
+        if not email:
+            return None
+        result = self._rpc("get_user_by_email", {"email": email})
+        if result and isinstance(result, list) and len(result) > 0:
+            return result[0]
+        if result and isinstance(result, dict) and result.get("id"):
+            return result
+        return None
+
+    def get_user_subscription(self, user_id: str) -> Dict[str, Any]:
+        """取得用戶訂閱（user_subscriptions 表），無表或無資料則回傳預設"""
+        try:
+            result = self._request(
+                "GET",
+                "user_subscriptions",
+                params={"user_id": f"eq.{user_id}", "select": "tier,expires_at"},
+                use_service_key=True,
+            )
+            if result and isinstance(result, list) and len(result) > 0:
+                return result[0]
+        except Exception:
+            pass
+        return {"tier": "free", "expires_at": None}
+
+    # ===== 投資組合 (portfolios) =====
+
+    def load_user_portfolio(self, user_id: str) -> List[Dict[str, Any]]:
+        """載入用戶投資組合（portfolios 表：user_id, symbol, shares, avg_price）"""
+        try:
+            result = self._request(
+                "GET",
+                "portfolios",
+                params={"user_id": f"eq.{user_id}", "select": "symbol,shares,avg_price"},
+                use_service_key=True,
+            )
+            if not result or not isinstance(result, list):
+                return []
+            out = []
+            for row in result:
+                out.append({
+                    "symbol": row.get("symbol", ""),
+                    "name": row.get("symbol", ""),
+                    "shares": int(row.get("shares", 0)),
+                    "avg_cost": float(row.get("avg_price", 0)),
+                    "current_price": float(row.get("avg_price", 0)),
+                    "market_value": int(row.get("shares", 0)) * float(row.get("avg_price", 0)),
+                    "pnl_pct": 0,
+                    "currency": "TWD",
+                })
+            return out
+        except Exception:
+            return []
+
+    def save_user_portfolio(self, user_id: str, holdings: List[Dict[str, Any]]) -> bool:
+        """將投資組合寫入 portfolios 表（先刪後插）"""
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            headers = self._get_headers(use_service_key=True)
+            with httpx.Client(timeout=30.0) as client:
+                # 先刪除該用戶所有
+                client.request(
+                    "DELETE",
+                    f"{url}/rest/v1/portfolios",
+                    headers=headers,
+                    params={"user_id": f"eq.{user_id}"},
+                )
+                if not holdings:
+                    return True
+                rows = []
+                for h in holdings:
+                    symbol = (h.get("symbol") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    rows.append({
+                        "user_id": user_id,
+                        "symbol": symbol,
+                        "shares": int(h.get("shares", 0)),
+                        "avg_price": float(h.get("avg_cost", 0)),
+                    })
+                if not rows:
+                    return True
+                resp = client.post(
+                    f"{url}/rest/v1/portfolios",
+                    headers=headers,
+                    json=rows,
+                )
+                return resp.is_success
+        except Exception as e:
+            print(f"[DB] 寫入 portfolios 失敗: {type(e).__name__}")
+            return False
     
     def get_user_tier(self, user_id: str) -> str:
         """取得用戶方案等級"""
@@ -140,16 +290,20 @@ class SupabaseAdapter:
     # ===== AI 用量追蹤 =====
     
     def get_ai_usage_today(self, user_id: str) -> int:
-        """取得用戶今日 AI 使用次數"""
+        """取得用戶今日 AI 使用次數（真實筆數，無預設值）"""
         today = date.today().isoformat()
+        # 若表為 ai_usage(user_id, date, count) 一筆/日：取 count；若為 ai_usage_logs 多筆/日：計數
         result = self._request(
             "GET",
             "ai_usage",
-            params={"user_id": f"eq.{user_id}", "date": f"eq.{today}", "select": "count"}
+            params={"user_id": f"eq.{user_id}", "date": f"eq.{today}", "select": "*"},
+            use_service_key=True,
         )
-        if result and len(result) > 0:
-            return result[0].get('count', 0)
-        return 0
+        if not result or not isinstance(result, list):
+            return 0
+        if len(result) == 1 and isinstance(result[0], dict) and "count" in result[0]:
+            return int(result[0].get("count", 0))
+        return len(result)
     
     def increment_ai_usage(self, user_id: str) -> bool:
         """增加用戶 AI 使用次數（使用 RPC）"""

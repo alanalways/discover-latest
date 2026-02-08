@@ -58,7 +58,7 @@ def create_topbar_html(lang: str = 'zh-TW', user_info: dict = None) -> str:
         </div>
         
         <div class="topbar-center">
-            <div class="search-box">
+            <div class="search-box search-container">
                 <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -68,6 +68,10 @@ def create_topbar_html(lang: str = 'zh-TW', user_info: dict = None) -> str:
                        class="search-input" 
                        placeholder="{t('common.search', lang)}"
                        autocomplete="off"/>
+                <button type="button" class="search-btn" onclick="window.executeSearch()" title="搜尋股票">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><path d="m21 21-4.35-4.35"></path></svg>
+                    搜尋
+                </button>
                 <div id="search-results" class="search-results"></div>
             </div>
         </div>

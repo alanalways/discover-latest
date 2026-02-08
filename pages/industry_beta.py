@@ -157,19 +157,41 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
     <script>
     (function() {{
         var data = {industries_json};
-        var svg = d3.select('#d3-bubble-svg');
-        var container = document.getElementById('bubble-container');
-        if (!svg.node() || !container) return;
+        function runD3Bubble() {{
+            if (typeof window.d3 === 'undefined') {{
+                setTimeout(runD3Bubble, 50);
+                return;
+            }}
+            var container = document.getElementById('bubble-container');
+            var svgEl = document.getElementById('d3-bubble-svg');
+            if (!container || !svgEl) {{
+                setTimeout(runD3Bubble, 50);
+                return;
+            }}
+            var d3 = window.d3;
+            var svg = d3.select('#d3-bubble-svg');
+            if (!svg.node()) {{
+                setTimeout(runD3Bubble, 50);
+                return;
+            }}
 
-        var width = container.clientWidth - 48;
-        var height = 400;
-        svg.attr('viewBox', '0 0 ' + width + ' ' + height);
+            if (!Array.isArray(data) || data.length === 0) {{
+                svg.append('text')
+                    .attr('x', '50%').attr('y', '50%').attr('text-anchor', 'middle').attr('dy', '0.35em')
+                    .style('fill', 'var(--text-3)').style('font-size', '14px')
+                    .text('暫無資料');
+                return;
+            }}
 
-        var tooltip = d3.select('#d3-tooltip');
-        var colors = ['#00FFFF','#A855F7','#3B82F6','#22C55E','#F97316','#FBBF24'];
+            var width = Math.max(300, container.clientWidth - 48);
+            var height = 400;
+            svg.attr('viewBox', '0 0 ' + width + ' ' + height);
 
-        // 建立節點
-        var nodes = data.map(function(d, i) {{
+            var tooltip = d3.select('#d3-tooltip');
+            var colors = ['#00FFFF','#A855F7','#3B82F6','#22C55E','#F97316','#FBBF24'];
+
+            // 建立節點
+            var nodes = data.map(function(d, i) {{
             var r = Math.max(35, Math.min(70, d.count * 1.2 + 15));
             return {{
                 id: d.name,
@@ -251,13 +273,15 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             }});
         }}
 
-        // Responsive
-        new ResizeObserver(function(entries) {{
-            if (!entries.length) return;
-            var w = entries[0].contentRect.width - 48;
-            svg.attr('viewBox', '0 0 ' + w + ' ' + height);
-            sim.force('center', d3.forceCenter(w / 2, height / 2)).alpha(0.3).restart();
-        }}).observe(container);
+            // Responsive
+            new ResizeObserver(function(entries) {{
+                if (!entries.length) return;
+                var w = Math.max(300, entries[0].contentRect.width - 48);
+                svg.attr('viewBox', '0 0 ' + w + ' ' + height);
+                sim.force('center', d3.forceCenter(w / 2, height / 2)).alpha(0.3).restart();
+            }}).observe(container);
+        }}
+        runD3Bubble();
     }})();
     </script>
     '''

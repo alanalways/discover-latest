@@ -192,24 +192,30 @@ class AuthService:
         return {"users": result or [], "page": page, "per_page": per_page}
 
     def admin_get_user(self, identifier: str) -> Optional[Dict]:
-        """查詢單一用戶 (by email 或 uid)"""
+        """查詢單一用戶：Email 用 RPC get_user_by_email，否則用 Auth Admin get_user_by_id。合併訂閱與今日 AI 次數（無 999 等預設值）。"""
+        identifier = (identifier or "").strip()
+        if not identifier:
+            return None
+        user = None
         if "@" in identifier:
-            result = supabase_adapter._request(
-                "GET",
-                "users",
-                params={"email": f"eq.{identifier}", "select": "*"},
-                use_service_key=True,
-            )
+            user = supabase_adapter.rpc_get_user_by_email(identifier)
         else:
-            result = supabase_adapter._request(
-                "GET",
-                "users",
-                params={"id": f"eq.{identifier}", "select": "*"},
-                use_service_key=True,
-            )
-        if result and len(result) > 0:
-            return result[0]
-        return None
+            user = supabase_adapter.auth_admin_get_user_by_id(identifier)
+        if not user or not user.get("id"):
+            return None
+        user_id = user.get("id")
+        sub = supabase_adapter.get_user_subscription(user_id)
+        tier = sub.get("tier", "free")
+        expires_at = sub.get("expires_at") or "—"
+        daily_ai_usage = supabase_adapter.get_ai_usage_today(user_id)
+        return {
+            "id": user.get("id"),
+            "email": user.get("email") or user.get("email_address") or "—",
+            "created_at": user.get("created_at", "—"),
+            "tier": tier,
+            "expires_at": expires_at,
+            "daily_ai_usage": daily_ai_usage,
+        }
 
     def admin_update_tier(
         self, user_id: str, tier: str, expires_at: Optional[str] = None

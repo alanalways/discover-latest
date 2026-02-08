@@ -311,12 +311,14 @@ def create_app():
         page_output = gr.HTML(value="", elem_id="app-root")
         nav_state = gr.Textbox(visible=False, elem_id="nav-state", value="market")
         symbol_state = gr.Textbox(visible=False, elem_id="symbol-state", value="")
-        action_state = gr.Textbox(visible=False, elem_id="action-state", value="")
+        action_payload = gr.Textbox(visible=False, elem_id="action-payload", value="")
+        action_trigger = gr.Button(visible=False, elem_id="action-trigger")
         auth_state = gr.Textbox(visible=False, elem_id="auth-state", value="")
         lang_state = gr.Textbox(visible=False, elem_id="lang-state", value="")
+        portfolio_state = gr.State(value=lambda: [])
         
         # ── Page Navigation Handler ──
-        def handle_nav(page_id: str):
+        def handle_nav(page_id: str, portfolio_holdings: list = None):
             global _current_symbol
             lang = _current_lang
             print(f"[Nav] → {page_id} (lang={lang})")
@@ -351,8 +353,15 @@ def create_app():
                         lang=lang,
                     )
                 elif page_id == "portfolio":
+                    holdings = portfolio_holdings if portfolio_holdings else []
+                    if _current_user and (not holdings or len(holdings) == 0):
+                        from adapters.supabase_adapter import supabase_adapter
+                        loaded = supabase_adapter.load_user_portfolio(_current_user.get("id", ""))
+                        if loaded:
+                            holdings = loaded
                     inner = create_portfolio_page(
                         user_data=_current_user,
+                        holdings=holdings,
                         lang=lang,
                     )
                 elif page_id == "industry":
@@ -388,10 +397,11 @@ def create_app():
             print(f"[Symbol] → {symbol}")
             return handle_nav("stock")
 
-        # ── Action Handler (backtest run, prediction change, etc.) ──
-        def handle_action(action_json: str):
+        # ── Action Handler (backtest run, prediction change, portfolio CRUD, etc.) ──
+        def handle_action(action_json: str, portfolio_holdings: list = None):
             if not action_json or not action_json.strip():
-                return gr.update()
+                return gr.update(), gr.update()
+            portfolio_holdings = portfolio_holdings if portfolio_holdings is not None else []
             try:
                 payload = json.loads(action_json)
                 action = payload.get("action", "")
@@ -407,40 +417,67 @@ def create_app():
                             # Still allow but log it (non-AI actions bypass)
 
                 if action == "run_backtest":
-                    return _handle_backtest_action(payload)
+                    return _handle_backtest_action(payload), gr.update()
                 elif action == "predict":
-                    return _handle_predict_action(payload)
+                    return _handle_predict_action(payload), gr.update()
                 elif action == "ai_analyze":
-                    return _handle_ai_action(payload)
+                    return _handle_ai_action(payload), gr.update()
                 elif action == "change_period":
-                    return _handle_change_period(payload)
+                    return _handle_change_period(payload), gr.update()
                 elif action == "load_chips":
-                    return _handle_load_chips(payload)
+                    return _handle_load_chips(payload), gr.update()
                 elif action == "load_fundamentals":
-                    return _handle_load_fundamentals(payload)
+                    return _handle_load_fundamentals(payload), gr.update()
                 elif action == "admin_search":
-                    return _handle_admin_action(payload)
+                    return _handle_admin_action(payload), gr.update()
                 elif action == "watchlist_add":
                     sym = payload.get("symbol", "").strip().upper()
                     if sym and sym not in _watchlist:
                         _watchlist.append(sym)
                         print(f"[Watchlist] Added: {sym}")
-                    return handle_nav("watchlist")
+                    return handle_nav("watchlist", portfolio_holdings), gr.update()
                 elif action == "watchlist_remove":
                     sym = payload.get("symbol", "").strip().upper()
                     if sym in _watchlist:
                         _watchlist.remove(sym)
                         print(f"[Watchlist] Removed: {sym}")
-                    return handle_nav("watchlist")
+                    return handle_nav("watchlist", portfolio_holdings), gr.update()
+                elif action == "portfolio_add":
+                    sym = (payload.get("symbol") or "").strip().upper()
+                    shares = int(payload.get("shares", 0))
+                    avg_price = float(payload.get("avg_price", 0))
+                    if sym and shares > 0 and avg_price >= 0:
+                        new_h = {
+                            "symbol": sym, "name": sym, "shares": shares, "avg_cost": avg_price,
+                            "current_price": avg_price, "market_value": shares * avg_price,
+                            "pnl_pct": 0, "currency": "TWD",
+                        }
+                        new_list = list(portfolio_holdings) + [new_h]
+                        if _current_user:
+                            from adapters.supabase_adapter import supabase_adapter
+                            supabase_adapter.save_user_portfolio(_current_user.get("id", ""), new_list)
+                        inner = create_portfolio_page(user_data=_current_user, holdings=new_list, lang=_current_lang)
+                        return build_full_page(inner, _current_lang), new_list
+                    return gr.update(), gr.update()
+                elif action == "portfolio_delete":
+                    idx = int(payload.get("index", -1))
+                    if 0 <= idx < len(portfolio_holdings):
+                        new_list = [h for i, h in enumerate(portfolio_holdings) if i != idx]
+                        if _current_user:
+                            from adapters.supabase_adapter import supabase_adapter
+                            supabase_adapter.save_user_portfolio(_current_user.get("id", ""), new_list)
+                        inner = create_portfolio_page(user_data=_current_user, holdings=new_list, lang=_current_lang)
+                        return build_full_page(inner, _current_lang), new_list
+                    return gr.update(), gr.update()
                 else:
                     print(f"[Action] Unknown: {action}")
-                    return gr.update()
+                    return gr.update(), gr.update()
 
             except json.JSONDecodeError:
-                return gr.update()
+                return gr.update(), gr.update()
             except Exception as e:
                 traceback.print_exc()
-                return gr.update()
+                return gr.update(), gr.update()
 
         def _handle_backtest_action(payload):
             """執行回測"""
@@ -792,9 +829,9 @@ def create_app():
             return handle_nav("market")
 
         # ── Bind Events ──
-        nav_state.change(fn=handle_nav, inputs=[nav_state], outputs=[page_output], api_name="navigate")
+        nav_state.change(fn=handle_nav, inputs=[nav_state, portfolio_state], outputs=[page_output], api_name="navigate")
         symbol_state.change(fn=handle_symbol, inputs=[symbol_state], outputs=[page_output])
-        action_state.change(fn=handle_action, inputs=[action_state], outputs=[page_output])
+        action_trigger.click(fn=handle_action, inputs=[action_payload, portfolio_state], outputs=[page_output, portfolio_state])
         auth_state.change(fn=lambda v: handle_auth(v), inputs=[auth_state], outputs=[page_output])
         lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
         def _safe_initial_load(*_args):
@@ -987,13 +1024,21 @@ def create_app():
                     }
                 };
 
-                // ── Action dispatcher ──
+                // ── Action dispatcher (Button + Textbox 方案，Gradio 4 穩定觸發) ──
                 window.dispatchAction = function(payload) {
                     console.log('[Action]', payload);
-                    const as_ = document.querySelector('#action-state textarea');
-                    if (as_) {
-                        as_.value = JSON.stringify(payload);
-                        as_.dispatchEvent(new Event('input', {bubbles:true}));
+                    let payloadBox = document.querySelector('#action-payload textarea');
+                    if (!payloadBox) payloadBox = document.querySelector('#action-payload input');
+                    const triggerRoot = document.querySelector('#action-trigger');
+                    const triggerBtn = triggerRoot && triggerRoot.querySelector ? triggerRoot.querySelector('button') : null;
+                    const toClick = triggerBtn || triggerRoot;
+                    if (payloadBox && toClick) {
+                        payloadBox.value = JSON.stringify(payload);
+                        payloadBox.dispatchEvent(new Event('input', {bubbles: true}));
+                        payloadBox.dispatchEvent(new Event('change', {bubbles: true}));
+                        toClick.click();
+                    } else {
+                        console.error('Action system not ready:', { payloadBox: !!payloadBox, triggerBtn: !!toClick });
                     }
                 };
 
@@ -1065,10 +1110,34 @@ def create_app():
                     }
                 };
 
-                // ── Search (client-side quick + direct enter) ──
+                // ── 投資組合 CRUD ──
+                window.portfolioAdd = function() {
+                    var sym = document.getElementById('portfolio-add-symbol')?.value?.trim().toUpperCase();
+                    var shares = parseInt(document.getElementById('portfolio-add-shares')?.value || '0', 10);
+                    var price = parseFloat(document.getElementById('portfolio-add-price')?.value || '0') || 0;
+                    if (sym && shares > 0 && price >= 0 && typeof window.dispatchAction === 'function') {
+                        window.dispatchAction({ action: 'portfolio_add', symbol: sym, shares: shares, avg_price: price });
+                    }
+                };
+                window.portfolioDelete = function(index) {
+                    if (typeof window.dispatchAction === 'function') {
+                        window.dispatchAction({ action: 'portfolio_delete', index: index });
+                    }
+                };
+
+                // ── Search: 全域 executeSearch，Enter 與按鈕共用 ──
+                window.executeSearch = function() {
+                    const input = document.getElementById('global-search');
+                    if (!input) return;
+                    const value = (input.value || '').trim().toUpperCase();
+                    if (value && typeof window.selectStock === 'function') {
+                        const sr = document.getElementById('search-results');
+                        if (sr) sr.classList.remove('active');
+                        window.selectStock(value);
+                    }
+                };
                 const si = document.getElementById('global-search');
                 const sr = document.getElementById('search-results');
-                var _searchTimer = null;
                 var _quickList = [
                     {s:'2330',n:'台積電',m:'TW'},{s:'2317',n:'鴻海',m:'TW'},
                     {s:'2454',n:'聯發科',m:'TW'},{s:'2382',n:'廣達',m:'TW'},
@@ -1085,7 +1154,6 @@ def create_app():
                     si.addEventListener('input', function(e) {
                         var q = e.target.value.toLowerCase().trim();
                         if (q.length < 1) { sr.classList.remove('active'); return; }
-                        // 先從本地快速匹配
                         var r = _quickList.filter(function(i) {
                             return i.s.toLowerCase().includes(q) || i.n.toLowerCase().includes(q);
                         });
@@ -1098,15 +1166,12 @@ def create_app():
                             }).join('');
                             sr.classList.add('active');
                         } else {
-                            sr.innerHTML = '<div style="padding:12px;color:#64748B">輸入代號後按 Enter 搜尋</div>';
+                            sr.innerHTML = '<div style="padding:12px;color:#64748B">輸入代號後按 Enter 或點擊搜尋</div>';
                             sr.classList.add('active');
                         }
                     });
                     si.addEventListener('keydown', function(e) {
-                        if (e.key === 'Enter' && si.value.trim()) {
-                            sr.classList.remove('active');
-                            selectStock(si.value.trim().toUpperCase());
-                        }
+                        if (e.key === 'Enter') window.executeSearch();
                     });
                     document.addEventListener('click', function(e) {
                         if (!e.target.closest('.search-box')) sr.classList.remove('active');
