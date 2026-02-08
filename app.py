@@ -290,7 +290,6 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
-        <style>@font-face { font-display: swap; }</style>
         <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
         <script src="https://accounts.google.com/gsi/client" async defer></script>
         <script>
