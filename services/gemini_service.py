@@ -3,12 +3,19 @@ Gemini AI Service - 雙段 AI 生成（Grounding + Final）
 Stage 1: 使用 MODEL_GROUNDING + Google Search grounding 取得事實基礎
 Stage 2: 使用 MODEL_FINAL 產生最終分析輸出
 支援 7 組 API Key 輪流使用（Round-robin）
+v2: 加入 timeout 機制和詳細 debug logging
 """
 import os
 import threading
 import traceback
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Optional, Dict, Any, List
 from config.models import MODEL_GROUNDING, MODEL_FINAL
+
+# Timeout 設定（秒）
+GEMINI_TIMEOUT_STAGE1 = 30  # Grounding stage
+GEMINI_TIMEOUT_STAGE2 = 45  # Final generation stage
 
 # ── Key Rotation ──
 _key_pool: List[str] = []
@@ -130,7 +137,12 @@ class GeminiService:
         # ── Stage 1: Grounding with Google Search ──
         grounding_text = ""
         grounding_sources = []
-        try:
+        stage1_start = time.time()
+        print(f"[Gemini] Stage 1 starting for {symbol}...")
+        
+        def _run_stage1():
+            """Stage 1 執行函數（可被 timeout 包裝）"""
+            nonlocal grounding_text, grounding_sources
             grounding_prompt = f"""你是一位專業金融分析師。請針對以下股票搜尋最新的市場新聞、財報資訊和分析師觀點。
 股票代號: {symbol}
 {context}
@@ -146,39 +158,55 @@ class GeminiService:
                     grounding_prompt,
                     tools=[google_search_tool],
                 )
-            except Exception:
+            except Exception as e:
+                print(f"[Gemini] Stage 1 grounding tool failed, falling back: {e}")
                 # Fallback without grounding tool
                 grounding_response = grounding_model.generate_content(grounding_prompt)
 
             if grounding_response and grounding_response.text:
-                grounding_text = grounding_response.text
+                return grounding_response
+            return None
 
-            # Extract grounding metadata if available
-            if hasattr(grounding_response, 'candidates') and grounding_response.candidates:
-                candidate = grounding_response.candidates[0]
-                if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-                    gm = candidate.grounding_metadata
-                    if hasattr(gm, 'grounding_chunks'):
-                        for chunk in gm.grounding_chunks:
-                            if hasattr(chunk, 'web'):
-                                grounding_sources.append({
-                                    "title": getattr(chunk.web, 'title', ''),
-                                    "uri": getattr(chunk.web, 'uri', ''),
-                                })
-
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_run_stage1)
+                try:
+                    grounding_response = future.result(timeout=GEMINI_TIMEOUT_STAGE1)
+                    if grounding_response and grounding_response.text:
+                        grounding_text = grounding_response.text
+                        print(f"[Gemini] Stage 1 completed in {time.time() - stage1_start:.1f}s")
+                        
+                        # Extract grounding metadata if available
+                        if hasattr(grounding_response, 'candidates') and grounding_response.candidates:
+                            candidate = grounding_response.candidates[0]
+                            if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
+                                gm = candidate.grounding_metadata
+                                if hasattr(gm, 'grounding_chunks'):
+                                    for chunk in gm.grounding_chunks:
+                                        if hasattr(chunk, 'web'):
+                                            grounding_sources.append({
+                                                "title": getattr(chunk.web, 'title', ''),
+                                                "uri": getattr(chunk.web, 'uri', ''),
+                                            })
+                except FuturesTimeoutError:
+                    print(f"[Gemini] Stage 1 TIMEOUT after {GEMINI_TIMEOUT_STAGE1}s")
+                    grounding_text = "(Grounding 階段超時，使用本地資料)"
+                    
         except Exception as e:
             print(f"[Gemini] Stage 1 (Grounding) error: {e}")
             traceback.print_exc()
             grounding_text = "(Grounding 階段失敗，使用本地資料)"
 
         # ── Stage 2: Final Output (may use a different key for load distribution) ──
-        try:
-            # Get another key for Stage 2 (round-robin continues)
-            api_key_2 = self._get_api_key()
-            if api_key_2 and api_key_2 != api_key:
-                genai.configure(api_key=api_key_2)
-
-            final_prompt = f"""你是「DiscoverLatest 洞察運算」AI 分析師。
+        stage2_start = time.time()
+        print(f"[Gemini] Stage 2 starting for {symbol}...")
+        
+        # Get another key for Stage 2 (round-robin continues)
+        api_key_2 = self._get_api_key()
+        if api_key_2 and api_key_2 != api_key:
+            genai.configure(api_key=api_key_2)
+            
+        final_prompt = f"""你是「DiscoverLatest 洞察運算」AI 分析師。
 請根據以下資訊，產生一份精簡的投資分析報告（繁體中文）。
 
 【股票資訊】
@@ -198,24 +226,42 @@ class GeminiService:
 - 必須標註「此分析由 AI 生成，不構成投資建議」
 - 輸出不超過 {max_output_chars} 字"""
 
+        def _run_stage2():
+            """Stage 2 執行函數（可被 timeout 包裝）"""
             final_model = genai.GenerativeModel(MODEL_FINAL)
-            final_response = final_model.generate_content(final_prompt)
+            return final_model.generate_content(final_prompt)
+            
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_run_stage2)
+                try:
+                    final_response = future.result(timeout=GEMINI_TIMEOUT_STAGE2)
+                    
+                    analysis = final_response.text if final_response and final_response.text else "AI 分析生成失敗"
+                    print(f"[Gemini] Stage 2 completed in {time.time() - stage2_start:.1f}s, {len(analysis)} chars")
 
-            analysis = final_response.text if final_response and final_response.text else "AI 分析生成失敗"
+                    # Truncate if needed
+                    if len(analysis) > max_output_chars:
+                        analysis = analysis[:max_output_chars] + "…\n\n[輸出已截斷]"
 
-            # Truncate if needed
-            if len(analysis) > max_output_chars:
-                analysis = analysis[:max_output_chars] + "…\n\n[輸出已截斷]"
-
-            return {
-                "success": True,
-                "analysis": analysis,
-                "grounding_sources": grounding_sources,
-                "model_used": MODEL_FINAL,
-                "grounding_model": MODEL_GROUNDING,
-                "error": None,
-            }
-
+                    return {
+                        "success": True,
+                        "analysis": analysis,
+                        "grounding_sources": grounding_sources,
+                        "model_used": MODEL_FINAL,
+                        "grounding_model": MODEL_GROUNDING,
+                        "error": None,
+                    }
+                    
+                except FuturesTimeoutError:
+                    print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
+                    return {
+                        "success": False,
+                        "error": f"AI 生成超時（{GEMINI_TIMEOUT_STAGE2}秒），請稍後再試",
+                        "analysis": "",
+                        "grounding_sources": grounding_sources,
+                    }
+                    
         except Exception as e:
             print(f"[Gemini] Stage 2 (Final) error: {e}")
             traceback.print_exc()
