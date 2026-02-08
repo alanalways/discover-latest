@@ -437,7 +437,14 @@ def _create_chips_fundamentals_tabs(symbol: str, info: Dict, lang: str) -> str:
 
 
 def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:
-    """建立 AI 分析卡片"""
+    """建立 AI 分析卡片（含生成中進度條）"""
+    loading_html = '''<div class="chart-section" style="margin-bottom:24px;text-align:center;padding:40px 24px;">
+        <div class="loading-spinner" style="margin:0 auto 16px;width:40px;height:40px;border:3px solid rgba(0,255,255,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+        <p style="color:var(--text-2);font-size:14px;margin-bottom:8px;">正在生成 AI 分析… 約需 20 秒，請稍候。</p>
+        <p style="color:var(--text-3);font-size:11px;margin-bottom:12px;">Stage 1 查詢即時資訊 → Stage 2 生成報告</p>
+        <progress style="width:100%;max-width:280px;height:6px;border-radius:3px;accent-color:var(--primary);" max="100" value=""></progress>
+    </div>'''
+
     if ai_result and ai_result.get("success"):
         analysis = ai_result.get("analysis", "")
         sources = ai_result.get("grounding_sources", [])
@@ -451,7 +458,7 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
             sources_html += '</div>'
 
         return f'''
-        <div class="chart-section" style="margin-bottom:24px;">
+        <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;">
             <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;">{analysis}</div>
             {sources_html}
             <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Model: {ai_result.get("model_used","")} · Grounding: {ai_result.get("grounding_model","")}</div>
@@ -459,16 +466,16 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
         '''
     elif ai_result and ai_result.get("error"):
         return f'''
-        <div class="chart-section" style="margin-bottom:24px;">
+        <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;" data-loading-html="{loading_html.replace('"', '&quot;')}">
             <p style="color:var(--danger);font-size:13px;">{ai_result["error"]}</p>
-            <button class="period-tab" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">重試 AI 分析</button>
+            <button class="period-tab" onclick="var el=document.getElementById('ai-analysis-block');if(el&&el.getAttribute('data-loading-html')){{el.innerHTML=el.getAttribute('data-loading-html');}}if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">重試 AI 分析</button>
         </div>
         '''
     else:
         return f'''
-        <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:32px;">
+        <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;text-align:center;padding:32px;" data-loading-html="{loading_html.replace('"', '&quot;')}">
             <p style="color:var(--text-3);margin-bottom:12px;">點擊下方按鈕啟動 Discover Latest AI 分析</p>
-            <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
+            <button class="period-tab active" onclick="var el=document.getElementById('ai-analysis-block');if(el&&el.getAttribute('data-loading-html')){{el.innerHTML=el.getAttribute('data-loading-html');}}if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
                 啟動 AI 分析
             </button>
             <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Discover Latest AI 智慧分析引擎</p>
@@ -562,14 +569,14 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
         </div>
     </div>
     
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function() {{
         const container = document.getElementById('{chart_id}');
         if (!container) return;
-        container.innerHTML = '';
-        
-        const chart = LightweightCharts.createChart(container, {{
+        function runChart() {{
+            if (!window.LightweightCharts) return;
+            container.innerHTML = '';
+            const chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
             height: 300,
             layout: {{
@@ -635,6 +642,13 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
                 dispatchAction({{action:'predict', symbol:'{symbol}', model: '{model}', horizon: h}});
             }}
         }};
+        }}
+        if (window.LightweightCharts) runChart();
+        else {{
+            var t = setInterval(function() {{
+                if (window.LightweightCharts) {{ clearInterval(t); runChart(); }}
+            }}, 50);
+        }}
     }})();
     </script>
     '''

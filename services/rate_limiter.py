@@ -8,22 +8,19 @@ from typing import Dict, Optional, Tuple
 from adapters.supabase_adapter import supabase_adapter
 
 
-# 會員分級限制
+# 會員分級限制（只限制使用次數，不限制輸出字數）
 TIER_LIMITS = {
     'free': {
         'daily_limit': 2,
         'per_minute': 1,
-        'max_output_chars': 500,
     },
     'pro': {
         'daily_limit': 20,
         'per_minute': 5,
-        'max_output_chars': 2000,
     },
     'premium': {
         'daily_limit': 200,
         'per_minute': 20,
-        'max_output_chars': 5000,
     }
 }
 
@@ -104,12 +101,6 @@ class RateLimiter:
         
         return True
     
-    def get_max_output_chars(self, user_id: str) -> int:
-        """取得用戶的最大輸出長度"""
-        tier = self.check_and_downgrade(user_id)
-        limits = TIER_LIMITS.get(tier, TIER_LIMITS['free'])
-        return limits['max_output_chars']
-    
     def get_user_limits_info(self, user_id: str) -> Dict:
         """取得用戶的限制資訊（用於 UI 顯示）"""
         tier = self.check_and_downgrade(user_id)
@@ -122,7 +113,6 @@ class RateLimiter:
             'daily_used': today_usage,
             'daily_remaining': max(0, limits['daily_limit'] - today_usage),
             'per_minute': limits['per_minute'],
-            'max_output_chars': limits['max_output_chars']
         }
 
 

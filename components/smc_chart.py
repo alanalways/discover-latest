@@ -145,7 +145,6 @@ def create_smc_chart(
             }}
         </style>
     </div>
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function(){{
         const cid = '{cid}';
@@ -153,8 +152,9 @@ def create_smc_chart(
         if (!container) return;
         const overlay = document.getElementById(cid+'_overlay');
         const popup = document.getElementById(cid+'_popup');
-
-        const chart = LightweightCharts.createChart(container, {{
+        function runChart(){{
+            if (!window.LightweightCharts) return;
+            const chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
             height: {height},
             layout: {{background:{{type:'solid',color:'transparent'}},textColor:'#9ca3af'}},
@@ -306,8 +306,9 @@ def create_smc_chart(
             }}
             drawRects();
         }};
-
-        chart.timeScale().fitContent();
+        }}
+        if (window.LightweightCharts) runChart();
+        else {{ var t = setInterval(function() {{ if (window.LightweightCharts) {{ clearInterval(t); runChart(); }} }}, 50); }}
     }})();
     </script>
     '''

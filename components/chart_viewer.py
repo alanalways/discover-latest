@@ -171,14 +171,14 @@ def create_candlestick_chart(
         </button>
     </div>
 
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function() {{
         var container = document.getElementById('{chart_id}');
-        if (!container || !window.LightweightCharts) return;
-        container.innerHTML = '';
-
-        var chart = LightweightCharts.createChart(container, {{
+        if (!container) return;
+        function runChart() {{
+            if (!window.LightweightCharts) return;
+            container.innerHTML = '';
+            var chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
             height: container.clientHeight,
             layout: {{
@@ -257,6 +257,13 @@ def create_candlestick_chart(
             var r = entries[0].contentRect;
             chart.applyOptions({{ width: r.width, height: r.height }});
         }}).observe(container);
+        }}
+        if (window.LightweightCharts) runChart();
+        else {{
+            var t = setInterval(function() {{
+                if (window.LightweightCharts) {{ clearInterval(t); runChart(); }}
+            }}, 50);
+        }}
     }})();
     </script>
     '''
@@ -301,25 +308,33 @@ def create_line_chart(
         <div style="margin-bottom:8px;padding:0 8px;">{legend_html}</div>
         <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
     </div>
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function() {{
         var container = document.getElementById('{chart_id}');
         if (!container) return;
-        container.innerHTML = '';
-        var chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth, height: {height},
-            layout: {{ background: {{ type: 'solid', color: 'transparent' }}, textColor: '#9ca3af' }},
-            grid: {{ vertLines: {{ color: 'rgba(55,65,81,0.2)' }}, horzLines: {{ color: 'rgba(55,65,81,0.2)' }} }},
-            rightPriceScale: {{ borderColor: 'rgba(55,65,81,0.3)' }},
-            timeScale: {{ borderColor: 'rgba(55,65,81,0.3)', timeVisible: true }},
-        }});
-        {series_js}
-        chart.timeScale().fitContent();
-        new ResizeObserver(function(e) {{
-            if (e.length===0) return;
-            chart.applyOptions({{ width: e[0].contentRect.width }});
-        }}).observe(container);
+        function runChart() {{
+            if (!window.LightweightCharts) return;
+            container.innerHTML = '';
+            var chart = LightweightCharts.createChart(container, {{
+                width: container.clientWidth, height: {height},
+                layout: {{ background: {{ type: 'solid', color: 'transparent' }}, textColor: '#9ca3af' }},
+                grid: {{ vertLines: {{ color: 'rgba(55,65,81,0.2)' }}, horzLines: {{ color: 'rgba(55,65,81,0.2)' }} }},
+                rightPriceScale: {{ borderColor: 'rgba(55,65,81,0.3)' }},
+                timeScale: {{ borderColor: 'rgba(55,65,81,0.3)', timeVisible: true }},
+            }});
+            {series_js}
+            chart.timeScale().fitContent();
+            new ResizeObserver(function(e) {{
+                if (e.length===0) return;
+                chart.applyOptions({{ width: e[0].contentRect.width }});
+            }}).observe(container);
+        }}
+        if (window.LightweightCharts) runChart();
+        else {{
+            var t = setInterval(function() {{
+                if (window.LightweightCharts) {{ clearInterval(t); runChart(); }}
+            }}, 50);
+        }}
     }})();
     </script>
     '''
@@ -349,26 +364,31 @@ def create_equity_chart(
 
     return f'''
     <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function(){{
         var c=document.getElementById('{chart_id}');
-        if(!c)return;c.innerHTML='';
-        var chart=LightweightCharts.createChart(c,{{
-            width:c.clientWidth,height:{height},
-            layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
-            grid:{{vertLines:{{color:'rgba(55,65,81,0.12)'}},horzLines:{{color:'rgba(55,65,81,0.12)'}}}},
-            rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
-            timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
-        }});
-        var eq=chart.addAreaSeries({{
-            topColor:'rgba(0,255,255,0.15)',bottomColor:'rgba(0,255,255,0.01)',
-            lineColor:'#00FFFF',lineWidth:2,title:'策略權益',
-        }});
-        eq.setData({eq_data});
-        {bh_js}
-        chart.timeScale().fitContent();
-        new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+        if(!c)return;
+        function runChart(){{
+            if(!window.LightweightCharts)return;
+            c.innerHTML='';
+            var chart=LightweightCharts.createChart(c,{{
+                width:c.clientWidth,height:{height},
+                layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+                grid:{{vertLines:{{color:'rgba(55,65,81,0.12)'}},horzLines:{{color:'rgba(55,65,81,0.12)'}}}},
+                rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+                timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+            }});
+            var eq=chart.addAreaSeries({{
+                topColor:'rgba(0,255,255,0.15)',bottomColor:'rgba(0,255,255,0.01)',
+                lineColor:'#00FFFF',lineWidth:2,title:'策略權益',
+            }});
+            eq.setData({eq_data});
+            {bh_js}
+            chart.timeScale().fitContent();
+            new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+        }}
+        if(window.LightweightCharts)runChart();
+        else {{ var t=setInterval(function(){{ if(window.LightweightCharts){{ clearInterval(t); runChart(); }} }}, 50); }}
     }})();
     </script>
     '''
@@ -389,25 +409,30 @@ def create_drawdown_chart(
 
     return f'''
     <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
-    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
     <script>
     (function(){{
         var c=document.getElementById('{chart_id}');
-        if(!c)return;c.innerHTML='';
-        var chart=LightweightCharts.createChart(c,{{
-            width:c.clientWidth,height:{height},
-            layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
-            grid:{{vertLines:{{color:'rgba(55,65,81,0.1)'}},horzLines:{{color:'rgba(55,65,81,0.1)'}}}},
-            rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
-            timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
-        }});
-        var dd=chart.addAreaSeries({{
-            topColor:'rgba(239,68,68,0.01)',bottomColor:'rgba(239,68,68,0.2)',
-            lineColor:'#EF4444',lineWidth:1.5,title:'Drawdown %',
-        }});
-        dd.setData({dd_data});
-        chart.timeScale().fitContent();
-        new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+        if(!c)return;
+        function runChart(){{
+            if(!window.LightweightCharts)return;
+            c.innerHTML='';
+            var chart=LightweightCharts.createChart(c,{{
+                width:c.clientWidth,height:{height},
+                layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+                grid:{{vertLines:{{color:'rgba(55,65,81,0.1)'}},horzLines:{{color:'rgba(55,65,81,0.1)'}}}},
+                rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+                timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+            }});
+            var dd=chart.addAreaSeries({{
+                topColor:'rgba(239,68,68,0.01)',bottomColor:'rgba(239,68,68,0.2)',
+                lineColor:'#EF4444',lineWidth:1.5,title:'Drawdown %',
+            }});
+            dd.setData({dd_data});
+            chart.timeScale().fitContent();
+            new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+        }}
+        if(window.LightweightCharts)runChart();
+        else {{ var t=setInterval(function(){{ if(window.LightweightCharts){{ clearInterval(t); runChart(); }} }}, 50); }}
     }})();
     </script>
     '''

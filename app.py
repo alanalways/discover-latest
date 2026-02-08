@@ -20,7 +20,7 @@ from pages.backtest_page import create_backtest_page
 from pages.watchlist import create_watchlist_page
 from config.models import MODEL_GROUNDING, MODEL_FINAL
 from services.auth_service import auth_service
-from services.rate_limiter import rate_limiter, TIER_LIMITS
+from services.rate_limiter import rate_limiter
 
 CSS_PATH = Path(__file__).parent / "static" / "css" / "dashboard.css"
 with open(CSS_PATH, "r", encoding="utf-8") as f:
@@ -293,6 +293,7 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+        <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
         <script src="https://accounts.google.com/gsi/client" async defer></script>
         <script>
           (function(){{
@@ -518,7 +519,7 @@ def create_app():
             if not symbol:
                 return gr.update()
 
-            # Rate limit check for AI
+            # Rate limit check for AI（只限制使用次數，不限制輸出字數）
             if _current_user:
                 user_id = _current_user.get("id", "")
                 if user_id:
@@ -526,11 +527,6 @@ def create_app():
                     if not allowed:
                         return gr.update()  # silently deny
                     rate_limiter.record_request(user_id)
-                    max_chars = rate_limiter.get_max_output_chars(user_id)
-                else:
-                    max_chars = TIER_LIMITS['free']['max_output_chars']
-            else:
-                max_chars = TIER_LIMITS['free']['max_output_chars']
 
             data = _fetch_stock_data_sync(symbol)
             stock_info = data.get("info", {}) if data else {}
@@ -539,7 +535,6 @@ def create_app():
                 symbol=symbol,
                 stock_info=stock_info,
                 user_question=question,
-                max_output_chars=max_chars,
             )
 
             inner = create_stock_analysis_page(

@@ -94,7 +94,6 @@ class GeminiService:
         smc_summary: str = "",
         prediction_summary: str = "",
         user_question: str = "",
-        max_output_chars: int = 2000,
     ) -> Dict[str, Any]:
         """
         雙段 AI 分析生成
@@ -223,8 +222,7 @@ class GeminiService:
 
 重要：
 - 所有策略輸出必須包含 SMC/ICT 解讀
-- 必須標註「此分析由 AI 生成，不構成投資建議」
-- 輸出不超過 {max_output_chars} 字"""
+- 必須標註「此分析由 AI 生成，不構成投資建議」"""
 
         def _run_stage2():
             """Stage 2 執行函數（可被 timeout 包裝）"""
@@ -239,10 +237,6 @@ class GeminiService:
                     
                     analysis = final_response.text if final_response and final_response.text else "AI 分析生成失敗"
                     print(f"[Gemini] Stage 2 completed in {time.time() - stage2_start:.1f}s, {len(analysis)} chars")
-
-                    # Truncate if needed
-                    if len(analysis) > max_output_chars:
-                        analysis = analysis[:max_output_chars] + "…\n\n[輸出已截斷]"
 
                     return {
                         "success": True,
