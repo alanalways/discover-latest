@@ -3,6 +3,7 @@ DiscoverLatest 洞察運算
 AI 智慧投資分析平台 — Hugging Face Spaces 主程式入口
 """
 import os
+import html as html_mod
 import json
 import traceback
 import gradio as gr
@@ -26,12 +27,8 @@ CSS_PATH = Path(__file__).parent / "static" / "css" / "dashboard.css"
 with open(CSS_PATH, "r", encoding="utf-8") as f:
     CUSTOM_CSS = f.read()
 
-# ── Global state ──────────────────────────
+# ── Global state (server-level, NOT per-user) ──
 _model_validation = {"valid": None, "errors": []}
-_current_symbol = None          # 目前選中的股票代號
-_current_user = None            # 目前登入的用戶
-_current_lang = DEFAULT_LANG
-_watchlist = ["2330", "AAPL", "NVDA", "0050"]  # 自選清單（Session 層級）
 _ADMIN_EMAIL = "cmshj30326@gmail.com"
 
 
@@ -252,14 +249,14 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
 
 
 # ── Layout builder ────────────────────────
-def build_full_page(page_html_str: str, lang: str = 'zh-TW') -> str:
+def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None) -> str:
     user_info = None
-    if _current_user:
+    if current_user:
         user_info = {
-            "name": _current_user.get("user_metadata", {}).get("full_name", _current_user.get("email", "User")),
-            "email": _current_user.get("email", ""),
-            "avatar": _current_user.get("user_metadata", {}).get("avatar_url", ""),
-            "tier": _current_user.get("user_metadata", {}).get("tier", "free"),
+            "name": current_user.get("user_metadata", {}).get("full_name", current_user.get("email", "User")),
+            "email": current_user.get("email", ""),
+            "avatar": current_user.get("user_metadata", {}).get("avatar_url", ""),
+            "tier": current_user.get("user_metadata", {}).get("tier", "free"),
             "daily_remaining": 999,
             "daily_limit": 999,
         }
@@ -283,7 +280,7 @@ def create_app():
     _google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
-    
+
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
         css=CUSTOM_CSS,
@@ -293,6 +290,7 @@ def create_app():
         ),
         head=f'''
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+        <style>@font-face { font-display: swap; }</style>
         <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
         <script src="https://accounts.google.com/gsi/client" async defer></script>
         <script>
@@ -306,7 +304,7 @@ def create_app():
         </script>
         ''',
     ) as app:
-        
+
         # ── UI Components ──
         page_output = gr.HTML(value="", elem_id="app-root")
         nav_state = gr.Textbox(visible=False, elem_id="nav-state", value="market")
@@ -315,27 +313,37 @@ def create_app():
         action_trigger = gr.Button(visible=False, elem_id="action-trigger")
         auth_state = gr.Textbox(visible=False, elem_id="auth-state", value="")
         lang_state = gr.Textbox(visible=False, elem_id="lang-state", value="")
-        portfolio_state = gr.State(value=lambda: [])
-        
+        portfolio_state = gr.Textbox(value="[]", visible=False, elem_id="portfolio-state")
+
+        # ── Per-session State (replaces global variables) ──
+        user_store = gr.State(value=None)          # current user dict
+        symbol_store = gr.State(value=None)         # current stock symbol
+        lang_store = gr.State(value=DEFAULT_LANG)   # current language
+        watchlist_store = gr.State(value=["2330", "AAPL", "NVDA", "0050"])
+
+        # Helper: build standard 6-element return tuple
+        def _result(page_html, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
+            return page_html, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist
+
         # ── Page Navigation Handler ──
-        def handle_nav(page_id: str, portfolio_holdings: list = None):
-            global _current_symbol
-            lang = _current_lang
+        def handle_nav(page_id: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
+            lang = cur_lang or DEFAULT_LANG
+            holdings = json.loads(portfolio_json or "[]") if isinstance(portfolio_json, str) else (portfolio_json or [])
             print(f"[Nav] → {page_id} (lang={lang})")
 
             # Auth gate — redirect to login if not authenticated
-            if _current_user is None:
+            if cur_user is None:
                 print("[Nav] No user → login page")
-                return _create_login_page(lang)
+                return _result(_create_login_page(lang), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
             try:
                 if page_id == "market":
                     inner = create_market_overview_page(lang)
                 elif page_id == "stock":
-                    if _current_symbol:
-                        data = _fetch_stock_data_sync(_current_symbol)
+                    if cur_symbol:
+                        data = _fetch_stock_data_sync(cur_symbol)
                         inner = create_stock_analysis_page(
-                            symbol=_current_symbol,
+                            symbol=cur_symbol,
                             stock_data=data,
                             lang=lang,
                         )
@@ -343,24 +351,23 @@ def create_app():
                         inner = create_stock_analysis_page(lang=lang)
                 elif page_id == "backtest":
                     hist = None
-                    if _current_symbol:
-                        data = _fetch_stock_data_sync(_current_symbol)
+                    if cur_symbol:
+                        data = _fetch_stock_data_sync(cur_symbol)
                         if data:
                             hist = data.get("history")
                     inner = create_backtest_page(
-                        symbol=_current_symbol,
+                        symbol=cur_symbol,
                         history=hist,
                         lang=lang,
                     )
                 elif page_id == "portfolio":
-                    holdings = portfolio_holdings if portfolio_holdings else []
-                    if _current_user and (not holdings or len(holdings) == 0):
+                    if cur_user and (not holdings or len(holdings) == 0):
                         from adapters.supabase_adapter import supabase_adapter
-                        loaded = supabase_adapter.load_user_portfolio(_current_user.get("id", ""))
+                        loaded = supabase_adapter.load_user_portfolio(cur_user.get("id", ""))
                         if loaded:
                             holdings = loaded
                     inner = create_portfolio_page(
-                        user_data=_current_user,
+                        user_data=cur_user,
                         holdings=holdings,
                         lang=lang,
                     )
@@ -368,80 +375,95 @@ def create_app():
                     inner = create_industry_beta_page(lang=lang)
                 elif page_id == "watchlist":
                     inner = create_watchlist_page(
-                        watchlist=_watchlist,
+                        watchlist=cur_watchlist or [],
                         lang=lang,
                     )
                 elif page_id == "admin":
                     inner = create_admin_console_page(
-                        user_data=_current_user,
+                        user_data=cur_user,
                         lang=lang,
                     )
                 else:
-                    inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>{page_id} 頁面開發中</h2></div>'
+                    safe_id = html_mod.escape(str(page_id))
+                    inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>{safe_id} 頁面開發中</h2></div>'
 
                 if not isinstance(inner, str):
                     inner = str(getattr(inner, 'value', inner))
 
             except Exception as e:
                 traceback.print_exc()
-                inner = f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><p style="color:#94a3b8">{type(e).__name__}: {e}</p></div>'
-            return build_full_page(inner, lang)
+                safe_err = html_mod.escape(f"{type(e).__name__}: {e}")
+                inner = f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><p style="color:#94a3b8">{safe_err}</p></div>'
+            page_html = build_full_page(inner, lang, current_user=cur_user)
+            if page_id == "portfolio" and holdings:
+                return _result(page_html, json.dumps(holdings), cur_user, cur_symbol, lang, cur_watchlist)
+            return _result(page_html, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
         # ── Symbol Selection Handler ──
-        def handle_symbol(symbol: str):
-            global _current_symbol
+        def handle_symbol(symbol: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             symbol = symbol.strip()
             if not symbol:
-                return gr.update()
-            _current_symbol = symbol
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
+            cur_symbol = symbol
             print(f"[Symbol] → {symbol}")
-            return handle_nav("stock")
+            result = handle_nav("stock", portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist)
+            return result
 
         # ── Action Handler (backtest run, prediction change, portfolio CRUD, etc.) ──
-        def handle_action(action_json: str, portfolio_holdings: list = None):
+        def handle_action(action_json: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             if not action_json or not action_json.strip():
-                return gr.update(), gr.update()
-            portfolio_holdings = portfolio_holdings if portfolio_holdings is not None else []
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
+            lang = cur_lang or DEFAULT_LANG
+            portfolio_holdings = json.loads(portfolio_json or "[]") if isinstance(portfolio_json, str) else (portfolio_json or [])
             try:
                 payload = json.loads(action_json)
                 action = payload.get("action", "")
                 print(f"[Action] {action} → {payload}")
 
-                # Rate limit check for AI-related actions
-                if action in ("predict",) and _current_user:
-                    user_id = _current_user.get("id", "")
+                # Rate limit check for predict action — now actually blocks
+                if action in ("predict",) and cur_user:
+                    user_id = cur_user.get("id", "")
                     if user_id:
                         allowed, reason = rate_limiter.can_make_request(user_id)
                         if not allowed:
                             print(f"[RateLimit] Denied: {reason}")
-                            # Still allow but log it (non-AI actions bypass)
+                            safe_reason = html_mod.escape(reason)
+                            err_html = f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>使用限制</h2><p style="color:#94a3b8">{safe_reason}</p></div>'
+                            page = build_full_page(err_html, lang, current_user=cur_user)
+                            return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
                 if action == "run_backtest":
-                    return _handle_backtest_action(payload), gr.update()
+                    page = _handle_backtest_action(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "predict":
-                    return _handle_predict_action(payload), gr.update()
+                    page = _handle_predict_action(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "ai_analyze":
-                    return _handle_ai_action(payload), gr.update()
+                    page = _handle_ai_action(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "change_period":
-                    return _handle_change_period(payload), gr.update()
+                    page = _handle_change_period(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "load_chips":
-                    return _handle_load_chips(payload), gr.update()
+                    page = _handle_load_chips(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "load_fundamentals":
-                    return _handle_load_fundamentals(payload), gr.update()
+                    page = _handle_load_fundamentals(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "admin_search":
-                    return _handle_admin_action(payload), gr.update()
+                    page = _handle_admin_action(payload, cur_user, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_add":
                     sym = payload.get("symbol", "").strip().upper()
-                    if sym and sym not in _watchlist:
-                        _watchlist.append(sym)
+                    if sym and sym not in (cur_watchlist or []):
+                        cur_watchlist = list(cur_watchlist or []) + [sym]
                         print(f"[Watchlist] Added: {sym}")
-                    return handle_nav("watchlist", portfolio_holdings), gr.update()
+                    return handle_nav("watchlist", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_remove":
                     sym = payload.get("symbol", "").strip().upper()
-                    if sym in _watchlist:
-                        _watchlist.remove(sym)
-                        print(f"[Watchlist] Removed: {sym}")
-                    return handle_nav("watchlist", portfolio_holdings), gr.update()
+                    cur_watchlist = [s for s in (cur_watchlist or []) if s != sym]
+                    print(f"[Watchlist] Removed: {sym}")
+                    return handle_nav("watchlist", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "portfolio_add":
                     sym = (payload.get("symbol") or "").strip().upper()
                     shares = int(payload.get("shares", 0))
@@ -453,36 +475,38 @@ def create_app():
                             "pnl_pct": 0, "currency": "TWD",
                         }
                         new_list = list(portfolio_holdings) + [new_h]
-                        if _current_user:
+                        if cur_user:
                             from adapters.supabase_adapter import supabase_adapter
-                            supabase_adapter.save_user_portfolio(_current_user.get("id", ""), new_list)
-                        inner = create_portfolio_page(user_data=_current_user, holdings=new_list, lang=_current_lang)
-                        return build_full_page(inner, _current_lang), new_list
-                    return gr.update(), gr.update()
+                            supabase_adapter.save_user_portfolio(cur_user.get("id", ""), new_list)
+                        inner = create_portfolio_page(user_data=cur_user, holdings=new_list, lang=lang)
+                        page = build_full_page(inner, lang, current_user=cur_user)
+                        return _result(page, json.dumps(new_list), cur_user, cur_symbol, lang, cur_watchlist)
+                    return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "portfolio_delete":
                     idx = int(payload.get("index", -1))
                     if 0 <= idx < len(portfolio_holdings):
                         new_list = [h for i, h in enumerate(portfolio_holdings) if i != idx]
-                        if _current_user:
+                        if cur_user:
                             from adapters.supabase_adapter import supabase_adapter
-                            supabase_adapter.save_user_portfolio(_current_user.get("id", ""), new_list)
-                        inner = create_portfolio_page(user_data=_current_user, holdings=new_list, lang=_current_lang)
-                        return build_full_page(inner, _current_lang), new_list
-                    return gr.update(), gr.update()
+                            supabase_adapter.save_user_portfolio(cur_user.get("id", ""), new_list)
+                        inner = create_portfolio_page(user_data=cur_user, holdings=new_list, lang=lang)
+                        page = build_full_page(inner, lang, current_user=cur_user)
+                        return _result(page, json.dumps(new_list), cur_user, cur_symbol, lang, cur_watchlist)
+                    return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 else:
                     print(f"[Action] Unknown: {action}")
-                    return gr.update(), gr.update()
+                    return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
             except json.JSONDecodeError:
-                return gr.update(), gr.update()
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
             except Exception as e:
                 traceback.print_exc()
-                return gr.update(), gr.update()
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
 
-        def _handle_backtest_action(payload):
+        def _handle_backtest_action(payload, cur_user, cur_symbol, lang):
             """執行回測"""
             from services.backtest_service import backtest_service
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             strategy = payload.get("strategy", "ma_cross")
             capital = payload.get("capital", 1000000)
 
@@ -517,16 +541,16 @@ def create_app():
             inner = create_backtest_page(
                 symbol=symbol,
                 history=history,
-                lang=DEFAULT_LANG,
+                lang=lang,
                 result=result,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
-        def _handle_predict_action(payload):
+        def _handle_predict_action(payload, cur_user, cur_symbol, lang):
             """執行價格預測"""
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             model = payload.get("model", "naive")
             horizon = payload.get("horizon", 20)
 
@@ -540,29 +564,41 @@ def create_app():
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
-                lang=DEFAULT_LANG,
+                lang=lang,
                 pred_model=model,
                 pred_horizon=horizon,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
-        def _handle_ai_action(payload):
+        def _handle_ai_action(payload, cur_user, cur_symbol, lang):
             """Discover Latest AI 分析"""
             from services.gemini_service import gemini_service
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             question = payload.get("question", "")
             if not symbol:
                 return gr.update()
 
             # Rate limit check for AI（只限制使用次數，不限制輸出字數）
-            if _current_user:
-                user_id = _current_user.get("id", "")
+            if cur_user:
+                user_id = cur_user.get("id", "")
                 if user_id:
                     allowed, reason = rate_limiter.can_make_request(user_id)
                     if not allowed:
-                        return gr.update()  # silently deny
+                        # Return an error card instead of silently denying
+                        safe_reason = html_mod.escape(reason)
+                        ai_error = {"success": False, "error": safe_reason, "analysis": "", "grounding_sources": []}
+                        data = _fetch_stock_data_sync(symbol)
+                        inner = create_stock_analysis_page(
+                            symbol=symbol,
+                            stock_data=data,
+                            lang=lang,
+                            ai_result=ai_error,
+                        )
+                        if not isinstance(inner, str):
+                            inner = str(getattr(inner, 'value', inner))
+                        return build_full_page(inner, lang, current_user=cur_user)
                     rate_limiter.record_request(user_id)
 
             data = _fetch_stock_data_sync(symbol)
@@ -577,16 +613,16 @@ def create_app():
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
-                lang=DEFAULT_LANG,
+                lang=lang,
                 ai_result=result,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
-        def _handle_change_period(payload):
+        def _handle_change_period(payload, cur_user, cur_symbol, lang):
             """切換 K 線圖期間"""
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             period = payload.get("period", "1y")
             if not symbol:
                 return gr.update()
@@ -605,15 +641,15 @@ def create_app():
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
-                lang=DEFAULT_LANG,
+                lang=lang,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
-        def _handle_load_chips(payload):
+        def _handle_load_chips(payload, cur_user, cur_symbol, lang):
             """載入籌碼面資料（台股 FinMind）"""
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             if not symbol:
                 return gr.update()
             from adapters.finmind_adapter import finmind_adapter
@@ -628,7 +664,7 @@ def create_app():
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
-                lang=DEFAULT_LANG,
+                lang=lang,
             )
             # 注入籌碼面資料
             chips_html = _build_chips_html(inst_data, margin_data)
@@ -638,11 +674,11 @@ def create_app():
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
-        def _handle_load_fundamentals(payload):
+        def _handle_load_fundamentals(payload, cur_user, cur_symbol, lang):
             """載入基本面資料（台股 FinMind）"""
-            symbol = payload.get("symbol", _current_symbol)
+            symbol = payload.get("symbol", cur_symbol)
             if not symbol:
                 return gr.update()
             from adapters.finmind_adapter import finmind_adapter
@@ -658,7 +694,7 @@ def create_app():
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
-                lang=DEFAULT_LANG,
+                lang=lang,
             )
             # 注入基本面資料
             fund_html = _build_fundamentals_html(per_data, rev_data, div_data)
@@ -668,123 +704,122 @@ def create_app():
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
         def _build_chips_html(inst_data: list, margin_data: list) -> str:
             """建構籌碼面 HTML"""
             if not inst_data and not margin_data:
                 return '<p style="color:var(--text-3);font-size:13px;">尚無籌碼面資料（可能非交易日或 FinMind 限額已滿）</p>'
 
-            html = ""
+            out = ""
             # 三大法人
             if inst_data:
                 recent = inst_data[-30:]  # 最近 30 筆
-                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">三大法人近期買賣超</h4>'
-                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
-                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:left;padding:8px;color:var(--text-3);">法人</th><th style="text-align:right;padding:8px;color:var(--text-3);">買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">買賣超</th></tr></thead><tbody>'
+                out += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">三大法人近期買賣超</h4>'
+                out += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                out += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:left;padding:8px;color:var(--text-3);">法人</th><th style="text-align:right;padding:8px;color:var(--text-3);">買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">買賣超</th></tr></thead><tbody>'
                 for row in recent[-10:]:
                     buy = row.get("buy", 0)
                     sell = row.get("sell", 0)
                     net = buy - sell
                     net_color = "var(--success)" if net > 0 else "var(--danger)" if net < 0 else "var(--text-3)"
-                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="padding:8px;color:var(--text-2);">{row.get("name","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{buy:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{sell:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{net_color};font-weight:600;">{"+"+str(net) if net>0 else str(net)}</td></tr>'
-                html += '</tbody></table></div>'
+                    out += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="padding:8px;color:var(--text-2);">{row.get("name","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{buy:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{sell:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{net_color};font-weight:600;">{"+"+str(net) if net>0 else str(net)}</td></tr>'
+                out += '</tbody></table></div>'
 
             # 融資融券
             if margin_data:
-                html += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">融資融券</h4>'
-                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
-                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資餘額</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券餘額</th></tr></thead><tbody>'
+                out += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">融資融券</h4>'
+                out += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                out += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資餘額</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券餘額</th></tr></thead><tbody>'
                 for row in margin_data[-10:]:
-                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseBuy",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("MarginPurchaseTodayBalance",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("ShortSaleSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("ShortSaleTodayBalance",0):,}</td></tr>'
-                html += '</tbody></table></div>'
+                    out += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseBuy",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("MarginPurchaseTodayBalance",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("ShortSaleSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("ShortSaleTodayBalance",0):,}</td></tr>'
+                out += '</tbody></table></div>'
 
-            return html
+            return out
 
         def _build_fundamentals_html(per_data: list, rev_data: list, div_data: list) -> str:
             """建構基本面 HTML"""
             if not per_data and not rev_data and not div_data:
                 return '<p style="color:var(--text-3);font-size:13px;">尚無基本面資料（可能非交易日或 FinMind 限額已滿）</p>'
 
-            html = ""
+            out = ""
 
             # PER/PBR
             if per_data:
                 latest = per_data[-1] if per_data else {}
-                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">PER / PBR / 殖利率</h4>'
-                html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">'
-                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PER","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">本益比 PER</div></div>'
-                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PBR","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">股價淨值比 PBR</div></div>'
-                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("dividend_yield","-")}%</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">殖利率</div></div>'
-                html += '</div>'
+                out += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">PER / PBR / 殖利率</h4>'
+                out += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">'
+                out += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PER","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">本益比 PER</div></div>'
+                out += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PBR","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">股價淨值比 PBR</div></div>'
+                out += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("dividend_yield","-")}%</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">殖利率</div></div>'
+                out += '</div>'
 
             # 月營收
             if rev_data:
-                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">月營收</h4>'
-                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
-                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年/月</th><th style="text-align:right;padding:8px;color:var(--text-3);">營收</th><th style="text-align:right;padding:8px;color:var(--text-3);">月增率</th><th style="text-align:right;padding:8px;color:var(--text-3);">年增率</th></tr></thead><tbody>'
+                out += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">月營收</h4>'
+                out += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                out += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年/月</th><th style="text-align:right;padding:8px;color:var(--text-3);">營收</th><th style="text-align:right;padding:8px;color:var(--text-3);">月增率</th><th style="text-align:right;padding:8px;color:var(--text-3);">年增率</th></tr></thead><tbody>'
                 for row in rev_data[-12:]:
                     revenue = row.get("revenue", 0)
                     mom = row.get("revenue_month", 0)
                     yoy = row.get("revenue_year", 0)
                     mom_color = "var(--success)" if mom > 0 else "var(--danger)" if mom < 0 else "var(--text-3)"
                     yoy_color = "var(--success)" if yoy > 0 else "var(--danger)" if yoy < 0 else "var(--text-3)"
-                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{revenue:,.0f}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{mom_color};">{mom:.1f}%</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{yoy_color};">{yoy:.1f}%</td></tr>'
-                html += '</tbody></table></div>'
+                    out += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{revenue:,.0f}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{mom_color};">{mom:.1f}%</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{yoy_color};">{yoy:.1f}%</td></tr>'
+                out += '</tbody></table></div>'
 
             # 股利
             if div_data:
-                html += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">股利政策</h4>'
-                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
-                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年度</th><th style="text-align:right;padding:8px;color:var(--text-3);">現金股利</th><th style="text-align:right;padding:8px;color:var(--text-3);">股票股利</th></tr></thead><tbody>'
+                out += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">股利政策</h4>'
+                out += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                out += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年度</th><th style="text-align:right;padding:8px;color:var(--text-3);">現金股利</th><th style="text-align:right;padding:8px;color:var(--text-3);">股票股利</th></tr></thead><tbody>'
                 for row in div_data[-5:]:
-                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("CashEarningsDistribution",0)}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("StockEarningsDistribution",0)}</td></tr>'
-                html += '</tbody></table></div>'
+                    out += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("CashEarningsDistribution",0)}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("StockEarningsDistribution",0)}</td></tr>'
+                out += '</tbody></table></div>'
 
-            return html
+            return out
 
-        def _handle_admin_action(payload):
+        def _handle_admin_action(payload, cur_user, lang):
             """Admin 操作"""
             sub = payload.get("sub_action", "")
             if sub == "search_user":
                 query = payload.get("query", "")
                 user = auth_service.admin_get_user(query) if query else None
-                return _rebuild_admin_with_result(user_result=user)
+                return _rebuild_admin_with_result(cur_user, lang, user_result=user)
             elif sub == "update_tier":
                 uid = payload.get("uid", "")
                 tier = payload.get("tier", "free")
                 expires = payload.get("expires", "")
                 if uid:
                     auth_service.admin_update_tier(uid, tier, expires or None)
-                return _rebuild_admin_with_result(status_msg=f"已更新 {uid} → {tier}")
+                return _rebuild_admin_with_result(cur_user, lang, status_msg=f"已更新 {uid} → {tier}")
             elif sub == "add_key":
                 name = payload.get("key_name", "")
                 value = payload.get("key_value", "")
                 if name and value:
                     auth_service.admin_add_key(name, value)
-                return _rebuild_admin_with_result(status_msg=f"已新增 Key: {name}")
+                return _rebuild_admin_with_result(cur_user, lang, status_msg=f"已新增 Key: {name}")
             return gr.update()
 
-        def _rebuild_admin_with_result(**kwargs):
+        def _rebuild_admin_with_result(cur_user, lang, **kwargs):
             inner = create_admin_console_page(
-                user_data=_current_user,
-                lang=DEFAULT_LANG,
+                user_data=cur_user,
+                lang=lang,
                 **kwargs,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
-            return build_full_page(inner, DEFAULT_LANG)
+            return build_full_page(inner, lang, current_user=cur_user)
 
         # ── Auth Handler ──
-        def handle_auth(token_or_code: str):
-            global _current_user
+        def handle_auth(token_or_code: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             token_or_code = token_or_code.strip()
             if not token_or_code:
-                return gr.update()
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
             if token_or_code == "logout":
-                _current_user = None
+                cur_user = None
                 print("[Auth] Logged out")
-                return handle_nav("market")
+                return handle_nav("market", portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist)
 
             user = None
 
@@ -811,50 +846,97 @@ def create_app():
                         user["app_metadata"] = {}
                     user["app_metadata"]["role"] = "admin"
                     print(f"[Auth] Admin user detected: {email}")
-                _current_user = user
+                cur_user = user
                 print(f"[Auth] Logged in: {email}")
             else:
-                _current_user = None
+                cur_user = None
                 print("[Auth] Authentication failed")
-            return handle_nav("market")
+            return handle_nav("market", portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist)
 
         # ── Language Handler ──
-        def handle_lang(new_lang: str):
-            global _current_lang
+        def handle_lang(new_lang: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             new_lang = new_lang.strip()
             if not new_lang or new_lang not in ('zh-TW', 'en'):
-                return gr.update()
-            _current_lang = new_lang
+                return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
+            cur_lang = new_lang
             print(f"[Lang] → {new_lang}")
-            return handle_nav("market")
+            return handle_nav("market", portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist)
+
+        # ── Shared outputs list ──
+        _all_outputs = [page_output, portfolio_state, user_store, symbol_store, lang_store, watchlist_store]
+        _state_inputs = [user_store, symbol_store, lang_store, watchlist_store]
 
         # ── Bind Events ──
-        nav_state.change(fn=handle_nav, inputs=[nav_state, portfolio_state], outputs=[page_output], api_name="navigate")
-        symbol_state.change(fn=handle_symbol, inputs=[symbol_state], outputs=[page_output])
-        action_trigger.click(fn=handle_action, inputs=[action_payload, portfolio_state], outputs=[page_output, portfolio_state])
-        auth_state.change(fn=lambda v: handle_auth(v), inputs=[auth_state], outputs=[page_output])
-        lang_state.change(fn=handle_lang, inputs=[lang_state], outputs=[page_output])
-        def _safe_initial_load(*_args):
+        nav_state.change(
+            fn=handle_nav,
+            inputs=[nav_state, portfolio_state] + _state_inputs,
+            outputs=_all_outputs,
+            api_name="navigate",
+        )
+        symbol_state.change(
+            fn=handle_symbol,
+            inputs=[symbol_state, portfolio_state] + _state_inputs,
+            outputs=_all_outputs,
+        )
+        action_trigger.click(
+            fn=handle_action,
+            inputs=[action_payload, portfolio_state] + _state_inputs,
+            outputs=_all_outputs,
+        )
+        auth_state.change(
+            fn=handle_auth,
+            inputs=[auth_state, portfolio_state] + _state_inputs,
+            outputs=_all_outputs,
+        )
+        lang_state.change(
+            fn=handle_lang,
+            inputs=[lang_state, portfolio_state] + _state_inputs,
+            outputs=_all_outputs,
+        )
+
+        def _safe_initial_load(cur_user, cur_symbol, cur_lang, cur_watchlist):
             """Initial page load — show login if not authenticated, else market page."""
             try:
                 print("[Load] Rendering initial page...")
-                if _current_user is None:
+                lang = cur_lang or DEFAULT_LANG
+                if cur_user is None:
                     print("[Load] No user → login page")
-                    return _create_login_page(_current_lang)
-                result = handle_nav("market")
-                print(f"[Load] OK ({len(result) if result else 0} chars)")
-                return result
+                    return _result(_create_login_page(lang), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                return handle_nav("market", "[]", cur_user, cur_symbol, lang, cur_watchlist)
             except Exception as e:
                 import traceback as _tb
                 _tb.print_exc()
-                return f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><pre>{e}</pre></div>'
+                safe_err = html_mod.escape(str(e))
+                return _result(
+                    f'<div style="padding:60px;text-align:center;color:#ef4444;"><h2>載入錯誤</h2><pre>{safe_err}</pre></div>',
+                    gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist,
+                )
 
-        app.load(fn=_safe_initial_load, outputs=[page_output])
+        app.load(fn=_safe_initial_load, inputs=_state_inputs, outputs=_all_outputs)
 
-        # ── Client-side JS ──
+        # ── Client-side JS (with MutationObserver for script execution) ──
         app.load(fn=lambda *_args: None, js="""
         () => {
-            console.log('[Init] DiscoverLatest v6.0 (GIS Auth)');
+            console.log('[Init] DiscoverLatest v7.0 (gr.State + MutationObserver)');
+
+            // ── MutationObserver: re-execute <script> tags injected via innerHTML ──
+            new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType === 1) {
+                            var scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
+                            scripts.forEach(function(oldScript) {
+                                var newScript = document.createElement('script');
+                                Array.from(oldScript.attributes).forEach(function(attr) {
+                                    newScript.setAttribute(attr.name, attr.value);
+                                });
+                                newScript.textContent = oldScript.textContent;
+                                oldScript.parentNode.replaceChild(newScript, oldScript);
+                            });
+                        }
+                    });
+                });
+            }).observe(document.body, { childList: true, subtree: true });
 
             // ── Helper: 把 Supabase access_token 送給 Gradio backend ──
             function sendTokenToBackend(accessToken) {
@@ -992,7 +1074,7 @@ def create_app():
                     sendTokenToBackend(credential);
                 }
             })();
-            
+
             setTimeout(() => {
                 // ── Sidebar toggle ──
                 window.toggleSidebar = function() {

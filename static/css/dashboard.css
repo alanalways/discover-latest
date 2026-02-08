@@ -1,7 +1,8 @@
 /*
- * DiscoverLatest 洞察運算 v5.0
+ * DiscoverLatest 洞察運算 v6.0
  * UI/UX Pro Max Design System — OLED Dark + Neon Accents
  * IBM Plex Sans · Glassmorphism · SVG Icons · Skeleton · RWD
+ * Enhanced: User cards, dropdowns, usage bars, better a11y
  */
 
 /* =========================================
@@ -292,6 +293,161 @@ h1, h2, h3, .brand-font {
     background: rgba(0, 255, 255, 0.04);
 }
 
+/* ── Sidebar User Card ── */
+.user-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+.user-avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    position: relative;
+    background: linear-gradient(135deg, rgba(0, 255, 255, 0.15), rgba(168, 85, 247, 0.15));
+}
+.user-avatar img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+.avatar-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 600;
+    color: var(--primary);
+    text-transform: uppercase;
+}
+.user-info { flex: 1; min-width: 0; }
+.user-name {
+    font-size: 13px; font-weight: 600;
+    color: var(--text-1);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.user-tier {
+    font-size: 10px; font-weight: 600;
+    padding: 2px 8px; border-radius: 4px;
+    display: inline-block; margin-top: 3px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+}
+.user-tier.tier-free {
+    background: rgba(100, 116, 139, 0.2);
+    color: var(--text-3);
+}
+.user-tier.tier-pro {
+    background: rgba(0, 255, 255, 0.12);
+    color: var(--primary);
+}
+.user-tier.tier-enterprise {
+    background: rgba(168, 85, 247, 0.12);
+    color: var(--secondary);
+}
+
+/* ── Usage Bar ── */
+.usage-card {
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 8px;
+}
+.usage-label {
+    font-size: 10px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin-bottom: 6px;
+}
+.usage-bar {
+    width: 100%; height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.usage-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    border-radius: 2px;
+    transition: width 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.usage-remaining {
+    font-size: 10px; color: var(--text-3);
+    margin-top: 4px;
+    font-family: var(--font-mono);
+}
+
+/* ── Topbar User Dropdown ── */
+.user-dropdown { position: relative; }
+.user-avatar-btn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    background: linear-gradient(135deg, rgba(0, 255, 255, 0.1), rgba(168, 85, 247, 0.1));
+    padding: 0;
+    position: relative;
+    transition: border-color 0.2s ease;
+}
+.user-avatar-btn:hover {
+    border-color: rgba(0, 255, 255, 0.35);
+}
+.user-avatar-btn img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+}
+.user-avatar-btn .avatar-fallback {
+    position: absolute;
+    inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+    color: var(--primary);
+}
+.dropdown-menu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px); right: 0;
+    min-width: 180px;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(20px) saturate(1.3);
+    -webkit-backdrop-filter: blur(20px) saturate(1.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: var(--radius);
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+    z-index: 200;
+    padding: 6px;
+    animation: fadeIn 0.15s ease-out;
+}
+.user-dropdown:hover .dropdown-menu,
+.user-dropdown:focus-within .dropdown-menu { display: block; }
+.dropdown-header {
+    padding: 10px 12px;
+    font-size: 13px; font-weight: 600;
+    color: var(--text-1);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dropdown-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 4px 0;
+}
+.dropdown-item {
+    display: block; width: 100%;
+    padding: 9px 12px;
+    font-size: 13px; color: var(--text-2);
+    background: none; border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer; text-align: left;
+    font-family: var(--font-sans);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.dropdown-item:hover {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--danger);
+}
+
 /* =========================================
    Topbar — Glassmorphism
    ========================================= */
@@ -559,6 +715,112 @@ h1, h2, h3, .brand-font {
     padding: 22px;
     margin-bottom: 24px;
     position: relative;
+    transition: border-color 0.25s ease;
+}
+.chart-section:hover {
+    border-color: rgba(255, 255, 255, 0.1);
+}
+.main-chart-section { min-height: 450px; }
+
+/* AI Analysis card */
+#ai-analysis-block {
+    line-height: 1.8;
+}
+#ai-analysis-block a {
+    color: var(--primary);
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+#ai-analysis-block a:hover { opacity: 0.8; }
+
+/* Progress bar (AI loading) */
+progress {
+    -webkit-appearance: none; appearance: none;
+    border: none; border-radius: 3px;
+}
+progress::-webkit-progress-bar {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+}
+progress::-webkit-progress-value {
+    background: linear-gradient(90deg, var(--primary), var(--secondary));
+    border-radius: 3px;
+}
+progress:indeterminate::-webkit-progress-bar {
+    background: linear-gradient(90deg,
+        var(--bg-card) 25%, var(--primary) 50%, var(--bg-card) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Strategy buttons (backtest) */
+.strategy-btn {
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-2);
+    font-size: 13px; cursor: pointer;
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    font-weight: 500;
+    font-family: var(--font-sans);
+}
+.strategy-btn:hover {
+    border-color: rgba(0, 255, 255, 0.25);
+    color: var(--text-1);
+}
+.strategy-btn.active {
+    background: linear-gradient(135deg, var(--primary), #0099cc);
+    border-color: var(--primary);
+    color: #000; font-weight: 600;
+}
+
+/* Portfolio add form */
+.portfolio-add-form {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 24px; padding: 20px;
+    background: var(--bg-card);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+}
+.portfolio-add-form input {
+    height: 40px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px; padding: 0 14px;
+    color: var(--text-1); font-size: 13px;
+    font-family: var(--font-mono);
+    outline: none;
+    transition: border-color 0.2s ease;
+}
+.portfolio-add-form input:focus {
+    border-color: rgba(0, 255, 255, 0.4);
+}
+.portfolio-add-form button {
+    height: 40px; padding: 0 20px;
+    background: var(--primary); color: #000;
+    border: none; border-radius: 8px;
+    font-weight: 600; font-size: 13px;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: opacity 0.2s ease, box-shadow 0.2s ease;
+}
+.portfolio-add-form button:hover {
+    opacity: 0.9;
+    box-shadow: 0 0 16px rgba(0, 255, 255, 0.2);
+}
+
+/* Delete button in tables */
+.btn-delete {
+    background: none; border: none;
+    color: var(--text-3); cursor: pointer;
+    padding: 6px; border-radius: 6px;
+    transition: color 0.2s ease, background 0.2s ease;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+.btn-delete:hover {
+    color: var(--danger);
+    background: rgba(239, 68, 68, 0.1);
 }
 
 /* Metrics grid */
@@ -913,13 +1175,15 @@ h1, h2, h3, .brand-font {
     color: var(--text-1) !important;
     font-family: var(--font-sans) !important;
 }
-#nav-state, #symbol-state, #action-state, #auth-state, #lang-state {
+#nav-state, #symbol-state, #action-payload, #action-trigger, #auth-state, #lang-state, #portfolio-state {
     display: none !important;
 }
 
 /* =========================================
    Responsive
    ========================================= */
+
+/* ── Tablet (1024px) ── */
 @media (max-width: 1024px) {
     .sidebar {
         transform: translateX(-100%);
@@ -933,7 +1197,23 @@ h1, h2, h3, .brand-font {
     .topbar-wrapper { left: 0; }
     .sidebar-toggle { display: block; }
     .indices-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+    .industry-grid { grid-template-columns: 1fr; }
+    .two-column { grid-template-columns: 1fr; }
 }
+
+/* ── Small tablet (768px) ── */
+@media (max-width: 768px) {
+    .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+    .portfolio-stats { grid-template-columns: repeat(2, 1fr); }
+    .stock-header { flex-direction: column; }
+    .stock-price-section { text-align: left; }
+    .stock-price { font-size: 32px !important; }
+    .welcome-title { font-size: 26px; }
+    .holdings-table { font-size: 12px; }
+    .holdings-table th, .holdings-table td { padding: 10px 10px; }
+}
+
+/* ── Mobile (640px) ── */
 @media (max-width: 640px) {
     .indices-grid, .etf-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
     .index-value, .etf-value { font-size: 22px; }
@@ -942,6 +1222,19 @@ h1, h2, h3, .brand-font {
     .stock-price { font-size: 28px !important; }
     .login-card { padding: 36px 24px; }
     .watchlist-grid { grid-template-columns: 1fr; }
+    .period-tabs { gap: 4px; }
+    .period-tab { padding: 6px 12px; font-size: 12px; }
+    .section-title { font-size: 16px; }
+    .search-btn span { display: none; }
+}
+
+/* ── Very small mobile (375px) ── */
+@media (max-width: 375px) {
+    .indices-grid, .etf-grid { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: 1fr; }
+    .topbar-wrapper { padding: 0 12px; }
+    .index-card, .etf-card { padding: 16px; }
+    .index-value, .etf-value { font-size: 20px; }
 }
 
 /* =========================================
@@ -1015,7 +1308,7 @@ h1, h2, h3, .brand-font {
     0%, 100% { border-color: rgba(0, 255, 255, 0.08); }
     50% { border-color: rgba(0, 255, 255, 0.2); }
 }
-.chart-section { animation: borderGlow 4s ease-in-out infinite; }
+/* borderGlow removed — caused empty chart areas to flash distractingly */
 
 /* ── Number countup animation ── */
 @keyframes countUp {

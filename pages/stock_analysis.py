@@ -1,6 +1,7 @@
 """
 個股分析頁面 + 價格預測卡片
 """
+import html
 import gradio as gr
 from components.i18n import t
 from components.chart_viewer import create_candlestick_chart, create_line_chart
@@ -89,6 +90,7 @@ def create_stock_analysis_page(
         .period-tab:hover {{ border-color: var(--primary); color: var(--text-1); }}
         .period-tab.active {{ background: var(--primary); border-color: var(--primary); color: #000; }}
         .chart-section {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }}
+        .main-chart-section {{ min-height: 450px; }}
         .section-title {{ font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }}
         .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }}
         .metric-card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }}
@@ -122,7 +124,7 @@ def create_stock_analysis_page(
         </div>
         
         <!-- K 線圖區 -->
-        <div class="chart-section">
+        <div class="chart-section main-chart-section">
             <div class="period-tabs">
                 <button class="period-tab" onclick="changePeriod('1mo')">1M</button>
                 <button class="period-tab" onclick="changePeriod('3mo')">3M</button>
@@ -446,14 +448,14 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
     </div>'''
 
     if ai_result and ai_result.get("success"):
-        analysis = ai_result.get("analysis", "")
+        analysis = html.escape(ai_result.get("analysis", ""))
         sources = ai_result.get("grounding_sources", [])
         sources_html = ""
         if sources:
             sources_html = '<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px;"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">Grounding 來源：</div>'
             for s in sources[:5]:
-                title = s.get("title", "")
-                uri = s.get("uri", "#")
+                title = html.escape(s.get("title", ""))
+                uri = html.escape(s.get("uri", "#"))
                 sources_html += f'<a href="{uri}" target="_blank" style="display:block;font-size:11px;color:var(--primary);text-decoration:none;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title or uri}</a>'
             sources_html += '</div>'
 
@@ -461,13 +463,13 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
         <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;">
             <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;">{analysis}</div>
             {sources_html}
-            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Model: {ai_result.get("model_used","")} · Grounding: {ai_result.get("grounding_model","")}</div>
+            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Model: {html.escape(ai_result.get("model_used",""))} · Grounding: {html.escape(ai_result.get("grounding_model",""))}</div>
         </div>
         '''
     elif ai_result and ai_result.get("error"):
         return f'''
         <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;" data-loading-html="{loading_html.replace('"', '&quot;')}">
-            <p style="color:var(--danger);font-size:13px;">{ai_result["error"]}</p>
+            <p style="color:var(--danger);font-size:13px;">{html.escape(ai_result["error"])}</p>
             <button class="period-tab" onclick="var el=document.getElementById('ai-analysis-block');if(el&&el.getAttribute('data-loading-html')){{el.innerHTML=el.getAttribute('data-loading-html');}}if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">重試 AI 分析</button>
         </div>
         '''

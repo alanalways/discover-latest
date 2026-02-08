@@ -78,6 +78,7 @@ class GeminiService:
     def __init__(self):
         self._models_valid: bool = False
         self._errors: List[str] = []
+        self._generate_lock = threading.Lock()
 
     def _get_api_key(self) -> str:
         """取得 API Key（Round-robin 輪流）"""
@@ -116,9 +117,27 @@ class GeminiService:
 
         try:
             import google.generativeai as genai
-            genai.configure(api_key=api_key)
         except ImportError:
             return {"success": False, "error": "google-generativeai 未安裝", "analysis": "", "grounding_sources": []}
+
+        with self._generate_lock:
+            return self._generate_analysis_locked(
+                genai, api_key, symbol, stock_info, smc_summary,
+                prediction_summary, user_question,
+            )
+
+    def _generate_analysis_locked(
+        self,
+        genai,
+        api_key: str,
+        symbol: str,
+        stock_info: Dict = None,
+        smc_summary: str = "",
+        prediction_summary: str = "",
+        user_question: str = "",
+    ) -> Dict[str, Any]:
+        """Internal: runs under self._generate_lock to prevent race conditions."""
+        genai.configure(api_key=api_key)
 
         # Build context
         context_parts = []

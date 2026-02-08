@@ -92,7 +92,7 @@ def create_candlestick_chart(
     - SMC markers
     """
     if not data:
-        data = _get_mock_data()
+        return '<div class="chart-section" style="padding:40px;text-align:center;color:var(--text-3);">無圖表資料，請先選擇股票</div>'
 
     data = normalize_chart_data(data)
     if not data:
@@ -211,10 +211,17 @@ def create_candlestick_chart(
     (function() {{
         var container = document.getElementById('{chart_id}');
         if (!container) return;
+        var retryCount = 0;
+        var maxRetries = 30;
         function runChart() {{
             if (!window.LightweightCharts) return;
             if (container.clientWidth === 0) {{
-                setTimeout(runChart, 100);
+                if (retryCount < maxRetries) {{
+                    retryCount++;
+                    setTimeout(runChart, 100);
+                    return;
+                }}
+                container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3);font-size:14px;">Chart failed to init</div>';
                 return;
             }}
             container.innerHTML = '';
@@ -317,7 +324,7 @@ def create_line_chart(
 ) -> str:
     """建立走勢比較圖"""
     if not datasets:
-        datasets = _get_mock_comparison_data()
+        return '<div style="padding:40px;text-align:center;color:var(--text-3);">無比較資料，請先選擇股票</div>'
 
     chart_id = f"comparison_chart_{random.randint(1000,9999)}"
 
@@ -352,10 +359,17 @@ def create_line_chart(
     (function() {{
         var container = document.getElementById('{chart_id}');
         if (!container) return;
+        var retryCount = 0;
+        var maxRetries = 30;
         function runChart() {{
             if (!window.LightweightCharts) return;
             if (container.clientWidth === 0) {{
-                setTimeout(runChart, 100);
+                if (retryCount < maxRetries) {{
+                    retryCount++;
+                    setTimeout(runChart, 100);
+                    return;
+                }}
+                container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-3);font-size:14px;">Chart failed to init</div>';
                 return;
             }}
             container.innerHTML = '';
