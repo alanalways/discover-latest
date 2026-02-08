@@ -72,12 +72,24 @@ class StockService:
         return "US"
     
     async def _get_stock_info(self, symbol: str, market: str) -> Optional[Dict]:
-        """取得股票基本資訊"""
+        """取得股票基本資訊（台股優先 FinMind，再 fallback Yahoo）"""
         if market in ["TWSE", "TPEX"]:
-            # 台股使用 Yahoo 取得基本資訊
+            try:
+                fm_list = await finmind_adapter.get_tw_stock_info(symbol)
+                if fm_list:
+                    info = fm_list[0]
+                    print(f"[StockInfo] FinMind OK: {symbol}")
+                    return {
+                        "symbol": info.get("symbol"),
+                        "name": info.get("name"),
+                        "industry": info.get("industry"),
+                        "market": market,
+                        "type": info.get("type", "stock"),
+                    }
+            except Exception as e:
+                print(f"[StockInfo] FinMind 失敗 ({symbol}): {e}")
             return await yahoo_adapter.get_stock_info(symbol, market)
-        else:
-            return await yahoo_adapter.get_stock_info(symbol, "US")
+        return await yahoo_adapter.get_stock_info(symbol, "US")
     
     async def _get_stock_history(
         self, 
@@ -125,31 +137,110 @@ class StockService:
             return await yahoo_adapter.get_stock_history(symbol, "US", period)
     
     async def search_symbols(self, query: str, limit: int = 20) -> List[Dict]:
-        """
-        搜尋股票代號
-        
-        優先從本地 symbol_index 搜尋，沒有結果再從 API 搜尋
-        """
+        """搜尋股票代號（台股先 FinMind，再 DB，再 Yahoo）"""
+        query_stripped = (query or "").strip()
+        if not query_stripped:
+            return []
         results = []
-        
-        # 從資料庫搜尋
+
+        # 台股：先嘗試 FinMind 搜尋
         try:
-            db_result = await supabase.get_client().from_("symbol_index").select("*").or_(f"symbol.ilike.%{query}%,name.ilike.%{query}%").limit(limit).execute()
-            
-            if db_result.data:
-                results.extend(db_result.data)
+            fm_results = await finmind_adapter.search_tw_stocks(query_stripped, limit)
+            if fm_results:
+                for r in fm_results:
+                    results.append({
+                        "symbol": r.get("symbol"),
+                        "name": r.get("name"),
+                        "market": r.get("market", "TWSE"),
+                        "type": r.get("type", "stock"),
+                    })
+                if len(results) >= limit:
+                    return results[:limit]
         except Exception as e:
-            print(f"[StockService] 資料庫搜尋失敗: {e}")
-        
-        # 如果結果不夠，從 Yahoo 補充
+            print(f"[StockService] FinMind 搜尋失敗: {e}")
+
+        # 從資料庫補充
+        try:
+            db_result = await supabase.get_client().from_("symbol_index").select("*").or_(f"symbol.ilike.%{query_stripped}%,name.ilike.%{query_stripped}%").limit(limit - len(results)).execute()
+            if db_result.data:
+                existing = {r["symbol"] for r in results}
+                for d in db_result.data:
+                    if d.get("symbol") not in existing:
+                        results.append(d)
+        except Exception as e:
+            print(f"[StockService] DB 搜尋失敗: {e}")
+
+        # Yahoo 補充
         if len(results) < limit:
             try:
-                yahoo_results = await yahoo_adapter.search_symbols(query, limit - len(results))
-                results.extend(yahoo_results)
-            except:
-                pass
-        
+                yahoo_results = await yahoo_adapter.search_symbols(query_stripped, limit - len(results))
+                existing = {r["symbol"] for r in results}
+                for y in yahoo_results:
+                    if y.get("symbol") not in existing:
+                        results.append(y)
+            except Exception as e:
+                print(f"[StockService] Yahoo 搜尋失敗: {e}")
+
         return results[:limit]
+
+    async def get_stock_fundamentals(self, symbol: str, market: str = None) -> Dict:
+        """取得基本面資料（PER/PBR/月營收/損益表）- 台股限定"""
+        if market is None:
+            market = await self._detect_market(symbol)
+        if market not in ["TWSE", "TPEX"]:
+            return {}
+        from datetime import datetime, timedelta
+        start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
+        result = {}
+        try:
+            per_data = await finmind_adapter.get_tw_per_pbr(symbol, start_1y)
+            result["per_pbr"] = per_data[-30:] if per_data else []
+        except Exception as e:
+            print(f"[Fundamentals] PER/PBR 失敗 ({symbol}): {e}")
+            result["per_pbr"] = []
+        try:
+            rev_data = await finmind_adapter.get_tw_revenue(symbol, start_3y)
+            result["revenue"] = rev_data if rev_data else []
+        except Exception as e:
+            print(f"[Fundamentals] 月營收失敗 ({symbol}): {e}")
+            result["revenue"] = []
+        try:
+            fin_data = await finmind_adapter.get_tw_financial_statements(symbol, start_3y)
+            result["financials"] = fin_data if fin_data else []
+        except Exception as e:
+            print(f"[Fundamentals] 損益表失敗 ({symbol}): {e}")
+            result["financials"] = []
+        try:
+            div_data = await finmind_adapter.get_tw_dividend(symbol, start_3y)
+            result["dividend"] = div_data if div_data else []
+        except Exception as e:
+            print(f"[Fundamentals] 股利失敗 ({symbol}): {e}")
+            result["dividend"] = []
+        return result
+
+    async def get_stock_chips(self, symbol: str, market: str = None) -> Dict:
+        """取得籌碼面資料（三大法人 + 融資融券）- 台股限定"""
+        if market is None:
+            market = await self._detect_market(symbol)
+        if market not in ["TWSE", "TPEX"]:
+            return {}
+        from datetime import datetime, timedelta
+        start_3m = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        result = {}
+        try:
+            inst_data = await finmind_adapter.get_tw_institutional(symbol, start_3m)
+            result["institutional"] = inst_data if inst_data else []
+        except Exception as e:
+            print(f"[Chips] 法人買賣超失敗 ({symbol}): {e}")
+            result["institutional"] = []
+        try:
+            margin_data = await finmind_adapter.get_tw_margin(symbol, start_3m)
+            result["margin"] = margin_data if margin_data else []
+        except Exception as e:
+            print(f"[Chips] 融資融券失敗 ({symbol}): {e}")
+            result["margin"] = []
+        return result
     
     async def get_market_indices(self) -> Dict[str, List[Dict]]:
         """取得市場指數"""

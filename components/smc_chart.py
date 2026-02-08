@@ -131,12 +131,18 @@ def create_smc_chart(
             <canvas id="{cid}_overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;"></canvas>
         </div>
         <!-- Info popup -->
-        <div id="{cid}_popup" style="display:none;position:absolute;z-index:10;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px;box-shadow:0 4px 24px rgba(0,0,0,0.5);min-width:220px;font-size:13px;">
+        <div id="{cid}_popup" class="smc-popup" style="display:none;position:absolute;z-index:10;background:rgba(15,23,42,0.95);backdrop-filter:blur(12px);border:1px solid rgba(0,255,255,0.15);border-radius:10px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 16px rgba(0,255,255,0.05);min-width:220px;font-size:13px;">
         </div>
         <style>
             .smc-tgl {{padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-2);font-size:12px;cursor:pointer;transition:all .15s;}}
-            .smc-tgl.active {{background:var(--primary);border-color:var(--primary);color:#000;}}
+            .smc-tgl.active {{background:var(--primary);border-color:var(--primary);color:#000;font-weight:600;}}
             .smc-tgl:hover {{border-color:var(--primary);}}
+            .smc-popup {{
+                opacity:0;transition:opacity 0.2s ease,transform 0.2s ease;transform:translateY(4px);
+            }}
+            .smc-popup.show {{
+                opacity:1;display:block !important;transform:translateY(0);
+            }}
         </style>
     </div>
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
@@ -262,10 +268,11 @@ def create_smc_chart(
                     <div style="color:var(--text-3);font-size:12px;margin-bottom:4px;">狀態: ${{status}}</div>
                     <div style="color:var(--text-3);font-size:12px;">${{found.desc}}</div>
                 `;
-                popup.style.display = 'block';
                 popup.style.left = Math.min(mx + 10, container.clientWidth - 240) + 'px';
                 popup.style.top = Math.min(my + 10, container.clientHeight - 120) + 'px';
-                setTimeout(()=>{{popup.style.display='none';}}, 4000);
+                popup.style.display = 'block';
+                requestAnimationFrame(function(){{ popup.classList.add('show'); }});
+                setTimeout(function(){{ popup.classList.remove('show'); setTimeout(function(){{ popup.style.display='none'; }}, 200); }}, 4000);
             }} else if (popup) {{
                 popup.style.display = 'none';
             }}
@@ -285,9 +292,17 @@ def create_smc_chart(
                 cs.setMarkers(filtered);
             }}
             if (layer === 'liquidity') {{
-                liqLines.forEach(l => {{
-                    // Price lines can't be toggled easily; re-create
-                }});
+                if (visibleLayers.liquidity) {{
+                    // 重新建立 price lines
+                    liqData.forEach(function(liq) {{
+                        var c = liq.type.includes('buy') ? '#06b6d4' : '#f59e0b';
+                        liqLines.push(cs.createPriceLine({{price:liq.price,color:c,lineWidth:2,lineStyle:0,axisLabelVisible:true,title:liq.label}}));
+                    }});
+                }} else {{
+                    // 移除所有 price lines
+                    liqLines.forEach(function(l) {{ try {{ cs.removePriceLine(l); }} catch(e){{}} }});
+                    liqLines.length = 0;
+                }}
             }}
             drawRects();
         }};

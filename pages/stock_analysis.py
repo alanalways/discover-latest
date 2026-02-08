@@ -30,10 +30,14 @@ def create_stock_analysis_page(
     if not symbol:
         return _create_search_guide(lang)
     
-    # 模擬資料（之後會接真實 API）
+    # 如果沒有真實資料，顯示載入中提示
     if not stock_data:
-        stock_data = _get_mock_stock_data(symbol)
-    
+        return f'''
+        <div style="text-align:center;padding:80px 24px;">
+            <div class="loading-spinner" style="margin:0 auto 16px;"></div>
+            <p style="color:var(--text-3);">載入 {symbol} 資料中...</p>
+        </div>'''
+
     info = stock_data.get("info", {})
     history = stock_data.get("history", [])
     
@@ -58,11 +62,14 @@ def create_stock_analysis_page(
     )
     smc_summary_html = create_smc_summary_card(smc_analysis, lang)
     
-    # 風險指標
+    # 風險指標（含真實 Sharpe）
     risk_html = _create_risk_metrics(info, history, lang)
-    
+
     # 基本面摘要
     fundamentals_html = _create_fundamentals(info, lang)
+
+    # 籌碼面 + 基本面 tab（台股限定）
+    chips_fundamentals_html = _create_chips_fundamentals_tabs(symbol, info, lang)
     
     page_html = f'''
     <style>
@@ -150,6 +157,9 @@ def create_stock_analysis_page(
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
         {_create_ai_analysis_card(symbol, ai_result, lang)}
 
+        <!-- 籌碼面 / 基本面 Tab（台股）-->
+        {chips_fundamentals_html}
+
         <!-- 基本面 + 資訊 -->
         <div class="two-column">
             <div>
@@ -162,19 +172,17 @@ def create_stock_analysis_page(
             </div>
         </div>
     </div>
-    
+
     <script>
         function changePeriod(period) {{
-            // 更新選中狀態
-            document.querySelectorAll('.period-tab').forEach(tab => {{
+            document.querySelectorAll('.period-tab').forEach(function(tab) {{
                 tab.classList.remove('active');
-                if (tab.textContent === period.toUpperCase().replace('MO', 'M').replace('Y', 'Y')) {{
-                    tab.classList.add('active');
-                }}
             }});
-            
-            // 這裡之後會觸發 Gradio 事件更新圖表
-            console.log('Period changed to:', period);
+            event.target.classList.add('active');
+            // 觸發 Gradio 後端重新載入
+            if (typeof dispatchAction === 'function') {{
+                dispatchAction({{action:'change_period', symbol:'{symbol}', period: period}});
+            }}
         }}
     </script>
     '''
@@ -237,6 +245,9 @@ def _create_risk_metrics(info: Dict, history: List[Dict], lang: str) -> str:
     # 計算波動率
     volatility = _calculate_volatility(history)
     
+    # 計算 Sharpe Ratio
+    sharpe = _calculate_sharpe(history)
+
     metrics = [
         {
             "label": "Beta",
@@ -255,7 +266,7 @@ def _create_risk_metrics(info: Dict, history: List[Dict], lang: str) -> str:
         },
         {
             "label": t('stock.sharpe', lang),
-            "value": "1.45",
+            "value": f"{sharpe:.2f}",
             "subtext": t('stock.sharpeDesc', lang)
         }
     ]
@@ -362,6 +373,67 @@ def _calculate_volatility(history: List[Dict], window: int = 20) -> float:
     annual_vol = std_dev * math.sqrt(252) * 100
     
     return annual_vol
+
+
+def _calculate_sharpe(history: List[Dict], risk_free_rate: float = 0.02) -> float:
+    """計算 Sharpe Ratio（年化）"""
+    if len(history) < 20:
+        return 0.0
+    prices = [h.get('close', 0) for h in history if h.get('close')]
+    if len(prices) < 20:
+        return 0.0
+    import math
+    returns = [(prices[i] - prices[i-1]) / prices[i-1] for i in range(1, len(prices)) if prices[i-1] > 0]
+    if not returns:
+        return 0.0
+    mean_r = sum(returns) / len(returns)
+    var_r = sum((r - mean_r) ** 2 for r in returns) / len(returns)
+    std_r = math.sqrt(var_r) if var_r > 0 else 0
+    daily_rf = risk_free_rate / 252
+    sharpe = ((mean_r - daily_rf) / std_r * math.sqrt(252)) if std_r > 0 else 0
+    return sharpe
+
+
+def _create_chips_fundamentals_tabs(symbol: str, info: Dict, lang: str) -> str:
+    """建立籌碼面 / 基本面 Tab（台股限定，使用 FinMind）"""
+    is_tw = symbol.isdigit() and len(symbol) >= 4
+    if not is_tw:
+        return ""
+
+    return f'''
+    <div class="chart-section" style="margin-bottom:24px;">
+        <div style="display:flex;gap:8px;margin-bottom:16px;">
+            <button class="period-tab active" onclick="switchDataTab('chips',this)">籌碼面</button>
+            <button class="period-tab" onclick="switchDataTab('fundamentals',this)">基本面</button>
+        </div>
+        <div id="data-tab-chips">
+            <p style="color:var(--text-3);font-size:13px;margin-bottom:12px;">
+                三大法人買賣超 + 融資融券（FinMind API，點擊「載入資料」取得最新數據）
+            </p>
+            <button class="period-tab" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'load_chips',symbol:'{symbol}'}})">
+                載入籌碼面資料
+            </button>
+            <div id="chips-data-container" style="margin-top:16px;"></div>
+        </div>
+        <div id="data-tab-fundamentals" style="display:none;">
+            <p style="color:var(--text-3);font-size:13px;margin-bottom:12px;">
+                月營收 + PER/PBR + 股利政策（FinMind API）
+            </p>
+            <button class="period-tab" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'load_fundamentals',symbol:'{symbol}'}})">
+                載入基本面資料
+            </button>
+            <div id="fundamentals-data-container" style="margin-top:16px;"></div>
+        </div>
+    </div>
+    <script>
+        window.switchDataTab = function(tab, btn) {{
+            document.getElementById('data-tab-chips').style.display = tab === 'chips' ? 'block' : 'none';
+            document.getElementById('data-tab-fundamentals').style.display = tab === 'fundamentals' ? 'block' : 'none';
+            btn.parentNode.querySelectorAll('.period-tab').forEach(function(b){{ b.classList.remove('active'); }});
+            btn.classList.add('active');
+        }};
+    </script>
+    '''
 
 
 def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:

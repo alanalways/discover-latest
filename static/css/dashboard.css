@@ -934,27 +934,178 @@ h1, h2, h3, .brand-font {
 }
 
 /* =========================================
-   Utility animations
+   Global Animation System
    ========================================= */
+
+/* ── Page transitions ── */
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
 }
 @keyframes fadeInUp {
-    from { opacity: 0; transform: translateY(16px); }
+    from { opacity: 0; transform: translateY(20px); }
     to { opacity: 1; transform: translateY(0); }
 }
-.market-page,
-.stock-page,
-.backtest-page,
-.portfolio-page,
-.industry-page,
-.admin-page,
-.watchlist-page {
-    animation: fadeIn 0.3s ease-out;
+@keyframes fadeInScale {
+    from { opacity: 0; transform: scale(0.97); }
+    to { opacity: 1; transform: scale(1); }
+}
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
 }
 
-/* prefers-reduced-motion */
+.market-page, .stock-page, .backtest-page,
+.portfolio-page, .industry-page, .admin-page, .watchlist-page {
+    animation: fadeInScale 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ── Staggered card reveal ── */
+@keyframes staggerReveal {
+    from { opacity: 0; transform: translateY(16px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.indices-grid > *, .etf-grid > *, .metrics-grid > *,
+.industry-grid > *, .watchlist-grid > *, .metrics-row > *,
+.portfolio-stats > * {
+    animation: staggerReveal 0.45s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+}
+.indices-grid > *:nth-child(1), .etf-grid > *:nth-child(1),
+.industry-grid > *:nth-child(1), .watchlist-grid > *:nth-child(1),
+.metrics-row > *:nth-child(1), .portfolio-stats > *:nth-child(1) { animation-delay: 0.05s; }
+.indices-grid > *:nth-child(2), .etf-grid > *:nth-child(2),
+.industry-grid > *:nth-child(2), .watchlist-grid > *:nth-child(2),
+.metrics-row > *:nth-child(2), .portfolio-stats > *:nth-child(2) { animation-delay: 0.1s; }
+.indices-grid > *:nth-child(3), .etf-grid > *:nth-child(3),
+.industry-grid > *:nth-child(3), .watchlist-grid > *:nth-child(3),
+.metrics-row > *:nth-child(3), .portfolio-stats > *:nth-child(3) { animation-delay: 0.15s; }
+.indices-grid > *:nth-child(4), .etf-grid > *:nth-child(4),
+.industry-grid > *:nth-child(4), .watchlist-grid > *:nth-child(4),
+.metrics-row > *:nth-child(4), .portfolio-stats > *:nth-child(4) { animation-delay: 0.2s; }
+.indices-grid > *:nth-child(5), .etf-grid > *:nth-child(5),
+.industry-grid > *:nth-child(5), .watchlist-grid > *:nth-child(5),
+.metrics-row > *:nth-child(5), .portfolio-stats > *:nth-child(5) { animation-delay: 0.25s; }
+.indices-grid > *:nth-child(6), .etf-grid > *:nth-child(6),
+.industry-grid > *:nth-child(6), .watchlist-grid > *:nth-child(6),
+.metrics-row > *:nth-child(6), .portfolio-stats > *:nth-child(6) { animation-delay: 0.3s; }
+
+/* ── Neon pulse ── */
+@keyframes neonPulse {
+    0%, 100% { box-shadow: 0 0 5px rgba(0, 255, 255, 0.08); }
+    50% { box-shadow: 0 0 20px rgba(0, 255, 255, 0.12), 0 0 40px rgba(0, 255, 255, 0.04); }
+}
+.nav-item.active { animation: neonPulse 3s ease-in-out infinite; }
+
+@keyframes borderGlow {
+    0%, 100% { border-color: rgba(0, 255, 255, 0.08); }
+    50% { border-color: rgba(0, 255, 255, 0.2); }
+}
+.chart-section { animation: borderGlow 4s ease-in-out infinite; }
+
+/* ── Number countup animation ── */
+@keyframes countUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.metric-val, .stat-value, .index-value, .etf-value {
+    animation: countUp 0.5s ease-out;
+}
+
+/* ── Button click animation ── */
+.period-tab:active, .strategy-btn:active, .admin-btn:active {
+    transform: scale(0.96);
+    transition: transform 0.08s ease;
+}
+
+/* ── Card hover lift ── */
+.index-card, .etf-card, .watchlist-card, .industry-card, .metric-card, .stat-card {
+    transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                border-color 0.25s ease, box-shadow 0.3s ease;
+}
+.index-card:hover, .etf-card:hover, .watchlist-card:hover {
+    transform: translateY(-3px);
+}
+
+/* ── Loading spinner ── */
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+.loading-spinner {
+    width: 24px; height: 24px;
+    border: 2px solid rgba(0, 255, 255, 0.1);
+    border-top-color: #00FFFF;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+/* ── Toast notification ── */
+@keyframes toastIn {
+    from { opacity: 0; transform: translateY(-16px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes toastOut {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(-16px) scale(0.95); }
+}
+.toast {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 255, 255, 0.15);
+    border-radius: 12px; padding: 14px 20px;
+    color: var(--text-1); font-size: 13px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 16px rgba(0, 255, 255, 0.05);
+    animation: toastIn 0.3s ease-out;
+    max-width: 360px;
+}
+.toast.fade-out { animation: toastOut 0.3s ease-in forwards; }
+
+/* ── Gradient text animation ── */
+@keyframes gradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+.welcome-title {
+    background-size: 200% 200%;
+    animation: gradientShift 6s ease infinite;
+}
+
+/* ── Chart container hover glow ── */
+.chart-card:hover, .bubble-chart-d3:hover {
+    box-shadow: 0 0 30px rgba(0, 255, 255, 0.06);
+}
+
+/* ── Skeleton loading enhancement ── */
+@keyframes skeletonWave {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+}
+.skeleton, .loading-shimmer {
+    animation: skeletonWave 2s ease-in-out infinite;
+}
+
+/* ── Login card entrance ── */
+@keyframes loginEntrance {
+    from { opacity: 0; transform: translateY(30px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.login-card {
+    animation: loginEntrance 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ── Login logo pulse ── */
+@keyframes logoPulse {
+    0%, 100% { filter: drop-shadow(0 0 4px rgba(0,255,255,0.3)); }
+    50% { filter: drop-shadow(0 0 12px rgba(0,255,255,0.5)); }
+}
+.login-logo svg { animation: logoPulse 3s ease-in-out infinite; }
+
+/* ── prefers-reduced-motion ── */
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
         animation-duration: 0.01ms !important;

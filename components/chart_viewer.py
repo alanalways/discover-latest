@@ -1,9 +1,40 @@
 """
-Chart Viewer 元件 - 使用 TradingView Lightweight Charts
+Chart Viewer 元件 - 使用 TradingView Lightweight Charts v4
+支援：K 線圖 + 成交量 + MA 疊加 + 自訂 Tooltip + 全螢幕 + 時間周期切換
 """
-import gradio as gr
-from typing import List, Dict, Optional
 import json
+import random
+from typing import List, Dict, Optional
+from datetime import datetime, timedelta
+
+
+def _calc_ma(prices: List[float], period: int) -> List[Optional[float]]:
+    """計算移動平均線"""
+    result = []
+    for i in range(len(prices)):
+        if i < period - 1:
+            result.append(None)
+        else:
+            result.append(sum(prices[i - period + 1:i + 1]) / period)
+    return result
+
+
+def _calc_bollinger(prices: List[float], period: int = 20, std_mult: float = 2.0):
+    """計算布林通道"""
+    import math
+    ma = _calc_ma(prices, period)
+    upper, lower = [], []
+    for i in range(len(prices)):
+        if ma[i] is None:
+            upper.append(None)
+            lower.append(None)
+        else:
+            window = prices[max(0, i - period + 1):i + 1]
+            mean = sum(window) / len(window)
+            std = math.sqrt(sum((x - mean) ** 2 for x in window) / len(window))
+            upper.append(mean + std_mult * std)
+            lower.append(mean - std_mult * std)
+    return ma, upper, lower
 
 
 def create_candlestick_chart(
@@ -12,51 +43,66 @@ def create_candlestick_chart(
     height: int = 500,
     show_volume: bool = True,
     theme: str = "dark",
-    smc_data: Dict = None
+    smc_data: Dict = None,
+    show_ma: bool = True,
+    show_bollinger: bool = False,
 ) -> str:
     """
-    建立 K 線圖 HTML（使用 Lightweight Charts）
-    
-    Args:
-        data: 歷史資料
-        symbol: 股票代號
-        height: 圖表高度
-        show_volume: 是否顯示成交量
-        theme: 主題
-        smc_data: SMC 分析資料 (包含 markers, rectangles)
+    建立增強版 K 線圖 HTML（Lightweight Charts v4）
+
+    功能：
+    - K 線 + 成交量
+    - MA5 / MA20 / MA60 疊加
+    - 布林通道（可選）
+    - 自訂 crosshair tooltip
+    - 全螢幕按鈕
+    - SMC markers
     """
     if not data:
         data = _get_mock_data()
-    
+
     # 轉換 K 線與成交量資料
     candle_data = []
     volume_data = []
-    
+    close_prices = []
+
     for d in data:
         date_str = d.get("date", "")
-        candle_data.append({
-            "time": date_str,
-            "open": float(d.get("open", 0)),
-            "high": float(d.get("high", 0)),
-            "low": float(d.get("low", 0)),
-            "close": float(d.get("close", 0))
-        })
-        
+        o, h, l, c = float(d.get("open", 0)), float(d.get("high", 0)), float(d.get("low", 0)), float(d.get("close", 0))
+        candle_data.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
+        close_prices.append(c)
         if show_volume:
-            color = "#26a69a" if d.get("close", 0) >= d.get("open", 0) else "#ef5350"
-            volume_data.append({
-                "time": date_str,
-                "value": int(d.get("volume", 0)),
-                "color": color
-            })
-    
+            color = "rgba(0,255,255,0.35)" if c >= o else "rgba(239,68,68,0.35)"
+            volume_data.append({"time": date_str, "value": int(d.get("volume", 0)), "color": color})
+
+    # MA 計算
+    ma5 = _calc_ma(close_prices, 5) if show_ma else []
+    ma20 = _calc_ma(close_prices, 20) if show_ma else []
+    ma60 = _calc_ma(close_prices, 60) if show_ma else []
+
+    # 布林通道
+    bb_ma, bb_upper, bb_lower = ([], [], [])
+    if show_bollinger:
+        bb_ma, bb_upper, bb_lower = _calc_bollinger(close_prices, 20)
+
+    def _build_line_data(values, dates):
+        return json.dumps([
+            {"time": dates[i]["time"], "value": round(v, 2)}
+            for i, v in enumerate(values)
+            if v is not None
+        ])
+
     candle_json = json.dumps(candle_data)
     volume_json = json.dumps(volume_data)
-    
-    # 處理 SMC Markers (BOS, CHoCH, Swing Points)
+    ma5_json = _build_line_data(ma5, candle_data) if show_ma else "[]"
+    ma20_json = _build_line_data(ma20, candle_data) if show_ma else "[]"
+    ma60_json = _build_line_data(ma60, candle_data) if show_ma else "[]"
+    bbu_json = _build_line_data(bb_upper, candle_data) if show_bollinger else "[]"
+    bbl_json = _build_line_data(bb_lower, candle_data) if show_bollinger else "[]"
+
+    # SMC Markers
     markers = []
     if smc_data:
-        # Swing High/Low
         for swing in smc_data.get("swings", []):
             markers.append({
                 "time": swing["date"],
@@ -66,8 +112,6 @@ def create_candlestick_chart(
                 "text": "SH" if swing["type"] == "high" else "SL",
                 "size": 0.5
             })
-            
-        # Structures (BOS/CHoCH)
         for struct in smc_data.get("structures", []):
             color = "#00e5ff" if struct["direction"] == "bullish" else "#ff00e5"
             markers.append({
@@ -78,72 +122,124 @@ def create_candlestick_chart(
                 "text": struct["type"],
                 "size": 1
             })
-            
     markers_json = json.dumps(markers)
-    
-    chart_id = f"chart_{symbol.replace('.', '_').replace('^', '')}"
-    
-    # 生成 Rectangle Plugins (簡易版：使用 Box Annotations 概念，實際 LWC 需要 Plugin)
-    # 這裡我們先用 Markers + Lines 模擬關鍵位，若需完整矩形需引入 Plugin 代碼
-    # 由於 Prompt 要求 "Rectangle blocks"，我們嘗試用 LWC 4.x 的簡單 Plugin 實作
-    
+
+    chart_id = f"chart_{symbol.replace('.', '_').replace('^', '')}_{random.randint(1000,9999)}"
+
     html = f'''
-    <div id="{chart_id}" class="chart-container" style="height: {height}px; width: 100%;"></div>
-    
+    <div id="{chart_id}-wrap" style="position:relative;height:{height}px;width:100%;">
+        <div id="{chart_id}" style="height:100%;width:100%;"></div>
+        <div id="{chart_id}-tooltip" style="
+            display:none;position:absolute;top:8px;left:12px;z-index:50;
+            background:rgba(15,23,42,0.92);backdrop-filter:blur(12px);
+            border:1px solid rgba(255,255,255,0.08);border-radius:10px;
+            padding:10px 14px;font-size:12px;pointer-events:none;
+            min-width:180px;box-shadow:0 8px 32px rgba(0,0,0,0.5);
+        "></div>
+        <button onclick="(function(){{
+            var w=document.getElementById('{chart_id}-wrap');
+            if(!document.fullscreenElement){{w.requestFullscreen();w.style.background='#020617';}}
+            else document.exitFullscreen();
+        }})()" style="
+            position:absolute;top:8px;right:8px;z-index:50;
+            background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);
+            border-radius:6px;padding:6px 8px;cursor:pointer;color:#9ca3af;
+            transition:all 0.2s;
+        " onmouseover="this.style.color='#00FFFF';this.style.borderColor='rgba(0,255,255,0.3)'"
+           onmouseout="this.style.color='#9ca3af';this.style.borderColor='rgba(255,255,255,0.1)'"
+           title="全螢幕">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+        </button>
+    </div>
+
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    
     <script>
     (function() {{
-        const container = document.getElementById('{chart_id}');
-        if (!container) return;
-        
+        var container = document.getElementById('{chart_id}');
+        if (!container || !window.LightweightCharts) return;
         container.innerHTML = '';
-        
-        const chart = LightweightCharts.createChart(container, {{
+
+        var chart = LightweightCharts.createChart(container, {{
             width: container.clientWidth,
-            height: {height - 50 if show_volume else height},
+            height: container.clientHeight,
             layout: {{
                 background: {{ type: 'solid', color: 'transparent' }},
-                textColor: '#9ca3af',
-                fontFamily: 'Inter, system-ui, sans-serif',
+                textColor: '#64748B',
+                fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
+                fontSize: 11,
             }},
             grid: {{
-                vertLines: {{ color: 'rgba(55, 65, 81, 0.2)' }},
-                horzLines: {{ color: 'rgba(55, 65, 81, 0.2)' }},
+                vertLines: {{ color: 'rgba(55, 65, 81, 0.15)' }},
+                horzLines: {{ color: 'rgba(55, 65, 81, 0.15)' }},
             }},
-            crosshair: {{ mode: LightweightCharts.CrosshairMode.Normal }},
-            rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.5)' }},
+            crosshair: {{
+                mode: LightweightCharts.CrosshairMode.Normal,
+                vertLine: {{ color: 'rgba(0,255,255,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+                horzLine: {{ color: 'rgba(0,255,255,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+            }},
+            rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.3)' }},
             timeScale: {{
-                borderColor: 'rgba(55, 65, 81, 0.5)',
+                borderColor: 'rgba(55, 65, 81, 0.3)',
                 timeVisible: true,
+                secondsVisible: false,
             }},
         }});
-        
-        // K 線圖
-        const candlestickSeries = chart.addCandlestickSeries({{
-            upColor: '#26a69a',
-            downColor: '#ef5350',
-            borderUpColor: '#26a69a',
-            borderDownColor: '#ef5350',
-            wickUpColor: '#26a69a',
-            wickDownColor: '#ef5350',
+
+        // K 線
+        var cs = chart.addCandlestickSeries({{
+            upColor: '#22C55E', downColor: '#EF4444',
+            borderUpColor: '#22C55E', borderDownColor: '#EF4444',
+            wickUpColor: '#22C55E', wickDownColor: '#EF4444',
         }});
-        
-        candlestickSeries.setData({candle_json});
-        
-        // 設定 Markers
-        candlestickSeries.setMarkers({markers_json});
-        
+        cs.setData({candle_json});
+        cs.setMarkers({markers_json});
+
         // 成交量
-        {'const volumeSeries = chart.addHistogramSeries({ color: "#26a69a", priceFormat: { type: "volume" }, priceScaleId: "", scaleMargins: { top: 0.8, bottom: 0 } }); volumeSeries.setData(' + volume_json + ');' if show_volume else ''}
-        
-        // Resize Observer
-        new ResizeObserver(entries => {{
-            if (entries.length === 0) return;
-            chart.applyOptions({{ width: entries[0].contentRect.width }});
-        }}).observe(container);
-        
+        {"var vs = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', scaleMargins: { top: 0.82, bottom: 0 } }); vs.setData(" + volume_json + ");" if show_volume else ""}
+
+        // MA 線
+        {"var ma5s = chart.addLineSeries({ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }); ma5s.setData(" + ma5_json + ");" if show_ma else ""}
+        {"var ma20s = chart.addLineSeries({ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }); ma20s.setData(" + ma20_json + ");" if show_ma else ""}
+        {"var ma60s = chart.addLineSeries({ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }); ma60s.setData(" + ma60_json + ");" if show_ma else ""}
+
+        // 布林通道
+        {"var bbus = chart.addLineSeries({ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }); bbus.setData(" + bbu_json + "); var bbls = chart.addLineSeries({ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }); bbls.setData(" + bbl_json + ");" if show_bollinger else ""}
+
+        // Tooltip
+        var tooltip = document.getElementById('{chart_id}-tooltip');
+        chart.subscribeCrosshairMove(function(param) {{
+            if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {{
+                if (tooltip) tooltip.style.display = 'none';
+                return;
+            }}
+            var d = param.seriesData.get(cs);
+            if (!d) {{ if (tooltip) tooltip.style.display = 'none'; return; }}
+            var chg = d.close - d.open;
+            var pct = d.open ? ((chg / d.open) * 100).toFixed(2) : '0.00';
+            var clr = chg >= 0 ? '#22C55E' : '#EF4444';
+            var volStr = '';
+            {"var vd = param.seriesData.get(vs); if(vd) volStr = '<div style=\"color:#64748B;margin-top:4px;\">Vol: <span style=\"color:#CBD5E1;\">' + (vd.value/1000).toFixed(0) + 'K</span></div>';" if show_volume else ""}
+            if (tooltip) {{
+                tooltip.innerHTML =
+                    '<div style="color:#CBD5E1;font-weight:600;margin-bottom:6px;">' + param.time + '</div>' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-family:monospace;">' +
+                    '<span style="color:#64748B;">O</span><span style="color:#F8FAFC;">' + d.open.toFixed(2) + '</span>' +
+                    '<span style="color:#64748B;">H</span><span style="color:#F8FAFC;">' + d.high.toFixed(2) + '</span>' +
+                    '<span style="color:#64748B;">L</span><span style="color:#F8FAFC;">' + d.low.toFixed(2) + '</span>' +
+                    '<span style="color:#64748B;">C</span><span style="color:' + clr + ';font-weight:700;">' + d.close.toFixed(2) + '</span>' +
+                    '</div>' +
+                    '<div style="color:' + clr + ';margin-top:4px;font-weight:600;">' + (chg>=0?'+':'') + chg.toFixed(2) + ' (' + (chg>=0?'+':'') + pct + '%)</div>' +
+                    volStr;
+                tooltip.style.display = 'block';
+            }}
+        }});
+
         chart.timeScale().fitContent();
+        new ResizeObserver(function(entries) {{
+            if (entries.length === 0) return;
+            var r = entries[0].contentRect;
+            chart.applyOptions({{ width: r.width, height: r.height }});
+        }}).observe(container);
     }})();
     </script>
     '''
@@ -155,20 +251,12 @@ def create_line_chart(
     height: int = 400,
     show_legend: bool = True
 ) -> str:
-    """
-    建立走勢比較圖
-    
-    Args:
-        datasets: [{"symbol": "2330", "name": "台積電", "data": [...], "color": "#26a69a"}]
-        height: 圖表高度
-        show_legend: 是否顯示圖例
-    """
+    """建立走勢比較圖"""
     if not datasets:
         datasets = _get_mock_comparison_data()
-    
-    chart_id = "comparison_chart"
-    
-    # 建立資料 JavaScript
+
+    chart_id = f"comparison_chart_{random.randint(1000,9999)}"
+
     series_js = ""
     for i, ds in enumerate(datasets):
         color = ds.get("color", _get_color(i))
@@ -176,154 +264,186 @@ def create_line_chart(
             {"time": d["date"], "value": float(d.get("close", d.get("value", 0)))}
             for d in ds.get("data", [])
         ])
-        
         series_js += f'''
-        const series{i} = chart.addLineSeries({{
-            color: '{color}',
-            lineWidth: 2,
-            title: '{ds.get("symbol", "")}',
-        }});
-        series{i}.setData({data_json});
+        var s{i} = chart.addLineSeries({{ color: '{color}', lineWidth: 2, title: '{ds.get("symbol", "")}' }});
+        s{i}.setData({data_json});
         '''
-    
-    # 圖例 HTML
+
     legend_html = ""
     if show_legend:
         for i, ds in enumerate(datasets):
             color = ds.get("color", _get_color(i))
             legend_html += f'''
-            <span class="legend-item" style="display: inline-flex; align-items: center; margin-right: 16px;">
-                <span style="width: 12px; height: 3px; background: {color}; margin-right: 6px;"></span>
-                <span style="color: #9ca3af; font-size: 12px;">{ds.get("name", ds.get("symbol", ""))}</span>
-            </span>
-            '''
-    
-    html = f'''
-    <div class="chart-wrapper">
-        <div class="chart-legend" style="margin-bottom: 8px; padding: 0 8px;">
-            {legend_html}
-        </div>
-        <div id="{chart_id}" style="height: {height}px; width: 100%;"></div>
+            <span style="display:inline-flex;align-items:center;margin-right:16px;">
+                <span style="width:12px;height:3px;background:{color};margin-right:6px;border-radius:2px;"></span>
+                <span style="color:#9ca3af;font-size:12px;">{ds.get("name", ds.get("symbol", ""))}</span>
+            </span>'''
+
+    return f'''
+    <div>
+        <div style="margin-bottom:8px;padding:0 8px;">{legend_html}</div>
+        <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
     </div>
-    
     <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
-    
     <script>
     (function() {{
-        const container = document.getElementById('{chart_id}');
+        var container = document.getElementById('{chart_id}');
         if (!container) return;
         container.innerHTML = '';
-        
-        const chart = LightweightCharts.createChart(container, {{
-            width: container.clientWidth,
-            height: {height},
-            layout: {{
-                background: {{ type: 'solid', color: 'transparent' }},
-                textColor: '#9ca3af',
-            }},
-            grid: {{
-                vertLines: {{ color: 'rgba(55, 65, 81, 0.3)' }},
-                horzLines: {{ color: 'rgba(55, 65, 81, 0.3)' }},
-            }},
-            rightPriceScale: {{
-                borderColor: 'rgba(55, 65, 81, 0.5)',
-            }},
-            timeScale: {{
-                borderColor: 'rgba(55, 65, 81, 0.5)',
-                timeVisible: true,
-            }},
+        var chart = LightweightCharts.createChart(container, {{
+            width: container.clientWidth, height: {height},
+            layout: {{ background: {{ type: 'solid', color: 'transparent' }}, textColor: '#9ca3af' }},
+            grid: {{ vertLines: {{ color: 'rgba(55,65,81,0.2)' }}, horzLines: {{ color: 'rgba(55,65,81,0.2)' }} }},
+            rightPriceScale: {{ borderColor: 'rgba(55,65,81,0.3)' }},
+            timeScale: {{ borderColor: 'rgba(55,65,81,0.3)', timeVisible: true }},
         }});
-        
         {series_js}
-        
         chart.timeScale().fitContent();
-        
-        new ResizeObserver(entries => {{
-            if (entries.length === 0) return;
-            const newRect = entries[0].contentRect;
-            chart.applyOptions({{ width: newRect.width }});
+        new ResizeObserver(function(e) {{
+            if (e.length===0) return;
+            chart.applyOptions({{ width: e[0].contentRect.width }});
         }}).observe(container);
     }})();
     </script>
     '''
-    
-    return html
+
+
+def create_equity_chart(
+    equity_curve: List[float],
+    dates: List[str],
+    buy_hold_curve: List[float] = None,
+    height: int = 350,
+) -> str:
+    """建立權益曲線圖（回測用）"""
+    chart_id = f"equity_{random.randint(1000,9999)}"
+
+    eq_data = json.dumps([
+        {"time": dates[i], "value": round(equity_curve[i], 2)}
+        for i in range(min(len(equity_curve), len(dates)))
+    ])
+
+    bh_js = ""
+    if buy_hold_curve and len(buy_hold_curve) == len(dates):
+        bh_data = json.dumps([
+            {"time": dates[i], "value": round(buy_hold_curve[i], 2)}
+            for i in range(len(dates))
+        ])
+        bh_js = f"var bh=chart.addLineSeries({{color:'#64748B',lineWidth:1,lineStyle:2,title:'Buy&Hold'}});bh.setData({bh_data});"
+
+    return f'''
+    <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+    (function(){{
+        var c=document.getElementById('{chart_id}');
+        if(!c)return;c.innerHTML='';
+        var chart=LightweightCharts.createChart(c,{{
+            width:c.clientWidth,height:{height},
+            layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+            grid:{{vertLines:{{color:'rgba(55,65,81,0.12)'}},horzLines:{{color:'rgba(55,65,81,0.12)'}}}},
+            rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+            timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+        }});
+        var eq=chart.addAreaSeries({{
+            topColor:'rgba(0,255,255,0.15)',bottomColor:'rgba(0,255,255,0.01)',
+            lineColor:'#00FFFF',lineWidth:2,title:'策略權益',
+        }});
+        eq.setData({eq_data});
+        {bh_js}
+        chart.timeScale().fitContent();
+        new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+    }})();
+    </script>
+    '''
+
+
+def create_drawdown_chart(
+    drawdown_pcts: List[float],
+    dates: List[str],
+    height: int = 200,
+) -> str:
+    """建立最大回撤圖"""
+    chart_id = f"dd_{random.randint(1000,9999)}"
+
+    dd_data = json.dumps([
+        {"time": dates[i], "value": round(-abs(drawdown_pcts[i]), 2)}
+        for i in range(min(len(drawdown_pcts), len(dates)))
+    ])
+
+    return f'''
+    <div id="{chart_id}" style="height:{height}px;width:100%;"></div>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+    (function(){{
+        var c=document.getElementById('{chart_id}');
+        if(!c)return;c.innerHTML='';
+        var chart=LightweightCharts.createChart(c,{{
+            width:c.clientWidth,height:{height},
+            layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+            grid:{{vertLines:{{color:'rgba(55,65,81,0.1)'}},horzLines:{{color:'rgba(55,65,81,0.1)'}}}},
+            rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+            timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
+        }});
+        var dd=chart.addAreaSeries({{
+            topColor:'rgba(239,68,68,0.01)',bottomColor:'rgba(239,68,68,0.2)',
+            lineColor:'#EF4444',lineWidth:1.5,title:'Drawdown %',
+        }});
+        dd.setData({dd_data});
+        chart.timeScale().fitContent();
+        new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+    }})();
+    </script>
+    '''
 
 
 def _get_mock_data() -> List[Dict]:
     """取得假資料"""
-    import random
-    from datetime import datetime, timedelta
-    
     data = []
     price = 150.0
     end_date = datetime.now()
-    
     for i in range(365):
-        date = end_date - timedelta(days=365-i)
+        date = end_date - timedelta(days=365 - i)
         change = random.uniform(-3, 3)
-        open_price = price
-        close_price = price + change
-        high_price = max(open_price, close_price) + random.uniform(0, 2)
-        low_price = min(open_price, close_price) - random.uniform(0, 2)
-        
+        o = price
+        c = price + change
+        h = max(o, c) + random.uniform(0, 2)
+        l = min(o, c) - random.uniform(0, 2)
         data.append({
             "date": date.strftime("%Y-%m-%d"),
-            "open": round(open_price, 2),
-            "high": round(high_price, 2),
-            "low": round(low_price, 2),
-            "close": round(close_price, 2),
+            "open": round(o, 2), "high": round(h, 2),
+            "low": round(l, 2), "close": round(c, 2),
             "volume": random.randint(1000000, 10000000)
         })
-        
-        price = close_price
-    
+        price = c
     return data
 
 
 def _get_mock_comparison_data() -> List[Dict]:
     """取得假的比較資料"""
-    from datetime import datetime, timedelta
-    import random
-    
     symbols = [
-        {"symbol": "2330", "name": "台積電", "color": "#26a69a"},
-        {"symbol": "2317", "name": "鴻海", "color": "#42a5f5"},
-        {"symbol": "2454", "name": "聯發科", "color": "#ab47bc"},
+        {"symbol": "2330", "name": "台積電", "color": "#22C55E"},
+        {"symbol": "2317", "name": "鴻海", "color": "#3B82F6"},
+        {"symbol": "2454", "name": "聯發科", "color": "#A855F7"},
     ]
-    
     datasets = []
     end_date = datetime.now()
-    
     for sym in symbols:
         data = []
-        value = 100  # 基準點歸一化
-        
+        value = 100
         for i in range(365):
-            date = end_date - timedelta(days=365-i)
+            date = end_date - timedelta(days=365 - i)
             change = random.uniform(-2, 2.5)
             value = max(50, value + change)
-            
-            data.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "value": round(value, 2)
-            })
-        
-        datasets.append({
-            **sym,
-            "data": data
-        })
-    
+            data.append({"date": date.strftime("%Y-%m-%d"), "value": round(value, 2)})
+        datasets.append({**sym, "data": data})
     return datasets
 
 
 def _get_color(index: int) -> str:
-    """取得顏色"""
-    colors = ["#26a69a", "#42a5f5", "#ab47bc", "#ff7043", "#ffa726", "#66bb6a"]
+    colors = ["#22C55E", "#3B82F6", "#A855F7", "#F97316", "#FBBF24", "#14B8A6"]
     return colors[index % len(colors)]
 
 
-def create_chart_viewer_component(lang: str = "zh-TW") -> gr.HTML:
-    """建立圖表檢視器 Gradio 元件"""
-    chart_html = create_candlestick_chart()
-    return gr.HTML(value=chart_html)
+def create_chart_viewer_component(lang: str = "zh-TW"):
+    import gradio as gr
+    return gr.HTML(value=create_candlestick_chart())

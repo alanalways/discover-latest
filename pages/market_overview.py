@@ -1,10 +1,10 @@
 """
 DiscoverLatest 洞察運算 - 市場總覽頁面
-使用 yfinance batch download 取得即時市場資料（含快取）
+使用 FinMind（台股）+ yfinance（美股）取得即時市場資料（含快取）
 """
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
@@ -83,60 +83,97 @@ def _fetch_market_data() -> Dict[str, list]:
     indices: list = []
     etfs: list = []
 
+    # ── 台股 ETF：優先 FinMind ──
+    tw_etf_syms = {sym: meta for sym, meta in _ETF_TICKERS.items() if sym.endswith(".TW")}
+    finmind_ok = set()
+    if tw_etf_syms:
+        try:
+            from adapters.finmind_adapter import finmind_adapter
+            end = datetime.now().strftime("%Y-%m-%d")
+            start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            for sym, meta in tw_etf_syms.items():
+                try:
+                    fm_sym = sym.replace(".TW", "")
+                    fm_data = finmind_adapter.get_tw_stock_price_sync(fm_sym, start, end)
+                    if fm_data and len(fm_data) >= 2:
+                        last_row = fm_data[-1]
+                        prev_row = fm_data[-2]
+                        price = last_row["close"]
+                        prev_price = prev_row["close"]
+                        chg = price - prev_price
+                        pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                        etfs.append({
+                            "name": meta["name"],
+                            "symbol": meta["display"],
+                            "value": f"{price:,.2f}",
+                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                            "color": "green" if chg >= 0 else "red",
+                        })
+                        finmind_ok.add(sym)
+                except Exception as e:
+                    print(f"[Market] FinMind ETF {sym}: {e}")
+        except Exception as e:
+            print(f"[Market] FinMind ETF batch error: {e}")
+
+    # ── 剩餘指數 + 美股 ETF：yfinance ──
+    remaining = {}
+    for sym, meta in {**_INDEX_TICKERS, **_ETF_TICKERS}.items():
+        if sym not in finmind_ok:
+            remaining[sym] = meta
+
     try:
         import yfinance as yf
+        all_syms = list(remaining.keys())
+        if all_syms:
+            def _do_download():
+                return yf.download(
+                    all_syms,
+                    period="5d",
+                    group_by="ticker",
+                    progress=False,
+                    threads=True,
+                )
 
-        all_tickers = {**_INDEX_TICKERS, **_ETF_TICKERS}
-        all_syms = list(all_tickers.keys())
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(_do_download)
+                df = future.result(timeout=10)
 
-        def _do_download():
-            return yf.download(
-                all_syms,
-                period="5d",
-                group_by="ticker",
-                progress=False,
-                threads=True,
-            )
+            if df is not None and not df.empty:
+                multi_ticker = len(all_syms) > 1
+                for sym, meta in remaining.items():
+                    try:
+                        if multi_ticker:
+                            if sym not in df.columns.get_level_values(0):
+                                continue
+                            close_series = df[sym]["Close"].dropna()
+                        else:
+                            close_series = df["Close"].dropna()
 
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_do_download)
-            df = future.result(timeout=10)
-
-        if df is not None and not df.empty:
-            multi_ticker = len(all_syms) > 1
-            for sym, meta in all_tickers.items():
-                try:
-                    if multi_ticker:
-                        if sym not in df.columns.get_level_values(0):
+                        if len(close_series) < 2:
                             continue
-                        close_series = df[sym]["Close"].dropna()
-                    else:
-                        close_series = df["Close"].dropna()
 
-                    if len(close_series) < 2:
+                        last = float(close_series.iloc[-1])
+                        prev = float(close_series.iloc[-2])
+                        chg = last - prev
+                        pct = (chg / prev * 100) if prev != 0 else 0.0
+
+                        item = {
+                            "name": meta["name"],
+                            "symbol": meta["display"],
+                            "value": f"{last:,.2f}",
+                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                            "color": "green" if chg >= 0 else "red",
+                        }
+
+                        if sym in _INDEX_TICKERS:
+                            indices.append(item)
+                        else:
+                            etfs.append(item)
+
+                    except Exception:
                         continue
-
-                    last = float(close_series.iloc[-1])
-                    prev = float(close_series.iloc[-2])
-                    chg = last - prev
-                    pct = (chg / prev * 100) if prev != 0 else 0.0
-
-                    item = {
-                        "name": meta["name"],
-                        "symbol": meta["display"],
-                        "value": f"{last:,.2f}",
-                        "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                        "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                        "color": "green" if chg >= 0 else "red",
-                    }
-
-                    if sym in _INDEX_TICKERS:
-                        indices.append(item)
-                    else:
-                        etfs.append(item)
-
-                except Exception:
-                    continue
 
     except FuturesTimeout:
         print("[Market] Batch download timed out (10s)")
@@ -167,7 +204,7 @@ def create_market_overview_page(lang: str = "zh-TW"):
     etfs = data.get("etfs", [])
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    data_source_note = f"資料來源: Yahoo Finance &middot; 更新: {now_str}"
+    data_source_note = f"資料來源: FinMind + Yahoo Finance &middot; 更新: {now_str}"
 
     # ---------- Build index cards ----------
     indices_html = ""

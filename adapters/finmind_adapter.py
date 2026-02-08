@@ -1,12 +1,46 @@
 """
 FinMind Adapter - 主要資料來源 (台股 + 美股)
 https://finmindtrade.com/
+免費版限制: 600 requests / hour
 """
 import os
 import httpx
+import time
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import asyncio
+
+
+class _FinMindRateLimiter:
+    """FinMind API 速率限制器 (600 req/hr for free tier)"""
+    def __init__(self, max_requests: int = 550, window_seconds: int = 3600):
+        self.max_requests = max_requests  # 留 50 buffer
+        self.window = window_seconds
+        self._timestamps: list = []
+        self._lock = threading.Lock()
+
+    def can_request(self) -> bool:
+        with self._lock:
+            now = time.time()
+            self._timestamps = [t for t in self._timestamps if now - t < self.window]
+            return len(self._timestamps) < self.max_requests
+
+    def record(self):
+        with self._lock:
+            self._timestamps.append(time.time())
+
+    @property
+    def remaining(self) -> int:
+        with self._lock:
+            now = time.time()
+            self._timestamps = [t for t in self._timestamps if now - t < self.window]
+            return max(0, self.max_requests - len(self._timestamps))
+
+
+# 台股資訊快取（避免重複呼叫 TaiwanStockInfo）
+_stock_info_cache: Dict[str, Any] = {"data": None, "ts": 0}
+_STOCK_INFO_CACHE_TTL = 600  # 10 min
 
 
 class FinMindAdapter:
@@ -18,6 +52,7 @@ class FinMindAdapter:
         self._token: Optional[str] = None
         self._available = True
         self._last_check: Optional[datetime] = None
+        self.rate_limiter = _FinMindRateLimiter()
 
     def _get_token(self) -> str:
         """取得 FinMind API Token"""
@@ -48,11 +83,15 @@ class FinMindAdapter:
         return True  # 假設可用，下次請求時偵測
 
     async def _request(self, params: Dict) -> Optional[List[Dict]]:
-        """發送 API 請求"""
+        """發送 API 請求（含速率限制）"""
+        if not self.rate_limiter.can_request():
+            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
+            return None
         params["token"] = self._get_token()
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.get(f"{self.BASE_URL}/data", params=params)
+                self.rate_limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
                 if result.get("status") == 200 and result.get("data"):
@@ -149,6 +188,61 @@ class FinMindAdapter:
         })
         return data or []
 
+    async def get_tw_per_pbr(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """取得台股 PER / PBR / 殖利率 (TaiwanStockPER)"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = await self._request({
+            "dataset": "TaiwanStockPER",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    async def get_tw_financial_statements(
+        self, symbol: str, start_date: str
+    ) -> List[Dict]:
+        """取得台股綜合損益表 (TaiwanStockFinancialStatements)"""
+        data = await self._request({
+            "dataset": "TaiwanStockFinancialStatements",
+            "data_id": symbol,
+            "start_date": start_date,
+        })
+        return data or []
+
+    async def get_tw_dividend(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """取得台股股利政策 (TaiwanStockDividend)"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = await self._request({
+            "dataset": "TaiwanStockDividend",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    async def get_tw_stock_info_all(self) -> List[Dict]:
+        """取得全部台股清單 + 產業分類 (TaiwanStockInfo，不帶 data_id)"""
+        data = await self._request({"dataset": "TaiwanStockInfo"})
+        if not data:
+            return []
+        return [
+            {
+                "symbol": d.get("stock_id"),
+                "name": d.get("stock_name"),
+                "industry": d.get("industry_category"),
+                "market": "TWSE" if d.get("type") == "twse" else "TPEX",
+                "type": d.get("type", "stock"),
+            }
+            for d in data
+        ]
+
     # ===== 美股資料 =====
 
     async def get_us_stock_price(
@@ -203,11 +297,18 @@ class FinMindAdapter:
     # ===== 搜尋 =====
 
     async def search_tw_stocks(self, query: str, limit: int = 20) -> List[Dict]:
-        """搜尋台股代號/名稱"""
-        all_info = await self.get_tw_stock_info()
+        """搜尋台股代號/名稱（使用快取避免重複呼叫）"""
+        global _stock_info_cache
+        now = time.time()
+        if _stock_info_cache["data"] and (now - _stock_info_cache["ts"]) < _STOCK_INFO_CACHE_TTL:
+            all_info = _stock_info_cache["data"]
+        else:
+            all_info = await self.get_tw_stock_info()
+            if all_info:
+                _stock_info_cache = {"data": all_info, "ts": now}
         results = []
         query_lower = query.lower()
-        for info in all_info:
+        for info in (all_info or []):
             sym = info.get("symbol", "").lower()
             name = info.get("name", "").lower()
             if query_lower in sym or query_lower in name:
@@ -218,10 +319,143 @@ class FinMindAdapter:
 
     # ===== 同步包裝 =====
 
+    def _sync_request(self, params: Dict) -> Optional[List[Dict]]:
+        """同步 API 請求（含速率限制）"""
+        if not self.rate_limiter.can_request():
+            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
+            return None
+        params["token"] = self._get_token()
+        if not params["token"]:
+            return None
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(f"{self.BASE_URL}/data", params=params)
+                self.rate_limiter.record()
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("status") == 200 and result.get("data"):
+                    return result["data"]
+                return None
+        except Exception as e:
+            print(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
+            return None
+
+    def get_tw_institutional_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：三大法人買賣超"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    def get_tw_margin_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：融資融券"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "TaiwanStockMarginPurchaseShortSale",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    def get_tw_revenue_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：月營收"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "TaiwanStockMonthRevenue",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    def get_tw_per_pbr_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：PER/PBR/殖利率"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "TaiwanStockPER",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    def get_tw_financial_statements_sync(self, symbol: str, start_date: str) -> List[Dict]:
+        """同步：綜合損益表"""
+        data = self._sync_request({
+            "dataset": "TaiwanStockFinancialStatements",
+            "data_id": symbol,
+            "start_date": start_date,
+        })
+        return data or []
+
+    def get_tw_dividend_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：股利政策"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "TaiwanStockDividend",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        return data or []
+
+    def get_tw_stock_info_all_sync(self) -> List[Dict]:
+        """同步：全部台股清單 + 產業分類"""
+        data = self._sync_request({"dataset": "TaiwanStockInfo"})
+        if not data:
+            return []
+        return [
+            {
+                "symbol": d.get("stock_id"),
+                "name": d.get("stock_name"),
+                "industry": d.get("industry_category"),
+                "market": "TWSE" if d.get("type") == "twse" else "TPEX",
+                "type": d.get("type", "stock"),
+            }
+            for d in data
+        ]
+
+    def search_tw_stocks_sync(self, query: str, limit: int = 20) -> List[Dict]:
+        """同步：搜尋台股代號/名稱（從全量 TaiwanStockInfo 篩選）"""
+        all_info = self.get_tw_stock_info_all_sync()
+        results = []
+        query_lower = query.lower()
+        for info in all_info:
+            sym = (info.get("symbol") or "").lower()
+            name = (info.get("name") or "").lower()
+            if query_lower in sym or query_lower in name:
+                results.append(info)
+                if len(results) >= limit:
+                    break
+        return results
+
     def get_tw_stock_price_sync(
         self, symbol: str, start_date: str, end_date: str = None
     ) -> List[Dict]:
         """同步版本的 get_tw_stock_price，供非 async 函式呼叫"""
+        if not self.rate_limiter.can_request():
+            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
+            return []
         token = self._get_token()
         if not token:
             print("[FinMind] FINMIND_TOKEN 未設定，跳過")
@@ -240,6 +474,7 @@ class FinMindAdapter:
             import httpx as _httpx
             with _httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{self.BASE_URL}/data", params=params)
+                self.rate_limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
                 if result.get("status") == 200 and result.get("data"):
@@ -267,6 +502,9 @@ class FinMindAdapter:
 
     def get_tw_stock_info_sync(self, symbol: str = None) -> List[Dict]:
         """同步版本的 get_tw_stock_info"""
+        if not self.rate_limiter.can_request():
+            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
+            return []
         token = self._get_token()
         if not token:
             return []
@@ -277,6 +515,7 @@ class FinMindAdapter:
             import httpx as _httpx
             with _httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{self.BASE_URL}/data", params=params)
+                self.rate_limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
                 if result.get("status") == 200 and result.get("data"):

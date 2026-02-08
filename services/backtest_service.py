@@ -68,8 +68,11 @@ class BacktestService:
         # 模擬交易
         trades = self._simulate_trades(history, signals, initial_capital, position_size)
         
+        # 建立每日權益曲線
+        equity_curve = self._build_equity_curve(history, trades, initial_capital)
+        
         # 計算績效指標
-        metrics = self._calculate_metrics(trades, history, initial_capital)
+        metrics = self._calculate_metrics(trades, history, initial_capital, equity_curve)
         
         return {
             "strategy": strategy,
@@ -77,7 +80,8 @@ class BacktestService:
             "params": params,
             "initial_capital": initial_capital,
             "trades": trades,
-            "metrics": metrics
+            "metrics": metrics,
+            "equity_curve": equity_curve,
         }
     
     def _get_default_params(self, strategy: str) -> Dict:
@@ -357,56 +361,95 @@ class BacktestService:
         
         return trades
     
+    def _build_equity_curve(
+        self, history: List[Dict], trades: List[Dict], initial_capital: float
+    ) -> List[float]:
+        """建立逐日權益曲線"""
+        trade_map = {}
+        for t in trades:
+            d = t.get("date", "")
+            trade_map[d] = t.get("capital_after", None)
+
+        equity = [initial_capital]
+        shares = 0
+        cash = initial_capital
+        entry_price = 0
+
+        for h in history:
+            d = h.get("date", "")
+            close = h.get("close", 0)
+            if d in trade_map:
+                cash = trade_map[d]
+                # 判斷是否仍有持倉
+                for t in trades:
+                    if t.get("date") == d:
+                        action = t.get("action", "")
+                        if "買入" in action or "買" in action:
+                            shares = t.get("shares", 0)
+                            entry_price = t.get("price", close)
+                        elif "賣出" in action or "結算" in action:
+                            shares = 0
+            total = cash + shares * close
+            equity.append(total)
+
+        return equity[:len(history)]
+
     def _calculate_metrics(
         self,
         trades: List[Dict],
         history: List[Dict],
-        initial_capital: float
+        initial_capital: float,
+        equity_curve: List[float] = None,
     ) -> Dict[str, Any]:
-        """計算績效指標"""
+        """計算績效指標（含 Sharpe Ratio）"""
         if not trades:
             return {
-                "total_return": 0,
-                "total_return_pct": 0,
-                "win_rate": 0,
-                "total_trades": 0,
-                "max_drawdown": 0,
-                "sharpe_ratio": 0
+                "total_return": 0, "total_return_pct": 0, "win_rate": 0,
+                "total_trades": 0, "max_drawdown": 0, "sharpe_ratio": 0,
+                "profit_factor": 0,
             }
-        
-        # 計算總報酬
+
         final_capital = trades[-1].get("capital_after", initial_capital)
         total_return = final_capital - initial_capital
         total_return_pct = (final_capital / initial_capital - 1) * 100
-        
-        # 計算勝率
-        sell_trades = [t for t in trades if t.get("action") == "賣出"]
+
+        sell_trades = [t for t in trades if t.get("action") == "賣出" or "賣出" in t.get("action", "")]
         winning_trades = [t for t in sell_trades if t.get("pnl", 0) > 0]
         win_rate = len(winning_trades) / len(sell_trades) * 100 if sell_trades else 0
-        
-        # 計算最大回撤
-        equity_curve = [initial_capital]
-        for trade in trades:
-            equity_curve.append(trade.get("capital_after", equity_curve[-1]))
-        
-        max_drawdown = 0
-        peak = equity_curve[0]
-        for equity in equity_curve:
-            if equity > peak:
-                peak = equity
-            drawdown = (peak - equity) / peak * 100
-            max_drawdown = max(max_drawdown, drawdown)
-        
-        # 計算平均獲利/虧損
+
+        # 最大回撤
+        eq = equity_curve or [initial_capital]
+        max_drawdown = 0.0
+        peak = eq[0]
+        for v in eq:
+            if v > peak:
+                peak = v
+            dd = (peak - v) / peak * 100 if peak > 0 else 0
+            max_drawdown = max(max_drawdown, dd)
+
+        # 平均獲利/虧損
         avg_win = sum(t.get("pnl", 0) for t in winning_trades) / len(winning_trades) if winning_trades else 0
         losing_trades = [t for t in sell_trades if t.get("pnl", 0) <= 0]
         avg_loss = sum(t.get("pnl", 0) for t in losing_trades) / len(losing_trades) if losing_trades else 0
-        
-        # 計算 Profit Factor
+
+        # Profit Factor
         gross_profit = sum(t.get("pnl", 0) for t in winning_trades)
         gross_loss = abs(sum(t.get("pnl", 0) for t in losing_trades))
         profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0
-        
+
+        # Sharpe Ratio（日收益 → 年化）
+        sharpe_ratio = 0.0
+        if len(eq) > 2:
+            daily_returns = []
+            for i in range(1, len(eq)):
+                if eq[i - 1] > 0:
+                    daily_returns.append((eq[i] - eq[i - 1]) / eq[i - 1])
+            if daily_returns:
+                mean_r = sum(daily_returns) / len(daily_returns)
+                var_r = sum((r - mean_r) ** 2 for r in daily_returns) / len(daily_returns)
+                std_r = math.sqrt(var_r) if var_r > 0 else 0
+                sharpe_ratio = (mean_r / std_r * math.sqrt(252)) if std_r > 0 else 0
+
         return {
             "total_return": round(total_return, 2),
             "total_return_pct": round(total_return_pct, 2),
@@ -418,7 +461,8 @@ class BacktestService:
             "avg_win": round(avg_win, 2),
             "avg_loss": round(avg_loss, 2),
             "max_drawdown": round(max_drawdown, 2),
-            "profit_factor": round(profit_factor, 2)
+            "profit_factor": round(profit_factor, 2),
+            "sharpe_ratio": round(sharpe_ratio, 2),
         }
 
 

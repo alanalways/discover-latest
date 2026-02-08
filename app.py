@@ -295,10 +295,13 @@ def create_app():
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
         <script src="https://accounts.google.com/gsi/client" async defer></script>
         <script>
-          window._supabaseLoginUrl="{_login_url}";
-          window._supabaseUrl="{_supabase_url}";
-          window._supabaseAnonKey="{_supabase_anon_key}";
-          window._googleClientId="{_google_client_id}";
+          (function(){{
+            var c = {json.dumps({"supabaseLoginUrl": _login_url, "supabaseUrl": _supabase_url, "supabaseAnonKey": _supabase_anon_key, "googleClientId": _google_client_id})};
+            window._supabaseLoginUrl = c.supabaseLoginUrl || "";
+            window._supabaseUrl = c.supabaseUrl || "";
+            window._supabaseAnonKey = c.supabaseAnonKey || "";
+            window._googleClientId = c.googleClientId || "";
+          }})();
         </script>
         ''',
     ) as app:
@@ -408,6 +411,12 @@ def create_app():
                     return _handle_predict_action(payload)
                 elif action == "ai_analyze":
                     return _handle_ai_action(payload)
+                elif action == "change_period":
+                    return _handle_change_period(payload)
+                elif action == "load_chips":
+                    return _handle_load_chips(payload)
+                elif action == "load_fundamentals":
+                    return _handle_load_fundamentals(payload)
                 elif action == "admin_search":
                     return _handle_admin_action(payload)
                 elif action == "watchlist_add":
@@ -542,6 +551,165 @@ def create_app():
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
             return build_full_page(inner, DEFAULT_LANG)
+
+        def _handle_change_period(payload):
+            """切換 K 線圖期間"""
+            symbol = payload.get("symbol", _current_symbol)
+            period = payload.get("period", "1y")
+            if not symbol:
+                return gr.update()
+            # 根據期間計算天數
+            from datetime import datetime, timedelta
+            period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "3y": 1095, "5y": 1825}
+            days = period_days.get(period, 365)
+            data = _fetch_stock_data_sync(symbol)
+            if data and data.get("history"):
+                # 按照期間篩選歷史資料
+                cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+                filtered = [h for h in data["history"] if h.get("date", "") >= cutoff]
+                if filtered:
+                    data = dict(data)
+                    data["history"] = filtered
+            inner = create_stock_analysis_page(
+                symbol=symbol,
+                stock_data=data,
+                lang=DEFAULT_LANG,
+            )
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            return build_full_page(inner, DEFAULT_LANG)
+
+        def _handle_load_chips(payload):
+            """載入籌碼面資料（台股 FinMind）"""
+            symbol = payload.get("symbol", _current_symbol)
+            if not symbol:
+                return gr.update()
+            from adapters.finmind_adapter import finmind_adapter
+            from datetime import datetime, timedelta
+            start_3m = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+            end = datetime.now().strftime("%Y-%m-%d")
+
+            inst_data = finmind_adapter.get_tw_institutional_sync(symbol, start_3m, end)
+            margin_data = finmind_adapter.get_tw_margin_sync(symbol, start_3m, end)
+
+            data = _fetch_stock_data_sync(symbol)
+            inner = create_stock_analysis_page(
+                symbol=symbol,
+                stock_data=data,
+                lang=DEFAULT_LANG,
+            )
+            # 注入籌碼面資料
+            chips_html = _build_chips_html(inst_data, margin_data)
+            inner = inner.replace(
+                '<div id="chips-data-container" style="margin-top:16px;"></div>',
+                f'<div id="chips-data-container" style="margin-top:16px;">{chips_html}</div>'
+            )
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            return build_full_page(inner, DEFAULT_LANG)
+
+        def _handle_load_fundamentals(payload):
+            """載入基本面資料（台股 FinMind）"""
+            symbol = payload.get("symbol", _current_symbol)
+            if not symbol:
+                return gr.update()
+            from adapters.finmind_adapter import finmind_adapter
+            from datetime import datetime, timedelta
+            start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            end = datetime.now().strftime("%Y-%m-%d")
+
+            per_data = finmind_adapter.get_tw_per_pbr_sync(symbol, start_1y, end)
+            rev_data = finmind_adapter.get_tw_revenue_sync(symbol, start_1y, end)
+            div_data = finmind_adapter.get_tw_dividend_sync(symbol, start_1y, end)
+
+            data = _fetch_stock_data_sync(symbol)
+            inner = create_stock_analysis_page(
+                symbol=symbol,
+                stock_data=data,
+                lang=DEFAULT_LANG,
+            )
+            # 注入基本面資料
+            fund_html = _build_fundamentals_html(per_data, rev_data, div_data)
+            inner = inner.replace(
+                '<div id="fundamentals-data-container" style="margin-top:16px;"></div>',
+                f'<div id="fundamentals-data-container" style="margin-top:16px;">{fund_html}</div>'
+            )
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            return build_full_page(inner, DEFAULT_LANG)
+
+        def _build_chips_html(inst_data: list, margin_data: list) -> str:
+            """建構籌碼面 HTML"""
+            if not inst_data and not margin_data:
+                return '<p style="color:var(--text-3);font-size:13px;">尚無籌碼面資料（可能非交易日或 FinMind 限額已滿）</p>'
+
+            html = ""
+            # 三大法人
+            if inst_data:
+                recent = inst_data[-30:]  # 最近 30 筆
+                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">三大法人近期買賣超</h4>'
+                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:left;padding:8px;color:var(--text-3);">法人</th><th style="text-align:right;padding:8px;color:var(--text-3);">買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">買賣超</th></tr></thead><tbody>'
+                for row in recent[-10:]:
+                    buy = row.get("buy", 0)
+                    sell = row.get("sell", 0)
+                    net = buy - sell
+                    net_color = "var(--success)" if net > 0 else "var(--danger)" if net < 0 else "var(--text-3)"
+                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="padding:8px;color:var(--text-2);">{row.get("name","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{buy:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{sell:,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{net_color};font-weight:600;">{"+"+str(net) if net>0 else str(net)}</td></tr>'
+                html += '</tbody></table></div>'
+
+            # 融資融券
+            if margin_data:
+                html += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">融資融券</h4>'
+                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">日期</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資買進</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融資餘額</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券賣出</th><th style="text-align:right;padding:8px;color:var(--text-3);">融券餘額</th></tr></thead><tbody>'
+                for row in margin_data[-10:]:
+                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseBuy",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("MarginPurchaseSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("MarginPurchaseTodayBalance",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-2);">{row.get("ShortSaleSell",0):,}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);font-weight:500;">{row.get("ShortSaleTodayBalance",0):,}</td></tr>'
+                html += '</tbody></table></div>'
+
+            return html
+
+        def _build_fundamentals_html(per_data: list, rev_data: list, div_data: list) -> str:
+            """建構基本面 HTML"""
+            if not per_data and not rev_data and not div_data:
+                return '<p style="color:var(--text-3);font-size:13px;">尚無基本面資料（可能非交易日或 FinMind 限額已滿）</p>'
+
+            html = ""
+
+            # PER/PBR
+            if per_data:
+                latest = per_data[-1] if per_data else {}
+                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">PER / PBR / 殖利率</h4>'
+                html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">'
+                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PER","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">本益比 PER</div></div>'
+                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("PBR","-")}</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">股價淨值比 PBR</div></div>'
+                html += f'<div style="text-align:center;padding:16px;background:rgba(0,0,0,0.25);border-radius:10px;border:1px solid rgba(255,255,255,0.04);"><div style="font-size:20px;font-weight:700;color:var(--text-1);font-family:var(--font-mono);">{latest.get("dividend_yield","-")}%</div><div style="font-size:11px;color:var(--text-3);margin-top:4px;">殖利率</div></div>'
+                html += '</div>'
+
+            # 月營收
+            if rev_data:
+                html += '<h4 style="margin:0 0 12px;font-size:14px;color:var(--text-1);">月營收</h4>'
+                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年/月</th><th style="text-align:right;padding:8px;color:var(--text-3);">營收</th><th style="text-align:right;padding:8px;color:var(--text-3);">月增率</th><th style="text-align:right;padding:8px;color:var(--text-3);">年增率</th></tr></thead><tbody>'
+                for row in rev_data[-12:]:
+                    revenue = row.get("revenue", 0)
+                    mom = row.get("revenue_month", 0)
+                    yoy = row.get("revenue_year", 0)
+                    mom_color = "var(--success)" if mom > 0 else "var(--danger)" if mom < 0 else "var(--text-3)"
+                    yoy_color = "var(--success)" if yoy > 0 else "var(--danger)" if yoy < 0 else "var(--text-3)"
+                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{revenue:,.0f}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{mom_color};">{mom:.1f}%</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:{yoy_color};">{yoy:.1f}%</td></tr>'
+                html += '</tbody></table></div>'
+
+            # 股利
+            if div_data:
+                html += '<h4 style="margin:20px 0 12px;font-size:14px;color:var(--text-1);">股利政策</h4>'
+                html += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+                html += '<thead><tr style="border-bottom:1px solid rgba(255,255,255,0.06);"><th style="text-align:left;padding:8px;color:var(--text-3);">年度</th><th style="text-align:right;padding:8px;color:var(--text-3);">現金股利</th><th style="text-align:right;padding:8px;color:var(--text-3);">股票股利</th></tr></thead><tbody>'
+                for row in div_data[-5:]:
+                    html += f'<tr style="border-bottom:1px solid rgba(255,255,255,0.03);"><td style="padding:8px;color:var(--text-2);">{row.get("date","")}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("CashEarningsDistribution",0)}</td><td style="text-align:right;padding:8px;font-family:var(--font-mono);color:var(--text-1);">{row.get("StockEarningsDistribution",0)}</td></tr>'
+                html += '</tbody></table></div>'
+
+            return html
 
         def _handle_admin_action(payload):
             """Admin 操作"""
@@ -737,7 +905,7 @@ def create_app():
                     google.accounts.id.initialize({
                         client_id: clientId,
                         callback: window.handleSignInWithGoogle,
-                        use_fedcm_for_prompt: true,
+                        use_fedcm_for_prompt: false,
                     });
                     // 渲染 Google 官方按鈕
                     const container = document.getElementById('g-signin-btn');
@@ -753,10 +921,8 @@ def create_app():
                         });
                         console.log('[Auth] Google Sign-In button rendered');
                     }
-                    // 也嘗試 One Tap
-                    google.accounts.id.prompt((notification) => {
-                        console.log('[Auth] One Tap notification:', notification.getMomentType());
-                    });
+                    // One Tap 暫時停用，避免 401 等不穩定行為
+                    // google.accounts.id.prompt();
                 } else {
                     // GIS 還沒載入，等一下再試
                     setTimeout(initGoogleSignIn, 500);
@@ -904,46 +1070,50 @@ def create_app():
                     }
                 };
 
-                // ── Search ──
+                // ── Search (client-side quick + direct enter) ──
                 const si = document.getElementById('global-search');
                 const sr = document.getElementById('search-results');
+                var _searchTimer = null;
+                var _quickList = [
+                    {s:'2330',n:'台積電',m:'TW'},{s:'2317',n:'鴻海',m:'TW'},
+                    {s:'2454',n:'聯發科',m:'TW'},{s:'2382',n:'廣達',m:'TW'},
+                    {s:'2308',n:'台達電',m:'TW'},{s:'3711',n:'日月光投控',m:'TW'},
+                    {s:'0050',n:'元大台灣50',m:'TW'},{s:'0056',n:'元大高股息',m:'TW'},
+                    {s:'00878',n:'國泰永續高股息',m:'TW'},{s:'00929',n:'復華台灣科技優息',m:'TW'},
+                    {s:'AAPL',n:'Apple',m:'US'},{s:'NVDA',n:'NVIDIA',m:'US'},
+                    {s:'TSLA',n:'Tesla',m:'US'},{s:'MSFT',n:'Microsoft',m:'US'},
+                    {s:'GOOGL',n:'Alphabet',m:'US'},{s:'AMZN',n:'Amazon',m:'US'},
+                    {s:'META',n:'Meta',m:'US'},{s:'TSM',n:'台積電ADR',m:'US'},
+                    {s:'VOO',n:'Vanguard S&P 500',m:'US'},{s:'QQQ',n:'Invesco QQQ',m:'US'},
+                ];
                 if (si && sr) {
                     si.addEventListener('input', function(e) {
-                        const q = e.target.value.toLowerCase();
-                        if (q.length >= 1) {
-                            const r = [
-                                {s:'2330',n:'台積電',m:'TW'},{s:'2317',n:'鴻海',m:'TW'},
-                                {s:'2454',n:'聯發科',m:'TW'},{s:'2382',n:'廣達',m:'TW'},
-                                {s:'2308',n:'台達電',m:'TW'},{s:'3711',n:'日月光投控',m:'TW'},
-                                {s:'0050',n:'元大台灣50',m:'TW'},{s:'0056',n:'元大高股息',m:'TW'},
-                                {s:'00878',n:'國泰永續高股息',m:'TW'},
-                                {s:'00919',n:'群益台灣精選高息',m:'TW'},
-                                {s:'AAPL',n:'Apple',m:'US'},{s:'NVDA',n:'NVIDIA',m:'US'},
-                                {s:'TSLA',n:'Tesla',m:'US'},{s:'MSFT',n:'Microsoft',m:'US'},
-                                {s:'GOOGL',n:'Alphabet',m:'US'},{s:'AMZN',n:'Amazon',m:'US'},
-                                {s:'META',n:'Meta',m:'US'},{s:'TSM',n:'台積電ADR',m:'US'},
-                                {s:'VOO',n:'Vanguard S&P 500',m:'US'},{s:'QQQ',n:'Invesco QQQ',m:'US'},
-                            ].filter(i => i.s.toLowerCase().includes(q) || i.n.toLowerCase().includes(q));
-                            if (r.length > 0) {
-                                sr.innerHTML = r.slice(0, 8).map(i =>
-                                    `<div class="search-result-item" onclick="selectStock('${i.s}')">` +
-                                    `<span class="result-symbol">${i.s}</span>` +
-                                    `<span class="result-name">${i.n}</span>` +
-                                    `<span class="result-market" style="margin-left:auto;font-size:11px;color:#8b949e">${i.m}</span></div>`
-                                ).join('');
-                                sr.classList.add('active');
-                            } else {
-                                sr.innerHTML = '<div style="padding:12px;color:#8b949e">無相符結果，請輸入代號搜尋</div>';
-                                sr.classList.add('active');
-                            }
-                        } else { sr.classList.remove('active'); }
+                        var q = e.target.value.toLowerCase().trim();
+                        if (q.length < 1) { sr.classList.remove('active'); return; }
+                        // 先從本地快速匹配
+                        var r = _quickList.filter(function(i) {
+                            return i.s.toLowerCase().includes(q) || i.n.toLowerCase().includes(q);
+                        });
+                        if (r.length > 0) {
+                            sr.innerHTML = r.slice(0, 8).map(function(i) {
+                                return '<div class="search-result-item" onclick="selectStock(\\''+i.s+'\\')">' +
+                                    '<span class="result-symbol">'+i.s+'</span>' +
+                                    '<span class="result-name">'+i.n+'</span>' +
+                                    '<span style="margin-left:auto;font-size:11px;color:#64748B">'+i.m+'</span></div>';
+                            }).join('');
+                            sr.classList.add('active');
+                        } else {
+                            sr.innerHTML = '<div style="padding:12px;color:#64748B">輸入代號後按 Enter 搜尋</div>';
+                            sr.classList.add('active');
+                        }
                     });
                     si.addEventListener('keydown', function(e) {
                         if (e.key === 'Enter' && si.value.trim()) {
+                            sr.classList.remove('active');
                             selectStock(si.value.trim().toUpperCase());
                         }
                     });
-                    document.addEventListener('click', e => {
+                    document.addEventListener('click', function(e) {
                         if (!e.target.closest('.search-box')) sr.classList.remove('active');
                     });
                 }
