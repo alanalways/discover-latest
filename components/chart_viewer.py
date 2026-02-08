@@ -126,10 +126,24 @@ def create_candlestick_chart(
 
     chart_id = f"chart_{symbol.replace('.', '_').replace('^', '')}_{random.randint(1000,9999)}"
 
-    # 成交量 tooltip JS（避免 f-string 中使用反斜線）
+    # 避免 f-string 中使用反斜線，將條件式 JS 程式碼提取為變數
+    volume_js = ""
+    if show_volume:
+        volume_js = "var vs = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', scaleMargins: { top: 0.82, bottom: 0 } }); vs.setData(" + volume_json + ");"
+
+    ma_js = ""
+    if show_ma:
+        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
+        var ma20s = chart.addLineSeries({{ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }}); ma20s.setData({ma20_json});
+        var ma60s = chart.addLineSeries({{ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
+
+    bollinger_js = ""
+    if show_bollinger:
+        bollinger_js = f"var bbus = chart.addLineSeries({{ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbus.setData({bbu_json}); var bbls = chart.addLineSeries({{ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbls.setData({bbl_json});"
+
     vol_tooltip_js = ""
     if show_volume:
-        vol_tooltip_js = 'var vd = param.seriesData.get(vs); if(vd) volStr = \'<div style="color:#64748B;margin-top:4px;">Vol: <span style="color:#CBD5E1;">\' + (vd.value/1000).toFixed(0) + \'K</span></div>\';'
+        vol_tooltip_js = """var vd = param.seriesData.get(vs); if(vd) volStr = '<div style="color:#64748B;margin-top:4px;">Vol: <span style="color:#CBD5E1;">' + (vd.value/1000).toFixed(0) + 'K</span></div>';"""
 
     html = f'''
     <div id="{chart_id}-wrap" style="position:relative;height:{height}px;width:100%;">
@@ -200,15 +214,13 @@ def create_candlestick_chart(
         cs.setMarkers({markers_json});
 
         // 成交量
-        {"var vs = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'vol', scaleMargins: { top: 0.82, bottom: 0 } }); vs.setData(" + volume_json + ");" if show_volume else ""}
+        {volume_js}
 
         // MA 線
-        {"var ma5s = chart.addLineSeries({ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }); ma5s.setData(" + ma5_json + ");" if show_ma else ""}
-        {"var ma20s = chart.addLineSeries({ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }); ma20s.setData(" + ma20_json + ");" if show_ma else ""}
-        {"var ma60s = chart.addLineSeries({ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }); ma60s.setData(" + ma60_json + ");" if show_ma else ""}
+        {ma_js}
 
         // 布林通道
-        {"var bbus = chart.addLineSeries({ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }); bbus.setData(" + bbu_json + "); var bbls = chart.addLineSeries({ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }); bbls.setData(" + bbl_json + ");" if show_bollinger else ""}
+        {bollinger_js}
 
         // Tooltip
         var tooltip = document.getElementById('{chart_id}-tooltip');
