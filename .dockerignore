@@ -1,0 +1,7 @@
+.git
+.claude
+.agent
+__pycache__
+*.pyc
+.env
+CLAUDE.md

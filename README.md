@@ -3,9 +3,7 @@ title: DiscoverLatest 洞察運算 v3.0
 emoji: 📈
 colorFrom: blue
 colorTo: purple
-sdk: gradio
-sdk_version: 4.44.1
-python_version: 3.10.13
+sdk: docker
 app_file: app.py
 pinned: true
 license: mit
