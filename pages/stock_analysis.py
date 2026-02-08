@@ -73,39 +73,6 @@ def create_stock_analysis_page(
     chips_fundamentals_html = _create_chips_fundamentals_tabs(symbol, info, lang)
     
     page_html = f'''
-    <style>
-        .stock-page {{ max-width: 1200px; }}
-        .stock-header {{ display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px; }}
-        .stock-title-section {{ flex: 1; }}
-        .stock-symbol {{ font-size: 14px; color: var(--primary); background: var(--primary-dim); padding: 4px 12px; border-radius: 6px; margin-bottom: 8px; display: inline-block; font-family: var(--font-mono); }}
-        .stock-name {{ font-size: 28px; font-weight: 700; color: var(--text-1); margin: 0 0 8px 0; }}
-        .stock-market {{ font-size: 14px; color: var(--text-3); }}
-        .stock-price-section {{ text-align: right; }}
-        .stock-price {{ font-family: var(--font-mono); font-size: 36px; font-weight: 700; color: var(--text-1); }}
-        .stock-change {{ font-family: var(--font-mono); font-size: 18px; margin-top: 4px; }}
-        .stock-change.up {{ color: var(--success); }}
-        .stock-change.down {{ color: var(--danger); }}
-        .period-tabs {{ display: flex; gap: 8px; margin-bottom: 16px; }}
-        .period-tab {{ padding: 8px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-surface); color: var(--text-2); font-size: 13px; cursor: pointer; transition: all 0.15s; }}
-        .period-tab:hover {{ border-color: var(--primary); color: var(--text-1); }}
-        .period-tab.active {{ background: var(--primary); border-color: var(--primary); color: #000; }}
-        .chart-section {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 24px; }}
-        .main-chart-section {{ min-height: 450px; }}
-        .section-title {{ font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }}
-        .metrics-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }}
-        .metric-card {{ background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }}
-        .metric-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; }}
-        .metric-value {{ font-size: 20px; font-weight: 600; color: var(--text-1); font-family: var(--font-mono); }}
-        .metric-subtext {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
-        .two-column {{ display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }}
-        @media (max-width: 768px) {{ .two-column {{ grid-template-columns: 1fr; }} }}
-        .fundamentals-table {{ width: 100%; border-collapse: collapse; }}
-        .fundamentals-table tr {{ border-bottom: 1px solid var(--border); }}
-        .fundamentals-table td {{ padding: 12px 0; }}
-        .fundamentals-table td:first-child {{ color: var(--text-3); font-size: 13px; }}
-        .fundamentals-table td:last-child {{ text-align: right; font-weight: 500; color: var(--text-1); }}
-    </style>
-    
     <div class="stock-page">
         <!-- 股票標題區 -->
         <div class="stock-header">
@@ -463,7 +430,7 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
         <div id="ai-analysis-block" class="chart-section" style="margin-bottom:24px;">
             <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;">{analysis}</div>
             {sources_html}
-            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Model: {html.escape(ai_result.get("model_used",""))} · Grounding: {html.escape(ai_result.get("grounding_model",""))}</div>
+            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Powered by Discover Latest AI</div>
         </div>
         '''
     elif ai_result and ai_result.get("error"):

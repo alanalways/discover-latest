@@ -168,18 +168,29 @@ class GeminiService:
 請簡潔列出 3-5 條最相關的即時資訊。"""
 
             grounding_model = genai.GenerativeModel(MODEL_GROUNDING)
-            # Try with Google Search grounding tool
+            # Try with Google Search grounding tool (multiple API approaches)
+            grounding_response = None
             try:
-                from google.generativeai.types import Tool
-                google_search_tool = Tool(google_search={})
+                from google.generativeai import protos
+                google_search_tool = protos.Tool(
+                    google_search_retrieval=protos.GoogleSearchRetrieval()
+                )
                 grounding_response = grounding_model.generate_content(
                     grounding_prompt,
                     tools=[google_search_tool],
                 )
-            except Exception as e:
-                print(f"[Gemini] Stage 1 grounding tool failed, falling back: {e}")
-                # Fallback without grounding tool
-                grounding_response = grounding_model.generate_content(grounding_prompt)
+            except Exception as e1:
+                print(f"[Gemini] Stage 1 protos approach failed: {e1}")
+                try:
+                    # Fallback: string-based tool specification
+                    grounding_response = grounding_model.generate_content(
+                        grounding_prompt,
+                        tools="google_search_retrieval",
+                    )
+                except Exception as e2:
+                    print(f"[Gemini] Stage 1 string approach failed: {e2}")
+                    # Final fallback: no grounding tool
+                    grounding_response = grounding_model.generate_content(grounding_prompt)
 
             if grounding_response and grounding_response.text:
                 return grounding_response
