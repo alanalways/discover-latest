@@ -126,6 +126,11 @@ def create_candlestick_chart(
 
     chart_id = f"chart_{symbol.replace('.', '_').replace('^', '')}_{random.randint(1000,9999)}"
 
+    # 成交量 tooltip JS（避免 f-string 中使用反斜線）
+    vol_tooltip_js = ""
+    if show_volume:
+        vol_tooltip_js = 'var vd = param.seriesData.get(vs); if(vd) volStr = \'<div style="color:#64748B;margin-top:4px;">Vol: <span style="color:#CBD5E1;">\' + (vd.value/1000).toFixed(0) + \'K</span></div>\';'
+
     html = f'''
     <div id="{chart_id}-wrap" style="position:relative;height:{height}px;width:100%;">
         <div id="{chart_id}" style="height:100%;width:100%;"></div>
@@ -218,7 +223,7 @@ def create_candlestick_chart(
             var pct = d.open ? ((chg / d.open) * 100).toFixed(2) : '0.00';
             var clr = chg >= 0 ? '#22C55E' : '#EF4444';
             var volStr = '';
-            {"var vd = param.seriesData.get(vs); if(vd) volStr = '<div style=\"color:#64748B;margin-top:4px;\">Vol: <span style=\"color:#CBD5E1;\">' + (vd.value/1000).toFixed(0) + 'K</span></div>';" if show_volume else ""}
+            {vol_tooltip_js}
             if (tooltip) {{
                 tooltip.innerHTML =
                     '<div style="color:#CBD5E1;font-weight:600;margin-bottom:6px;">' + param.time + '</div>' +
