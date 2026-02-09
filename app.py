@@ -336,9 +336,12 @@ def create_app():
 
     # OAuth 設定 JavaScript - 必須在頁面載入時執行
     _oauth_head_js = f'''<script>
+        window._supabaseUrl = "{_supabase_url}";
+        window._supabaseAnonKey = "{_supabase_anon_key}";
         window._googleClientId = "{_google_client_id}";
         window._supabaseLoginUrl = "{_login_url}";
         console.log("[Init] OAuth config injected via head:", {{
+            hasSupabaseUrl: !!window._supabaseUrl,
             hasClientId: !!window._googleClientId,
             hasLoginUrl: !!window._supabaseLoginUrl
         }});
