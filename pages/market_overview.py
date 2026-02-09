@@ -197,7 +197,7 @@ def _fetch_market_data() -> Dict[str, list]:
 # Page builder
 # ──────────────────────────────────────
 def create_market_overview_page(lang: str = "zh-TW"):
-    """建立市場總覽頁面"""
+    """建立市場總覽頁面（台股/美股分類）"""
 
     data = _fetch_market_data()
     indices = data.get("indices", [])
@@ -206,11 +206,17 @@ def create_market_overview_page(lang: str = "zh-TW"):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     data_source_note = f"資料來源: FinMind + Yahoo Finance &middot; 更新: {now_str}"
 
-    # ---------- Build index cards ----------
-    indices_html = ""
-    for idx in indices:
+    # ---------- 分類 indices ----------
+    tw_indices = [idx for idx in indices if idx["symbol"] in ("TAIEX",)]
+    us_indices = [idx for idx in indices if idx["symbol"] in ("SPX", "IXIC", "DJI", "SOX")]
+
+    # ---------- 分類 ETFs ----------
+    tw_etfs = [etf for etf in etfs if etf["symbol"] in ("0050", "0056", "00878", "00919")]
+    us_etfs = [etf for etf in etfs if etf["symbol"] in ("VOO", "QQQ")]
+
+    def build_index_card(idx):
         change_icon = "▲" if idx["color"] == "green" else "▼"
-        indices_html += f'''
+        return f'''
         <div class="index-card">
             <div class="index-header">
                 <span class="index-name">{idx["name"]}</span>
@@ -222,12 +228,10 @@ def create_market_overview_page(lang: str = "zh-TW"):
             </div>
         </div>'''
 
-    # ---------- Build ETF cards ----------
-    etf_html = ""
-    for etf in etfs:
+    def build_etf_card(etf):
         raw_sym = etf["symbol"]
         change_icon = "▲" if etf["color"] == "green" else "▼"
-        etf_html += f'''
+        return f'''
         <div class="etf-card" onclick="selectStock('{raw_sym}')" style="cursor:pointer;">
             <div class="etf-header">
                 <span class="etf-symbol">{etf["symbol"]}</span>
@@ -239,6 +243,12 @@ def create_market_overview_page(lang: str = "zh-TW"):
             </div>
         </div>'''
 
+    # 建構 HTML
+    tw_indices_html = "".join(build_index_card(idx) for idx in tw_indices)
+    tw_etfs_html = "".join(build_etf_card(etf) for etf in tw_etfs)
+    us_indices_html = "".join(build_index_card(idx) for idx in us_indices)
+    us_etfs_html = "".join(build_etf_card(etf) for etf in us_etfs)
+
     # ---------- Assemble page HTML ----------
     page_html = f'''
     <div class="market-page">
@@ -249,21 +259,51 @@ def create_market_overview_page(lang: str = "zh-TW"):
 
         <p class="data-note">{data_source_note}</p>
 
-        <h2 class="section-title">
-            <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span>
-            {t("market.indices", lang)}
-        </h2>
-        <div class="indices-grid">{indices_html}</div>
+        <!-- 🇹🇼 台股區塊 -->
+        <div class="market-section tw-section">
+            <h2 class="section-title">
+                <span class="section-icon">🇹🇼</span>
+                台股行情
+            </h2>
+            <div class="indices-grid">{tw_indices_html}</div>
+            <h3 class="subsection-title">熱門 ETF</h3>
+            <div class="etf-grid">{tw_etfs_html}</div>
+        </div>
 
-        <h2 class="section-title">
-            <span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg></span>
-            {t("market.etf", lang)}
-        </h2>
-        <div class="etf-grid">{etf_html}</div>
+        <!-- 🇺🇸 美股區塊 -->
+        <div class="market-section us-section">
+            <h2 class="section-title">
+                <span class="section-icon">🇺🇸</span>
+                美股行情
+            </h2>
+            <div class="indices-grid">{us_indices_html}</div>
+            <h3 class="subsection-title">熱門 ETF</h3>
+            <div class="etf-grid">{us_etfs_html}</div>
+        </div>
 
         <div class="market-footer">
             <p>點擊 ETF 卡片可查看個股分析 &middot; 使用上方搜尋列輸入代號快速查詢</p>
         </div>
-    </div>'''
+    </div>
+    
+    <style>
+    .market-section {
+        margin-bottom: 32px;
+        padding: 24px;
+        background: var(--bg-surface);
+        border-radius: 16px;
+        border: 1px solid var(--border);
+    }
+    .tw-section { border-left: 4px solid #D4A76A; }
+    .us-section { border-left: 4px solid #3B82F6; }
+    .subsection-title {
+        font-size: 14px;
+        color: var(--text-2);
+        margin: 20px 0 12px 0;
+        font-weight: 500;
+    }
+    </style>
+    '''
 
     return page_html
+
