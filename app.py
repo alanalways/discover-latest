@@ -1083,11 +1083,39 @@ def create_app():
             
             // OAuth config (window._googleClientId, window._supabaseLoginUrl) is injected via head
 
-            // ── MutationObserver: re-execute <script> tags injected via innerHTML ──
+            // ── Page Loading Overlay (建立 DOM) ──
+            (function() {
+                var overlay = document.createElement('div');
+                overlay.className = 'page-loading';
+                overlay.id = 'page-loading-overlay';
+                overlay.innerHTML = '<div class="loader"><div class="loader-spinner"></div><div class="loader-text">載入中...</div></div>';
+                document.body.appendChild(overlay);
+            })();
+
+            // ── Toast 通知系統 ──
+            window.showToast = function(message, type) {
+                type = type || 'info';
+                var colors = { success: '#22c55e', error: '#ef4444', info: '#D4A76A' };
+                var icons = { success: '✓', error: '✕', info: 'ℹ' };
+                var toast = document.createElement('div');
+                toast.className = 'toast-msg toast-' + type;
+                toast.style.cssText = 'position:fixed;top:24px;right:24px;z-index:10001;padding:14px 20px;border-radius:12px;background:var(--bg-surface,#1a1a1a);border:1px solid ' + colors[type] + '40;color:var(--text-1,#e2e8f0);font-size:14px;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,0.4);animation:toastIn 0.3s ease;max-width:400px;';
+                toast.innerHTML = '<span style="color:' + colors[type] + ';font-weight:700;font-size:16px;">' + icons[type] + '</span><span>' + message + '</span>';
+                document.body.appendChild(toast);
+                setTimeout(function() {
+                    toast.style.animation = 'toastOut 0.3s ease forwards';
+                    setTimeout(function() { toast.remove(); }, 300);
+                }, 3000);
+            };
+
+            // ── MutationObserver: re-execute <script> + auto-hide loading ──
+            var _pageLoadingTimer = null;
             new MutationObserver(function(mutations) {
+                var hasContentUpdate = false;
                 mutations.forEach(function(mutation) {
                     mutation.addedNodes.forEach(function(node) {
                         if (node.nodeType === 1) {
+                            // Re-execute script tags
                             var scripts = node.querySelectorAll ? node.querySelectorAll('script') : [];
                             scripts.forEach(function(oldScript) {
                                 var newScript = document.createElement('script');
@@ -1097,9 +1125,35 @@ def create_app():
                                 newScript.textContent = oldScript.textContent;
                                 oldScript.parentNode.replaceChild(newScript, oldScript);
                             });
+                            // Detect content update in app-root
+                            if (node.closest && node.closest('#app-root') || node.id === 'app-root' ||
+                                (node.querySelector && node.querySelector('.app-shell'))) {
+                                hasContentUpdate = true;
+                            }
                         }
                     });
                 });
+                if (hasContentUpdate) {
+                    // Hide page loading overlay
+                    var overlay = document.getElementById('page-loading-overlay');
+                    if (overlay) overlay.classList.remove('active');
+                    // Remove all button loading states
+                    document.querySelectorAll('.btn-loading').forEach(function(b) {
+                        b.classList.remove('btn-loading');
+                        b.disabled = false;
+                    });
+                    // Add entrance animation to new content
+                    var appRoot = document.getElementById('app-root');
+                    if (appRoot) {
+                        var mainContent = appRoot.querySelector('.main-content');
+                        if (mainContent) {
+                            mainContent.style.animation = 'none';
+                            mainContent.offsetHeight; // force reflow
+                            mainContent.style.animation = 'fadeInScale 0.4s ease forwards';
+                        }
+                    }
+                    if (_pageLoadingTimer) { clearTimeout(_pageLoadingTimer); _pageLoadingTimer = null; }
+                }
             }).observe(document.body, { childList: true, subtree: true });
 
             // ── Helper: 把 Supabase access_token 送給 Gradio backend ──
@@ -1246,23 +1300,38 @@ def create_app():
                     if (s) s.classList.toggle('collapsed');
                 };
 
-                // ── Page navigation ──
+                // ── Page navigation (with loading overlay) ──
                 window.navigateTo = function(page) {
                     document.querySelectorAll('.nav-item').forEach(i => {
                         i.classList.remove('active');
                         if (i.getAttribute('data-page') === page) i.classList.add('active');
                     });
+                    // Show loading overlay immediately
+                    var overlay = document.getElementById('page-loading-overlay');
+                    if (overlay) overlay.classList.add('active');
+                    // Safety timeout: hide overlay after 15s even if stuck
+                    if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
+                    window._pageLoadingTimer = setTimeout(function() {
+                        if (overlay) overlay.classList.remove('active');
+                    }, 15000);
                     const ns = document.querySelector('#nav-state textarea');
                     if (ns) { ns.value = page; ns.dispatchEvent(new Event('input', {bubbles:true})); }
                 };
 
-                // ── Stock selection ──
+                // ── Stock selection (with loading overlay) ──
                 window.selectStock = function(sym) {
                     console.log('[Stock] Select:', sym);
                     const sr = document.getElementById('search-results');
                     const si = document.getElementById('global-search');
                     if (sr) sr.classList.remove('active');
                     if (si) si.value = '';
+                    // Show loading overlay for stock data fetch
+                    var overlay = document.getElementById('page-loading-overlay');
+                    if (overlay) overlay.classList.add('active');
+                    if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
+                    window._pageLoadingTimer = setTimeout(function() {
+                        if (overlay) overlay.classList.remove('active');
+                    }, 15000);
                     const ss = document.querySelector('#symbol-state textarea');
                     if (ss) {
                         ss.value = sym;
@@ -1270,9 +1339,25 @@ def create_app():
                     }
                 };
 
-                // ── Action dispatcher (Button + Textbox 方案，Gradio 4 穩定觸發) ──
+                // ── Action dispatcher (Button + Textbox + auto loading state) ──
                 window.dispatchAction = function(payload) {
                     console.log('[Action]', payload);
+                    // Auto-add loading state to the button that triggered this
+                    var srcBtn = document.activeElement;
+                    if (srcBtn && srcBtn.tagName === 'BUTTON' && !srcBtn.classList.contains('btn-loading')) {
+                        srcBtn.classList.add('btn-loading');
+                        srcBtn.disabled = true;
+                    }
+                    // Also show page loading for heavy actions
+                    var heavyActions = ['ai_analyze', 'run_backtest', 'predict', 'dexter_query'];
+                    if (heavyActions.indexOf(payload.action) >= 0) {
+                        var overlay = document.getElementById('page-loading-overlay');
+                        if (overlay) overlay.classList.add('active');
+                        if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
+                        window._pageLoadingTimer = setTimeout(function() {
+                            if (overlay) overlay.classList.remove('active');
+                        }, 30000);
+                    }
                     let payloadBox = document.querySelector('#action-payload textarea');
                     if (!payloadBox) payloadBox = document.querySelector('#action-payload input');
                     const triggerRoot = document.querySelector('#action-trigger');
