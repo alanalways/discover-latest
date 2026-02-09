@@ -30,12 +30,14 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
     # 導航項目：(page_id, label_key, icon_key)
     nav_items = [
         ('market', 'nav.market', 'layout-dashboard'),
+        ('stock', 'nav.stock', 'search'),
         ('watchlist', 'nav.watchlist', 'star'),
-        ('dexter', 'nav.dexter', 'sparkles'),
         ('backtest', 'nav.backtest', 'trending-up'),
+        ('portfolio', 'nav.portfolio', 'briefcase'),
         ('industry', 'nav.industry', 'globe'),
-        ('crypto', 'nav.crypto', 'bitcoin'),
+        ('dexter', 'nav.dexter', 'sparkles'),
         ('pricing', 'nav.pricing', 'diamond'),
+        ('admin', 'nav.admin', 'settings'),
     ]
 
     # 建立導航 HTML
