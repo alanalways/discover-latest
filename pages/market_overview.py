@@ -286,23 +286,6 @@ def create_market_overview_page(lang: str = "zh-TW"):
         </div>
     </div>
     
-    <style>
-    .market-section {{
-        margin-bottom: 32px;
-        padding: 24px;
-        background: var(--bg-surface);
-        border-radius: 16px;
-        border: 1px solid var(--border);
-    }}
-    .tw-section {{ border-left: 4px solid #D4A76A; }}
-    .us-section {{ border-left: 4px solid #3B82F6; }}
-    .subsection-title {{
-        font-size: 14px;
-        color: var(--text-2);
-        margin: 20px 0 12px 0;
-        font-weight: 500;
-    }}
-    </style>
     '''
 
     return page_html

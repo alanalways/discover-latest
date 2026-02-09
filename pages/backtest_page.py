@@ -41,66 +41,6 @@ def create_backtest_page(
         </div>'''
 
     return f'''
-    <style>
-        .backtest-page {{ padding: 0; }}
-        .strategy-selector {{ display:flex; gap:10px; margin-bottom:24px; flex-wrap:wrap; }}
-        .strategy-btn {{
-            padding:10px 20px; border:1px solid rgba(255,255,255,0.06); border-radius:8px;
-            background:rgba(255,255,255,0.03); color:var(--text-2); font-size:14px;
-            cursor:pointer; transition:all 0.2s;
-        }}
-        .strategy-btn:hover {{ border-color:rgba(212,167,106,0.25); color:var(--text-1); }}
-        .strategy-btn.active {{ background:linear-gradient(135deg,var(--primary),#B8860B); color:#000; border-color:var(--primary); font-weight:600; }}
-        .params-card {{
-            background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.06);
-            border-radius:12px; padding:20px; margin-bottom:24px;
-            backdrop-filter:blur(8px);
-        }}
-        .param-row {{ display:flex; align-items:center; gap:12px; margin-bottom:10px; }}
-        .param-label {{ font-size:13px; color:var(--text-3); min-width:120px; }}
-        .param-input {{
-            background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.08); border-radius:6px;
-            padding:8px 12px; color:var(--text-1); font-size:14px; width:120px;
-        }}
-        .result-card {{
-            background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.06);
-            border-radius:12px; padding:24px; margin-bottom:24px;
-            backdrop-filter:blur(8px);
-        }}
-        .metrics-row {{
-            display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
-            gap:12px; margin-bottom:20px;
-        }}
-        .metric {{
-            text-align:center; padding:16px; background:rgba(0,0,0,0.25);
-            border-radius:10px; border:1px solid rgba(255,255,255,0.04);
-        }}
-        .metric-val {{ font-family:var(--font-mono); font-size:20px; font-weight:700; color:var(--text-1); }}
-        .metric-lbl {{ font-size:11px; color:var(--text-3); margin-top:4px; }}
-        .risk-warning {{
-            background:rgba(255,0,85,0.06); border:1px solid rgba(255,0,85,0.15);
-            border-radius:8px; padding:16px; margin-top:16px;
-        }}
-        .risk-warning-title {{ color:#ff0055; font-weight:700; font-size:14px; margin-bottom:8px; }}
-        .risk-warning-text {{ color:#ff6b8a; font-size:13px; line-height:1.6; }}
-        .trade-table {{ width:100%; border-collapse:collapse; font-size:12px; }}
-        .trade-table th {{
-            text-align:left; padding:10px; color:var(--text-3);
-            border-bottom:1px solid rgba(255,255,255,0.06); font-size:11px;
-        }}
-        .trade-table td {{
-            padding:10px; border-bottom:1px solid rgba(255,255,255,0.03); color:var(--text-2);
-        }}
-        .chart-card {{
-            background:rgba(15,23,42,0.5); border:1px solid rgba(255,255,255,0.06);
-            border-radius:12px; padding:20px; margin-bottom:20px;
-        }}
-        .chart-card-title {{
-            font-size:14px; font-weight:600; color:var(--text-1); margin-bottom:12px;
-            display:flex; align-items:center; gap:8px;
-        }}
-    </style>
-
     <div class="backtest-page">
         <h1 style="font-size:28px;font-weight:700;margin:0 0 8px 0;color:var(--text-1);">
             策略回測
