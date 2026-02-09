@@ -329,8 +329,7 @@ class SupabaseAdapter:
             "stock_daily",
             params={
                 "symbol": f"eq.{symbol}",
-                "date": f"gte.{start_date}",
-                "date": f"lte.{end_date}",
+                "and": f"(date.gte.{start_date},date.lte.{end_date})",
                 "select": "*",
                 "order": "date"
             }

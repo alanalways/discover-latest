@@ -3,6 +3,7 @@ DiscoverLatest 洞察運算 - 限流服務
 實作會員分級限制與到期自動降級
 """
 import time
+import threading
 from datetime import datetime, date
 from typing import Dict, Optional, Tuple
 from adapters.supabase_adapter import supabase_adapter
@@ -30,7 +31,10 @@ _minute_requests: Dict[str, list] = {}
 
 class RateLimiter:
     """AI 用量限流器"""
-    
+
+    def __init__(self):
+        self._lock = threading.Lock()
+
     def check_and_downgrade(self, user_id: str) -> str:
         """
         檢查用戶是否過期，過期則降級為 free
@@ -101,6 +105,19 @@ class RateLimiter:
         
         return True
     
+    def acquire_request(self, user_id: str) -> Tuple[bool, str]:
+        """
+        原子操作：檢查限制 + 記錄請求（防止 race condition）
+        Returns:
+            (可否請求, 原因訊息)
+        """
+        with self._lock:
+            allowed, reason = self.can_make_request(user_id)
+            if not allowed:
+                return False, reason
+            self.record_request(user_id)
+            return True, ""
+
     def get_user_limits_info(self, user_id: str) -> Dict:
         """取得用戶的限制資訊（用於 UI 顯示）"""
         tier = self.check_and_downgrade(user_id)

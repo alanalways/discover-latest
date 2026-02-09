@@ -150,7 +150,7 @@ def create_backtest_page(
             var capital = parseInt(document.getElementById('param-capital')?.value || '1000000');
             var symbolInput = document.getElementById('param-symbol');
             var symbol = (symbolInput && symbolInput.value && symbolInput.value.trim()) ? symbolInput.value.trim().toUpperCase() : '';
-            if (!symbol) {{ alert('請輸入回測標的（股票代號）'); return; }}
+            if (!symbol) {{ if(typeof window.showToast==='function'){{window.showToast('請輸入回測標的（股票代號）','error');}}else{{alert('請輸入回測標的（股票代號）');}} return; }}
             if (typeof window.dispatchAction === 'function') {{
                 window.dispatchAction({{ action:'run_backtest', symbol:symbol, strategy:_selectedStrategy, capital:capital }});
             }}

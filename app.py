@@ -271,20 +271,21 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
     user_info = None
     if current_user:
         user_id = current_user.get("id", "")
-        tier = current_user.get("user_metadata", {}).get("tier", "free")
-        # 從 rate_limiter 取得真實用量資訊
+        # 從 rate_limiter 取得真實 tier（而非 JWT user_metadata）
         try:
             from services.rate_limiter import rate_limiter, TIER_LIMITS
             if user_id:
                 limits_info = rate_limiter.get_user_limits_info(user_id)
+                tier = limits_info.get("tier", "free")
                 daily_remaining = limits_info.get("daily_remaining", 0)
-                daily_limit = limits_info.get("daily_limit", TIER_LIMITS.get(tier, {}).get("daily_limit", 2))
+                daily_limit = limits_info.get("daily_limit", 2)
             else:
-                daily_limit = TIER_LIMITS.get(tier, {}).get("daily_limit", 2)
+                tier = "free"
+                daily_limit = TIER_LIMITS["free"]["daily_limit"]
                 daily_remaining = daily_limit
         except Exception:
-            from services.rate_limiter import TIER_LIMITS
-            daily_limit = TIER_LIMITS.get(tier, {}).get("daily_limit", 2)
+            tier = current_user.get("user_metadata", {}).get("tier", "free")
+            daily_limit = 2
             daily_remaining = daily_limit
         user_info = {
             "name": current_user.get("user_metadata", {}).get("full_name", current_user.get("email", "User")),
@@ -367,7 +368,7 @@ def create_app():
                     for k in keys:
                         v = os.environ.get(k, "")
                         status = "✅ 已設定" if v else "❌ 缺失"
-                        masked = f"`{v[:6]}...{val[-4:]}`" if len(v) > 10 else "`***`"
+                        masked = f"`{v[:6]}...{v[-4:]}`" if len(v) > 10 else "`***`"
                         res += f"- **{k}**: {status} {masked if v else ''}\n"
                     return res
                 
@@ -453,9 +454,17 @@ def create_app():
                     )
                 elif page_id == "pricing":
                     from pages.pricing import create_pricing_page
+                    pricing_user = None
+                    if cur_user:
+                        try:
+                            from services.rate_limiter import rate_limiter as _rl
+                            _tier = _rl.check_and_downgrade(cur_user.get("id", ""))
+                        except Exception:
+                            _tier = "free"
+                        pricing_user = {"tier": _tier}
                     inner = create_pricing_page(
                         lang=lang,
-                        user_info=user_info,
+                        user_info=pricing_user,
                     )
                 elif page_id == "dexter":
                     # Dexter 深度分析入口 - 導向到 stock 頁面
@@ -508,11 +517,11 @@ def create_app():
                 action = payload.get("action", "")
                 print(f"[Action] {action} → {payload}")
 
-                # Rate limit check for predict action — now actually blocks
-                if action in ("predict", "dexter_query") and cur_user:
+                # Rate limit pre-check for predict action
+                if action == "predict" and cur_user:
                     user_id = cur_user.get("id", "")
                     if user_id:
-                        allowed, reason = rate_limiter.can_make_request(user_id)
+                        allowed, reason = rate_limiter.acquire_request(user_id)
                         if not allowed:
                             print(f"[RateLimit] Denied: {reason}")
                             safe_reason = html_mod.escape(reason)
@@ -700,13 +709,12 @@ def create_app():
             if not symbol:
                 return gr.update()
 
-            # Rate limit check for AI（只限制使用次數，不限制輸出字數）
+            # Rate limit check for AI（原子操作，防止 race condition）
             if cur_user:
                 user_id = cur_user.get("id", "")
                 if user_id:
-                    allowed, reason = rate_limiter.can_make_request(user_id)
+                    allowed, reason = rate_limiter.acquire_request(user_id)
                     if not allowed:
-                        # Return an error card instead of silently denying
                         safe_reason = html_mod.escape(reason)
                         ai_error = {"success": False, "error": safe_reason, "analysis": "", "grounding_sources": []}
                         data = _fetch_stock_data_sync(symbol)
@@ -719,7 +727,6 @@ def create_app():
                         if not isinstance(inner, str):
                             inner = str(getattr(inner, 'value', inner))
                         return build_full_page(inner, lang, current_user=cur_user, current_page='stock')
-                    rate_limiter.record_request(user_id)
 
             data = _fetch_stock_data_sync(symbol)
             stock_info = data.get("info", {}) if data else {}
@@ -932,11 +939,11 @@ def create_app():
             if not symbol:
                 return gr.update()
 
-            # Rate limit check
+            # Rate limit check（原子操作）
             if cur_user:
                 user_id = cur_user.get("id", "")
                 if user_id:
-                    allowed, reason = rate_limiter.can_make_request(user_id)
+                    allowed, reason = rate_limiter.acquire_request(user_id)
                     if not allowed:
                         safe_reason = html_mod.escape(reason)
                         err_log = {"error": safe_reason}
@@ -947,7 +954,6 @@ def create_app():
                             inner = str(getattr(inner, 'value', inner))
                         inner = inner.replace('</div>\n\n    <script>', f'{dexter_html}</div>\n\n    <script>', 1)
                         return build_full_page(inner, lang, current_user=cur_user, current_page='dexter')
-                    rate_limiter.record_request(user_id)
 
             result = dexter_agent.execute(query, cur_user.get("id", "") if cur_user else "", symbol)
             dexter_html = create_dexter_panel_html(result, lang)
