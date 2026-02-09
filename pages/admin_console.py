@@ -33,13 +33,13 @@ def create_admin_console_page(
         .admin-title {{
             font-family: var(--font-sans);
             font-size: 28px; font-weight: 700;
-            background: linear-gradient(135deg, #ff0055, #bc13fe);
+            background: linear-gradient(135deg, #D4A76A, #B8860B);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }}
         .admin-badge {{
-            background: rgba(255, 0, 85, 0.15); color: #ff0055;
+            background: rgba(212, 167, 106, 0.15); color: #D4A76A;
             padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600;
-            border: 1px solid rgba(255, 0, 85, 0.3);
+            border: 1px solid rgba(212, 167, 106, 0.3);
         }}
         .admin-grid {{
             display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px;
@@ -50,7 +50,7 @@ def create_admin_console_page(
         }}
         .admin-card::before {{
             content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 2px;
-            background: linear-gradient(90deg, #ff0055, #bc13fe, transparent);
+            background: linear-gradient(90deg, #D4A76A, #B8860B, transparent);
         }}
         .admin-card-title {{
             font-size: 16px; font-weight: 600; color: var(--text-1); margin-bottom: 16px;
@@ -63,7 +63,7 @@ def create_admin_console_page(
         }}
         .admin-input:focus {{ border-color: var(--primary); outline: none; }}
         .admin-btn {{
-            background: linear-gradient(135deg, #ff0055, #bc13fe); color: white;
+            background: linear-gradient(135deg, #D4A76A, #B8860B); color: #0a0a0a;
             border: none; border-radius: 8px; padding: 10px 20px; font-weight: 600;
             cursor: pointer; font-size: 14px; transition: all 0.3s;
         }}
@@ -85,8 +85,8 @@ def create_admin_console_page(
             padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;
         }}
         .tier-free {{ background: rgba(107,114,128,0.2); color: #9ca3af; }}
-        .tier-pro {{ background: rgba(0,242,255,0.15); color: #00f2ff; }}
-        .tier-premium {{ background: rgba(188,19,254,0.15); color: #bc13fe; }}
+        .tier-pro {{ background: rgba(212,167,106,0.15); color: #D4A76A; }}
+        .tier-premium {{ background: rgba(184,134,11,0.15); color: #E8C547; }}
         .key-masked {{ font-family: var(--font-mono); color: var(--text-3); font-size: 12px; }}
         .log-entry {{ font-size: 12px; color: var(--text-3); padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }}
         .log-time {{ color: var(--primary); font-family: var(--font-mono); font-size: 11px; }}

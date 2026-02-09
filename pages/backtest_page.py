@@ -49,8 +49,8 @@ def create_backtest_page(
             background:rgba(255,255,255,0.03); color:var(--text-2); font-size:14px;
             cursor:pointer; transition:all 0.2s;
         }}
-        .strategy-btn:hover {{ border-color:rgba(0,255,255,0.25); color:var(--text-1); }}
-        .strategy-btn.active {{ background:linear-gradient(135deg,var(--primary),#0099cc); color:#000; border-color:var(--primary); font-weight:600; }}
+        .strategy-btn:hover {{ border-color:rgba(212,167,106,0.25); color:var(--text-1); }}
+        .strategy-btn.active {{ background:linear-gradient(135deg,var(--primary),#B8860B); color:#000; border-color:var(--primary); font-weight:600; }}
         .params-card {{
             background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.06);
             border-radius:12px; padding:20px; margin-bottom:24px;
@@ -226,7 +226,7 @@ def _render_backtest_result(result: Dict, history: List[Dict] = None, lang: str 
             charts_html += f'''
             <div class="chart-card">
                 <div class="chart-card-title">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#00FFFF" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#D4A76A" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
                     權益曲線 vs Buy&Hold
                 </div>
                 {equity_chart}
@@ -384,7 +384,7 @@ def _generate_smc_interpretation(history: list, result: Dict) -> str:
         <div class="result-card">
             <h3 style="margin:0 0 16px 0;font-size:16px;color:var(--text-1);">SMC/ICT 策略解讀</h3>
             {"".join(items)}
-            <div style="margin-top:16px;padding:12px;background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.15);border-radius:8px;">
+            <div style="margin-top:16px;padding:12px;background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.15);border-radius:8px;">
                 <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin:0;">{interp}</p>
             </div>
         </div>'''

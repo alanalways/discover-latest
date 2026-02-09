@@ -38,7 +38,7 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
     <div class="login-page">
         <div class="login-card">
             <div class="login-logo">
-                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#00FFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#D4A76A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                 </svg>
                 <span class="login-brand">DiscoverLatest</span>
@@ -317,7 +317,7 @@ def create_app():
         title="DiscoverLatest 洞察運算",
         css=CUSTOM_CSS,
         theme=gr.themes.Base(
-            primary_hue="cyan", secondary_hue="purple", neutral_hue="slate",
+            primary_hue="amber", secondary_hue="yellow", neutral_hue="slate",
             font=["IBM Plex Sans", "system-ui", "sans-serif"],
         ),
         head=f'''
@@ -452,7 +452,7 @@ def create_app():
                 print(f"[Action] {action} → {payload}")
 
                 # Rate limit check for predict action — now actually blocks
-                if action in ("predict",) and cur_user:
+                if action in ("predict", "dexter_query") and cur_user:
                     user_id = cur_user.get("id", "")
                     if user_id:
                         allowed, reason = rate_limiter.can_make_request(user_id)
@@ -524,6 +524,9 @@ def create_app():
                         page = build_full_page(inner, lang, current_user=cur_user)
                         return _result(page, json.dumps(new_list), cur_user, cur_symbol, lang, cur_watchlist)
                     return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "dexter_query":
+                    page = _handle_dexter_action(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 else:
                     print(f"[Action] Unknown: {action}")
                     return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
@@ -823,6 +826,47 @@ def create_app():
                 inner = str(getattr(inner, 'value', inner))
             return build_full_page(inner, lang, current_user=cur_user)
 
+        def _handle_dexter_action(payload, cur_user, cur_symbol, lang):
+            """Dexter 深度分析"""
+            from services.dexter_agent import dexter_agent
+            from components.dexter_panel import create_dexter_panel_html
+            symbol = payload.get("symbol", cur_symbol)
+            query = payload.get("query", f"分析 {symbol}")
+            if not symbol:
+                return gr.update()
+
+            # Rate limit check
+            if cur_user:
+                user_id = cur_user.get("id", "")
+                if user_id:
+                    allowed, reason = rate_limiter.can_make_request(user_id)
+                    if not allowed:
+                        safe_reason = html_mod.escape(reason)
+                        err_log = {"error": safe_reason}
+                        dexter_html = create_dexter_panel_html(err_log, lang)
+                        data = _fetch_stock_data_sync(symbol)
+                        inner = create_stock_analysis_page(symbol=symbol, stock_data=data, lang=lang)
+                        if not isinstance(inner, str):
+                            inner = str(getattr(inner, 'value', inner))
+                        inner = inner.replace('</div>\n\n    <script>', f'{dexter_html}</div>\n\n    <script>', 1)
+                        return build_full_page(inner, lang, current_user=cur_user)
+                    rate_limiter.record_request(user_id)
+
+            result = dexter_agent.execute(query, cur_user.get("id", "") if cur_user else "", symbol)
+            dexter_html = create_dexter_panel_html(result, lang)
+
+            data = _fetch_stock_data_sync(symbol)
+            inner = create_stock_analysis_page(symbol=symbol, stock_data=data, lang=lang)
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            # 在 AI 分析區塊後插入 Dexter 面板
+            ai_marker = '<!-- 籌碼面 / 基本面 Tab（台股）-->'
+            if ai_marker in inner:
+                inner = inner.replace(ai_marker, f'{dexter_html}\n\n        {ai_marker}')
+            else:
+                inner += dexter_html
+            return build_full_page(inner, lang, current_user=cur_user)
+
         # ── Auth Handler ──
         def handle_auth(token_or_code: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             token_or_code = token_or_code.strip()
@@ -929,7 +973,7 @@ def create_app():
         # ── Client-side JS (with MutationObserver for script execution) ──
         app.load(fn=lambda *_args: None, js="""
         () => {
-            console.log('[Init] DiscoverLatest v7.0 (gr.State + MutationObserver)');
+            console.log('[Init] DiscoverLatest v8.0 (gr.State + MutationObserver)');
 
             // ── MutationObserver: re-execute <script> tags injected via innerHTML ──
             new MutationObserver(function(mutations) {
@@ -979,7 +1023,7 @@ def create_app():
                 }
                 // 顯示 loading 狀態
                 const btn = document.getElementById('g-signin-btn');
-                if (btn) btn.innerHTML = '<p style="color:#00FFFF;font-size:13px;">驗證中...</p>';
+                if (btn) btn.innerHTML = '<p style="color:#D4A76A;font-size:13px;">驗證中...</p>';
 
                 try {
                     const supabaseUrl = window._supabaseUrl;

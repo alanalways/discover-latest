@@ -69,7 +69,7 @@ def create_portfolio_page(
             border-radius: 12px; padding: 20px; text-align: center;
             transition: all 0.2s;
         }}
-        .stat-card:hover {{ border-color: rgba(0,212,255,0.3); }}
+        .stat-card:hover {{ border-color: rgba(212,167,106,0.3); }}
         .stat-label {{ font-size: 12px; color: var(--text-3); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }}
         .stat-value {{ font-family: var(--font-mono); font-size: 24px; font-weight: 700; color: var(--text-1); }}
         .stat-sub {{ font-size: 11px; color: var(--text-3); margin-top: 4px; }}
@@ -86,7 +86,7 @@ def create_portfolio_page(
             padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.04);
             color: var(--text-2); font-size: 13px;
         }}
-        .holdings-table tr:hover {{ background: rgba(0,212,255,0.03); cursor: pointer; }}
+        .holdings-table tr:hover {{ background: rgba(212,167,106,0.03); cursor: pointer; }}
         .up {{ color: var(--success) !important; }}
         .down {{ color: var(--danger) !important; }}
         .health-card {{
@@ -114,7 +114,7 @@ def create_portfolio_page(
             outline: none;
         }}
         .portfolio-add-input::placeholder {{ color: rgba(255,255,255,0.3); }}
-        .portfolio-add-input:focus {{ border-color: rgba(0,212,255,0.3); }}
+        .portfolio-add-input:focus {{ border-color: rgba(212,167,106,0.3); }}
         .portfolio-add-btn {{
             background: var(--primary); color: #0f172a; border: none; border-radius: 6px;
             padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 13px;

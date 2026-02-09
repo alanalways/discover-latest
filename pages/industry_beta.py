@@ -14,7 +14,7 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
 
     # 產業卡片（含 3D tilt 效果）
     industry_cards = ""
-    colors = ["#00FFFF", "#A855F7", "#3B82F6", "#22C55E", "#F97316", "#FBBF24"]
+    colors = ["#D4A76A", "#E8C547", "#3B82F6", "#22C55E", "#F97316", "#B8860B"]
     for idx, ind in enumerate(industries):
         color = colors[idx % len(colors)]
         stocks_html = ""
@@ -59,8 +59,8 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             backdrop-filter:blur(8px);
         }}
         .industry-card:hover {{
-            border-color:rgba(0,255,255,0.2);
-            box-shadow:0 8px 40px rgba(0,0,0,0.4),0 0 20px var(--accent-clr,rgba(0,255,255,0.06));
+            border-color:rgba(212,167,106,0.2);
+            box-shadow:0 8px 40px rgba(0,0,0,0.4),0 0 20px var(--accent-clr,rgba(212,167,106,0.06));
             transform:translateY(-4px);
         }}
         .industry-card-glow {{
@@ -83,7 +83,7 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             display:flex; align-items:center; gap:8px; padding:8px 10px;
             border-radius:8px; cursor:pointer; transition:all 0.2s;
         }}
-        .ind-stock:hover {{ background:rgba(0,255,255,0.04); }}
+        .ind-stock:hover {{ background:rgba(212,167,106,0.04); }}
         .ind-stock-sym {{ font-family:var(--font-mono); font-size:12px; color:var(--primary); min-width:50px; font-weight:600; }}
         .ind-stock-name {{ font-size:13px; color:var(--text-2); flex:1; }}
         .ind-stock-beta {{ font-family:var(--font-mono); font-size:12px; font-weight:600; }}
@@ -99,7 +99,7 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             content:''; position:absolute; top:50%; left:50%;
             transform:translate(-50%,-50%);
             width:300px; height:300px;
-            background:radial-gradient(circle,rgba(0,255,255,0.04),transparent 70%);
+            background:radial-gradient(circle,rgba(212,167,106,0.04),transparent 70%);
             pointer-events:none;
         }}
         #d3-bubble-svg {{
@@ -108,9 +108,9 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
         .d3-tooltip {{
             position:absolute; display:none;
             background:rgba(15,23,42,0.95); backdrop-filter:blur(12px);
-            border:1px solid rgba(0,255,255,0.2); border-radius:10px;
+            border:1px solid rgba(212,167,106,0.2); border-radius:10px;
             padding:12px 16px; pointer-events:none; z-index:100;
-            box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 16px rgba(0,255,255,0.05);
+            box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 16px rgba(212,167,106,0.05);
             font-size:12px; color:var(--text-1); min-width:140px;
         }}
         .beta-legend {{
@@ -126,7 +126,7 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
 
     <div class="industry-page">
         <h1 style="font-size:28px;font-weight:700;margin:0 0 8px 0;color:var(--text-1);
-            background:linear-gradient(135deg,#F8FAFC 30%,#00FFFF 90%);
+            background:linear-gradient(135deg,#F5F0E8 30%,#D4A76A 90%);
             -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
             產業分布 + Beta
         </h1>
@@ -188,7 +188,7 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             svg.attr('viewBox', '0 0 ' + width + ' ' + height);
 
             var tooltip = d3.select('#d3-tooltip');
-            var colors = ['#00FFFF','#A855F7','#3B82F6','#22C55E','#F97316','#FBBF24'];
+            var colors = ['#D4A76A','#E8C547','#3B82F6','#22C55E','#F97316','#B8860B'];
 
             // 建立節點
             var nodes = data.map(function(d, i) {{

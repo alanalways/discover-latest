@@ -131,7 +131,7 @@ def create_smc_chart(
             <canvas id="{cid}_overlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2;"></canvas>
         </div>
         <!-- Info popup -->
-        <div id="{cid}_popup" class="smc-popup" style="display:none;position:absolute;z-index:10;background:rgba(15,23,42,0.95);backdrop-filter:blur(12px);border:1px solid rgba(0,255,255,0.15);border-radius:10px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 16px rgba(0,255,255,0.05);min-width:220px;font-size:13px;">
+        <div id="{cid}_popup" class="smc-popup" style="display:none;position:absolute;z-index:10;background:rgba(15,23,42,0.95);backdrop-filter:blur(12px);border:1px solid rgba(212,167,106,0.15);border-radius:10px;padding:14px 18px;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 16px rgba(212,167,106,0.05);min-width:220px;font-size:13px;">
         </div>
         <style>
             .smc-tgl {{padding:5px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg-surface);color:var(--text-2);font-size:12px;cursor:pointer;transition:all .15s;}}

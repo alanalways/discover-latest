@@ -127,6 +127,15 @@ def create_stock_analysis_page(
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
         {_create_ai_analysis_card(symbol, ai_result, lang)}
 
+        <!-- Dexter 深度分析 -->
+        <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:24px;">
+            <p style="color:var(--text-3);margin-bottom:12px;font-size:13px;">啟動 Dexter 深度研究代理，自動蒐集基本面、籌碼面、財報等多維數據並綜合分析</p>
+            <button class="dexter-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}})">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+                啟動 Dexter 深度分析
+            </button>
+        </div>
+
         <!-- 籌碼面 / 基本面 Tab（台股）-->
         {chips_fundamentals_html}
 
@@ -409,7 +418,7 @@ def _create_chips_fundamentals_tabs(symbol: str, info: Dict, lang: str) -> str:
 def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:
     """建立 AI 分析卡片（含生成中進度條）"""
     loading_html = '''<div class="chart-section" style="margin-bottom:24px;text-align:center;padding:40px 24px;">
-        <div class="loading-spinner" style="margin:0 auto 16px;width:40px;height:40px;border:3px solid rgba(0,255,255,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+        <div class="loading-spinner" style="margin:0 auto 16px;width:40px;height:40px;border:3px solid rgba(212,167,106,0.2);border-top-color:var(--primary);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
         <p style="color:var(--text-2);font-size:14px;margin-bottom:8px;">正在生成 AI 分析… 約需 20 秒，請稍候。</p>
         <p style="color:var(--text-3);font-size:11px;margin-bottom:12px;">Stage 1 查詢即時資訊 → Stage 2 生成報告</p>
         <progress style="width:100%;max-width:280px;height:6px;border-radius:3px;accent-color:var(--primary);" max="100" value=""></progress>
@@ -572,7 +581,7 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
         // 預測線
         const forecastData = {forecast_json};
         const predSeries = chart.addLineSeries({{
-            color: '#bc13fe',
+            color: '#D4A76A',
             lineWidth: 2,
             lineStyle: 2,
             title: '預測',
@@ -581,7 +590,7 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
         
         // 上界
         const upperSeries = chart.addLineSeries({{
-            color: 'rgba(188, 19, 254, 0.3)',
+            color: 'rgba(212, 167, 106, 0.3)',
             lineWidth: 1,
             lineStyle: 1,
         }});
@@ -589,7 +598,7 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
         
         // 下界
         const lowerSeries = chart.addLineSeries({{
-            color: 'rgba(188, 19, 254, 0.3)',
+            color: 'rgba(212, 167, 106, 0.3)',
             lineWidth: 1,
             lineStyle: 1,
         }});

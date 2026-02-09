@@ -108,7 +108,7 @@ def create_candlestick_chart(
         candle_data.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
         close_prices.append(c)
         if show_volume:
-            color = "rgba(0,255,255,0.35)" if c >= o else "rgba(239,68,68,0.35)"
+            color = "rgba(212,167,106,0.35)" if c >= o else "rgba(239,68,68,0.35)"
             volume_data.append({"time": date_str, "value": d["volume"], "color": color})
 
     # MA 計算
@@ -149,7 +149,7 @@ def create_candlestick_chart(
                 "size": 0.5
             })
         for struct in smc_data.get("structures", []):
-            color = "#00e5ff" if struct["direction"] == "bullish" else "#ff00e5"
+            color = "#E8C547" if struct["direction"] == "bullish" else "#B8860B"
             markers.append({
                 "time": struct["to_date"],
                 "position": "aboveBar" if struct["direction"] == "bullish" else "belowBar",
@@ -169,13 +169,13 @@ def create_candlestick_chart(
 
     ma_js = ""
     if show_ma:
-        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
+        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#E8C547', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
         var ma20s = chart.addLineSeries({{ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }}); ma20s.setData({ma20_json});
-        var ma60s = chart.addLineSeries({{ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
+        var ma60s = chart.addLineSeries({{ color: '#D4A76A', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
 
     bollinger_js = ""
     if show_bollinger:
-        bollinger_js = f"var bbus = chart.addLineSeries({{ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbus.setData({bbu_json}); var bbls = chart.addLineSeries({{ color: 'rgba(168,85,247,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbls.setData({bbl_json});"
+        bollinger_js = f"var bbus = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbus.setData({bbu_json}); var bbls = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbls.setData({bbl_json});"
 
     vol_tooltip_js = ""
     if show_volume:
@@ -200,7 +200,7 @@ def create_candlestick_chart(
             background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);
             border-radius:6px;padding:6px 8px;cursor:pointer;color:#9ca3af;
             transition:all 0.2s;
-        " onmouseover="this.style.color='#00FFFF';this.style.borderColor='rgba(0,255,255,0.3)'"
+        " onmouseover="this.style.color='#D4A76A';this.style.borderColor='rgba(212,167,106,0.3)'"
            onmouseout="this.style.color='#9ca3af';this.style.borderColor='rgba(255,255,255,0.1)'"
            title="全螢幕">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
@@ -240,8 +240,8 @@ def create_candlestick_chart(
             }},
             crosshair: {{
                 mode: LightweightCharts.CrosshairMode.Normal,
-                vertLine: {{ color: 'rgba(0,255,255,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
-                horzLine: {{ color: 'rgba(0,255,255,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+                vertLine: {{ color: 'rgba(212,167,106,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+                horzLine: {{ color: 'rgba(212,167,106,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
             }},
             rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.3)' }},
             timeScale: {{
@@ -437,8 +437,8 @@ def create_equity_chart(
                 timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
             }});
             var eq=chart.addAreaSeries({{
-                topColor:'rgba(0,255,255,0.15)',bottomColor:'rgba(0,255,255,0.01)',
-                lineColor:'#00FFFF',lineWidth:2,title:'策略權益',
+                topColor:'rgba(212,167,106,0.15)',bottomColor:'rgba(212,167,106,0.01)',
+                lineColor:'#D4A76A',lineWidth:2,title:'策略權益',
             }});
             eq.setData({eq_data});
             {bh_js}
@@ -523,7 +523,7 @@ def _get_mock_comparison_data() -> List[Dict]:
     symbols = [
         {"symbol": "2330", "name": "台積電", "color": "#22C55E"},
         {"symbol": "2317", "name": "鴻海", "color": "#3B82F6"},
-        {"symbol": "2454", "name": "聯發科", "color": "#A855F7"},
+        {"symbol": "2454", "name": "聯發科", "color": "#D4A76A"},
     ]
     datasets = []
     end_date = datetime.now()
@@ -540,7 +540,7 @@ def _get_mock_comparison_data() -> List[Dict]:
 
 
 def _get_color(index: int) -> str:
-    colors = ["#22C55E", "#3B82F6", "#A855F7", "#F97316", "#FBBF24", "#14B8A6"]
+    colors = ["#22C55E", "#3B82F6", "#D4A76A", "#F97316", "#E8C547", "#14B8A6"]
     return colors[index % len(colors)]
 
 
