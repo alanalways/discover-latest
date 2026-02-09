@@ -3510,3 +3510,93 @@ progress:indeterminate::-webkit-progress-bar {
     color: var(--text-3);
     font-family: var(--font-mono);
 }
+
+/* ═══════════════════════════════════════════════
+   Phase 6: Detail Polish
+   ═══════════════════════════════════════════════ */
+
+/* ── Form validation ── */
+input:focus, select:focus, textarea:focus {
+    border-color: rgba(212, 167, 106, 0.4) !important;
+    box-shadow: 0 0 0 2px rgba(212, 167, 106, 0.08);
+    outline: none;
+}
+.input-error {
+    border-color: var(--danger) !important;
+    animation: errorShake 0.5s ease;
+}
+
+/* ── Confirm Modal ── */
+.confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+.confirm-modal {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 380px;
+    width: 90%;
+    text-align: center;
+    animation: springFadeIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.confirm-modal h3 {
+    color: var(--text-1);
+    font-size: 18px;
+    margin: 0 0 12px 0;
+}
+.confirm-modal p {
+    color: var(--text-2);
+    font-size: 14px;
+    margin: 0 0 24px 0;
+}
+.confirm-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+.confirm-cancel {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-2);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.confirm-cancel:hover { background: rgba(255,255,255,0.05); }
+.confirm-delete {
+    padding: 10px 24px;
+    border-radius: 8px;
+    border: none;
+    background: #ef4444;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.confirm-delete:hover { background: #dc2626; }
+
+/* ── Mobile responsive fixes ── */
+@media (max-width: 768px) {
+    .period-tabs { flex-wrap: wrap; }
+    .period-tab { padding: 6px 12px; font-size: 12px; }
+    .holdings-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .search-box { width: 100% !important; }
+    .two-column { grid-template-columns: 1fr !important; }
+    .portfolio-stats { grid-template-columns: repeat(2, 1fr); }
+    .metrics-row { grid-template-columns: repeat(2, 1fr); }
+    .pricing-grid { grid-template-columns: 1fr; }
+    .industry-grid { grid-template-columns: 1fr; }
+    .ai-quick-btn, .ai-deep-btn { flex: 1; min-width: 140px; }
+}

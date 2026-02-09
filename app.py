@@ -1442,24 +1442,48 @@ def create_app():
                     }
                 };
                 window.watchlistRemove = function(sym) {
-                    if (typeof dispatchAction === 'function') {
-                        dispatchAction({action: 'watchlist_remove', symbol: sym});
-                    }
+                    window.showConfirm('移除自選', '確定要將 ' + sym + ' 從自選清單移除嗎？', function() {
+                        if (typeof dispatchAction === 'function') {
+                            dispatchAction({action: 'watchlist_remove', symbol: sym});
+                        }
+                    });
                 };
 
-                // ── 投資組合 CRUD ──
+                // ── Confirm Modal ──
+                window.showConfirm = function(title, message, onConfirm) {
+                    var overlay = document.createElement('div');
+                    overlay.className = 'confirm-overlay';
+                    overlay.innerHTML = '<div class="confirm-modal"><h3>' + title + '</h3><p>' + message + '</p><div class="confirm-actions"><button class="confirm-cancel">取消</button><button class="confirm-delete">確認刪除</button></div></div>';
+                    overlay.querySelector('.confirm-cancel').onclick = function() { overlay.remove(); };
+                    overlay.querySelector('.confirm-delete').onclick = function() { overlay.remove(); onConfirm(); };
+                    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+                    document.body.appendChild(overlay);
+                };
+
+                // ── 投資組合 CRUD (with validation + confirm) ──
                 window.portfolioAdd = function() {
-                    var sym = document.getElementById('portfolio-add-symbol')?.value?.trim().toUpperCase();
-                    var shares = parseInt(document.getElementById('portfolio-add-shares')?.value || '0', 10);
-                    var price = parseFloat(document.getElementById('portfolio-add-price')?.value || '0') || 0;
-                    if (sym && shares > 0 && price >= 0 && typeof window.dispatchAction === 'function') {
+                    var symEl = document.getElementById('portfolio-add-symbol');
+                    var sharesEl = document.getElementById('portfolio-add-shares');
+                    var priceEl = document.getElementById('portfolio-add-price');
+                    var sym = (symEl?.value || '').trim().toUpperCase();
+                    var shares = parseInt(sharesEl?.value || '0', 10);
+                    var price = parseFloat(priceEl?.value || '0') || 0;
+                    // Validation
+                    var valid = true;
+                    [symEl, sharesEl, priceEl].forEach(function(el) { if(el) el.classList.remove('input-error'); });
+                    if (!sym) { if(symEl) symEl.classList.add('input-error'); valid = false; }
+                    if (shares <= 0) { if(sharesEl) sharesEl.classList.add('input-error'); valid = false; }
+                    if (!valid) { if(typeof window.showToast==='function') window.showToast('請填寫完整的持股資訊','error'); return; }
+                    if (typeof window.dispatchAction === 'function') {
                         window.dispatchAction({ action: 'portfolio_add', symbol: sym, shares: shares, avg_price: price });
                     }
                 };
                 window.portfolioDelete = function(index) {
-                    if (typeof window.dispatchAction === 'function') {
-                        window.dispatchAction({ action: 'portfolio_delete', index: index });
-                    }
+                    window.showConfirm('刪除持股', '確定要從投資組合中移除此持股嗎？', function() {
+                        if (typeof window.dispatchAction === 'function') {
+                            window.dispatchAction({ action: 'portfolio_delete', index: index });
+                        }
+                    });
                 };
 
                 // ── Search: 全域 executeSearch，Enter 與按鈕共用 ──
