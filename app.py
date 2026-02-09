@@ -348,7 +348,8 @@ def create_app():
             hasClientId: !!window._googleClientId,
             hasLoginUrl: !!window._supabaseLoginUrl
         }});
-    </script>'''
+    </script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>'''
     
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
