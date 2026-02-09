@@ -4,13 +4,16 @@
         "tagline": "AI 智慧投資分析平台"
     },
     "nav": {
-        "market": "市場總覽",
+        "market": "儀表板",
         "stock": "個股分析",
-        "backtest": "策略回測",
-        "industry": "產業 + Beta",
-        "watchlist": "我的自選",
+        "backtest": "回測模擬器",
+        "industry": "國際市場",
+        "watchlist": "自選清單",
         "portfolio": "投資組合",
-        "admin": "後台管理"
+        "admin": "後台管理",
+        "dexter": "深度分析",
+        "crypto": "加密貨幣",
+        "pricing": "會員方案"
     },
     "common": {
         "search": "搜尋股票代號...",
