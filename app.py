@@ -100,7 +100,7 @@ def validate_models_on_startup():
 
 
 # ── Sync data helpers ─────────────────────
-def _fetch_stock_data_sync(symbol: str):
+def _fetch_stock_data_sync(symbol: str, days: int = 365):
     """同步取得個股資料（台股優先 FinMind，失敗再 yfinance）"""
     from adapters.finmind_adapter import finmind_adapter
     from datetime import datetime, timedelta
@@ -113,7 +113,7 @@ def _fetch_stock_data_sync(symbol: str):
     if is_tw:
         try:
             end_date = datetime.now().strftime("%Y-%m-%d")
-            start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
             fm_data = finmind_adapter.get_tw_stock_price_sync(symbol, start_date, end_date)
             if fm_data and len(fm_data) > 2:
                 print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
@@ -172,12 +172,28 @@ def _fetch_stock_data_sync(symbol: str):
             print(f"[DataSource] FinMind failed ({symbol}): {type(e).__name__}: {e}")
 
     # ── Fallback: yfinance（台股 + 美股）──
-    return _fetch_stock_data_yfinance(symbol, market)
+    return _fetch_stock_data_yfinance(symbol, market, days=days)
 
 
-def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
+def _fetch_stock_data_yfinance(symbol: str, market: str = "US", days: int = 365):
     """使用 yfinance 取得個股資料（作為 fallback 或美股主要來源）"""
     import yfinance as yf
+
+    # Map days to yfinance period string
+    if days <= 30:
+        yf_period = "1mo"
+    elif days <= 90:
+        yf_period = "3mo"
+    elif days <= 180:
+        yf_period = "6mo"
+    elif days <= 365:
+        yf_period = "1y"
+    elif days <= 730:
+        yf_period = "2y"
+    elif days <= 1825:
+        yf_period = "5y"
+    else:
+        yf_period = "max"
 
     if market in ("TWSE", "TPEX"):
         yf_sym = f"{symbol}.TW"
@@ -187,7 +203,7 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
     try:
         ticker = yf.Ticker(yf_sym)
         info_raw = ticker.info or {}
-        hist = ticker.history(period="1y")
+        hist = ticker.history(period=yf_period)
 
         # 如果 .TW 沒資料，嘗試 .TWO（上櫃）
         if hist.empty and market == "TWSE":
@@ -195,7 +211,7 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
             market = "TPEX"
             ticker = yf.Ticker(yf_sym)
             info_raw = ticker.info or {}
-            hist = ticker.history(period="1y")
+            hist = ticker.history(period=yf_period)
 
         if hist.empty:
             print(f"[DataSource] yfinance 也無資料: {symbol}")
@@ -252,13 +268,29 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US"):
 def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None) -> str:
     user_info = None
     if current_user:
+        user_id = current_user.get("id", "")
+        tier = current_user.get("user_metadata", {}).get("tier", "free")
+        # 從 rate_limiter 取得真實用量資訊
+        try:
+            from services.rate_limiter import rate_limiter, TIER_LIMITS
+            if user_id:
+                limits_info = rate_limiter.get_user_limits_info(user_id)
+                daily_remaining = limits_info.get("daily_remaining", 0)
+                daily_limit = limits_info.get("daily_limit", TIER_LIMITS.get(tier, {}).get("daily_limit", 2))
+            else:
+                daily_limit = TIER_LIMITS.get(tier, {}).get("daily_limit", 2)
+                daily_remaining = daily_limit
+        except Exception:
+            from services.rate_limiter import TIER_LIMITS
+            daily_limit = TIER_LIMITS.get(tier, {}).get("daily_limit", 2)
+            daily_remaining = daily_limit
         user_info = {
             "name": current_user.get("user_metadata", {}).get("full_name", current_user.get("email", "User")),
             "email": current_user.get("email", ""),
             "avatar": current_user.get("user_metadata", {}).get("avatar_url", ""),
-            "tier": current_user.get("user_metadata", {}).get("tier", "free"),
-            "daily_remaining": 999,
-            "daily_limit": 999,
+            "tier": tier,
+            "daily_remaining": daily_remaining,
+            "daily_limit": daily_limit,
         }
     sidebar = create_sidebar_html(lang, user_info=user_info)
     topbar = create_topbar_html(lang, user_info=user_info)
@@ -518,23 +550,12 @@ def create_app():
 
             history = data["history"]
 
-            # backtest_service.run_backtest is async, run it sync
-            import asyncio
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as pool:
-                        result = pool.submit(
-                            asyncio.run,
-                            backtest_service.run_backtest(history, strategy, capital=capital)
-                        ).result(timeout=30)
-                else:
-                    result = asyncio.run(
-                        backtest_service.run_backtest(history, strategy, capital=capital)
-                    )
+                result = backtest_service.run_backtest(history, strategy, capital=capital)
             except Exception as e:
                 print(f"[Backtest] Error: {e}")
+                import traceback
+                traceback.print_exc()
                 result = {"error": str(e)}
 
             inner = create_backtest_page(
@@ -626,17 +647,9 @@ def create_app():
             if not symbol:
                 return gr.update()
             # 根據期間計算天數
-            from datetime import datetime, timedelta
             period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "3y": 1095, "5y": 1825}
             days = period_days.get(period, 365)
-            data = _fetch_stock_data_sync(symbol)
-            if data and data.get("history"):
-                # 按照期間篩選歷史資料
-                cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-                filtered = [h for h in data["history"] if h.get("date", "") >= cutoff]
-                if filtered:
-                    data = dict(data)
-                    data["history"] = filtered
+            data = _fetch_stock_data_sync(symbol, days=days)
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,

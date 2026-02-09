@@ -65,9 +65,9 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
         <div class="usage-card">
             <div class="usage-label">{t('tier.usage', lang)}</div>
             <div class="usage-bar">
-                <div class="usage-fill" style="width: {min(100, (1 - remaining/max(1, user_info.get('daily_limit', 1))) * 100)}%"></div>
+                <div class="usage-fill" style="width: {min(100, (1 - remaining/max(1, user_info.get('daily_limit', 1))) * 100):.0f}%"></div>
             </div>
-            <div class="usage-remaining">{t('tier.remaining', lang, count=remaining)}</div>
+            <div class="usage-remaining">{t('tier.remaining', lang, count=remaining)} / {user_info.get('daily_limit', 2)}</div>
         </div>
         '''
     else:

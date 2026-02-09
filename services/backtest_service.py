@@ -23,7 +23,7 @@ class BacktestService:
         self.commission_rate = 0.001425  # 手續費 0.1425%
         self.tax_rate = 0.003  # 台股證交稅 0.3%
     
-    async def run_backtest(
+    def run_backtest(
         self,
         history: List[Dict],
         strategy: str = "ma_cross",

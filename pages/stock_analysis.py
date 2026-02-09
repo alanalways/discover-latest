@@ -2,6 +2,7 @@
 個股分析頁面 + 價格預測卡片
 """
 import html
+import re
 import gradio as gr
 from components.i18n import t
 from components.chart_viewer import create_candlestick_chart, create_line_chart
@@ -415,7 +416,15 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
     </div>'''
 
     if ai_result and ai_result.get("success"):
-        analysis = html.escape(ai_result.get("analysis", ""))
+        raw = ai_result.get("analysis", "")
+        # Strip leftover markdown symbols
+        raw = re.sub(r'#{1,6}\s*', '', raw)       # ## headings
+        raw = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', raw)  # **bold**, *italic*
+        raw = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', raw)    # __underline__
+        raw = re.sub(r'^---+$', '', raw, flags=re.MULTILINE) # --- dividers
+        raw = re.sub(r'^- ', '  ', raw, flags=re.MULTILINE)  # - list items
+        raw = re.sub(r'```[^`]*```', '', raw, flags=re.DOTALL) # code blocks
+        analysis = html.escape(raw.strip())
         sources = ai_result.get("grounding_sources", [])
         sources_html = ""
         if sources:

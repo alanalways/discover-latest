@@ -118,13 +118,13 @@ def create_backtest_page(
             </h3>
             <div class="param-row">
                 <span class="param-label">標的</span>
-                <input class="param-input" id="param-symbol" type="text" value="{symbol or ''}" placeholder="例如 2330、AAPL" style="width:140px;" />
-                <span style="color:var(--text-3);font-size:12px;">股票代號</span>
+                <input class="param-input" id="param-symbol" type="text" value="{symbol or ''}" placeholder="例: 2330" style="width:140px;" />
+                <span style="color:var(--text-3);font-size:12px;">台股代號或美股代號（如 AAPL）</span>
             </div>
             <div class="param-row">
                 <span class="param-label">初始資金</span>
-                <input class="param-input" id="param-capital" type="number" value="1000000" />
-                <span style="color:var(--text-3);font-size:12px;">TWD</span>
+                <input class="param-input" id="param-capital" type="number" value="1000000" placeholder="例: 1000000" />
+                <span style="color:var(--text-3);font-size:12px;">TWD（建議 50 萬以上）</span>
             </div>
             <button class="strategy-btn active" style="margin-top:12px;" onclick="runBacktest()">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>

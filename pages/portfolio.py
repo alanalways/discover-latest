@@ -109,9 +109,12 @@ def create_portfolio_page(
             padding: 12px 16px; background: rgba(0,0,0,0.2); border-radius: 10px; border: 1px solid var(--border);
         }}
         .portfolio-add-input {{
-            background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
-            padding: 8px 10px; color: var(--text-1); font-size: 13px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px;
+            padding: 8px 10px; color: #f5f5f7; font-size: 13px; font-family: var(--font-mono);
+            outline: none;
         }}
+        .portfolio-add-input::placeholder {{ color: rgba(255,255,255,0.3); }}
+        .portfolio-add-input:focus {{ border-color: rgba(0,212,255,0.3); }}
         .portfolio-add-btn {{
             background: var(--primary); color: #0f172a; border: none; border-radius: 6px;
             padding: 8px 16px; font-weight: 600; cursor: pointer; font-size: 13px;
@@ -162,9 +165,9 @@ def create_portfolio_page(
         </h2>
         <div class="portfolio-add-card" style="margin-bottom:16px;">
             <span style="color:var(--text-2);font-size:13px;margin-right:8px;">新增持股</span>
-            <input type="text" id="portfolio-add-symbol" class="portfolio-add-input" placeholder="代號" style="width:80px;" />
-            <input type="number" id="portfolio-add-shares" class="portfolio-add-input" placeholder="股數" min="1" style="width:80px;" />
-            <input type="number" id="portfolio-add-price" class="portfolio-add-input" placeholder="均價" min="0" step="0.01" style="width:90px;" />
+            <input type="text" id="portfolio-add-symbol" class="portfolio-add-input" placeholder="例: 2330" style="width:90px;" />
+            <input type="number" id="portfolio-add-shares" class="portfolio-add-input" placeholder="例: 1000" min="1" style="width:90px;" />
+            <input type="number" id="portfolio-add-price" class="portfolio-add-input" placeholder="例: 173.5" min="0" step="0.01" style="width:100px;" />
             <button type="button" class="portfolio-add-btn" onclick="window.portfolioAdd && window.portfolioAdd();">新增</button>
         </div>
         <table class="holdings-table">
