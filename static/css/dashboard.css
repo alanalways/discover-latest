@@ -3456,3 +3456,57 @@ progress:indeterminate::-webkit-progress-bar {
     color: var(--primary);
     text-decoration: none;
 }
+
+/* ── AI Unified Card (Phase 5) ── */
+.ai-unified-card {
+    border: 1px solid rgba(212, 167, 106, 0.15);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.8), rgba(2, 6, 23, 0.95));
+}
+.ai-quick-btn, .ai-deep-btn {
+    padding: 12px 24px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+.ai-quick-btn {
+    background: linear-gradient(135deg, var(--primary), #B8860B);
+    color: #0a0a0a;
+}
+.ai-quick-btn:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.ai-deep-btn {
+    background: transparent;
+    border: 1px solid rgba(212, 167, 106, 0.3);
+    color: var(--primary);
+}
+.ai-deep-btn:hover { background: rgba(212, 167, 106, 0.08); transform: translateY(-1px); }
+
+/* ── Market Refresh Toolbar (Phase 5) ── */
+.market-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+.refresh-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid rgba(212, 167, 106, 0.2);
+    background: transparent;
+    color: var(--text-2);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.refresh-btn:hover { border-color: var(--primary); color: var(--primary); }
+.refresh-countdown {
+    font-size: 12px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+}

@@ -14,7 +14,7 @@ from components.i18n import t
 # Module-level cache (TTL = 5 min)
 # ──────────────────────────────────────
 _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
-_CACHE_TTL = 300  # seconds
+_CACHE_TTL = 60  # seconds (auto-refresh every 60s)
 _first_load = True  # Skip yfinance on first load for instant startup
 
 # ──────────────────────────────────────
@@ -257,7 +257,14 @@ def create_market_overview_page(lang: str = "zh-TW"):
             <p class="welcome-subtitle">{t("app.tagline", lang)}</p>
         </div>
 
-        <p class="data-note">{data_source_note}</p>
+        <div class="market-toolbar">
+            <span class="data-note" style="flex:1;">{data_source_note}</span>
+            <span class="refresh-countdown" id="market-countdown">60s</span>
+            <button class="refresh-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'market_refresh'}})">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                刷新
+            </button>
+        </div>
 
         <!-- 🇹🇼 台股區塊 -->
         <div class="market-section tw-section">

@@ -547,6 +547,12 @@ def create_app():
                 elif action == "load_fundamentals":
                     page = _handle_load_fundamentals(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "market_refresh":
+                    from pages.market_overview import _market_cache
+                    _market_cache["ts"] = 0  # Force cache expiry
+                    inner = create_market_overview_page(lang)
+                    page = build_full_page(inner, lang, current_user=cur_user, current_page='market')
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "admin_search":
                     page = _handle_admin_action(payload, cur_user, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
@@ -1508,6 +1514,38 @@ def create_app():
                         if (!e.target.closest('.search-box')) sr.classList.remove('active');
                     });
                 }
+
+                // ── Market auto-refresh (60s countdown) ──
+                (function() {
+                    var _marketTimer = null;
+                    var _countdownSec = 60;
+                    function startMarketCountdown() {
+                        if (_marketTimer) clearInterval(_marketTimer);
+                        _countdownSec = 60;
+                        _marketTimer = setInterval(function() {
+                            _countdownSec--;
+                            var el = document.getElementById('market-countdown');
+                            if (el) el.textContent = _countdownSec + 's';
+                            if (_countdownSec <= 0) {
+                                _countdownSec = 60;
+                                // Only auto-refresh if on market page
+                                var mc = document.querySelector('.market-page');
+                                if (mc && typeof window.dispatchAction === 'function') {
+                                    window.dispatchAction({action: 'market_refresh'});
+                                }
+                            }
+                        }, 1000);
+                    }
+                    // Start countdown when market page is visible
+                    new MutationObserver(function() {
+                        if (document.querySelector('.market-page')) {
+                            if (!_marketTimer) startMarketCountdown();
+                        } else {
+                            if (_marketTimer) { clearInterval(_marketTimer); _marketTimer = null; }
+                        }
+                    }).observe(document.body, {childList:true, subtree:true});
+                    if (document.querySelector('.market-page')) startMarketCountdown();
+                })();
 
                 console.log('[Init] Ready.');
             }, 600);

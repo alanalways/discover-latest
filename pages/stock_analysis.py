@@ -123,18 +123,9 @@ def create_stock_analysis_page(
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span> 價格預測</h2>
         {_create_prediction_card(history, symbol, lang, pred_model, pred_horizon)}
         
-        <!-- AI 分析 -->
+        <!-- AI 智慧分析（統一卡片：快速分析 + 深度研究） -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
-        {_create_ai_analysis_card(symbol, ai_result, lang)}
-
-        <!-- Dexter 深度分析 -->
-        <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:24px;">
-            <p style="color:var(--text-3);margin-bottom:12px;font-size:13px;">啟動 Dexter 深度研究代理，自動蒐集基本面、籌碼面、財報等多維數據並綜合分析</p>
-            <button class="dexter-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}})">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
-                啟動 Dexter 深度分析
-            </button>
-        </div>
+        {_create_ai_unified_card(symbol, ai_result, lang)}
 
         <!-- 籌碼面 / 基本面 Tab（台股）-->
         {chips_fundamentals_html}
@@ -468,6 +459,56 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
             <p style="color:var(--text-3);font-size:11px;margin-top:8px;">Discover Latest AI 智慧分析引擎</p>
         </div>
         '''
+
+
+def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:
+    """統一 AI 分析卡片：快速分析 + Dexter 深度研究"""
+    # 快速分析結果
+    quick_result_html = ""
+    if ai_result and ai_result.get("success"):
+        raw = ai_result.get("analysis", "")
+        raw = re.sub(r'#{1,6}\s*', '', raw)
+        raw = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', raw)
+        raw = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', raw)
+        raw = re.sub(r'^---+$', '', raw, flags=re.MULTILINE)
+        raw = re.sub(r'^- ', '  ', raw, flags=re.MULTILINE)
+        raw = re.sub(r'```[^`]*```', '', raw, flags=re.DOTALL)
+        analysis = html.escape(raw.strip())
+        sources = ai_result.get("grounding_sources", [])
+        sources_html = ""
+        if sources:
+            sources_html = '<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px;"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">Grounding 來源：</div>'
+            for s in sources[:5]:
+                title = html.escape(s.get("title", ""))
+                uri = html.escape(s.get("uri", "#"))
+                sources_html += f'<a href="{uri}" target="_blank" style="display:block;font-size:11px;color:var(--primary);text-decoration:none;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title or uri}</a>'
+            sources_html += '</div>'
+        quick_result_html = f'''
+        <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;margin-top:16px;padding:16px;background:rgba(0,0,0,0.15);border-radius:10px;">{analysis}{sources_html}
+            <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Powered by Discover Latest AI</div>
+        </div>'''
+    elif ai_result and ai_result.get("error"):
+        quick_result_html = f'''
+        <div style="margin-top:16px;padding:16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;">
+            <p style="color:var(--danger);font-size:13px;margin:0;">{html.escape(ai_result["error"])}</p>
+        </div>'''
+
+    return f'''
+    <div class="chart-section ai-unified-card" style="margin-bottom:24px;padding:24px;">
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                快速分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
+            </button>
+            <button class="ai-deep-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}})">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                深度研究 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~2 分鐘</span>
+            </button>
+        </div>
+        <p style="color:var(--text-3);font-size:12px;margin-top:10px;">快速分析使用即時數據生成報告 · 深度研究啟動 Dexter 代理蒐集多維數據</p>
+        {quick_result_html}
+    </div>
+    '''
 
 
 def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
