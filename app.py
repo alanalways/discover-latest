@@ -36,6 +36,8 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
     """建立 OLED Dark 風格登入頁面（未登入時顯示）"""
     return '''
     <div class="login-page">
+        <!-- 引入 Google GIS 腳本 -->
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
         <div class="login-card">
             <div class="login-logo">
                 <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#D4A76A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -342,6 +344,7 @@ def create_app():
         window._supabaseLoginUrl = "{_login_url}";
         console.log("[Init] OAuth config injected via head:", {{
             hasSupabaseUrl: !!window._supabaseUrl,
+            hasSupabaseAnonKey: !!window._supabaseAnonKey,
             hasClientId: !!window._googleClientId,
             hasLoginUrl: !!window._supabaseLoginUrl
         }});
