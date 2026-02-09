@@ -3,7 +3,7 @@ Gemini AI Service - 雙段 AI 生成（Grounding + Final）
 Stage 1: 使用 MODEL_GROUNDING + Google Search grounding 取得事實基礎
 Stage 2: 使用 MODEL_FINAL 產生最終分析輸出
 支援 7 組 API Key 輪流使用（Round-robin）
-v2: 加入 timeout 機制和詳細 debug logging
+v3: 遷移至 google.genai SDK（取代已棄用的 google.generativeai）
 """
 import os
 import threading
@@ -88,6 +88,11 @@ class GeminiService:
         """AI 功能是否可用"""
         return bool(self._get_api_key())
 
+    def _create_client(self, api_key: str):
+        """建立 google.genai Client"""
+        from google import genai
+        return genai.Client(api_key=api_key)
+
     def generate_analysis(
         self,
         symbol: str,
@@ -101,34 +106,25 @@ class GeminiService:
 
         Stage 1 (Grounding): 使用 Google Search 查詢即時資訊
         Stage 2 (Final): 根據 grounding 結果 + 本地分析產生最終輸出
-
-        Returns:
-            {
-                "success": bool,
-                "analysis": str,           # 最終分析文字
-                "grounding_sources": list,  # Google Search grounding 來源
-                "model_used": str,
-                "error": str or None,
-            }
         """
         api_key = self._get_api_key()
         if not api_key:
             return {"success": False, "error": "Discover Latest AI 金鑰未設定", "analysis": "", "grounding_sources": []}
 
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
         except ImportError:
-            return {"success": False, "error": "google-generativeai 未安裝", "analysis": "", "grounding_sources": []}
+            return {"success": False, "error": "google-genai 未安裝", "analysis": "", "grounding_sources": []}
 
         with self._generate_lock:
             return self._generate_analysis_locked(
-                genai, api_key, symbol, stock_info, smc_summary,
+                api_key, symbol, stock_info, smc_summary,
                 prediction_summary, user_question,
             )
 
     def _generate_analysis_locked(
         self,
-        genai,
         api_key: str,
         symbol: str,
         stock_info: Dict = None,
@@ -137,7 +133,10 @@ class GeminiService:
         user_question: str = "",
     ) -> Dict[str, Any]:
         """Internal: runs under self._generate_lock to prevent race conditions."""
-        genai.configure(api_key=api_key)
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
 
         # Build context
         context_parts = []
@@ -157,44 +156,32 @@ class GeminiService:
         grounding_sources = []
         stage1_start = time.time()
         print(f"[Gemini] Stage 1 starting for {symbol}...")
-        
-        def _run_stage1():
-            """Stage 1 執行函數（可被 timeout 包裝）"""
-            nonlocal grounding_text, grounding_sources
-            grounding_prompt = f"""你是一位專業金融分析師。請針對以下股票搜尋最新的市場新聞、財報資訊和分析師觀點。
+
+        grounding_prompt = f"""你是一位專業金融分析師。請針對以下股票搜尋最新的市場新聞、財報資訊和分析師觀點。
 股票代號: {symbol}
 {context}
 {f'用戶問題: {user_question}' if user_question else ''}
 請簡潔列出 3-5 條最相關的即時資訊。"""
 
-            grounding_model = genai.GenerativeModel(MODEL_GROUNDING)
-            # Try with Google Search grounding tool (multiple API approaches)
-            grounding_response = None
+        def _run_stage1():
+            """Stage 1 執行函數（可被 timeout 包裝）"""
             try:
-                from google.generativeai import protos
-                google_search_tool = protos.Tool(
-                    google_search_retrieval=protos.GoogleSearchRetrieval()
+                response = client.models.generate_content(
+                    model=MODEL_GROUNDING,
+                    contents=grounding_prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())]
+                    ),
                 )
-                grounding_response = grounding_model.generate_content(
-                    grounding_prompt,
-                    tools=[google_search_tool],
-                )
+                return response
             except Exception as e1:
-                print(f"[Gemini] Stage 1 protos approach failed: {e1}")
-                try:
-                    # Fallback: string-based tool specification
-                    grounding_response = grounding_model.generate_content(
-                        grounding_prompt,
-                        tools="google_search_retrieval",
-                    )
-                except Exception as e2:
-                    print(f"[Gemini] Stage 1 string approach failed: {e2}")
-                    # Final fallback: no grounding tool
-                    grounding_response = grounding_model.generate_content(grounding_prompt)
-
-            if grounding_response and grounding_response.text:
-                return grounding_response
-            return None
+                print(f"[Gemini] Stage 1 grounding tool failed: {e1}")
+                # Fallback: no grounding tool
+                response = client.models.generate_content(
+                    model=MODEL_GROUNDING,
+                    contents=grounding_prompt,
+                )
+                return response
 
         try:
             with ThreadPoolExecutor(max_workers=1) as executor:
@@ -204,23 +191,25 @@ class GeminiService:
                     if grounding_response and grounding_response.text:
                         grounding_text = grounding_response.text
                         print(f"[Gemini] Stage 1 completed in {time.time() - stage1_start:.1f}s")
-                        
+
                         # Extract grounding metadata if available
                         if hasattr(grounding_response, 'candidates') and grounding_response.candidates:
                             candidate = grounding_response.candidates[0]
-                            if hasattr(candidate, 'grounding_metadata') and candidate.grounding_metadata:
-                                gm = candidate.grounding_metadata
-                                if hasattr(gm, 'grounding_chunks'):
+                            gm = getattr(candidate, 'grounding_metadata', None)
+                            if gm:
+                                chunks = getattr(gm, 'grounding_chunks', None) or getattr(gm, 'search_entry_point', None)
+                                if hasattr(gm, 'grounding_chunks') and gm.grounding_chunks:
                                     for chunk in gm.grounding_chunks:
-                                        if hasattr(chunk, 'web'):
+                                        web = getattr(chunk, 'web', None)
+                                        if web:
                                             grounding_sources.append({
-                                                "title": getattr(chunk.web, 'title', ''),
-                                                "uri": getattr(chunk.web, 'uri', ''),
+                                                "title": getattr(web, 'title', ''),
+                                                "uri": getattr(web, 'uri', ''),
                                             })
                 except FuturesTimeoutError:
                     print(f"[Gemini] Stage 1 TIMEOUT after {GEMINI_TIMEOUT_STAGE1}s")
                     grounding_text = "(Grounding 階段超時，使用本地資料)"
-                    
+
         except Exception as e:
             print(f"[Gemini] Stage 1 (Grounding) error: {e}")
             traceback.print_exc()
@@ -229,12 +218,11 @@ class GeminiService:
         # ── Stage 2: Final Output (may use a different key for load distribution) ──
         stage2_start = time.time()
         print(f"[Gemini] Stage 2 starting for {symbol}...")
-        
+
         # Get another key for Stage 2 (round-robin continues)
         api_key_2 = self._get_api_key()
-        if api_key_2 and api_key_2 != api_key:
-            genai.configure(api_key=api_key_2)
-            
+        client2 = genai.Client(api_key=api_key_2) if api_key_2 else client
+
         final_prompt = f"""你是「洞察運算」的資深投資分析顧問，正在為客戶做一對一的投資諮詢。
 請用專業但親切易懂的語氣，像是跟朋友聊天一樣自然地分析這檔股票。
 
@@ -270,15 +258,17 @@ class GeminiService:
 
         def _run_stage2():
             """Stage 2 執行函數（可被 timeout 包裝）"""
-            final_model = genai.GenerativeModel(MODEL_FINAL)
-            return final_model.generate_content(final_prompt)
-            
+            return client2.models.generate_content(
+                model=MODEL_FINAL,
+                contents=final_prompt,
+            )
+
         try:
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(_run_stage2)
                 try:
                     final_response = future.result(timeout=GEMINI_TIMEOUT_STAGE2)
-                    
+
                     analysis = final_response.text if final_response and final_response.text else "AI 分析生成失敗"
                     print(f"[Gemini] Stage 2 completed in {time.time() - stage2_start:.1f}s, {len(analysis)} chars")
 
@@ -290,7 +280,7 @@ class GeminiService:
                         "grounding_model": MODEL_GROUNDING,
                         "error": None,
                     }
-                    
+
                 except FuturesTimeoutError:
                     print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
                     return {
@@ -299,7 +289,7 @@ class GeminiService:
                         "analysis": "",
                         "grounding_sources": grounding_sources,
                     }
-                    
+
         except Exception as e:
             print(f"[Gemini] Stage 2 (Final) error: {e}")
             traceback.print_exc()
