@@ -313,6 +313,27 @@ def create_app():
     _space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
     _login_url = f"{_supabase_url}/auth/v1/authorize?provider=google&redirect_to={_space_url}" if _supabase_url else ""
 
+    # ===== Debug: 環境變數檢查 =====
+    from datetime import datetime
+    print("\n" + "="*50)
+    print(f"[Debug] 啟動環境檢查 ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+    debug_keys = {
+        "SUPABASE_URL": _supabase_url,
+        "SUPABASE_ANON_KEY": _supabase_anon_key,
+        "SPACE_URL": _space_url,
+        "GOOGLE_CLIENT_ID": _google_client_id,
+        "SUPABASE_SERVICE_ROLE_KEY": os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
+        "FINMIND_TOKEN": os.environ.get("FINMIND_TOKEN", "")
+    }
+    for key, val in debug_keys.items():
+        if val:
+            masked = f"{val[:6]}...{val[-4:]}" if len(val) > 10 else "***"
+            print(f"✅ {key}: {masked}")
+        else:
+            print(f"❌ {key}: 缺失 (Missing)")
+    print(f"🔗 Generated Login URL: {_login_url[:60]}...")
+    print("="*50 + "\n")
+
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
         css=CUSTOM_CSS,
