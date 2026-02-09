@@ -2904,3 +2904,63 @@ progress:indeterminate::-webkit-progress-bar {
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
 }
+
+/* ═══════════════════════════════════════════════
+   Phase 3: Advanced Animation System
+   Apple spring + Bloomberg data transitions
+   ═══════════════════════════════════════════════ */
+
+/* Apple spring page transition (with overshoot) */
+@keyframes springFadeIn {
+    0% { opacity: 0; transform: translateY(20px) scale(0.97); }
+    60% { opacity: 1; transform: translateY(-3px) scale(1.003); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Bloomberg number roll */
+@keyframes numberRoll {
+    0% { transform: translateY(100%); opacity: 0; }
+    100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Data update flash */
+@keyframes dataFlash {
+    0% { background-color: transparent; }
+    15% { background-color: rgba(212, 167, 106, 0.12); }
+    100% { background-color: transparent; }
+}
+
+/* Chart wipe-in reveal */
+@keyframes chartWipeIn {
+    from { clip-path: inset(0 100% 0 0); }
+    to { clip-path: inset(0); }
+}
+
+/* Error shake */
+@keyframes errorShake {
+    0%, 100% { transform: translateX(0); }
+    20%, 60% { transform: translateX(-5px); }
+    40%, 80% { transform: translateX(5px); }
+}
+
+/* Success bounce */
+@keyframes successBounce {
+    0% { transform: scale(0.3); opacity: 0; }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+/* Progress bar glow */
+@keyframes progressGlow {
+    0%, 100% { box-shadow: 0 0 4px rgba(212, 167, 106, 0.3); }
+    50% { box-shadow: 0 0 16px rgba(212, 167, 106, 0.5); }
+}
+
+/* ── Utility animation classes ── */
+.spring-enter { animation: springFadeIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+.data-flash { animation: dataFlash 1s ease; }
+.chart-reveal { animation: chartWipeIn 0.6s ease-out forwards; }
+.error-shake { animation: errorShake 0.5s ease; }
+.success-bounce { animation: successBounce 0.4s ease forwards; }
+.number-roll { animation: numberRoll 0.4s ease-out forwards; overflow: hidden; }
+.progress-glow { animation: progressGlow 2s ease-in-out infinite; }

@@ -1149,7 +1149,7 @@ def create_app():
                         if (mainContent) {
                             mainContent.style.animation = 'none';
                             mainContent.offsetHeight; // force reflow
-                            mainContent.style.animation = 'fadeInScale 0.4s ease forwards';
+                            mainContent.style.animation = 'springFadeIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards';
                         }
                     }
                     if (_pageLoadingTimer) { clearTimeout(_pageLoadingTimer); _pageLoadingTimer = null; }
