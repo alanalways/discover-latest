@@ -334,10 +334,20 @@ def create_app():
     print(f"🔗 Generated Login URL: {_login_url[:60]}...")
     print("="*50 + "\n")
 
+    # OAuth 設定 JavaScript - 必須在頁面載入時執行
+    _oauth_head_js = f'''<script>
+        window._googleClientId = "{_google_client_id}";
+        window._supabaseLoginUrl = "{_login_url}";
+        console.log("[Init] OAuth config injected via head:", {{
+            hasClientId: !!window._googleClientId,
+            hasLoginUrl: !!window._supabaseLoginUrl
+        }});
+    </script>'''
+    
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
         css=CUSTOM_CSS,
-        # ... (其餘設定保持不變)
+        head=_oauth_head_js,
     ) as app:
         # ── 系統診斷區 (僅在沒登入時顯示) ──
         with gr.Row(visible=True) as diag_box:
@@ -1048,12 +1058,17 @@ def create_app():
                     gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist,
                 )
 
+
+
         app.load(fn=_safe_initial_load, inputs=_state_inputs, outputs=_all_outputs)
 
         # ── Client-side JS (with MutationObserver for script execution) ──
+        # OAuth 設定已透過 gr.Blocks head 參數注入
         app.load(fn=lambda *_args: None, js="""
         () => {
             console.log('[Init] DiscoverLatest v8.0 (gr.State + MutationObserver)');
+            
+            // OAuth config (window._googleClientId, window._supabaseLoginUrl) is injected via head
 
             // ── MutationObserver: re-execute <script> tags injected via innerHTML ──
             new MutationObserver(function(mutations) {
