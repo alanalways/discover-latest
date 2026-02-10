@@ -730,12 +730,15 @@ def _create_prediction_card(history: List[Dict], symbol: str, lang: str,
         }});
         lowerSeries.setData(forecastData.map(d => ({{ time: d.date, value: d.lower }})));
         
-        chart.timeScale().fitContent();
-        
+        var _prt = null;
         new ResizeObserver(entries => {{
-            if (entries.length === 0) return;
-            chart.applyOptions({{ width: entries[0].contentRect.width }});
+            if (_prt) clearTimeout(_prt);
+            _prt = setTimeout(() => {{
+                if (entries.length === 0) return;
+                chart.applyOptions({{ width: Math.floor(entries[0].contentRect.width) }});
+            }}, 150);
         }}).observe(container);
+        setTimeout(() => {{ chart.timeScale().fitContent(); }}, 200);
         
         // Toggle
         window.togglePrediction = function() {{

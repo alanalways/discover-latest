@@ -974,7 +974,6 @@ h3 {
 .dashboard-card:hover {
     border-color: rgba(0, 217, 126, 0.12);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-2px);
 }
 
 .index-card:hover::before,
@@ -1449,7 +1448,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .metric-card:hover {
     border-color: rgba(0, 217, 126, 0.1);
-    transform: translateY(-1px);
 }
 
 .metric-label {
@@ -1557,7 +1555,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .stat-card:hover {
     border-color: rgba(0, 217, 126, 0.1);
-    transform: translateY(-1px);
 }
 
 .stat-card:hover::before {
@@ -1689,7 +1686,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .industry-card:hover {
     border-color: rgba(0, 217, 126, 0.1);
-    transform: translateY(-1px);
 }
 
 .industry-header {
@@ -1801,9 +1797,9 @@ progress:indeterminate::-webkit-progress-bar {
 }
 
 .bubble:hover {
-    transform: translate(-50%, -50%) scale(1.1);
     z-index: 10;
-    box-shadow: 0 0 24px rgba(0, 217, 126, 0.1);
+    box-shadow: 0 0 24px rgba(0, 217, 126, 0.15);
+    opacity: 0.9;
 }
 
 .bubble-label {
@@ -1899,7 +1895,6 @@ progress:indeterminate::-webkit-progress-bar {
 .watchlist-card:hover {
     border-color: rgba(0, 217, 126, 0.1);
     box-shadow: var(--shadow-card-hover);
-    transform: translateY(-2px);
 }
 
 .watchlist-card-remove {
@@ -3524,7 +3519,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .admin-btn:hover {
     opacity: 0.9;
-    transform: translateY(-1px);
 }
 
 .admin-btn.secondary {
@@ -3629,7 +3623,6 @@ progress:indeterminate::-webkit-progress-bar {
 .industry-card:hover {
     border-color: rgba(0, 217, 126, 0.2);
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4), 0 0 20px var(--accent-clr, rgba(0, 217, 126, 0.06));
-    transform: translateY(-4px);
 }
 
 .industry-card-glow {
@@ -3835,7 +3828,6 @@ progress:indeterminate::-webkit-progress-bar {
 }
 
 .pricing-card:hover {
-    transform: translateY(-4px);
     box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
 }
 
@@ -3961,7 +3953,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .plan-btn:hover {
     filter: brightness(1.1);
-    transform: translateY(-1px);
 }
 
 .plan-btn.yearly {
@@ -4044,7 +4035,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .ai-quick-btn:hover {
     filter: brightness(1.1);
-    transform: translateY(-1px);
 }
 
 .ai-deep-btn {
@@ -4055,7 +4045,6 @@ progress:indeterminate::-webkit-progress-bar {
 
 .ai-deep-btn:hover {
     background: rgba(0, 217, 126, 0.08);
-    transform: translateY(-1px);
 }
 
 /* ?? Market Refresh Toolbar (Phase 5) ?? */
@@ -4284,7 +4273,6 @@ textarea:focus {
 }
 
 .lock-upgrade-btn:hover {
-    transform: translateY(-2px);
     box-shadow: 0 6px 20px rgba(0, 217, 126, 0.3);
 }
 
@@ -4431,6 +4419,5 @@ textarea:focus {
 }
 
 .lock-upgrade-btn:hover {
-    transform: translateY(-2px);
     box-shadow: 0 4px 12px rgba(0, 217, 126, 0.3);
 }

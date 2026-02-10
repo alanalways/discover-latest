@@ -633,11 +633,15 @@ def create_line_chart(
                 timeScale: {{ borderColor: 'rgba(55,65,81,0.3)', timeVisible: true }},
             }});
             {series_js}
-            chart.timeScale().fitContent();
+            var _rt = null;
             new ResizeObserver(function(e) {{
-                if (e.length===0) return;
-                chart.applyOptions({{ width: e[0].contentRect.width }});
+                if (_rt) clearTimeout(_rt);
+                _rt = setTimeout(function() {{
+                    if (e.length===0) return;
+                    chart.applyOptions({{ width: Math.floor(e[0].contentRect.width) }});
+                }}, 150);
             }}).observe(container);
+            setTimeout(function() {{ chart.timeScale().fitContent(); }}, 200);
         }}
         if (window.LightweightCharts) runChart();
         else {{
@@ -694,8 +698,9 @@ def create_equity_chart(
             }});
             eq.setData({eq_data});
             {bh_js}
-            chart.timeScale().fitContent();
-            new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+            var _rt=null;
+            new ResizeObserver(function(e){{if(_rt)clearTimeout(_rt);_rt=setTimeout(function(){{if(e.length)chart.applyOptions({{width:Math.floor(e[0].contentRect.width)}})}},150)}}).observe(c);
+            setTimeout(function(){{chart.timeScale().fitContent()}},200);
         }}
         if(window.LightweightCharts)runChart();
         else {{ var t=setInterval(function(){{ if(window.LightweightCharts){{ clearInterval(t); runChart(); }} }}, 50); }}
@@ -738,8 +743,9 @@ def create_drawdown_chart(
                 lineColor:'#EF4444',lineWidth:1.5,title:'Drawdown %',
             }});
             dd.setData({dd_data});
-            chart.timeScale().fitContent();
-            new ResizeObserver(function(e){{if(e.length)chart.applyOptions({{width:e[0].contentRect.width}})}}).observe(c);
+            var _rt2=null;
+            new ResizeObserver(function(e){{if(_rt2)clearTimeout(_rt2);_rt2=setTimeout(function(){{if(e.length)chart.applyOptions({{width:Math.floor(e[0].contentRect.width)}})}},150)}}).observe(c);
+            setTimeout(function(){{chart.timeScale().fitContent()}},200);
         }}
         if(window.LightweightCharts)runChart();
         else {{ var t=setInterval(function(){{ if(window.LightweightCharts){{ clearInterval(t); runChart(); }} }}, 50); }}

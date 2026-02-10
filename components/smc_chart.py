@@ -180,10 +180,14 @@ def create_smc_chart(
             liqLines.push(cs.createPriceLine({{price:liq.price,color:c,lineWidth:2,lineStyle:0,axisLabelVisible:true,title:liq.label}}));
         }});
 
-        chart.timeScale().fitContent();
+        var _smcrt = null;
         new ResizeObserver(es => {{
-            if(es.length){{chart.applyOptions({{width:es[0].contentRect.width}});drawRects();}};
+            if(_smcrt) clearTimeout(_smcrt);
+            _smcrt = setTimeout(() => {{
+                if(es.length){{chart.applyOptions({{width:Math.floor(es[0].contentRect.width)}});drawRects();}};
+            }}, 150);
         }}).observe(container);
+        setTimeout(() => {{ chart.timeScale().fitContent(); }}, 200);
 
         // ── Rectangle overlay drawing ──
         const rects = {json.dumps(rects)};
