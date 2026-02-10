@@ -35,7 +35,6 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
         ('backtest', 'nav.backtest', 'trending-up'),
         ('portfolio', 'nav.portfolio', 'briefcase'),
         ('industry', 'nav.industry', 'globe'),
-        ('dexter', 'nav.dexter', 'sparkles'),
         ('pricing', 'nav.pricing', 'diamond'),
         ('admin', 'nav.admin', 'settings'),
     ]

@@ -556,19 +556,6 @@ def create_app():
                         lang=lang,
                         user_info=pricing_user,
                     )
-                elif page_id == "dexter":
-                    # Dexter 深度分析入口 - 導向到 stock 頁面
-                    if cur_symbol:
-                        data = _fetch_stock_data_sync(cur_symbol)
-                        inner = create_stock_analysis_page(
-                            symbol=cur_symbol,
-                            stock_data=data,
-                            lang=lang,
-                            current_user=cur_user,
-                            chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [],
-                        )
-                    else:
-                        inner = create_stock_analysis_page(lang=lang, current_user=cur_user, chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [])
                 elif page_id == "crypto":
                     safe_id = html_mod.escape(str(page_id))
                     inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>🚀 加密貨幣功能開發中</h2><p>敬請期待...</p></div>'
@@ -639,6 +626,8 @@ def create_app():
             tier = _get_tier(cur_user)
             try:
                 payload = json.loads(action_json)
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
                 action = payload.get("action", "")
                 print(f"[Action] {action} → {payload} (tier={tier})")
 
@@ -751,12 +740,6 @@ def create_app():
                         page = build_full_page(inner, lang, current_user=cur_user, current_page='portfolio')
                         return _result(page, json.dumps(new_list), cur_user, cur_symbol, lang, cur_watchlist)
                     return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
-                elif action == "dexter_query":
-                    # 門禁：Dexter 需要 Premium
-                    if not can_access(tier, "ai_dexter"):
-                        return _gate_block("ai_dexter", cur_user, lang, cur_symbol, cur_watchlist)
-                    page = _handle_dexter_action(payload, cur_user, cur_symbol, lang)
-                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "upgrade_request":
                     # 處理升級請求
                     from services.email_service import email_service
@@ -911,17 +894,17 @@ def create_app():
 
             # Phase 4 門禁：模型分級
             if model == "arima" and not can_access(tier, "predict_arima"):
-                locked_html = get_locked_html("predict_arima", tier, lang)
+                locked_html = get_locked_overlay_html("ARIMA 預測模型", "Pro")
                 return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
             if model == "prophet" and not can_access(tier, "predict_prophet"):
-                locked_html = get_locked_html("predict_prophet", tier, lang)
+                locked_html = get_locked_overlay_html("Prophet 預測模型", "Premium")
                 return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
             # 天數門禁
             if horizon >= 60 and not can_access(tier, "predict_horizon_60"):
-                locked_html = get_locked_html("predict_horizon_60", tier, lang)
+                locked_html = get_locked_overlay_html("60 日預測", "Premium")
                 return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
             if horizon >= 20 and not can_access(tier, "predict_horizon_20"):
-                locked_html = get_locked_html("predict_horizon_20", tier, lang)
+                locked_html = get_locked_overlay_html("20 日預測", "Pro")
                 return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
 
             if not symbol:
@@ -1754,6 +1737,9 @@ def create_app():
                     const q = document.getElementById('admin-user-search')?.value;
                     if (typeof dispatchAction === 'function') {
                         dispatchAction({action:'admin_search', sub_action:'search_user', query: q || ''});
+                    } else {
+                        console.error('[Admin] dispatchAction not ready');
+                        alert('系統尚未就緒，請重新整理頁面');
                     }
                 };
                 window.adminUpdateTier = function() {
@@ -1762,6 +1748,9 @@ def create_app():
                     const expires = document.getElementById('admin-tier-expires')?.value;
                     if (typeof dispatchAction === 'function') {
                         dispatchAction({action:'admin_search', sub_action:'update_tier', uid:uid, tier:tier, expires:expires});
+                    } else {
+                        console.error('[Admin] dispatchAction not ready');
+                        alert('系統尚未就緒，請重新整理頁面');
                     }
                 };
                 window.adminAddKey = function() {
@@ -1769,6 +1758,9 @@ def create_app():
                     const value = document.getElementById('admin-key-value')?.value;
                     if (typeof dispatchAction === 'function') {
                         dispatchAction({action:'admin_search', sub_action:'add_key', key_name:name, key_value:value});
+                    } else {
+                        console.error('[Admin] dispatchAction not ready');
+                        alert('系統尚未就緒，請重新整理頁面');
                     }
                 };
 

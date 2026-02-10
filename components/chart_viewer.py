@@ -547,12 +547,16 @@ def create_candlestick_chart(
             }}
         }});
 
-        chart.timeScale().fitContent();
+        var _resizeTimer = null;
         new ResizeObserver(function(entries) {{
-            if (entries.length === 0) return;
-            var r = entries[0].contentRect;
-            chart.applyOptions({{ width: r.width, height: r.height }});
+            if (_resizeTimer) clearTimeout(_resizeTimer);
+            _resizeTimer = setTimeout(function() {{
+                if (entries.length === 0) return;
+                var r = entries[0].contentRect;
+                chart.applyOptions({{ width: Math.floor(r.width), height: Math.floor(r.height) }});
+            }}, 150);
         }}).observe(container);
+        setTimeout(function() {{ chart.timeScale().fitContent(); }}, 200);
         }}
         if (window.LightweightCharts) runChart();
         else {{

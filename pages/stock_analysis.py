@@ -586,17 +586,11 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
 
     return f'''
     <div class="chart-section ai-unified-card" style="margin-bottom:24px;padding:24px;">
-        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                快速分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
-            </button>
-            <button class="ai-deep-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}},this)">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                深度研究 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~2 分鐘</span>
-            </button>
-        </div>
-        <p style="color:var(--text-3);font-size:12px;margin-top:10px;">快速分析使用即時數據生成報告 · 深度研究啟動 Dexter 代理蒐集多維數據</p>
+        <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            AI 智慧分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
+        </button>
+        <p style="color:var(--text-3);font-size:12px;margin-top:10px;">結合即時市場數據與 AI 模型生成綜合分析報告</p>
         {quick_result_html}
     </div>
     '''

@@ -327,10 +327,20 @@ def create_watchlist_page(
             </p>
         </div>'''
 
+    add_form = f'''
+    <div class="watchlist-add-form" style="display:flex;gap:12px;margin-bottom:24px;">
+        <input type="text" id="watchlist-add-input" class="watchlist-add-input"
+               placeholder="{'輸入股票代號（如 2330、AAPL）' if lang == 'zh-TW' else 'Enter symbol (e.g. 2330, AAPL)'}"
+               autocomplete="off"
+               onkeydown="if(event.key==='Enter')watchlistAdd()"/>
+        <button class="watchlist-add-btn" onclick="watchlistAdd()">{_ICON_PLUS} 新增</button>
+    </div>'''
+
     return f'''
     <div class="watchlist-page">
         {header_html}
         {add_form}
+        {alerts_html}
         {content_html}
         {modal_html}
         {script}
