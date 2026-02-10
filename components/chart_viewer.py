@@ -518,33 +518,49 @@ def create_candlestick_chart(
             }}
         }};
 
-        // Tooltip
+        // Tooltip（pre-build DOM to avoid innerHTML → MutationObserver storm）
         var tooltip = document.getElementById('{chart_id}-tooltip');
+        if (tooltip) {{
+            tooltip.innerHTML =
+                '<div class="tt-date" style="color:#CBD5E1;font-weight:600;margin-bottom:6px;"></div>' +
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-family:monospace;">' +
+                '<span style="color:#64748B;">O</span><span class="tt-o" style="color:#F8FAFC;"></span>' +
+                '<span style="color:#64748B;">H</span><span class="tt-h" style="color:#F8FAFC;"></span>' +
+                '<span style="color:#64748B;">L</span><span class="tt-l" style="color:#F8FAFC;"></span>' +
+                '<span style="color:#64748B;">C</span><span class="tt-c" style="font-weight:700;"></span>' +
+                '</div>' +
+                '<div class="tt-chg" style="margin-top:4px;font-weight:600;"></div>' +
+                '<div class="tt-vol" style="color:#64748B;margin-top:4px;"></div>';
+            var _ttDate = tooltip.querySelector('.tt-date');
+            var _ttO = tooltip.querySelector('.tt-o');
+            var _ttH = tooltip.querySelector('.tt-h');
+            var _ttL = tooltip.querySelector('.tt-l');
+            var _ttC = tooltip.querySelector('.tt-c');
+            var _ttChg = tooltip.querySelector('.tt-chg');
+            var _ttVol = tooltip.querySelector('.tt-vol');
+        }}
         chart.subscribeCrosshairMove(function(param) {{
+            if (!tooltip) return;
             if (!param.time || !param.point || param.point.x < 0 || param.point.y < 0) {{
-                if (tooltip) tooltip.style.display = 'none';
+                tooltip.style.display = 'none';
                 return;
             }}
             var d = param.seriesData.get(cs);
-            if (!d) {{ if (tooltip) tooltip.style.display = 'none'; return; }}
+            if (!d) {{ tooltip.style.display = 'none'; return; }}
             var chg = d.close - d.open;
             var pct = d.open ? ((chg / d.open) * 100).toFixed(2) : '0.00';
             var clr = chg >= 0 ? '#22C55E' : '#EF4444';
-            var volStr = '';
-            {vol_tooltip_js}
-            if (tooltip) {{
-                tooltip.innerHTML =
-                    '<div style="color:#CBD5E1;font-weight:600;margin-bottom:6px;">' + param.time + '</div>' +
-                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;font-family:monospace;">' +
-                    '<span style="color:#64748B;">O</span><span style="color:#F8FAFC;">' + d.open.toFixed(2) + '</span>' +
-                    '<span style="color:#64748B;">H</span><span style="color:#F8FAFC;">' + d.high.toFixed(2) + '</span>' +
-                    '<span style="color:#64748B;">L</span><span style="color:#F8FAFC;">' + d.low.toFixed(2) + '</span>' +
-                    '<span style="color:#64748B;">C</span><span style="color:' + clr + ';font-weight:700;">' + d.close.toFixed(2) + '</span>' +
-                    '</div>' +
-                    '<div style="color:' + clr + ';margin-top:4px;font-weight:600;">' + (chg>=0?'+':'') + chg.toFixed(2) + ' (' + (chg>=0?'+':'') + pct + '%)</div>' +
-                    volStr;
-                tooltip.style.display = 'block';
-            }}
+            _ttDate.textContent = param.time;
+            _ttO.textContent = d.open.toFixed(2);
+            _ttH.textContent = d.high.toFixed(2);
+            _ttL.textContent = d.low.toFixed(2);
+            _ttC.textContent = d.close.toFixed(2);
+            _ttC.style.color = clr;
+            _ttChg.textContent = (chg>=0?'+':'') + chg.toFixed(2) + ' (' + (chg>=0?'+':'') + pct + '%)';
+            _ttChg.style.color = clr;
+            var vd = param.seriesData.get(typeof vs !== 'undefined' ? vs : null);
+            _ttVol.textContent = vd ? 'Vol: ' + (vd.value/1000).toFixed(0) + 'K' : '';
+            tooltip.style.display = 'block';
         }});
 
         var _resizeTimer = null;

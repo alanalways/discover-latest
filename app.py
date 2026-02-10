@@ -1452,6 +1452,9 @@ def create_app():
             new MutationObserver(function(mutations) {
                 var hasContentUpdate = false;
                 mutations.forEach(function(mutation) {
+                    // Skip mutations inside chart tooltips / LightweightCharts internals
+                    var t = mutation.target;
+                    if (t && t.closest && (t.closest('[id$="-tooltip"]') || t.closest('.tv-lightweight-charts'))) return;
                     mutation.addedNodes.forEach(function(node) {
                         if (node.nodeType === 1) {
                             // Re-execute script tags
@@ -1903,13 +1906,17 @@ def create_app():
                         }, 1000);
                     }
                     // Start countdown when market page is visible
-                    new MutationObserver(function() {
+                    var _mktObTarget = document.getElementById('app-root') || document.body;
+                    new MutationObserver(function(muts) {
+                        var dominated = false;
+                        for(var i=0;i<muts.length;i++){if(muts[i].addedNodes.length>0){dominated=true;break;}}
+                        if (!dominated) return;
                         if (document.querySelector('.market-page')) {
                             if (!_marketTimer) startMarketCountdown();
                         } else {
                             if (_marketTimer) { clearInterval(_marketTimer); _marketTimer = null; }
                         }
-                    }).observe(document.body, {childList:true, subtree:true});
+                    }).observe(_mktObTarget, {childList:true, subtree:false});
                     if (document.querySelector('.market-page')) startMarketCountdown();
                 })();
 
