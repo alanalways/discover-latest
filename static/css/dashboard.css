@@ -1251,11 +1251,6 @@ h3 {
     padding: 24px;
     margin-bottom: 24px;
     position: relative;
-    transition: border-color var(--duration-normal) ease;
-}
-
-.chart-section:hover {
-    border-color: rgba(255, 255, 255, 0.08);
 }
 
 .main-chart-section {
@@ -4284,7 +4279,8 @@ textarea:focus {
 
 .chart-section {
     min-height: 480px;
-    contain: layout;
+    contain: layout size;
+    overflow: hidden;
 }
 
 .stock-page {

@@ -180,11 +180,16 @@ def create_smc_chart(
             liqLines.push(cs.createPriceLine({{price:liq.price,color:c,lineWidth:2,lineStyle:0,axisLabelVisible:true,title:liq.label}}));
         }});
 
-        var _smcrt = null;
+        var _smcrt = null, _smclw = container.clientWidth;
         new ResizeObserver(es => {{
             if(_smcrt) clearTimeout(_smcrt);
             _smcrt = setTimeout(() => {{
-                if(es.length){{chart.applyOptions({{width:Math.floor(es[0].contentRect.width)}});drawRects();}};
+                if(es.length){{
+                    var nw = Math.floor(es[0].contentRect.width);
+                    if(Math.abs(nw - _smclw) < 2) return;
+                    _smclw = nw;
+                    chart.applyOptions({{width:nw}});drawRects();
+                }};
             }}, 150);
         }}).observe(container);
         setTimeout(() => {{ chart.timeScale().fitContent(); }}, 200);

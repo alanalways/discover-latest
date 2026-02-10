@@ -195,13 +195,16 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
             }});
         }}
 
-            // Responsive (debounced)
-            var _d3rt = null;
+            // Responsive (debounced + threshold)
+            var _d3rt = null, _d3lw = container.clientWidth;
             new ResizeObserver(function(entries) {{
                 if (_d3rt) clearTimeout(_d3rt);
                 _d3rt = setTimeout(function() {{
                     if (!entries.length) return;
-                    var w = Math.max(300, Math.floor(entries[0].contentRect.width) - 48);
+                    var nw = Math.floor(entries[0].contentRect.width);
+                    if (Math.abs(nw - _d3lw) < 4) return;
+                    _d3lw = nw;
+                    var w = Math.max(300, nw - 48);
                     svg.attr('viewBox', '0 0 ' + w + ' ' + height);
                     sim.force('center', d3.forceCenter(w / 2, height / 2)).alpha(0.3).restart();
                 }}, 200);
