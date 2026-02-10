@@ -38,14 +38,14 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
     <div class="login-page">
         <!-- 引入 Google GIS 腳本 -->
         <script src="https://accounts.google.com/gsi/client" async defer></script>
-        <div class="login-card">
+        <div class="login-card" style="color:#E8F0F2;">
             <div class="login-logo">
-                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#D4A76A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke="#00D97E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
                 </svg>
-                <span class="login-brand">DiscoverLatest</span>
+                <span class="login-brand" style="color:#E8F0F2;font-size:22px;font-weight:600;">DiscoverLatest</span>
             </div>
-            <p class="login-tagline">
+            <p class="login-tagline" style="color:#8B9DAF;">
                 洞察運算 · AI 智慧投資分析平台<br>
                 整合 SMC/ICT 技術分析、價格預測與 Discover Latest AI
             </p>
@@ -59,7 +59,7 @@ def _create_login_page(lang: str = 'zh-TW') -> str:
                 </svg>
                 使用 Google 帳號登入
             </button>
-            <p class="login-disclaimer">
+            <p class="login-disclaimer" style="color:#516378;">
                 登入即表示您同意本平台的使用條款。<br>
                 本平台提供之資訊僅供參考，不構成投資建議。
             </p>
@@ -406,7 +406,7 @@ def create_app():
         head=_oauth_head_js,
     ) as app:
         # ── 系統診斷區 (僅在沒登入時顯示) ──
-        with gr.Row(visible=True) as diag_box:
+        with gr.Row(visible=False) as diag_box:
             with gr.Accordion("🛠️ 系統診斷資訊 (啟動檢查)", open=False):
                 diag_md = gr.Markdown("正在檢查環境變數...")
                 
