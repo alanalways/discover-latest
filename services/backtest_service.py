@@ -310,11 +310,12 @@ class BacktestService:
         initial_capital: float,
         position_size: float
     ) -> List[Dict]:
-        """模擬交易"""
+        """模擬交易（含正確 PnL 計算與期末結算）"""
         trades = []
         capital = initial_capital
         shares = 0
         entry_price = 0
+        last_cost = 0  # 追蹤買入總成本（含手續費）
         
         for signal in signals:
             price = signal["price"]
@@ -323,9 +324,12 @@ class BacktestService:
                 # 買入
                 trade_amount = capital * position_size
                 shares = int(trade_amount / price)
+                if shares <= 0:
+                    continue
                 cost = shares * price * (1 + self.commission_rate)
                 capital -= cost
                 entry_price = price
+                last_cost = cost  # 記錄實際成本
                 
                 trades.append({
                     "date": signal["date"],
@@ -340,8 +344,8 @@ class BacktestService:
             elif signal["signal"] == "sell" and shares > 0:
                 # 賣出
                 proceeds = shares * price * (1 - self.commission_rate - self.tax_rate)
-                pnl = proceeds - shares * entry_price - shares * entry_price * self.commission_rate
-                pnl_pct = (price - entry_price) / entry_price * 100
+                pnl = proceeds - last_cost  # 修正：用實際成本計算損益
+                pnl_pct = (price - entry_price) / entry_price * 100 if entry_price > 0 else 0
                 capital += proceeds
                 
                 trades.append({
@@ -358,41 +362,65 @@ class BacktestService:
                 
                 shares = 0
                 entry_price = 0
+                last_cost = 0
+        
+        # 期末結算：若仍有未平倉部位，用最後收盤價結算
+        if shares > 0 and history:
+            last_close = history[-1].get("close", 0)
+            if last_close > 0:
+                proceeds = shares * last_close * (1 - self.commission_rate - self.tax_rate)
+                pnl = proceeds - last_cost
+                pnl_pct = (last_close - entry_price) / entry_price * 100 if entry_price > 0 else 0
+                capital += proceeds
+                trades.append({
+                    "date": history[-1].get("date", ""),
+                    "action": "期末結算",
+                    "price": last_close,
+                    "shares": shares,
+                    "proceeds": proceeds,
+                    "pnl": pnl,
+                    "pnl_pct": pnl_pct,
+                    "capital_after": capital,
+                    "reason": "回測期間結束，強制結算"
+                })
+                shares = 0
         
         return trades
     
     def _build_equity_curve(
         self, history: List[Dict], trades: List[Dict], initial_capital: float
     ) -> List[float]:
-        """建立逐日權益曲線"""
-        trade_map = {}
-        for t in trades:
-            d = t.get("date", "")
-            trade_map[d] = t.get("capital_after", None)
-
-        equity = [initial_capital]
-        shares = 0
+        """建立逐日權益曲線（線性掃描法）"""
+        if not history:
+            return [initial_capital]
+        
         cash = initial_capital
-        entry_price = 0
-
+        shares = 0
+        trade_idx = 0
+        equity = []
+        
+        # 按日期排序交易
+        sorted_trades = sorted(trades, key=lambda t: t.get("date", ""))
+        
         for h in history:
             d = h.get("date", "")
             close = h.get("close", 0)
-            if d in trade_map:
-                cash = trade_map[d]
-                # 判斷是否仍有持倉
-                for t in trades:
-                    if t.get("date") == d:
-                        action = t.get("action", "")
-                        if "買入" in action or "買" in action:
-                            shares = t.get("shares", 0)
-                            entry_price = t.get("price", close)
-                        elif "賣出" in action or "結算" in action:
-                            shares = 0
-            total = cash + shares * close
-            equity.append(total)
-
-        return equity[:len(history)]
+            
+            # 處理當天所有交易
+            while trade_idx < len(sorted_trades) and sorted_trades[trade_idx].get("date", "") <= d:
+                t = sorted_trades[trade_idx]
+                action = t.get("action", "")
+                if "買入" in action or "買" in action:
+                    cash = t.get("capital_after", cash)
+                    shares = t.get("shares", 0)
+                elif "賣出" in action or "結算" in action:
+                    cash = t.get("capital_after", cash)
+                    shares = 0
+                trade_idx += 1
+            
+            equity.append(cash + shares * close)
+        
+        return equity
 
     def _calculate_metrics(
         self,
@@ -406,7 +434,9 @@ class BacktestService:
             return {
                 "total_return": 0, "total_return_pct": 0, "win_rate": 0,
                 "total_trades": 0, "max_drawdown": 0, "sharpe_ratio": 0,
-                "profit_factor": 0,
+                "profit_factor": 0, "final_capital": initial_capital,
+                "winning_trades": 0, "losing_trades": 0,
+                "avg_win": 0, "avg_loss": 0,
             }
 
         final_capital = trades[-1].get("capital_after", initial_capital)

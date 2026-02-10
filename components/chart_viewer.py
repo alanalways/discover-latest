@@ -212,10 +212,9 @@ def create_candlestick_chart(
         var container = document.getElementById('{chart_id}');
         if (!container) return;
         var retryCount = 0;
-        var maxRetries = 30;
+        var maxRetries = 50;
         function runChart() {{
-            if (!window.LightweightCharts) return;
-            if (container.clientWidth === 0) {{
+            if (!window.LightweightCharts || container.clientWidth === 0) {{
                 if (retryCount < maxRetries) {{
                     retryCount++;
                     setTimeout(runChart, 100);
@@ -229,7 +228,7 @@ def create_candlestick_chart(
             width: container.clientWidth,
             height: container.clientHeight,
             layout: {{
-                background: {{ type: 'solid', color: 'transparent' }},
+                background: {{ type: 'solid', color: '#0a0a0a' }},
                 textColor: '#64748B',
                 fontFamily: "'IBM Plex Sans', system-ui, sans-serif",
                 fontSize: 11,
@@ -360,10 +359,9 @@ def create_line_chart(
         var container = document.getElementById('{chart_id}');
         if (!container) return;
         var retryCount = 0;
-        var maxRetries = 30;
+        var maxRetries = 50;
         function runChart() {{
-            if (!window.LightweightCharts) return;
-            if (container.clientWidth === 0) {{
+            if (!window.LightweightCharts || container.clientWidth === 0) {{
                 if (retryCount < maxRetries) {{
                     retryCount++;
                     setTimeout(runChart, 100);
@@ -375,7 +373,7 @@ def create_line_chart(
             container.innerHTML = '';
             var chart = LightweightCharts.createChart(container, {{
                 width: container.clientWidth, height: {height},
-                layout: {{ background: {{ type: 'solid', color: 'transparent' }}, textColor: '#9ca3af' }},
+                layout: {{ background: {{ type: 'solid', color: '#0a0a0a' }}, textColor: '#9ca3af' }},
                 grid: {{ vertLines: {{ color: 'rgba(55,65,81,0.2)' }}, horzLines: {{ color: 'rgba(55,65,81,0.2)' }} }},
                 rightPriceScale: {{ borderColor: 'rgba(55,65,81,0.3)' }},
                 timeScale: {{ borderColor: 'rgba(55,65,81,0.3)', timeVisible: true }},
@@ -431,7 +429,7 @@ def create_equity_chart(
             c.innerHTML='';
             var chart=LightweightCharts.createChart(c,{{
                 width:c.clientWidth,height:{height},
-                layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+                layout:{{background:{{type:'solid',color:'#0a0a0a'}},textColor:'#64748B',fontSize:11}},
                 grid:{{vertLines:{{color:'rgba(55,65,81,0.12)'}},horzLines:{{color:'rgba(55,65,81,0.12)'}}}},
                 rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
                 timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},
@@ -476,7 +474,7 @@ def create_drawdown_chart(
             c.innerHTML='';
             var chart=LightweightCharts.createChart(c,{{
                 width:c.clientWidth,height:{height},
-                layout:{{background:{{type:'solid',color:'transparent'}},textColor:'#64748B',fontSize:11}},
+                layout:{{background:{{type:'solid',color:'#0a0a0a'}},textColor:'#64748B',fontSize:11}},
                 grid:{{vertLines:{{color:'rgba(55,65,81,0.1)'}},horzLines:{{color:'rgba(55,65,81,0.1)'}}}},
                 rightPriceScale:{{borderColor:'rgba(55,65,81,0.3)'}},
                 timeScale:{{borderColor:'rgba(55,65,81,0.3)'}},

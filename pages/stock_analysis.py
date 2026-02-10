@@ -256,10 +256,19 @@ def _create_risk_metrics(info: Dict, history: List[Dict], lang: str) -> str:
 
 def _create_fundamentals(info: Dict, lang: str) -> str:
     """建立基本面資訊"""
+    def _fmt(val, fmt_str="{}", default="—"):
+        """格式化數值，None 時顯示 '—'"""
+        if val is None:
+            return default
+        try:
+            return fmt_str.format(val)
+        except (ValueError, TypeError):
+            return default
+    
     rows = [
-        (t('stock.pe', lang), f"{info.get('pe_ratio', '-')}"),
-        (t('stock.pb', lang), f"{info.get('pb_ratio', '-')}"),
-        (t('stock.eps', lang), f"{info.get('eps', '-')}"),
+        (t('stock.pe', lang), _fmt(info.get('pe_ratio'), "{:.2f}")),
+        (t('stock.pb', lang), _fmt(info.get('pb_ratio'), "{:.2f}")),
+        (t('stock.eps', lang), _fmt(info.get('eps'), "{:.2f}")),
         (t('stock.dividend', lang), f"{(info.get('dividend_yield', 0) or 0) * 100:.2f}%"),
     ]
     
@@ -496,11 +505,11 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
     return f'''
     <div class="chart-section ai-unified-card" style="margin-bottom:24px;padding:24px;">
         <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}})">
+            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                 快速分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
             </button>
-            <button class="ai-deep-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}})">
+            <button class="ai-deep-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'dexter_query',symbol:'{symbol}',query:'深度分析 {symbol}'}},this)">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
                 深度研究 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~2 分鐘</span>
             </button>

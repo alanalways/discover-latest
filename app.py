@@ -167,11 +167,55 @@ def _fetch_stock_data_sync(symbol: str, days: int = 365):
                     for d in fm_data
                 ]
 
+                # 嘗試注入 PE/PBR/殖利率
+                try:
+                    per_data = finmind_adapter.get_tw_per_pbr_sync(symbol, start_date, end_date)
+                    if per_data:
+                        latest = per_data[-1]
+                        info["pe_ratio"] = float(latest.get("PER", 0)) or None
+                        info["pb_ratio"] = float(latest.get("PBR", 0)) or None
+                        info["dividend_yield"] = float(latest.get("dividend_yield", 0)) / 100 if latest.get("dividend_yield") else None
+                except Exception as e_per:
+                    print(f"[DataSource] PER/PBR 取得失敗: {e_per}")
+
                 return {"info": info, "history": history}
             else:
                 print(f"[DataSource] FinMind 回傳空資料: {symbol}, fallback yfinance")
         except Exception as e:
             print(f"[DataSource] FinMind failed ({symbol}): {type(e).__name__}: {e}")
+
+    # ── 美股：優先嘗試 FinMind ──
+    if not is_tw:
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            fm_data = finmind_adapter.get_us_stock_price_sync(symbol, start_date, end_date)
+            if fm_data and len(fm_data) > 2:
+                print(f"[DataSource] FinMind US OK: {symbol} ({len(fm_data)} rows)")
+                price = fm_data[-1]["close"]
+                prev = fm_data[-2]["close"] if len(fm_data) > 1 else price
+                chg = price - prev
+                pct = (chg / prev * 100) if prev else 0
+
+                info = {
+                    "symbol": symbol, "name": symbol,
+                    "sector": "", "industry": "",
+                    "exchange": "US", "currency": "USD",
+                    "price": price, "change": chg, "change_percent": pct,
+                    "market_cap": 0, "pe_ratio": None, "pb_ratio": None,
+                    "eps": None, "dividend_yield": None, "beta": None,
+                    "52_week_high": max(d["high"] for d in fm_data),
+                    "52_week_low": min(d["low"] for d in fm_data),
+                    "avg_volume": int(sum(d["volume"] for d in fm_data) / len(fm_data)),
+                }
+                history = [
+                    {"date": d["date"], "open": round(d["open"], 2), "high": round(d["high"], 2),
+                     "low": round(d["low"], 2), "close": round(d["close"], 2), "volume": d["volume"]}
+                    for d in fm_data
+                ]
+                return {"info": info, "history": history}
+        except Exception as e:
+            print(f"[DataSource] FinMind US failed ({symbol}): {type(e).__name__}: {e}")
 
     # ── Fallback: yfinance（台股 + 美股）──
     return _fetch_stock_data_yfinance(symbol, market, days=days)
@@ -204,7 +248,11 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US", days: int = 365)
 
     try:
         ticker = yf.Ticker(yf_sym)
-        info_raw = ticker.info or {}
+        try:
+            info_raw = ticker.info or {}
+        except Exception as e_info:
+            print(f"[DataSource] yfinance info failed ({yf_sym}): {type(e_info).__name__}: {e_info}")
+            info_raw = {}
         hist = ticker.history(period=yf_period)
 
         # 如果 .TW 沒資料，嘗試 .TWO（上櫃）
@@ -350,7 +398,7 @@ def create_app():
             hasLoginUrl: !!window._supabaseLoginUrl
         }});
     </script>
-    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>'''
+    <script src="https://unpkg.com/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>'''
     
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
@@ -1319,7 +1367,7 @@ def create_app():
                     if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
                     window._pageLoadingTimer = setTimeout(function() {
                         if (overlay) overlay.classList.remove('active');
-                    }, 15000);
+                    }, 8000);
                     const ns = document.querySelector('#nav-state textarea');
                     if (ns) { ns.value = page; ns.dispatchEvent(new Event('input', {bubbles:true})); }
                 };
@@ -1337,7 +1385,7 @@ def create_app():
                     if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
                     window._pageLoadingTimer = setTimeout(function() {
                         if (overlay) overlay.classList.remove('active');
-                    }, 15000);
+                    }, 8000);
                     const ss = document.querySelector('#symbol-state textarea');
                     if (ss) {
                         ss.value = sym;
@@ -1346,23 +1394,23 @@ def create_app():
                 };
 
                 // ── Action dispatcher (Button + Textbox + auto loading state) ──
-                window.dispatchAction = function(payload) {
-                    console.log('[Action]', payload);
+                window.dispatchAction = function(payload, srcEl) {
+                    console.log('[Action]', JSON.stringify(payload));
                     // Auto-add loading state to the button that triggered this
-                    var srcBtn = document.activeElement;
+                    var srcBtn = srcEl || document.activeElement;
                     if (srcBtn && srcBtn.tagName === 'BUTTON' && !srcBtn.classList.contains('btn-loading')) {
                         srcBtn.classList.add('btn-loading');
                         srcBtn.disabled = true;
                     }
                     // Also show page loading for heavy actions
-                    var heavyActions = ['ai_analyze', 'run_backtest', 'predict', 'dexter_query'];
+                    var heavyActions = ['run_backtest', 'predict'];
                     if (heavyActions.indexOf(payload.action) >= 0) {
                         var overlay = document.getElementById('page-loading-overlay');
                         if (overlay) overlay.classList.add('active');
                         if (window._pageLoadingTimer) clearTimeout(window._pageLoadingTimer);
                         window._pageLoadingTimer = setTimeout(function() {
                             if (overlay) overlay.classList.remove('active');
-                        }, 30000);
+                        }, 15000);
                     }
                     let payloadBox = document.querySelector('#action-payload textarea');
                     if (!payloadBox) payloadBox = document.querySelector('#action-payload input');

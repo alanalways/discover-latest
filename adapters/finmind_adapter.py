@@ -535,5 +535,41 @@ class FinMindAdapter:
             return []
 
 
+    def get_us_stock_price_sync(
+        self, symbol: str, start_date: str, end_date: str = None
+    ) -> List[Dict]:
+        """同步：美股日K"""
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        data = self._sync_request({
+            "dataset": "USStockPrice",
+            "data_id": symbol,
+            "start_date": start_date,
+            "end_date": end_date,
+        })
+        if not data:
+            return []
+        return [
+            {
+                "symbol": d.get("stock_id", symbol),
+                "date": d.get("date"),
+                "open": float(d.get("Open", 0)),
+                "high": float(d.get("High", 0)),
+                "low": float(d.get("Low", 0)),
+                "close": float(d.get("Close", 0)),
+                "volume": int(d.get("Volume", 0)),
+            }
+            for d in data
+        ]
+
+    def get_us_stock_info_sync(self, symbol: str = None) -> List[Dict]:
+        """同步：美股基本資訊"""
+        params = {"dataset": "USStockInfo"}
+        if symbol:
+            params["data_id"] = symbol
+        data = self._sync_request(params)
+        return data or []
+
+
 # 單例
 finmind_adapter = FinMindAdapter()

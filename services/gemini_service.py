@@ -257,11 +257,30 @@ class GeminiService:
 5. 用自然的中文段落寫作，不要用條列式"""
 
         def _run_stage2():
-            """Stage 2 執行函數（可被 timeout 包裝）"""
-            return client2.models.generate_content(
-                model=MODEL_FINAL,
-                contents=final_prompt,
-            )
+            """Stage 2 執行函數（含 503 retry 機制）"""
+            last_err = None
+            for attempt in range(3):
+                try:
+                    _client = client2
+                    if attempt > 0:
+                        # 503 可能是單一 key 負載問題，換 key 重試
+                        retry_key = self._get_api_key()
+                        if retry_key:
+                            _client = genai.Client(api_key=retry_key)
+                        print(f"[Gemini] Stage 2 retry #{attempt} with new key")
+                        time.sleep(1.5 * attempt)  # backoff
+                    return _client.models.generate_content(
+                        model=MODEL_FINAL,
+                        contents=final_prompt,
+                    )
+                except Exception as e:
+                    last_err = e
+                    err_str = str(e)
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "overloaded" in err_str.lower():
+                        print(f"[Gemini] Stage 2 attempt {attempt+1} got 503, retrying...")
+                        continue
+                    raise  # 其他錯誤不 retry
+            raise last_err  # 全部 retry 失敗
 
         try:
             with ThreadPoolExecutor(max_workers=1) as executor:
