@@ -356,5 +356,75 @@ class GeminiService:
             }
 
 
+            return {
+                "success": False,
+                "error": f"AI 生成失敗: {type(e).__name__}",
+                "analysis": "",
+                "grounding_sources": grounding_sources,
+            }
+
+    def generate_chat_response(
+        self,
+        history: List[Dict],
+        user_message: str,
+        context_str: str = "",
+        tier: str = "free",
+    ) -> Dict[str, Any]:
+        """
+        生成對話回應 (Follow-up)
+        
+        Args:
+            history: 對話歷史 [{'role': 'user'|'model', 'parts': [...]}]
+            user_message: 當前用戶問題
+            context_str: 股票上下文資訊 (從第一次分析結果或 info 取得)
+            tier: 用戶等級
+        """
+        api_key = self._get_api_key()
+        if not api_key:
+            return {"success": False, "error": "Gemini API 金鑰未設定"}
+
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            
+            # 轉換 history 格式 (OpenAI-like dict -> Gemini history)
+            # 但 google.genai 的 chat.send_message 不需要手動組 history if using chat session
+            # 這裡我們用 stateless 方式，手動組 prompt 或者使用 SDK 的 history 物件
+            
+            # 限制歷史長度以節省 Token
+            max_turns = 10 if tier == "premium" else (3 if tier == "pro" else 0)
+            if tier == "free":
+                 return {"success": False, "error": "Free 用戶不支援 AI 追問功能，請升級 Pro 方案"}
+                 
+            # 截斷歷史
+            active_history = history[- (max_turns * 2):] if history else []
+            
+            # 建構系統提示
+            system_instruction = f"""你是「洞察運算」的投資顧問 Dexter。
+你的任務是回答客戶關於股票的後續追問。
+回答要簡潔有力，重點清晰。
+不要使用 Markdown 標題 (##)，直接分段即可。
+上下文資訊：
+{context_str}
+"""
+            
+            # 使用 SDK 的 Chat 介面
+            chat = client.chats.create(
+                model=MODEL_FINAL,
+                config={'system_instruction': system_instruction},
+                history=active_history
+            )
+            
+            response = chat.send_message(user_message)
+            return {
+                "success": True,
+                "reply": response.text,
+            }
+
+        except Exception as e:
+            print(f"[Gemini] Chat error: {e}")
+            return {"success": False, "error": str(e)}
+
+
 # Singleton
 gemini_service = GeminiService()

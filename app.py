@@ -22,7 +22,7 @@ from pages.watchlist import create_watchlist_page
 from config.models import MODEL_GROUNDING, MODEL_FINAL
 from services.auth_service import auth_service
 from services.rate_limiter import rate_limiter
-from services.feature_gate import can_access, get_limit, get_locked_html, get_limit_reached_html
+from services.feature_gate import can_access, get_limit, get_locked_overlay_html
 
 CSS_PATH = Path(__file__).parent / "static" / "css" / "dashboard.css"
 with open(CSS_PATH, "r", encoding="utf-8") as f:
@@ -320,6 +320,7 @@ def _fetch_stock_data_yfinance(symbol: str, market: str = "US", days: int = 365)
 
 # ── Layout builder ────────────────────────
 def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, current_page: str = 'market') -> str:
+    # 確保 user_info 初始化以避免 NameError
     user_info = None
     if current_user:
         user_id = current_user.get("id", "")
@@ -480,9 +481,11 @@ def create_app():
                             symbol=cur_symbol,
                             stock_data=data,
                             lang=lang,
+                            current_user=cur_user,
+                            chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [],
                         )
                     else:
-                        inner = create_stock_analysis_page(lang=lang)
+                        inner = create_stock_analysis_page(lang=lang, current_user=cur_user, chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [])
                 elif page_id == "backtest":
                     hist = None
                     if cur_symbol:
@@ -493,6 +496,7 @@ def create_app():
                         symbol=cur_symbol,
                         history=hist,
                         lang=lang,
+                        current_user=cur_user,
                     )
                 elif page_id == "portfolio":
                     if cur_user and (not holdings or len(holdings) == 0):
@@ -508,15 +512,36 @@ def create_app():
                 elif page_id == "industry":
                     inner = create_industry_beta_page(lang=lang)
                 elif page_id == "watchlist":
+                    tier = _get_tier(cur_user)
+                    wl_limit = get_limit(tier, "watchlist_max")
+                    
+                    # Fetch alerts
+                    alerts = []
+                    if cur_user:
+                        from adapters.supabase_adapter import supabase_adapter
+                        alerts = supabase_adapter.get_user_alerts(cur_user.get("id", ""))
+                        
                     inner = create_watchlist_page(
                         watchlist=cur_watchlist or [],
                         lang=lang,
+                        limit=wl_limit,
+                        alerts=alerts,
                     )
                 elif page_id == "admin":
                     inner = create_admin_console_page(
                         user_data=cur_user,
                         lang=lang,
                     )
+                elif page_id == "compare":
+                    # Parse symbols from query or default
+                    from pages.stock_compare import create_compare_page
+                    # If nav payload has symbols?
+                    # payload is not available here, only cur_symbol?
+                    # We can use cur_symbol as one of them.
+                    syms = [cur_symbol] if cur_symbol else ["2330"]
+                    # If we have stored compare list in session? 
+                    # Simplify: start with cur_symbol
+                    inner = create_compare_page(symbols=syms, lang=lang)
                 elif page_id == "pricing":
                     from pages.pricing import create_pricing_page
                     pricing_user = None
@@ -539,9 +564,11 @@ def create_app():
                             symbol=cur_symbol,
                             stock_data=data,
                             lang=lang,
+                            current_user=cur_user,
+                            chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [],
                         )
                     else:
-                        inner = create_stock_analysis_page(lang=lang)
+                        inner = create_stock_analysis_page(lang=lang, current_user=cur_user, chat_history=cur_user.get("chat_histories", {}).get(cur_symbol, []) if cur_user else [])
                 elif page_id == "crypto":
                     safe_id = html_mod.escape(str(page_id))
                     inner = f'<div style="padding:60px;text-align:center;color:#94a3b8;"><h2>🚀 加密貨幣功能開發中</h2><p>敬請期待...</p></div>'
@@ -585,10 +612,23 @@ def create_app():
 
         def _gate_block(feature, cur_user, lang, cur_symbol, cur_watchlist, page_id="stock"):
             """產生功能鎖定頁面"""
-            tier = _get_tier(cur_user)
-            locked_html = get_locked_html(feature, tier, lang)
-            page = build_full_page(locked_html, lang, current_user=cur_user, current_page=page_id)
-            return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+            # 從 features map 取得顯示名稱（這裡簡化處理，實際建議用 i18n）
+            feature_names = {
+                "backtest": "回測模擬功能",
+                "backtest_martingale": "馬丁格爾策略",
+                "chips_analysis": "籌碼面分析",
+                "fundamentals_chart": "基本面趨勢圖",
+                "ai_full_analysis": "AI 深度分析",
+                "ai_dexter": "Dexter 深度研究",
+                "chart_period_3y_5y": "3年以上歷史K線",
+            }
+            display_name = feature_names.get(feature, "進階功能")
+            required_tier = "Premium" if "martingale" in feature or "dexter" in feature else "Pro"
+            
+            error_html = get_locked_overlay_html(display_name, required_tier)
+            # 將鎖定畫面嵌入全頁
+            full_html = build_full_page(error_html, lang, current_user=cur_user, current_page=page_id)
+            return _result(full_html, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
         # ── Action Handler (backtest run, prediction change, portfolio CRUD, etc.) ──
         def handle_action(action_json: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
@@ -654,6 +694,9 @@ def create_app():
                 elif action == "admin_search":
                     page = _handle_admin_action(payload, cur_user, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "chat_submit":
+                    page = _handle_chat_submit(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_add":
                     sym = payload.get("symbol", "").strip().upper()
                     wl = list(cur_watchlist or [])
@@ -662,7 +705,7 @@ def create_app():
                         if len(wl) >= wl_limit:
                             # 自選股數量達上限
                             locked_html = get_limit_reached_html("watchlist_max", tier, len(wl), wl_limit, lang)
-                            inner = create_watchlist_page(watchlist=wl, lang=lang)
+                            inner = create_watchlist_page(watchlist=wl, lang=lang, limit=wl_limit)
                             page = build_full_page(locked_html + inner, lang, current_user=cur_user, current_page='watchlist')
                             return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                         cur_watchlist = wl + [sym]
@@ -754,6 +797,57 @@ def create_app():
                     
                     page = build_full_page(msg_html, lang, current_user=cur_user, current_page='pricing')
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "alert_add":
+                    # 門禁：價格警報
+                    if not can_access(tier, "price_alert"):
+                        return _gate_block("price_alert", cur_user, lang, cur_symbol, cur_watchlist, "watchlist")
+                    
+                    symbol = payload.get("symbol")
+                    price = float(payload.get("price", 0))
+                    condition = payload.get("condition", "gte")
+                    
+                    if cur_user and symbol and price > 0:
+                        from adapters.supabase_adapter import supabase_adapter
+                        # Check Quantity Limit
+                        current_alerts = supabase_adapter.get_user_alerts(cur_user.get("id", ""))
+                        limit = get_limit(tier, "price_alert_max")
+                        
+                        if len(current_alerts) >= limit:
+                             wl_limit = get_limit(tier, "watchlist_max")
+                             locked_html = get_limit_reached_html("price_alert_max", tier, len(current_alerts), limit, lang)
+                             inner = create_watchlist_page(watchlist=cur_watchlist, lang=lang, limit=wl_limit, alerts=current_alerts)
+                             page = build_full_page(locked_html + inner, lang, current_user=cur_user, current_page='watchlist')
+                             return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+
+                        supabase_adapter.create_user_alert(cur_user.get("id", ""), symbol, price, condition)
+                    
+                    return handle_nav("watchlist", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
+
+                elif action == "alert_delete":
+                    alert_id = payload.get("id")
+                    if cur_user and alert_id:
+                        from adapters.supabase_adapter import supabase_adapter
+                        supabase_adapter.delete_user_alert(alert_id, cur_user.get("id", ""))
+                    return handle_nav("watchlist", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "compare_update":
+                    # Update comparison list
+                    symbols = payload.get("symbols", [])
+                    from pages.stock_compare import create_compare_page
+                    
+                    # Check limit
+                    limit = get_limit(tier, "stock_compare_max")
+                    if len(symbols) > limit:
+                         # Trim or Error? 
+                         # Let's show locked overlay if > 2 (pro) or > 4 (premium)
+                         # Basic Pro allows 2. Premium 4.
+                         pass
+                    
+                    if not can_access(tier, "stock_compare"):
+                         return _gate_block("stock_compare", cur_user, lang, cur_symbol, cur_watchlist, "compare")
+                         
+                    inner = create_compare_page(symbols=symbols, lang=lang)
+                    page = build_full_page(inner, lang, current_user=cur_user, current_page='compare')
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 else:
                     print(f"[Action] Unknown: {action}")
                     return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
@@ -773,8 +867,17 @@ def create_app():
 
             if not symbol:
                 return gr.update()
+            
+            # Determine data depth based on tier
+            tier = _get_tier(cur_user)
+            days = 365 # Default Pro / Free (if they could access)
+            if can_access(tier, "backtest_max_years") and get_limit(tier, "backtest_max_years") >= 5:
+                days = 1825 # 5 years for Premium
+            
+            # Optimization: If strategy is martingale, maybe we need more data? 
+            # But stick to tier limits.
 
-            data = _fetch_stock_data_sync(symbol)
+            data = _fetch_stock_data_sync(symbol, days=days)
             if not data or not data.get("history"):
                 return gr.update()
 
@@ -793,6 +896,7 @@ def create_app():
                 history=history,
                 lang=lang,
                 result=result,
+                current_user=cur_user,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
@@ -833,6 +937,8 @@ def create_app():
                 lang=lang,
                 pred_model=model,
                 pred_horizon=horizon,
+                current_user=cur_user,
+                chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
@@ -879,12 +985,106 @@ def create_app():
             # AI 分析成功後，遞增 cur_user 的用量計數，讓 sidebar 即時反映
             if cur_user and result.get("success"):
                 cur_user["daily_ai_usage"] = cur_user.get("daily_ai_usage", 0) + 1
+                
+                # 將分析結果存入 chat history 的第一則
+                if "chat_histories" not in cur_user:
+                    cur_user["chat_histories"] = {}
+                if symbol not in cur_user["chat_histories"]:
+                     cur_user["chat_histories"][symbol] = []
+                
+                # Reset history for new analysis? Or append? Usually new analysis resets context.
+                # Let's reset.
+                cur_user["chat_histories"][symbol] = [
+                    {"role": "model", "parts": [result.get("analysis", "")]}
+                ]
+
+            chat_history = cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else []
 
             inner = create_stock_analysis_page(
                 symbol=symbol,
                 stock_data=data,
                 lang=lang,
                 ai_result=result,
+                current_user=cur_user,
+                chat_history=chat_history,
+            )
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            return build_full_page(inner, lang, current_user=cur_user, current_page='stock')
+
+        def _handle_chat_submit(payload, cur_user, cur_symbol, lang):
+            """處理 AI 追問"""
+            from services.gemini_service import gemini_service
+            symbol = payload.get("symbol", cur_symbol)
+            message = payload.get("message", "").strip()
+            
+            if not symbol or not message:
+                return gr.update()
+                
+            data = _fetch_stock_data_sync(symbol)
+            
+            # 準備 chat history
+            if not cur_user:
+                 # 未登入不能對話 (前端應該擋了，但後端再擋一次)
+                 return gr.update()
+                 
+            if "chat_histories" not in cur_user:
+                cur_user["chat_histories"] = {}
+            if symbol not in cur_user["chat_histories"]:
+                cur_user["chat_histories"][symbol] = []
+            
+            history = cur_user["chat_histories"][symbol]
+            
+            # 門禁：輪次限制
+            tier = _get_tier(cur_user)
+            max_rounds = get_limit(tier, "ai_chat_rounds")
+            user_msg_count = len([m for m in history if m["role"] == "user"])
+            
+            if user_msg_count >= max_rounds:
+                # 達上限，插入系統提示訊息
+                limit_msg = f"⚠️ 已達到您的方案 ({tier.title()}) 對話次數上限 ({max_rounds} 次)。請升級以繼續追問。"
+                # 這裡不存入 history，只在回傳時顯示? 或者存入 system role?
+                # 為了簡單，回傳一個 error block 或者直接在 chat 中顯示
+                # 我們假裝它是一則 model response
+                history.append({"role": "user", "parts": [message]})
+                history.append({"role": "model", "parts": [limit_msg]})
+            else:
+                # 呼叫 Gemini
+                # 取出 context (info + latest analysis if possible)
+                # 這裡簡化，只給 info string
+                info = data.get("info", {})
+                context_str = f"股票: {symbol} {info.get('name','')}, 價: {info.get('price')}"
+                
+                # Append user msg for context
+                # 注意：history 是 reference，會被修改
+                # 但 generate_chat_response 預期 history *before* current message? 
+                # 或 *including*? Gemini SDK 這是 chat session.
+                # 我的 generate_chat_response 實作是 `chat.send_message(user_message)`
+                # 也就是 history 應該是 *之前的* 對話。
+                
+                response = gemini_service.generate_chat_response(
+                    history=history,
+                    user_message=message,
+                    context_str=context_str,
+                    tier=tier
+                )
+                
+                history.append({"role": "user", "parts": [message]})
+                if response.get("success"):
+                    reply = response.get("reply", "")
+                    history.append({"role": "model", "parts": [reply]})
+                else:
+                    err = response.get("error", "Unknown error")
+                    history.append({"role": "model", "parts": [f"⚠️ (Error) {err}"]})
+            
+            # 更新 user store (inplace modification of dict works if we return it)
+            
+            inner = create_stock_analysis_page(
+                symbol=symbol,
+                stock_data=data,
+                lang=lang,
+                current_user=cur_user,
+                chat_history=history,
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
@@ -896,6 +1096,13 @@ def create_app():
             period = payload.get("period", "1y")
             if not symbol:
                 return gr.update()
+            
+            # Phase 4 門禁：歷史資料長度 (3y, 5y)
+            if period in ["3y", "5y"]:
+                tier = _get_tier(cur_user)
+                if not can_access(tier, "chart_period_3y_5y"):
+                     return _gate_block("chart_period_3y_5y", cur_user, lang, cur_symbol, None, page_id="stock")
+
             # 根據期間計算天數
             period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "3y": 1095, "5y": 1825}
             days = period_days.get(period, 365)
@@ -904,6 +1111,8 @@ def create_app():
                 symbol=symbol,
                 stock_data=data,
                 lang=lang,
+                current_user=cur_user,
+                chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
             )
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
@@ -927,6 +1136,8 @@ def create_app():
                 symbol=symbol,
                 stock_data=data,
                 lang=lang,
+                current_user=cur_user,
+                chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
             )
             # 注入籌碼面資料
             chips_html = _build_chips_html(inst_data, margin_data)
@@ -957,6 +1168,8 @@ def create_app():
                 symbol=symbol,
                 stock_data=data,
                 lang=lang,
+                current_user=cur_user,
+                chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
             )
             # 注入基本面資料
             fund_html = _build_fundamentals_html(per_data, rev_data, div_data)

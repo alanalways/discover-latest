@@ -9,6 +9,7 @@ from components.chart_viewer import create_candlestick_chart, create_line_chart
 from components.smc_chart import create_smc_chart, create_smc_summary_card
 from services.smc_service import smc_service
 from services.prediction_service import prediction_service
+from services.feature_gate import can_access
 from typing import Dict, List, Optional
 
 
@@ -19,6 +20,8 @@ def create_stock_analysis_page(
     pred_model: str = "naive",
     pred_horizon: int = 20,
     ai_result: Dict = None,
+    current_user: Dict = None,
+    chat_history: List[Dict] = None,
 ) -> str:
     """
     建立個股分析頁面
@@ -27,6 +30,8 @@ def create_stock_analysis_page(
         symbol: 股票代號
         stock_data: 股票資料（含 info 和 history）
         lang: 語言
+        current_user: 當前使用者資訊 (dict)
+        chat_history: 對話歷史紀錄
     """
     # 如果沒有代號，顯示引導頁面
     if not symbol:
@@ -49,8 +54,13 @@ def create_stock_analysis_page(
     # K 線圖
     # 取得使用者 tier 供指標 Toggle Bar
     _user_tier = "free"
-    if user_data:
-        _user_tier = user_data.get("user_metadata", {}).get("tier", "free")
+    if current_user:
+        try:
+            # 優先嘗試從 user_metadata 取得
+            _user_tier = current_user.get("user_metadata", {}).get("tier", "free")
+        except Exception:
+            _user_tier = "free"
+
     chart_html = create_candlestick_chart(
         data=history,
         symbol=symbol,
@@ -78,21 +88,44 @@ def create_stock_analysis_page(
     # 籌碼面 + 基本面 tab（台股限定）
     chips_fundamentals_html = _create_chips_fundamentals_tabs(symbol, info, lang)
     
+    # AI 聊天室介面
+    chat_html = _create_chat_ui(chat_history, symbol, lang)
+    
     page_html = f'''
     <div class="stock-page">
         <!-- 股票標題區 -->
-        <div class="stock-header">
+        <!-- 股票標題區 -->
+        <div class="stock-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
             <div class="stock-title-section">
-                <span class="stock-symbol">{symbol}</span>
-                <h1 class="stock-name">{info.get('name', symbol)}</h1>
-                <span class="stock-market">{info.get('exchange', '')} · {info.get('sector', '')}</span>
-            </div>
-            <div class="stock-price-section">
-                <div class="stock-price">{info.get('currency', 'USD')} {info.get('price', 0):,.2f}</div>
-                <div class="stock-change {'up' if info.get('change', 0) >= 0 else 'down'}">
-                    {'+' if info.get('change', 0) >= 0 else ''}{info.get('change', 0):.2f}
-                    ({'+' if info.get('change_percent', 0) >= 0 else ''}{info.get('change_percent', 0):.2f}%)
+                <div style="display:flex;align-items:baseline;gap:12px;">
+                    <h1 class="stock-symbol" style="margin:0;font-size:32px;font-weight:700;color:var(--text-1);">{symbol}</h1>
+                    <span class="stock-name" style="font-size:20px;color:var(--text-2);">{info.get('name', symbol)}</span>
                 </div>
+                <div class="stock-market" style="color:var(--text-3);font-size:14px;margin-top:4px;">
+                    {info.get('exchange', 'TWSE')} · {info.get('sector', 'Technology')}
+                </div>
+            </div>
+            
+            <div style="display:flex;align-items:center;gap:24px;">
+                <div class="stock-price-section" style="text-align:right;">
+                    <div class="stock-price" style="font-size:28px;font-weight:700;color:{'#22C55E' if info.get('change', 0) >= 0 else '#EF4444'}">
+                        {info.get('price', 0):,.2f}
+                    </div>
+                    <div class="stock-change" style="color:{'#22C55E' if info.get('change', 0) >= 0 else '#EF4444'};font-size:15px;font-weight:500;">
+                        {'+' if info.get('change', 0) >= 0 else ''}{info.get('change', 0):.2f}
+                        ({'+' if info.get('change_percent', 0) >= 0 else ''}{info.get('change_percent', 0):.2f}%)
+                    </div>
+                </div>
+                
+                <button onclick="dispatchAction(JSON.stringify({{action:'compare_update', symbols:['{symbol}']}}))" 
+                        style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-1);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:6px;transition:all 0.2s;"
+                        onmouseover="this.style.background='rgba(255,255,255,0.1)'"
+                        onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10"></path><path d="M12 20V4"></path><path d="M6 20v-6"></path></svg>
+                    比較走勢
+                </button>
+                
+                {_create_pdf_btn(_user_tier)}
             </div>
         </div>
         
@@ -131,6 +164,9 @@ def create_stock_analysis_page(
         <!-- AI 智慧分析（統一卡片：快速分析 + 深度研究） -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
         {_create_ai_unified_card(symbol, ai_result, lang)}
+        
+        <!-- AI 追問對話區 -->
+        {chat_html}
 
         <!-- 籌碼面 / 基本面 Tab（台股）-->
         {chips_fundamentals_html}
@@ -160,9 +196,50 @@ def create_stock_analysis_page(
             }}
         }}
     </script>
+    <style>
+    @media print {{
+        body * {{ visibility: hidden; }}
+        .gradio-container {{ padding: 0 !important; margin: 0 !important; }}
+        .stock-page, .stock-page * {{ visibility: visible; }}
+        .stock-page {{ position: absolute; left: 0; top: 0; width: 100%; background: #0F172A !important; color: black !important; }}
+        
+        /* Hide UI elements */
+        .stock-actions, button, .sidebar, header, footer, .period-tabs, .chat-container, .watchlist-add-form {{ display: none !important; }}
+        
+        /* Print Friendly Colors */
+        .stock-page {{ background: white !important; color: black !important; }}
+        .stock-name, .stock-symbol {{ color: black !important; }}
+        .card, .stock-card {{ background: white !important; border: 1px solid #ddd !important; box-shadow: none !important; }}
+        
+        /* Layout adjustments */
+        .two-column {{ display: block !important; }}
+        .chart-section {{ break-inside: avoid; page-break-inside: avoid; border: 1px solid #eee; }}
+    }}
+    </style>
     '''
     
     return page_html
+
+def _create_pdf_btn(tier: str) -> str:
+    from services.feature_gate import can_access
+    can_export = can_access(tier, "export_pdf")
+    
+    if can_export:
+        return f'''
+        <button onclick="window.print()" 
+                style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-1);padding:8px 16px;border-radius:8px;cursor:pointer;font-size:14px;display:flex;align-items:center;gap:6px;transition:all 0.2s;"
+                onmouseover="this.style.background='rgba(255,255,255,0.1)'"
+                onmouseout="this.style.background='rgba(255,255,255,0.05)'">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            PDF
+        </button>'''
+    else:
+        return f'''
+        <button onclick="dispatchAction(JSON.stringify({{action:'upgrade_request', plan:'pro'}}))" 
+                style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:var(--text-3);padding:8px 16px;border-radius:8px;cursor:not-allowed;font-size:14px;display:flex;align-items:center;gap:6px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            PDF 🔒
+        </button>'''
 
 
 def _create_search_guide(lang: str) -> str:
@@ -748,3 +825,164 @@ def _get_mock_stock_data(symbol: str) -> Dict:
         price = close_price
     
     return {"info": info, "history": history}
+
+
+def _create_chat_ui(chat_history: List[Dict], symbol: str, lang: str) -> str:
+    """建立 AI 追問對話介面"""
+    import json
+    
+    msgs_html = ""
+    if chat_history:
+        for msg in chat_history:
+            role = msg.get("role", "user")
+            content = msg.get("parts", [""])[0]
+            if role == "user":
+                msgs_html += f'''
+                <div class="chat-msg user">
+                    <div class="chat-bubble user">{html.escape(content)}</div>
+                </div>'''
+            else:
+                # Model response (support basic formatting)
+                content = html.escape(content).replace("\n", "<br>")
+                msgs_html += f'''
+                <div class="chat-msg model">
+                    <div class="chat-bubble model">{content}</div>
+                </div>'''
+    else:
+        msgs_html = f'<div style="text-align:center;color:var(--text-3);font-size:13px;padding:20px;">{t("stock.chatHint", lang) if t("stock.chatHint", lang) != "stock.chatHint" else "有任何疑問嗎？歡迎向 Dexter 提問有關此股票的細節。"}</div>'
+
+    return f'''
+    <div class="chart-section" id="chat-section" style="margin-top:24px;">
+        <h3 style="font-size:16px; margin-bottom:16px; display:flex; align-items:center;">
+            <span style="margin-right:8px;">💬</span> Dexter AI 助手
+        </h3>
+        
+        <div class="chat-container">
+            <div class="chat-history" id="chat-history-scroll">
+                {msgs_html}
+            </div>
+            
+            <div class="chat-input-area">
+                <input type="text" id="chat-input" class="chat-input" placeholder="例如：這檔股票適合長期持有嗎？..." onkeydown="if(event.key==='Enter') sendChat()">
+                <button class="chat-send-btn" onclick="sendChat()">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+    .chat-container {{
+        display: flex;
+        flex-direction: column;
+        height: 400px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        overflow: hidden;
+    }}
+    .chat-history {{
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }}
+    .chat-msg {{
+        display: flex;
+        width: 100%;
+    }}
+    .chat-msg.user {{
+        justify-content: flex-end;
+    }}
+    .chat-msg.model {{
+        justify-content: flex-start;
+    }}
+    .chat-bubble {{
+        max-width: 80%;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.5;
+        word-wrap: break-word;
+    }}
+    .chat-bubble.user {{
+        background: var(--primary);
+        color: #000;
+        border-bottom-right-radius: 2px;
+    }}
+    .chat-bubble.model {{
+        background: rgba(255, 255, 255, 0.1);
+        color: var(--text-1);
+        border-bottom-left-radius: 2px;
+    }}
+    .chat-input-area {{
+        padding: 12px;
+        background: rgba(0, 0, 0, 0.3);
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        display: flex;
+        gap: 8px;
+    }}
+    .chat-input {{
+        flex: 1;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 20px;
+        padding: 8px 16px;
+        color: var(--text-1);
+        outline: none;
+        transition: all 0.2s;
+    }}
+    .chat-input:focus {{
+        border-color: var(--primary);
+        background: rgba(255, 255, 255, 0.08);
+    }}
+    .chat-send-btn {{
+        background: var(--primary);
+        color: #000;
+        border: none;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }}
+    .chat-send-btn:hover {{
+        background: var(--primary-solid);
+        transform: scale(1.05);
+    }}
+    </style>
+
+    <script>
+    window.sendChat = function() {{
+        var input = document.getElementById('chat-input');
+        var msg = input.value.trim();
+        if(!msg) return;
+        
+        // Optimistic UI update
+        var historyDiv = document.getElementById('chat-history-scroll');
+        var userDiv = document.createElement('div');
+        userDiv.className = 'chat-msg user';
+        userDiv.innerHTML = '<div class="chat-bubble user">' + msg.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</div>';
+        historyDiv.appendChild(userDiv);
+        historyDiv.scrollTop = historyDiv.scrollHeight;
+        
+        input.value = '';
+        input.disabled = true; // Disable input while waiting
+        
+        if(typeof dispatchAction === 'function') {{
+            dispatchAction({{action: 'chat_submit', symbol: '{symbol}', message: msg}});
+        }}
+    }};
+    
+    // Auto scroll to bottom on load
+    (function(){{
+        var h = document.getElementById('chat-history-scroll');
+        if(h) h.scrollTop = h.scrollHeight;
+    }})();
+    </script>
+    '''

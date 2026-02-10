@@ -9,6 +9,7 @@ from components.chart_viewer import (
     create_drawdown_chart,
 )
 from services.backtest_service import backtest_service
+from services.feature_gate import can_access
 
 
 def create_backtest_page(
@@ -16,16 +17,72 @@ def create_backtest_page(
     history: List[Dict] = None,
     lang: str = "zh-TW",
     result: Dict = None,
+    current_user: Dict = None,
 ) -> str:
     """建立回測頁面"""
 
+    # Get tier from user object or helper (since feature_gate needs string tier)
+    # The 'current_user' dict from Supabase might not have 'tier' directly computed yet?
+    # In app.py I saw `_get_tier` helper. 
+    # Here I'll assume I can just use a default or extract it.
+    # Actually, let's just pass 'tier' string to keep it simple? 
+    # No, app.py passes current_user to everything else. Consistency.
+    
+    tier = "free"
+    if current_user:
+        # Try to find tier in user_metadata or app_metadata or subscription
+        # Simplified: app.py's _get_tier logic is complex. 
+        # But wait, app.py constructs 'user_info' with 'tier' for pricing page. 
+        # But 'current_user' is the raw Supabase user.
+        # I should probably import _get_tier? No, cross import.
+        # I will rely on app.py passing the *computed* tier? 
+        # No, app.py passes raw user.
+        # I will duplicate minimal tier extraction or import it.
+        # Actually, let's just use "free" if not found, and rely on backend gate for strict check.
+        # For visual only:
+        meta = current_user.get("user_metadata", {})
+        tier = meta.get("tier", "free").lower()
+        # Also check subscription status (as per app.py logic logic roughly)
+        # app.py: tier = cur_user.get('user_metadata', {}).get('tier', 'free') roughly.
+        pass
+
     strategies_html = ""
     for key, name in backtest_service.STRATEGIES.items():
+        # Check if strategy is locked
+        # Mapping key to feature name? 
+        # In app.py: if strategy == "martingale" -> check "backtest_martingale"
+        feature_key = "backtest_martingale" if key == "martingale" else "backtest" # Basic backtest
+        
+        # Base backtest is pro.
+        # Martingale is premium.
+        
+        is_locked = False
+        if key == "martingale":
+             if not can_access(tier, "backtest_martingale"):
+                 is_locked = True
+        else:
+             # Basic strategies need "backtest" feature (Pro)
+             if not can_access(tier, "backtest"):
+                 is_locked = True
+
         is_martin = key == "martingale"
         badge = '<span style="color:#ff0055;font-size:10px;margin-left:4px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> 高風險</span>' if is_martin else ''
+        
+        lock_icon = ""
+        btn_class = "strategy-btn"
+        onclick = f"selectStrategy('{key}')"
+        
+        if is_locked:
+            btn_class += " locked"
+            lock_icon = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" style="margin-left:6px;"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>'
+            # Lock visual only? 
+            # Or handle click to show upgrade?
+            # Let's keep it simple: styles will show it's locked (opacity, grayscale).
+            pass
+
         strategies_html += f'''
-        <button class="strategy-btn" data-strategy="{key}" onclick="selectStrategy('{key}')">
-            {name}{badge}
+        <button class="{btn_class}" data-strategy="{key}" onclick="{onclick}">
+            {name}{badge}{lock_icon}
         </button>'''
 
     # 回測結果

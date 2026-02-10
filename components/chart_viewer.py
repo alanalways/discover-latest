@@ -314,13 +314,37 @@ def create_candlestick_chart(
 
     ma_js = ""
     if show_ma:
-        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
+        ma_js = f"""
+        var ma5s = chart.addLineSeries({{ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
         var ma20s = chart.addLineSeries({{ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }}); ma20s.setData({ma20_json});
-        var ma60s = chart.addLineSeries({{ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
+        var ma60s = chart.addLineSeries({{ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});
+        """
 
     bollinger_js = ""
     if show_bollinger:
         bollinger_js = f"var bbus = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbus.setData({bbu_json}); var bbls = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbls.setData({bbl_json});"
+
+    # --- New Indicators JS ---
+    # EMA (Overlay)
+    ema_js = f"var emas = chart.addLineSeries({{ color: '#14B8A6', lineWidth: 1, title: 'EMA12', visible: false }}); emas.setData({ema12_json});"
+    
+    # VWAP (Overlay)
+    vwap_js = f"var vwaps = chart.addLineSeries({{ color: '#F97316', lineWidth: 2, title: 'VWAP', visible: false }}); vwaps.setData({vwap_json});"
+
+    # Oscillators (Separate Pane via scaleMargins)
+    # 使用 'osc' priceScaleId 將它們放在下方
+    macd_js = f"""
+    var macd_dif = chart.addLineSeries({{ priceScaleId: 'osc', color: '#2962FF', lineWidth: 1, title: 'DIF', visible: false }}); macd_dif.setData({macd_dif_json});
+    var macd_dea = chart.addLineSeries({{ priceScaleId: 'osc', color: '#FF6D00', lineWidth: 1, title: 'DEA', visible: false }}); macd_dea.setData({macd_dea_json});
+    var macd_hist = chart.addHistogramSeries({{ priceScaleId: 'osc', title: 'Hist', visible: false }}); macd_hist.setData({macd_hist_json});
+    """
+    
+    rsi_js = f"var rsis = chart.addLineSeries({{ priceScaleId: 'osc', color: '#8B5CF6', lineWidth: 1, title: 'RSI14', visible: false }}); rsis.setData({rsi_json});"
+    
+    kd_js = f"""
+    var kdk = chart.addLineSeries({{ priceScaleId: 'osc', color: '#E8C547', lineWidth: 1, title: 'K', visible: false }}); kdk.setData({kd_k_json});
+    var kdd = chart.addLineSeries({{ priceScaleId: 'osc', color: '#F43F5E', lineWidth: 1, title: 'D', visible: false }}); kdd.setData({kd_d_json});
+    """
 
     vol_tooltip_js = ""
     if show_volume:
@@ -333,8 +357,10 @@ def create_candlestick_chart(
         locked = not _ca(_tier, feature_key)
         lock_icon = ' 🔒' if locked else ''
         cls = 'indicator-btn locked' if locked else 'indicator-btn'
-        onclick = f"toggleIndicator_{chart_id}('{name}')" if not locked else ""
-        return f'<button class="{cls}" id="{chart_id}-ind-{name}" onclick="{onclick}">{label}{lock_icon}</button>'
+        # 若 locked，onclick 為空 (或可呼叫 showUpgrade)
+        # 這裡將 onclick 綁定到 window scope function
+        onclick = f"window.toggleInd_{chart_id}('{name}')" if not locked else f"alert('此功能僅限 {_tier.title()} 以上用戶')"
+        return f'<button class="{cls}" id="{chart_id}-btn-{name}" onclick="{onclick}">{label}{lock_icon}</button>'
 
     toggle_bar = f'''<div class="indicator-bar">
         {_ind_btn('bb', 'BB', 'indicator_bollinger')}
@@ -407,7 +433,7 @@ def create_candlestick_chart(
                 vertLine: {{ color: 'rgba(0,217,126,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
                 horzLine: {{ color: 'rgba(0,217,126,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
             }},
-            rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.3)' }},
+            rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.3)', scaleMargins: {{ top: 0.05, bottom: 0.02 }} }},
             timeScale: {{
                 borderColor: 'rgba(55, 65, 81, 0.3)',
                 timeVisible: true,
@@ -432,6 +458,65 @@ def create_candlestick_chart(
 
         // 布林通道
         {bollinger_js}
+
+        // 進階指標
+        {ema_js}
+        {vwap_js}
+        {macd_js}
+        {rsi_js}
+        {kd_js}
+        
+        // --- 狀態管理 ---
+        var state = {{
+            bb: false, ema: false, vwap: false,
+            macd: false, rsi: false, kd: false
+        }};
+
+        // Toggle Function
+        window.toggleInd_{chart_id} = function(key) {{
+            state[key] = !state[key];
+            var btn = document.getElementById('{chart_id}-btn-' + key);
+            if (btn) {{
+                if (state[key]) btn.classList.add('active');
+                else btn.classList.remove('active');
+            }}
+
+            // Overlay Indicators
+            if (key === 'bb') {{
+                if(typeof bbus!=='undefined') bbus.applyOptions({{visible: state.bb}});
+                if(typeof bbls!=='undefined') bbls.applyOptions({{visible: state.bb}});
+            }}
+            if (key === 'ema' && typeof emas!=='undefined') emas.applyOptions({{visible: state.ema}});
+            if (key === 'vwap' && typeof vwaps!=='undefined') vwaps.applyOptions({{visible: state.vwap}});
+
+            // Oscillators (Pane Management)
+            var hasOsc = state.macd || state.rsi || state.kd;
+            
+            // Adjust Scale Margins
+            // 若有 oscillator，主圖縮小 (bottom 30%)，Oscillators 放在區間 (top 75%)
+            // 這裡簡單切分：主圖 [0, 0.70], 副圖 [0.72, 1.0]
+            
+            var mainMargin = hasOsc ? {{ top: 0.05, bottom: 0.30 }} : {{ top: 0.05, bottom: 0.02 }};
+            chart.priceScale('right').applyOptions({{ scaleMargins: mainMargin }});
+            chart.priceScale('vol').applyOptions({{ scaleMargins: {{ top: 0.82, bottom: 0 }} }}); // Vol 永遠在最底
+
+            // Osc Scale Margins
+            var oscMargin = {{ top: 0.72, bottom: 0.02 }};
+            var oscOpts = {{ scaleMargins: oscMargin, visible: hasOsc }};
+            chart.priceScale('osc').applyOptions(oscOpts);
+
+            // Toggle Series Visibility
+            if (typeof macd_dif!=='undefined') {{
+                macd_dif.applyOptions({{visible: state.macd}});
+                macd_dea.applyOptions({{visible: state.macd}});
+                macd_hist.applyOptions({{visible: state.macd}});
+            }}
+            if (typeof rsis!=='undefined') rsis.applyOptions({{visible: state.rsi}});
+            if (typeof kdk!=='undefined') {{
+                kdk.applyOptions({{visible: state.kd}});
+                kdd.applyOptions({{visible: state.kd}});
+            }}
+        }};
 
         // Tooltip
         var tooltip = document.getElementById('{chart_id}-tooltip');
@@ -475,7 +560,7 @@ def create_candlestick_chart(
                 if (window.LightweightCharts) {{ clearInterval(t); runChart(); }}
             }}, 50);
         }}
-    }})();
+    }})(); 
     </script>
     '''
     return html

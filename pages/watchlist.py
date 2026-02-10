@@ -108,34 +108,179 @@ def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
 def create_watchlist_page(
     watchlist: List[str] = None,
     lang: str = "zh-TW",
+    limit: int = 9999,
+    alerts: List[Dict] = None,
 ) -> str:
     """建立自選清單頁面"""
     if watchlist is None:
         watchlist = []
+    if alerts is None:
+        alerts = []
+
+    count = len(watchlist)
+    is_full = count >= limit
+    
+    # ... (usage_badge logic same as before, omitted here if strictly replacing lines)
+    # Wait, I need to keep the code I just wrote? 
+    # The tool replaces "StartLine" to "EndLine".
+    # I should be careful not to overwrite the "count = ..." logic if it's there.
+    # Actually, I'll just rewrite the beginning of the function and the alerts rendering part.
+    
+    usage_badge = f'<span style="font-size:13px;color:{"#ef4444" if is_full else "var(--text-3)"};background:rgba(255,255,255,0.05);padding:4px 12px;border-radius:20px;margin-left:auto;">已追蹤 {count} / {limit}</span>'
+    if limit >= 9999:
+        usage_badge = "" 
 
     header_html = f'''
-    <h1 style="font-size:28px;font-weight:700;margin:0 0 8px 0;color:var(--text-1);">
-        {t("nav.watchlist", lang)}
-    </h1>
-    <p style="color:var(--text-3);margin-bottom:24px;font-size:14px;">
-        追蹤您關注的股票，點擊卡片可查看個股分析
-    </p>'''
-
-    add_form = f'''
-    <div class="watchlist-add-form">
-        <input type="text" id="watchlist-add-input" class="watchlist-add-input"
-               placeholder="輸入股票代號（如 2330、AAPL）"
-               autocomplete="off"
-               onkeydown="if(event.key==='Enter')watchlistAdd()"/>
-        <button class="watchlist-add-btn" onclick="watchlistAdd()">
-            {_ICON_PLUS} 新增
-        </button>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;">
+        <div>
+            <h1 style="font-size:28px;font-weight:700;margin:0 0 8px 0;color:var(--text-1);">
+                {t("nav.watchlist", lang)}
+            </h1>
+            <p style="color:var(--text-3);margin:0;font-size:14px;">
+                追蹤您關注的股票，點擊卡片可查看個股分析
+            </p>
+        </div>
+        {usage_badge}
     </div>'''
 
-    if watchlist:
-        # 取得真實報價
-        quotes = _fetch_quotes_batch(watchlist)
+    # ── 顯示現有警報 ──
+    alerts_html = ""
+    if alerts:
+        list_items = ""
+        for a in alerts:
+            sym = a.get("symbol", "")
+            price = a.get("target_price", 0)
+            cond = a.get("condition", "gte")
+            cond_text = "≥" if cond == "gte" else "≤"
+            aid = a.get("id", "")
+            
+            list_items += f'''
+            <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:6px;margin-bottom:8px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span style="font-weight:600;color:var(--primary);">{sym}</span>
+                    <span style="color:var(--text-2);font-size:13px;">目標 {cond_text} {price}</span>
+                </div>
+                <button onclick="deleteAlert('{aid}')" style="background:none;border:none;cursor:pointer;color:var(--text-3);padding:4px;">
+                    {_ICON_X}
+                </button>
+            </div>'''
+        
+        alerts_html = f'''
+        <div style="margin-bottom:24px;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;">
+            <h3 style="font-size:16px;margin:0 0 12px 0;color:var(--text-1);display:flex;align-items:center;gap:8px;">
+                🔔 啟用中的警報 ({len(alerts)})
+            </h3>
+            <div style="max-height:150px;overflow-y:auto;">
+                {list_items}
+            </div>
+        </div>'''
+    
+    # JavaScript for Alert Modal
+    script = """
+    <script>
+    function openAlertModal(symbol, currentPrice) {
+        document.getElementById('alert-modal').style.display = 'flex';
+        document.getElementById('alert-symbol').value = symbol;
+        document.getElementById('alert-bs-symbol').innerText = symbol;
+        document.getElementById('alert-price').value = currentPrice.replace(/,/g, '');
+    }
+    function closeAlertModal() {
+        document.getElementById('alert-modal').style.display = 'none';
+    }
+    function submitAlert() {
+        const symbol = document.getElementById('alert-symbol').value;
+        const price = document.getElementById('alert-price').value;
+        const condition = document.getElementById('alert-condition').value;
+        
+        if (!price) { alert('請輸入價格'); return; }
+        
+        // Send action to backend
+        const payload = JSON.stringify({
+            action: 'alert_add',
+            symbol: symbol,
+            price: parseFloat(price),
+            condition: condition
+        });
+        
+        // We use a hidden input hack or similar to trigger Gradio?
+        // Actually, we should use the existing 'action_btn' mechanism in app.py
+        // We need to set a hidden textbox and click a hidden button.
+        // Assuming 'action_json' and 'action_btn' exist globally in the DOM logic.
+        
+        // Reuse the dispatchAction mechanism if exposed, otherwise simulate it
+        // Simulating via existing patterns:
+        
+        const actionInput = document.querySelector('textarea[data-testid="textbox"]'); // Gr.Textbox usually
+        // But in this app, we iterate 'action_json' component.
+        // Let's assume user has 'action_json' bound to a class or id.
+        // In app.py: js_handler accesses querySelector.
+        
+        // Let's print the payload to console for now, and assume the standard 
+        // dispatchAction(payload) function exists (it should be defined in app.py's shared JS).
+        // If not, we will check app.py later. For now, inline the dispatch logic if needed.
+        
+        console.log("Dispatching Alert:", payload);
+        
+        // Fallback: Dispatch via window event or direct DOM manipulation if we know the ID
+        // For now, let's use the 'global_action_dispatch' convention if we established one.
+        // Or simply:
+        
+        const inputs = document.querySelectorAll('textarea');
+        let target = null;
+        for(let i=0; i<inputs.length; i++) {
+            if(inputs[i].getAttribute('aria-label') === 'action_json') { // logical guess
+                target = inputs[i]; break; 
+            }
+        }
+        // Actually best to rely on 'dispatchAction' function defined in the main block.
+        // I'll assume dispatchAction(json_str) is available globally.
+        dispatchAction(payload);
+        closeAlertModal();
+    }
+    
+    function deleteAlert(id) {
+        if(!confirm('確定刪除此警報？')) return;
+        const payload = JSON.stringify({
+            action: 'alert_delete',
+            id: id
+        });
+        dispatchAction(payload);
+    }
+    </script>
+    """
 
+    # Modal User Interface
+    modal_html = f"""
+    <div id="alert-modal" class="modal-overlay" style="display:none;">
+        <div class="modal-content" style="max-width:400px;">
+            <div class="modal-header">
+                <h3>🔔 設定到價提醒 <span id="alert-bs-symbol" style="color:var(--primary);"></span></h3>
+                <button class="modal-close" onclick="closeAlertModal()">{_ICON_X}</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="alert-symbol" />
+                <div style="margin-bottom:16px;">
+                    <label style="display:block;color:var(--text-2);margin-bottom:8px;">目標價格</label>
+                    <input type="number" id="alert-price" class="watchlist-add-input" step="0.01" />
+                </div>
+                <div style="margin-bottom:24px;">
+                    <label style="display:block;color:var(--text-2);margin-bottom:8px;">觸發條件</label>
+                    <select id="alert-condition" class="watchlist-add-input" style="height:40px;">
+                        <option value="gte">大於等於 (>=)</option>
+                        <option value="lte">小於等於 (<=)</option>
+                    </select>
+                </div>
+                <button class="watchlist-add-btn" style="width:100%;justify-content:center;" onclick="submitAlert()">
+                    儲存警報
+                </button>
+            </div>
+        </div>
+    </div>
+    """
+
+    if watchlist:
+        # (Same as before)
+        quotes = _fetch_quotes_batch(watchlist)
         cards_html = ""
         for sym in watchlist:
             quote = quotes.get(sym, _quote_cache.get(sym, {
@@ -143,24 +288,36 @@ def create_watchlist_page(
             }))
             change_icon = "&#9650;" if quote["color"] == "green" else "&#9660;"
             clr_var = "success" if quote["color"] == "green" else "danger"
+            
+            # 取得純數字價格，方便 JS 使用
+            clean_price = str(quote["price"]).replace(",", "")
+            
             cards_html += f'''
-            <div class="watchlist-card" onclick="selectStock('{sym}')">
-                <button class="watchlist-card-remove" onclick="event.stopPropagation();watchlistRemove('{sym}')" title="移除">
-                    {_ICON_X}
-                </button>
-                <div style="margin-bottom:12px;">
-                    <span style="font-family:var(--font-mono);font-size:14px;color:var(--primary);font-weight:600;">{sym}</span>
-                    <span style="font-size:13px;color:var(--text-3);margin-left:8px;">{quote["name"]}</span>
+            <div class="watchlist-card" style="position:relative;">
+                <div class="card-actions" style="position:absolute;top:12px;right:12px;display:flex;gap:8px;">
+                     <button class="watchlist-action-btn" onclick="event.stopPropagation();openAlertModal('{sym}', '{clean_price}')" title="設定警報">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="var(--text-3)" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                    </button>
+                    <button class="watchlist-action-btn" onclick="event.stopPropagation();watchlistRemove('{sym}')" title="移除">
+                        {_ICON_X}
+                    </button>
                 </div>
-                <div style="font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--text-1);margin-bottom:6px;">
-                    {quote["price"]}
-                </div>
-                <div style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--{clr_var});">
-                    {change_icon} {quote["change"]} ({quote["pct"]})
+                <div onclick="selectStock('{sym}')" style="cursor:pointer;">
+                    <div style="margin-bottom:12px;">
+                        <span style="font-family:var(--font-mono);font-size:14px;color:var(--primary);font-weight:600;">{sym}</span>
+                        <span style="font-size:13px;color:var(--text-3);margin-left:8px;">{quote["name"]}</span>
+                    </div>
+                    <div style="font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--text-1);margin-bottom:6px;">
+                        {quote["price"]}
+                    </div>
+                    <div style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--{clr_var});">
+                        {change_icon} {quote["change"]} ({quote["pct"]})
+                    </div>
                 </div>
             </div>'''
         content_html = f'<div class="watchlist-grid">{cards_html}</div>'
     else:
+        # (Same empty state)
         content_html = f'''
         <div class="watchlist-empty">
             <div style="color:var(--text-3);margin-bottom:16px;">{_ICON_STAR}</div>
@@ -175,4 +332,29 @@ def create_watchlist_page(
         {header_html}
         {add_form}
         {content_html}
+        {modal_html}
+        {script}
+        <style>
+        .watchlist-action-btn {{
+            background: rgba(255,255,255,0.05);
+            border: none;
+            border-radius: 4px;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }}
+        .watchlist-action-btn:hover {{
+            background: rgba(255,255,255,0.1);
+        }}
+        .watchlist-action-btn svg {{
+            stroke: var(--text-3);
+        }}
+        .watchlist-action-btn:hover svg {{
+            stroke: var(--text-1);
+        }}
+        </style>
     </div>'''

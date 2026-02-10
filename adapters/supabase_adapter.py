@@ -353,6 +353,70 @@ class SupabaseAdapter:
         except Exception as e:
             print(f"[DB] 更新股票資料失敗: {type(e).__name__}")
             return False
+
+    # ===== 價格警報 (price_alerts) =====
+    
+    def get_user_alerts(self, user_id: str) -> List[Dict[str, Any]]:
+        """取得用戶設定的警報"""
+        url, _, _ = self._get_config()
+        if not url:
+            return []
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(
+                    f"{url}/rest/v1/price_alerts",
+                    headers=self._get_headers(use_service_key=True),
+                    params={"user_id": f"eq.{user_id}", "select": "*", "order": "created_at.desc"},
+                )
+                if resp.status_code == 200:
+                    return resp.json()
+                return []
+        except Exception as e:
+            print(f"[DB] 取得警報失敗: {e}")
+            return []
+
+    def create_user_alert(self, user_id: str, symbol: str, target_price: float, condition: str) -> Dict[str, Any]:
+        """建立新警報 (condition: 'gte' (>=) or 'lte' (<=))"""
+        url, _, _ = self._get_config()
+        if not url:
+            return {"success": False, "error": "Missing config"}
+        try:
+            data = {
+                "user_id": user_id,
+                "symbol": symbol,
+                "target_price": target_price,
+                "condition": condition,
+                "is_active": True,
+            }
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    f"{url}/rest/v1/price_alerts",
+                    headers=self._get_headers(use_service_key=True),
+                    json=data,
+                )
+                if resp.status_code in [200, 201]:
+                    return {"success": True, "data": resp.json() if resp.text else {}}
+                return {"success": False, "error": resp.text}
+        except Exception as e:
+            print(f"[DB] 建立警報失敗: {e}")
+            return {"success": False, "error": str(e)}
+
+    def delete_user_alert(self, alert_id: str, user_id: str) -> bool:
+        """刪除警報 (需檢查 user_id 確保權限)"""
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.delete(
+                    f"{url}/rest/v1/price_alerts",
+                    headers=self._get_headers(use_service_key=True),
+                    params={"id": f"eq.{alert_id}", "user_id": f"eq.{user_id}"},
+                )
+                return resp.status_code in [200, 204]
+        except Exception as e:
+            print(f"[DB] 刪除警報失敗: {e}")
+            return False
     
     # ===== 代號索引 =====
     
