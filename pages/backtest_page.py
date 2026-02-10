@@ -58,7 +58,7 @@ def create_backtest_page(
             </h3>
             <div class="param-row">
                 <span class="param-label">標的</span>
-                <input class="param-input" id="param-symbol" type="text" value="{symbol or ''}" placeholder="例: 2330" style="width:140px;" />
+                <input class="param-input" id="param-symbol" type="text" value="{symbol or ''}" placeholder="例: 2330" style="width:140px;" onfocus="this.select()" />
                 <span style="color:var(--text-3);font-size:12px;">台股代號或美股代號（如 AAPL）</span>
             </div>
             <div class="param-row">
@@ -166,7 +166,7 @@ def _render_backtest_result(result: Dict, history: List[Dict] = None, lang: str 
             charts_html += f'''
             <div class="chart-card">
                 <div class="chart-card-title">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#D4A76A" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#00D97E" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
                     權益曲線 vs Buy&Hold
                 </div>
                 {equity_chart}
@@ -239,19 +239,22 @@ def _render_backtest_result(result: Dict, history: List[Dict] = None, lang: str 
 
     # ── 交易明細表 ──
     trades_html = ""
-    for tr in trades[-20:]:
-        pnl = tr.get("pnl", "")
-        pnl_str = f"{'+'if pnl>=0 else ''}{pnl:,.0f}" if isinstance(pnl, (int, float)) else ""
-        pnl_color = "var(--success)" if isinstance(pnl, (int, float)) and pnl >= 0 else "var(--danger)"
-        trades_html += f'''
-        <tr>
-            <td>{tr.get('date','')}</td>
-            <td>{tr.get('action','')}</td>
-            <td style="font-family:var(--font-mono);">{tr.get('price',0):,.2f}</td>
-            <td style="font-family:var(--font-mono);">{tr.get('shares',0):,}</td>
-            <td style="font-family:var(--font-mono);color:{pnl_color};">{pnl_str}</td>
-            <td style="font-size:11px;color:var(--text-3);">{tr.get('reason','')}</td>
-        </tr>'''
+    if not trades:
+        trades_html = '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:24px;">此策略在回測期間未產生交易訊號</td></tr>'
+    else:
+        for tr in trades[-20:]:
+            pnl = tr.get("pnl", "")
+            pnl_str = f"{'+'if pnl>=0 else ''}{pnl:,.0f}" if isinstance(pnl, (int, float)) else ""
+            pnl_color = "var(--success)" if isinstance(pnl, (int, float)) and pnl >= 0 else "var(--danger)"
+            trades_html += f'''
+            <tr>
+                <td>{tr.get('date','')}</td>
+                <td>{tr.get('action','')}</td>
+                <td style="font-family:var(--font-mono);">{tr.get('price',0):,.2f}</td>
+                <td style="font-family:var(--font-mono);">{tr.get('shares',0):,}</td>
+                <td style="font-family:var(--font-mono);color:{pnl_color};">{pnl_str}</td>
+                <td style="font-size:11px;color:var(--text-3);">{tr.get('reason','')}</td>
+            </tr>'''
 
     # ── SMC 解讀 ──
     smc_html = _generate_smc_interpretation(history, result) if history else ""
@@ -324,7 +327,7 @@ def _generate_smc_interpretation(history: list, result: Dict) -> str:
         <div class="result-card">
             <h3 style="margin:0 0 16px 0;font-size:16px;color:var(--text-1);">SMC/ICT 策略解讀</h3>
             {"".join(items)}
-            <div style="margin-top:16px;padding:12px;background:rgba(184,134,11,0.06);border:1px solid rgba(184,134,11,0.15);border-radius:8px;">
+            <div style="margin-top:16px;padding:12px;background:rgba(0,184,169,0.06);border:1px solid rgba(0,184,169,0.15);border-radius:8px;">
                 <p style="color:var(--text-2);font-size:13px;line-height:1.7;margin:0;">{interp}</p>
             </div>
         </div>'''

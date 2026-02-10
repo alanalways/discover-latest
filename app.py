@@ -175,6 +175,9 @@ def _fetch_stock_data_sync(symbol: str, days: int = 365):
                         info["pe_ratio"] = float(latest.get("PER", 0)) or None
                         info["pb_ratio"] = float(latest.get("PBR", 0)) or None
                         info["dividend_yield"] = float(latest.get("dividend_yield", 0)) / 100 if latest.get("dividend_yield") else None
+                        # 透過 PE ratio 反推 EPS
+                        if info["pe_ratio"] and info["pe_ratio"] > 0:
+                            info["eps"] = round(price / info["pe_ratio"], 2)
                 except Exception as e_per:
                     print(f"[DataSource] PER/PBR 取得失敗: {e_per}")
 
@@ -790,6 +793,10 @@ def create_app():
                 stock_info=stock_info,
                 user_question=question,
             )
+
+            # AI 分析成功後，遞增 cur_user 的用量計數，讓 sidebar 即時反映
+            if cur_user and result.get("success"):
+                cur_user["daily_ai_usage"] = cur_user.get("daily_ai_usage", 0) + 1
 
             inner = create_stock_analysis_page(
                 symbol=symbol,

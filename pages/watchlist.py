@@ -63,48 +63,41 @@ def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
         except Exception as e:
             print(f"[Watchlist] FinMind batch error: {e}")
 
-    # ── 美股 → yfinance ──
+    # ── 美股 → yfinance（逐筆查詢，避免 MultiIndex 問題）──
     if us_symbols:
         try:
             import yfinance as yf
 
-            def _download():
-                return yf.download(us_symbols, period="5d", progress=False, threads=True)
-
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(_download)
-                df = future.result(timeout=8)
-
-            if df is not None and not df.empty:
-                multi = len(us_symbols) > 1
-                for sym in us_symbols:
-                    try:
-                        if multi:
-                            if sym not in df.columns.get_level_values(0):
-                                continue
-                            close = df[sym]["Close"].dropna()
-                        else:
-                            close = df["Close"].dropna()
-
-                        if len(close) < 2:
-                            continue
-
+            def _fetch_one(sym):
+                try:
+                    ticker = yf.Ticker(sym)
+                    hist = ticker.history(period="5d")
+                    if hist is not None and not hist.empty and len(hist) >= 2:
+                        close = hist["Close"].dropna()
                         price = float(close.iloc[-1])
                         prev = float(close.iloc[-2])
                         chg = price - prev
                         pct = (chg / prev * 100) if prev else 0
-
-                        results[sym] = {
+                        return sym, {
                             "name": sym,
                             "price": f"{price:,.2f}",
                             "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
                             "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
                             "color": "green" if chg >= 0 else "red",
                         }
-                    except Exception:
+                except Exception:
+                    pass
+                return sym, None
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {pool.submit(_fetch_one, sym): sym for sym in us_symbols}
+                for future in futures:
+                    try:
+                        sym, quote = future.result(timeout=10)
+                        if quote:
+                            results[sym] = quote
+                    except (FuturesTimeout, Exception):
                         continue
-        except FuturesTimeout:
-            print("[Watchlist] yfinance timeout")
         except Exception as e:
             print(f"[Watchlist] yfinance error: {e}")
 

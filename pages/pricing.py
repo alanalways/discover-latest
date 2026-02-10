@@ -45,7 +45,7 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
                 ("籌碼面分析", "✓"),
                 ("Dexter 深度分析", "✗"),
             ],
-            "color": "#D4A76A",
+            "color": "#00D97E",
             "highlight": True,
         },
         {
