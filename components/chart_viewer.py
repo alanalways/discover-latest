@@ -37,6 +37,126 @@ def _calc_bollinger(prices: List[float], period: int = 20, std_mult: float = 2.0
     return ma, upper, lower
 
 
+def _calc_ema(prices: List[float], period: int) -> List[Optional[float]]:
+    """計算指數移動平均線 (EMA)"""
+    result: List[Optional[float]] = []
+    if not prices or period < 1:
+        return result
+    k = 2.0 / (period + 1)
+    for i, p in enumerate(prices):
+        if i < period - 1:
+            result.append(None)
+        elif i == period - 1:
+            result.append(sum(prices[:period]) / period)
+        else:
+            result.append(p * k + result[-1] * (1 - k))
+    return result
+
+
+def _calc_macd(prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9):
+    """計算 MACD (DIF, DEA, Histogram)"""
+    ema_fast = _calc_ema(prices, fast)
+    ema_slow = _calc_ema(prices, slow)
+    dif = []
+    for ef, es in zip(ema_fast, ema_slow):
+        dif.append(ef - es if ef is not None and es is not None else None)
+    # DEA = DIF 的 EMA(signal)
+    dif_values = [v for v in dif if v is not None]
+    dea: List[Optional[float]] = []
+    k = 2.0 / (signal + 1)
+    dea_started = False
+    count = 0
+    for v in dif:
+        if v is None:
+            dea.append(None)
+        else:
+            count += 1
+            if not dea_started and count >= signal:
+                dea_started = True
+                valid_difs = [d for d in dif[:len(dea) + 1] if d is not None]
+                dea.append(sum(valid_difs[-signal:]) / signal)
+            elif dea_started:
+                dea.append(v * k + dea[-1] * (1 - k))
+            else:
+                dea.append(None)
+    histogram = []
+    for d, de in zip(dif, dea):
+        histogram.append((d - de) * 2 if d is not None and de is not None else None)
+    return dif, dea, histogram
+
+
+def _calc_rsi(prices: List[float], period: int = 14) -> List[Optional[float]]:
+    """計算 RSI 相對強弱指標"""
+    result: List[Optional[float]] = [None]
+    if len(prices) < 2:
+        return result
+    gains, losses = [], []
+    for i in range(1, len(prices)):
+        diff = prices[i] - prices[i - 1]
+        gains.append(max(0, diff))
+        losses.append(max(0, -diff))
+    avg_gain = avg_loss = 0.0
+    for i in range(len(gains)):
+        if i < period - 1:
+            result.append(None)
+        elif i == period - 1:
+            avg_gain = sum(gains[:period]) / period
+            avg_loss = sum(losses[:period]) / period
+            rs = avg_gain / avg_loss if avg_loss != 0 else 100
+            result.append(100 - 100 / (1 + rs))
+        else:
+            avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+            avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+            rs = avg_gain / avg_loss if avg_loss != 0 else 100
+            result.append(100 - 100 / (1 + rs))
+    return result
+
+
+def _calc_kd(highs: List[float], lows: List[float], closes: List[float],
+             period: int = 9, k_smooth: int = 3, d_smooth: int = 3):
+    """計算 KD 隨機指標 (Stochastic)"""
+    rsv_list: List[Optional[float]] = []
+    for i in range(len(closes)):
+        if i < period - 1:
+            rsv_list.append(None)
+        else:
+            h_max = max(highs[i - period + 1:i + 1])
+            l_min = min(lows[i - period + 1:i + 1])
+            rsv = ((closes[i] - l_min) / (h_max - l_min) * 100) if h_max != l_min else 50
+            rsv_list.append(rsv)
+    # K = RSV 的 SMA(k_smooth), D = K 的 SMA(d_smooth)
+    # 使用平滑公式: K = 2/3 * 前K + 1/3 * RSV
+    k_vals: List[Optional[float]] = []
+    d_vals: List[Optional[float]] = []
+    prev_k, prev_d = 50.0, 50.0
+    for rsv in rsv_list:
+        if rsv is None:
+            k_vals.append(None)
+            d_vals.append(None)
+        else:
+            k_val = (2 / 3) * prev_k + (1 / 3) * rsv
+            d_val = (2 / 3) * prev_d + (1 / 3) * k_val
+            k_vals.append(k_val)
+            d_vals.append(d_val)
+            prev_k, prev_d = k_val, d_val
+    return k_vals, d_vals
+
+
+def _calc_vwap(prices: List[float], volumes: List[float]) -> List[Optional[float]]:
+    """計算 VWAP 成交量加權平均價"""
+    result: List[Optional[float]] = []
+    cum_pv = 0.0
+    cum_vol = 0.0
+    for p, v in zip(prices, volumes):
+        if v and v > 0:
+            cum_pv += p * v
+            cum_vol += v
+            result.append(cum_pv / cum_vol)
+        else:
+            result.append(result[-1] if result else None)
+    return result
+
+
 def normalize_chart_data(raw_data: List[Dict]) -> List[Dict]:
     """
     正規化 K 線資料格式供 Lightweight Charts 使用。
@@ -79,6 +199,7 @@ def create_candlestick_chart(
     smc_data: Dict = None,
     show_ma: bool = True,
     show_bollinger: bool = False,
+    tier: str = "free",
 ) -> str:
     """
     建立增強版 K 線圖 HTML（Lightweight Charts v4）
@@ -108,7 +229,7 @@ def create_candlestick_chart(
         candle_data.append({"time": date_str, "open": o, "high": h, "low": l, "close": c})
         close_prices.append(c)
         if show_volume:
-            color = "rgba(212,167,106,0.35)" if c >= o else "rgba(239,68,68,0.35)"
+            color = "rgba(0,217,126,0.30)" if c >= o else "rgba(239,68,68,0.30)"
             volume_data.append({"time": date_str, "value": d["volume"], "color": color})
 
     # MA 計算
@@ -120,6 +241,17 @@ def create_candlestick_chart(
     bb_ma, bb_upper, bb_lower = ([], [], [])
     if show_bollinger:
         bb_ma, bb_upper, bb_lower = _calc_bollinger(close_prices, 20)
+
+    # 進階指標計算（Pre-compute for Pro/Premium）
+    highs = [d["high"] for d in data]
+    lows  = [d["low"]  for d in data]
+    volumes_raw = [d.get("volume", 0) for d in data]
+    ema12 = _calc_ema(close_prices, 12)
+    ema26 = _calc_ema(close_prices, 26)
+    macd_dif, macd_dea, macd_hist = _calc_macd(close_prices)
+    rsi14 = _calc_rsi(close_prices, 14)
+    kd_k, kd_d = _calc_kd(highs, lows, close_prices)
+    vwap_vals = _calc_vwap(close_prices, volumes_raw)
 
     def _build_line_data(values, dates):
         return json.dumps([
@@ -135,6 +267,19 @@ def create_candlestick_chart(
     ma60_json = _build_line_data(ma60, candle_data) if show_ma else "[]"
     bbu_json = _build_line_data(bb_upper, candle_data) if show_bollinger else "[]"
     bbl_json = _build_line_data(bb_lower, candle_data) if show_bollinger else "[]"
+
+    # 進階指標 JSON
+    ema12_json = _build_line_data(ema12, candle_data)
+    macd_dif_json = _build_line_data(macd_dif, candle_data)
+    macd_dea_json = _build_line_data(macd_dea, candle_data)
+    macd_hist_json = json.dumps([
+        {"time": candle_data[i]["time"], "value": round(v, 4), "color": "rgba(0,217,126,0.6)" if v >= 0 else "rgba(239,68,68,0.6)"}
+        for i, v in enumerate(macd_hist) if v is not None
+    ])
+    rsi_json = _build_line_data(rsi14, candle_data)
+    kd_k_json = _build_line_data(kd_k, candle_data)
+    kd_d_json = _build_line_data(kd_d, candle_data)
+    vwap_json = _build_line_data(vwap_vals, candle_data)
 
     # SMC Markers
     markers = []
@@ -169,9 +314,9 @@ def create_candlestick_chart(
 
     ma_js = ""
     if show_ma:
-        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#E8C547', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
+        ma_js = f"""var ma5s = chart.addLineSeries({{ color: '#FBBF24', lineWidth: 1, title: 'MA5', crosshairMarkerVisible: false }}); ma5s.setData({ma5_json});
         var ma20s = chart.addLineSeries({{ color: '#3B82F6', lineWidth: 1, title: 'MA20', crosshairMarkerVisible: false }}); ma20s.setData({ma20_json});
-        var ma60s = chart.addLineSeries({{ color: '#D4A76A', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
+        var ma60s = chart.addLineSeries({{ color: '#A855F7', lineWidth: 1, title: 'MA60', crosshairMarkerVisible: false }}); ma60s.setData({ma60_json});"""
 
     bollinger_js = ""
     if show_bollinger:
@@ -181,8 +326,28 @@ def create_candlestick_chart(
     if show_volume:
         vol_tooltip_js = """var vd = param.seriesData.get(vs); if(vd) volStr = '<div style="color:#64748B;margin-top:4px;">Vol: <span style="color:#CBD5E1;">' + (vd.value/1000).toFixed(0) + 'K</span></div>';"""
 
+    # 指標 Toggle Bar（依 tier 決定鎖定狀態）
+    from services.feature_gate import can_access as _ca
+    _tier = tier or "free"
+    def _ind_btn(name, label, feature_key):
+        locked = not _ca(_tier, feature_key)
+        lock_icon = ' 🔒' if locked else ''
+        cls = 'indicator-btn locked' if locked else 'indicator-btn'
+        onclick = f"toggleIndicator_{chart_id}('{name}')" if not locked else ""
+        return f'<button class="{cls}" id="{chart_id}-ind-{name}" onclick="{onclick}">{label}{lock_icon}</button>'
+
+    toggle_bar = f'''<div class="indicator-bar">
+        {_ind_btn('bb', 'BB', 'indicator_bollinger')}
+        {_ind_btn('ema', 'EMA', 'indicator_ema')}
+        {_ind_btn('macd', 'MACD', 'indicator_macd')}
+        {_ind_btn('rsi', 'RSI', 'indicator_rsi')}
+        {_ind_btn('kd', 'KD', 'indicator_kd')}
+        {_ind_btn('vwap', 'VWAP', 'indicator_vwap')}
+    </div>'''
+
     html = f'''
-    <div id="{chart_id}-wrap" style="position:relative;height:{height}px;width:100%;">
+    {toggle_bar}
+    <div id="{chart_id}-wrap" class="chart-section" style="position:relative;height:{height}px;width:100%;">
         <div id="{chart_id}" style="height:100%;width:100%;"></div>
         <div id="{chart_id}-tooltip" style="
             display:none;position:absolute;top:8px;left:12px;z-index:50;
@@ -200,7 +365,7 @@ def create_candlestick_chart(
             background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);
             border-radius:6px;padding:6px 8px;cursor:pointer;color:#9ca3af;
             transition:all 0.2s;
-        " onmouseover="this.style.color='#D4A76A';this.style.borderColor='rgba(212,167,106,0.3)'"
+        " onmouseover="this.style.color='#00D97E';this.style.borderColor='rgba(0,217,126,0.3)'"
            onmouseout="this.style.color='#9ca3af';this.style.borderColor='rgba(255,255,255,0.1)'"
            title="全螢幕">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
@@ -239,8 +404,8 @@ def create_candlestick_chart(
             }},
             crosshair: {{
                 mode: LightweightCharts.CrosshairMode.Normal,
-                vertLine: {{ color: 'rgba(212,167,106,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
-                horzLine: {{ color: 'rgba(212,167,106,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+                vertLine: {{ color: 'rgba(0,217,126,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
+                horzLine: {{ color: 'rgba(0,217,126,0.15)', width: 1, style: 2, labelBackgroundColor: '#0F172A' }},
             }},
             rightPriceScale: {{ borderColor: 'rgba(55, 65, 81, 0.3)' }},
             timeScale: {{

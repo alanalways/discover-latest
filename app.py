@@ -22,6 +22,7 @@ from pages.watchlist import create_watchlist_page
 from config.models import MODEL_GROUNDING, MODEL_FINAL
 from services.auth_service import auth_service
 from services.rate_limiter import rate_limiter
+from services.feature_gate import can_access, get_limit, get_locked_html, get_limit_reached_html
 
 CSS_PATH = Path(__file__).parent / "static" / "css" / "dashboard.css"
 with open(CSS_PATH, "r", encoding="utf-8") as f:
@@ -352,8 +353,21 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
     <div class="app-shell">
         {sidebar}
         <div class="topbar-wrapper">{topbar}</div>
-        <div class="main-content">{page_html_str}</div>
-    </div>'''
+        <div class="main-content" id="dl-main" style="overflow-y:auto;">{page_html_str}</div>
+    </div>
+    <script>
+    (function(){{
+        // 滾動位置保持：防止 Gradio HTML re-render 造成跳動
+        var mc = document.getElementById('dl-main');
+        if(mc){{
+            var saved = window._dlScroll || 0;
+            if(saved > 0) mc.scrollTop = saved;
+            mc.addEventListener('scroll', function(){{
+                window._dlScroll = mc.scrollTop;
+            }});
+        }}
+    }})();
+    </script>'''
 
 
 # ── Gradio App ────────────────────────────
@@ -557,16 +571,36 @@ def create_app():
             result = handle_nav("stock", portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist)
             return result
 
+        # ── Helper: 取得用戶 tier ──
+        def _get_tier(cur_user):
+            if not cur_user:
+                return "free"
+            user_id = cur_user.get("id", "")
+            if user_id:
+                try:
+                    return rate_limiter.check_and_downgrade(user_id)
+                except Exception:
+                    pass
+            return cur_user.get("user_metadata", {}).get("tier", "free")
+
+        def _gate_block(feature, cur_user, lang, cur_symbol, cur_watchlist, page_id="stock"):
+            """產生功能鎖定頁面"""
+            tier = _get_tier(cur_user)
+            locked_html = get_locked_html(feature, tier, lang)
+            page = build_full_page(locked_html, lang, current_user=cur_user, current_page=page_id)
+            return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+
         # ── Action Handler (backtest run, prediction change, portfolio CRUD, etc.) ──
         def handle_action(action_json: str, portfolio_json, cur_user, cur_symbol, cur_lang, cur_watchlist):
             if not action_json or not action_json.strip():
                 return _result(gr.update(), gr.update(), cur_user, cur_symbol, cur_lang, cur_watchlist)
             lang = cur_lang or DEFAULT_LANG
             portfolio_holdings = json.loads(portfolio_json or "[]") if isinstance(portfolio_json, str) else (portfolio_json or [])
+            tier = _get_tier(cur_user)
             try:
                 payload = json.loads(action_json)
                 action = payload.get("action", "")
-                print(f"[Action] {action} → {payload}")
+                print(f"[Action] {action} → {payload} (tier={tier})")
 
                 # Rate limit pre-check for predict action
                 if action == "predict" and cur_user:
@@ -581,6 +615,13 @@ def create_app():
                             return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
 
                 if action == "run_backtest":
+                    # 門禁：回測需要 Pro
+                    if not can_access(tier, "backtest"):
+                        return _gate_block("backtest", cur_user, lang, cur_symbol, cur_watchlist, "backtest")
+                    # 馬丁格爾需要 Premium
+                    strategy = payload.get("strategy", "ma_cross")
+                    if strategy == "martingale" and not can_access(tier, "backtest_martingale"):
+                        return _gate_block("backtest_martingale", cur_user, lang, cur_symbol, cur_watchlist, "backtest")
                     page = _handle_backtest_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "predict":
@@ -593,9 +634,15 @@ def create_app():
                     page = _handle_change_period(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "load_chips":
+                    # 門禁：籌碼面需要 Pro
+                    if not can_access(tier, "chips_analysis"):
+                        return _gate_block("chips_analysis", cur_user, lang, cur_symbol, cur_watchlist)
                     page = _handle_load_chips(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "load_fundamentals":
+                    # 門禁：基本面趨勢圖需要 Pro
+                    if not can_access(tier, "fundamentals_chart"):
+                        return _gate_block("fundamentals_chart", cur_user, lang, cur_symbol, cur_watchlist)
                     page = _handle_load_fundamentals(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "market_refresh":
@@ -609,9 +656,17 @@ def create_app():
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_add":
                     sym = payload.get("symbol", "").strip().upper()
-                    if sym and sym not in (cur_watchlist or []):
-                        cur_watchlist = list(cur_watchlist or []) + [sym]
-                        print(f"[Watchlist] Added: {sym}")
+                    wl = list(cur_watchlist or [])
+                    wl_limit = get_limit(tier, "watchlist_max")
+                    if sym and sym not in wl:
+                        if len(wl) >= wl_limit:
+                            # 自選股數量達上限
+                            locked_html = get_limit_reached_html("watchlist_max", tier, len(wl), wl_limit, lang)
+                            inner = create_watchlist_page(watchlist=wl, lang=lang)
+                            page = build_full_page(locked_html + inner, lang, current_user=cur_user, current_page='watchlist')
+                            return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                        cur_watchlist = wl + [sym]
+                        print(f"[Watchlist] Added: {sym} ({len(cur_watchlist)}/{wl_limit})")
                     return handle_nav("watchlist", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_remove":
                     sym = payload.get("symbol", "").strip().upper()
@@ -622,6 +677,12 @@ def create_app():
                     sym = (payload.get("symbol") or "").strip().upper()
                     shares = int(payload.get("shares", 0))
                     avg_price = float(payload.get("avg_price", 0))
+                    pf_limit = get_limit(tier, "portfolio_max")
+                    if len(portfolio_holdings) >= pf_limit:
+                        locked_html = get_limit_reached_html("portfolio_max", tier, len(portfolio_holdings), pf_limit, lang)
+                        inner = create_portfolio_page(user_data=cur_user, holdings=portfolio_holdings, lang=lang)
+                        page = build_full_page(locked_html + inner, lang, current_user=cur_user, current_page='portfolio')
+                        return _result(page, json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
                     if sym and shares > 0 and avg_price >= 0:
                         new_h = {
                             "symbol": sym, "name": sym, "shares": shares, "avg_cost": avg_price,
@@ -648,6 +709,9 @@ def create_app():
                         return _result(page, json.dumps(new_list), cur_user, cur_symbol, lang, cur_watchlist)
                     return _result(gr.update(), gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "dexter_query":
+                    # 門禁：Dexter 需要 Premium
+                    if not can_access(tier, "ai_dexter"):
+                        return _gate_block("ai_dexter", cur_user, lang, cur_symbol, cur_watchlist)
                     page = _handle_dexter_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "upgrade_request":
@@ -735,10 +799,26 @@ def create_app():
             return build_full_page(inner, lang, current_user=cur_user, current_page='backtest')
 
         def _handle_predict_action(payload, cur_user, cur_symbol, lang):
-            """執行價格預測"""
+            """執行價格預測（含 tier 門禁）"""
             symbol = payload.get("symbol", cur_symbol)
             model = payload.get("model", "naive")
             horizon = payload.get("horizon", 20)
+            tier = _get_tier(cur_user)
+
+            # Phase 4 門禁：模型分級
+            if model == "arima" and not can_access(tier, "predict_arima"):
+                locked_html = get_locked_html("predict_arima", tier, lang)
+                return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
+            if model == "prophet" and not can_access(tier, "predict_prophet"):
+                locked_html = get_locked_html("predict_prophet", tier, lang)
+                return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
+            # 天數門禁
+            if horizon >= 60 and not can_access(tier, "predict_horizon_60"):
+                locked_html = get_locked_html("predict_horizon_60", tier, lang)
+                return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
+            if horizon >= 20 and not can_access(tier, "predict_horizon_20"):
+                locked_html = get_locked_html("predict_horizon_20", tier, lang)
+                return build_full_page(locked_html, lang, current_user=cur_user, current_page='stock')
 
             if not symbol:
                 return gr.update()
@@ -788,10 +868,12 @@ def create_app():
             data = _fetch_stock_data_sync(symbol)
             stock_info = data.get("info", {}) if data else {}
 
+            tier = _get_tier(cur_user)
             result = gemini_service.generate_analysis(
                 symbol=symbol,
                 stock_info=stock_info,
                 user_question=question,
+                tier=tier,
             )
 
             # AI 分析成功後，遞增 cur_user 的用量計數，讓 sidebar 即時反映

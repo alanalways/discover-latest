@@ -100,16 +100,17 @@ class GeminiService:
         smc_summary: str = "",
         prediction_summary: str = "",
         user_question: str = "",
+        tier: str = "free",
     ) -> Dict[str, Any]:
         """
-        雙段 AI 分析生成
+        雙段 AI 分析生成（支援 tier 分級 prompt）
 
         Stage 1 (Grounding): 使用 Google Search 查詢即時資訊
         Stage 2 (Final): 根據 grounding 結果 + 本地分析產生最終輸出
         """
         api_key = self._get_api_key()
         if not api_key:
-            return {"success": False, "error": "Discover Latest AI 金鑰未設定", "analysis": "", "grounding_sources": []}
+            return {"success": False, "error": "Gemini API 金鑰未設定"}
 
         try:
             from google import genai
@@ -131,6 +132,7 @@ class GeminiService:
         smc_summary: str = "",
         prediction_summary: str = "",
         user_question: str = "",
+        tier: str = "free",
     ) -> Dict[str, Any]:
         """Internal: runs under self._generate_lock to prevent race conditions."""
         from google import genai
@@ -223,7 +225,17 @@ class GeminiService:
         api_key_2 = self._get_api_key()
         client2 = genai.Client(api_key=api_key_2) if api_key_2 else client
 
-        final_prompt = f"""你是「洞察運算」的資深投資分析顧問，正在為客戶做一對一的投資諮詢。
+        # ── Prompt 分級：Free vs Pro/Premium ──
+        is_paid = tier in ("pro", "premium")
+
+        # SMC 條件化：僅在有數據時才要求分析（防止幻覺）
+        smc_section = ""
+        if smc_summary and is_paid:
+            smc_section = """\n📈 技術面觀察\n結合 SMC/ICT 分析（結構突破、訂單區塊、流動性等），說明目前的技術面狀況。用淺白的方式解釋，讓一般投資人也能理解。"""
+
+        if is_paid:
+            # Pro/Premium 完整版
+            final_prompt = f"""你是「洞察運算」的資深投資分析顧問，正在為客戶做一對一的投資諮詢。
 請用專業但親切易懂的語氣，像是跟朋友聊天一樣自然地分析這檔股票。
 
 【股票資訊】
@@ -236,10 +248,7 @@ class GeminiService:
 
 📊 市場快報
 用 2-3 句話說明這檔股票最近的市場動態和新聞重點。
-
-📈 技術面觀察
-結合 SMC/ICT 分析（結構突破、訂單區塊、流動性等），說明目前的技術面狀況。用淺白的方式解釋，讓一般投資人也能理解。
-
+{smc_section}
 ⚠️ 風險提醒
 列出 2-3 個需要留意的風險因素。
 
@@ -255,6 +264,33 @@ class GeminiService:
 3. 段落之間用空行分隔
 4. 每個段落標題用上面指定的 emoji 開頭（📊📈⚠️💡⚖️）
 5. 用自然的中文段落寫作，不要用條列式"""
+        else:
+            # Free 用戶精簡版（省 token）
+            final_prompt = f"""你是「洞察運算」的投資分析工具。請用簡潔的方式分析這檔股票。
+
+【股票資訊】
+{context}
+
+【市場情報】
+{grounding_text}
+
+請依照以下結構回覆（簡潔版）：
+
+📊 市場快報
+用 2-3 句話說明市場動態。
+
+⚠️ 風險提醒
+列出 2 個風險因素。
+
+⚖️ 以上分析僅供參考，不構成投資建議。
+
+💬 升級 Pro 方案可解鎖完整技術面分析、SMC/ICT 策略和投資建議。
+
+【格式規則】
+1. 禁止 Markdown 語法（##、**、```、- 列表）
+2. 段落之間用空行分隔
+3. 用 emoji 開頭
+4. 總字數控制在 300 字以內"""
 
         def _run_stage2():
             """Stage 2 執行函數（含 503 retry 機制）"""

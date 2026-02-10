@@ -47,11 +47,16 @@ def create_stock_analysis_page(
     info_html = _create_info_card(info, lang)
     
     # K 線圖
+    # 取得使用者 tier 供指標 Toggle Bar
+    _user_tier = "free"
+    if user_data:
+        _user_tier = user_data.get("user_metadata", {}).get("tier", "free")
     chart_html = create_candlestick_chart(
         data=history,
         symbol=symbol,
         height=450,
-        show_volume=True
+        show_volume=True,
+        tier=_user_tier,
     )
     
     # SMC 分析
