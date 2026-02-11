@@ -32,9 +32,9 @@ FEATURE_ACCESS = {
     "stock_compare_max":    {"free": 0,     "pro": 2,     "premium": 4},
 
     # ── 回測 (Backtest) ──
-    "backtest":             {"free": False, "pro": True,  "premium": True},
+    "backtest":             {"free": True,  "pro": True,  "premium": True},
     "backtest_martingale":  {"free": False, "pro": False, "premium": True},
-    "backtest_max_years":   {"free": 0,     "pro": 1,     "premium": 5},
+    "backtest_max_years":   {"free": 1,     "pro": 1,     "premium": 5},
     "backtest_compare":     {"free": False, "pro": False, "premium": True},
 
     # ── 預測 (Prediction) ──

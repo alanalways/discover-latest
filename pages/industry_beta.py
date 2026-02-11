@@ -12,13 +12,19 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
     industries = _get_industry_data()
     industries_json = json.dumps(industries, ensure_ascii=False)
 
-    # 產業卡片（含 3D tilt 效果）
+    # 產業卡片（含 3D tilt 效果 + 展開全部功能）
     industry_cards = ""
     colors = ["#D4A76A", "#E8C547", "#3B82F6", "#22C55E", "#F97316", "#B8860B"]
     for idx, ind in enumerate(industries):
         color = colors[idx % len(colors)]
+        all_stocks = ind.get("stocks", [])
+        visible_stocks = all_stocks[:5]
+        hidden_stocks = all_stocks[5:]
+        card_id = f"ind_card_{idx}"
+
+        # 前 5 檔（預設顯示）
         stocks_html = ""
-        for s in ind.get("stocks", [])[:5]:
+        for s in visible_stocks:
             beta = s.get("beta", 1)
             beta_color = "#22C55E" if beta < 1 else "#EF4444" if beta > 1.5 else "#FBBF24"
             stocks_html += f'''
@@ -27,6 +33,29 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
                 <span class="ind-stock-name">{s['name']}</span>
                 <span class="ind-stock-beta" style="color:{beta_color};">β {beta:.2f}</span>
             </div>'''
+
+        # 隱藏的股票（展開後顯示）
+        hidden_html = ""
+        if hidden_stocks:
+            for s in hidden_stocks:
+                beta = s.get("beta", 1)
+                beta_color = "#22C55E" if beta < 1 else "#EF4444" if beta > 1.5 else "#FBBF24"
+                hidden_html += f'''
+                <div class="ind-stock" onclick="selectStock('{s['symbol']}')">
+                    <span class="ind-stock-sym">{s['symbol']}</span>
+                    <span class="ind-stock-name">{s['name']}</span>
+                    <span class="ind-stock-beta" style="color:{beta_color};">β {beta:.2f}</span>
+                </div>'''
+
+        # 「查看全部」按鈕
+        expand_btn = ""
+        if len(all_stocks) > 5:
+            expand_btn = f'''
+            <button class="ind-expand-btn" id="{card_id}_btn"
+                onclick="(function(){{ var h=document.getElementById('{card_id}_hidden'); var b=document.getElementById('{card_id}_btn'); if(h.style.display==='none'){{ h.style.display='block'; b.textContent='收合'; }} else {{ h.style.display='none'; b.textContent='查看全部 ({len(all_stocks)} 檔)'; }} }})()"
+                style="width:100%;padding:8px;margin-top:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:var(--text-2);font-size:12px;cursor:pointer;transition:all 0.2s;">
+                查看全部 ({len(all_stocks)} 檔)
+            </button>'''
 
         industry_cards += f'''
         <div class="industry-card tilt-card" style="--accent-clr:{color};">
@@ -43,6 +72,8 @@ def create_industry_beta_page(lang: str = "zh-TW") -> str:
                 </span>
             </div>
             <div class="industry-stocks">{stocks_html}</div>
+            <div id="{card_id}_hidden" style="display:none;">{hidden_html}</div>
+            {expand_btn}
         </div>'''
 
     return f'''

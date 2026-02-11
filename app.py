@@ -592,9 +592,15 @@ def create_app():
             user_id = cur_user.get("id", "")
             if user_id:
                 try:
-                    return rate_limiter.check_and_downgrade(user_id)
+                    tier = rate_limiter.check_and_downgrade(user_id)
+                    # 同步更新 session 中的 tier（避免快取舊值）
+                    if "user_metadata" not in cur_user:
+                        cur_user["user_metadata"] = {}
+                    cur_user["user_metadata"]["tier"] = tier
+                    return tier
                 except Exception:
                     pass
+            # Fallback：嘗試 user_metadata，但以 DB 為準
             return cur_user.get("user_metadata", {}).get("tier", "free")
 
         def _gate_block(feature, cur_user, lang, cur_symbol, cur_watchlist, page_id="stock"):
@@ -1344,6 +1350,17 @@ def create_app():
                         user["app_metadata"] = {}
                     user["app_metadata"]["role"] = "admin"
                     print(f"[Auth] Admin user detected: {email}")
+                # 登入後從 DB 讀取最新 tier 並注入 session
+                user_id = user.get("id", "")
+                if user_id:
+                    try:
+                        db_tier = rate_limiter.check_and_downgrade(user_id)
+                        if "user_metadata" not in user:
+                            user["user_metadata"] = {}
+                        user["user_metadata"]["tier"] = db_tier
+                        print(f"[Auth] Tier from DB: {db_tier}")
+                    except Exception as e:
+                        print(f"[Auth] Warning: Could not read tier from DB: {e}")
                 cur_user = user
                 print(f"[Auth] Logged in: {email}")
             else:

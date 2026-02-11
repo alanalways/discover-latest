@@ -1,6 +1,7 @@
 """
 DiscoverLatest 洞察運算 - 市場總覽頁面
 使用 FinMind（台股）+ yfinance（美股）取得即時市場資料（含快取）
+v2: 新增台美股 Top20 漲跌幅/成交量 + 開休市即時狀態
 """
 import time
 import traceback
@@ -11,11 +12,15 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from components.i18n import t
 
 # ──────────────────────────────────────
-# Module-level cache (TTL = 5 min)
+# Module-level cache (TTL = 60s)
 # ──────────────────────────────────────
 _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
 _CACHE_TTL = 60  # seconds (auto-refresh every 60s)
 _first_load = True  # Skip yfinance on first load for instant startup
+
+# Top20 快取（TTL = 120s，避免頻繁呼叫）
+_top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
+_TOP20_CACHE_TTL = 120
 
 # ──────────────────────────────────────
 # Ticker definitions
@@ -36,6 +41,16 @@ _ETF_TICKERS = {
     "VOO":      {"name": "Vanguard S&P 500", "display": "VOO"},
     "QQQ":      {"name": "Invesco QQQ",      "display": "QQQ"},
 }
+
+# 美股 Top 50 常用股票（用於計算 Top20）
+_US_TOP_SYMBOLS = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "BRK-B",
+    "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "ADBE",
+    "CRM", "INTC", "AMD", "QCOM", "TXN", "AVGO", "COST", "PEP", "KO",
+    "MRK", "ABT", "TMO", "UNH", "LLY", "NKE", "BA", "CAT", "GS",
+    "MS", "AXP", "PYPL", "SQ", "SHOP", "UBER", "ABNB", "PLTR", "COIN",
+    "SOFI", "RIVN", "ARM", "SMCI", "MU",
+]
 
 # ──────────────────────────────────────
 # Realistic fallback data
@@ -194,10 +209,112 @@ def _fetch_market_data() -> Dict[str, list]:
 
 
 # ──────────────────────────────────────
+# Top20 漲跌幅 + 成交量 fetcher
+# ──────────────────────────────────────
+def _fetch_top20_data() -> Dict:
+    """取得台美股 Top 20 漲跌幅/成交量（含快取）"""
+    global _top20_cache
+    now = time.time()
+
+    if _top20_cache["tw"] is not None and (now - _top20_cache["ts"]) < _TOP20_CACHE_TTL:
+        return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
+
+    tw_data = []
+    us_data = []
+
+    # ── 美股 Top20（yfinance batch）──
+    try:
+        import yfinance as yf
+        def _dl_us():
+            return yf.download(
+                _US_TOP_SYMBOLS,
+                period="5d",
+                group_by="ticker",
+                progress=False,
+                threads=True,
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_dl_us)
+            df = future.result(timeout=15)
+
+        if df is not None and not df.empty:
+            for sym in _US_TOP_SYMBOLS:
+                try:
+                    if sym not in df.columns.get_level_values(0):
+                        continue
+                    close_s = df[sym]["Close"].dropna()
+                    vol_s = df[sym]["Volume"].dropna()
+                    if len(close_s) < 2:
+                        continue
+                    last = float(close_s.iloc[-1])
+                    prev = float(close_s.iloc[-2])
+                    vol = int(vol_s.iloc[-1]) if len(vol_s) > 0 else 0
+                    chg = last - prev
+                    pct = (chg / prev * 100) if prev != 0 else 0.0
+                    us_data.append({
+                        "symbol": sym,
+                        "name": sym,
+                        "price": last,
+                        "change": chg,
+                        "change_pct": pct,
+                        "volume": vol,
+                    })
+                except Exception:
+                    continue
+    except FuturesTimeout:
+        print("[Top20] US download timed out")
+    except Exception as e:
+        print(f"[Top20] US error: {e}")
+
+    # ── 台股 Top20（FinMind 批次取得熱門台股）──
+    _TW_TOP_SYMBOLS = [
+        "2330", "2454", "2317", "2382", "3034", "2308", "2303",
+        "2881", "2882", "2884", "2886", "2891", "2412", "1301",
+        "1303", "2002", "3231", "2357", "3711", "6446",
+        "2379", "2356", "3045", "4904", "00878", "0050", "0056",
+        "3661", "2345", "5274", "2327", "3443", "2603", "2609",
+        "1216", "2912", "8069", "3037", "6547", "2474",
+    ]
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        for sym in _TW_TOP_SYMBOLS:
+            try:
+                fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+                if fm_data and len(fm_data) >= 2:
+                    last_row = fm_data[-1]
+                    prev_row = fm_data[-2]
+                    price = last_row["close"]
+                    prev_price = prev_row["close"]
+                    vol = last_row.get("Trading_Volume", last_row.get("volume", 0))
+                    chg = price - prev_price
+                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                    # 取股票名稱
+                    stock_name = sym
+                    tw_data.append({
+                        "symbol": sym,
+                        "name": stock_name,
+                        "price": price,
+                        "change": chg,
+                        "change_pct": pct,
+                        "volume": vol,
+                    })
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[Top20] TW error: {e}")
+
+    _top20_cache = {"tw": tw_data, "us": us_data, "ts": now}
+    return {"tw": tw_data, "us": us_data}
+
+
+# ──────────────────────────────────────
 # Page builder
 # ──────────────────────────────────────
 def create_market_overview_page(lang: str = "zh-TW"):
-    """建立市場總覽頁面（台股/美股分類）"""
+    """建立市場總覽頁面（台股/美股分類 + Top20 + 開休市）"""
 
     data = _fetch_market_data()
     indices = data.get("indices", [])
@@ -249,6 +366,79 @@ def create_market_overview_page(lang: str = "zh-TW"):
     us_indices_html = "".join(build_index_card(idx) for idx in us_indices)
     us_etfs_html = "".join(build_etf_card(etf) for etf in us_etfs)
 
+    # ---------- Top20 資料 ----------
+    top20 = _fetch_top20_data()
+    tw_top20 = top20.get("tw", [])
+    us_top20 = top20.get("us", [])
+
+    def build_top20_section(stocks: List[Dict], market_label: str, market_id: str) -> str:
+        """建構 Top20 漲跌幅/成交量排行區塊"""
+        if not stocks:
+            return f'<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px;">載入中或暫無 {market_label} 資料…</div>'
+
+        # 排序
+        by_gainers = sorted(stocks, key=lambda x: x.get("change_pct", 0), reverse=True)[:20]
+        by_losers = sorted(stocks, key=lambda x: x.get("change_pct", 0))[:20]
+        by_volume = sorted(stocks, key=lambda x: x.get("volume", 0), reverse=True)[:20]
+
+        def build_row(rank, s, show_vol=False):
+            pct = s.get("change_pct", 0)
+            color = "#22c55e" if pct >= 0 else "#ef4444"
+            icon = "▲" if pct >= 0 else "▼"
+            vol_str = ""
+            if show_vol:
+                v = s.get("volume", 0)
+                if v >= 1e9:
+                    vol_str = f"{v/1e9:.1f}B"
+                elif v >= 1e6:
+                    vol_str = f"{v/1e6:.1f}M"
+                elif v >= 1e3:
+                    vol_str = f"{v/1e3:.0f}K"
+                else:
+                    vol_str = f"{v:,}"
+            return f'''<tr onclick="selectStock('{s['symbol']}')" style="cursor:pointer;transition:background 0.15s;">
+                <td style="padding:8px 6px;color:var(--text-3);font-size:12px;width:30px;">{rank}</td>
+                <td style="padding:8px 6px;"><span style="color:var(--text-1);font-weight:600;font-size:13px;">{s['symbol']}</span></td>
+                <td style="padding:8px 6px;color:var(--text-2);font-size:12px;">{s['name']}</td>
+                <td style="padding:8px 6px;text-align:right;color:var(--text-1);font-family:var(--font-mono);font-size:13px;">{s.get('price',0):,.2f}</td>
+                <td style="padding:8px 6px;text-align:right;color:{color};font-family:var(--font-mono);font-size:13px;font-weight:600;">{icon} {abs(pct):.2f}%</td>
+                {'<td style="padding:8px 6px;text-align:right;color:var(--text-2);font-family:var(--font-mono);font-size:12px;">' + vol_str + '</td>' if show_vol else ''}
+            </tr>'''
+
+        def build_table(items, show_vol=False):
+            vol_header = '<th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">成交量</th>' if show_vol else ''
+            rows = "".join(build_row(i+1, s, show_vol) for i, s in enumerate(items))
+            return f'''<table style="width:100%;border-collapse:collapse;">
+                <thead><tr>
+                    <th style="padding:8px 6px;text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">#</th>
+                    <th style="padding:8px 6px;text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">代號</th>
+                    <th style="padding:8px 6px;text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">名稱</th>
+                    <th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">收盤價</th>
+                    <th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">漲跌幅</th>
+                    {vol_header}
+                </tr></thead>
+                <tbody>{rows}</tbody>
+            </table>'''
+
+        gainers_table = build_table(by_gainers)
+        losers_table = build_table(by_losers)
+        volume_table = build_table(by_volume, show_vol=True)
+
+        return f'''
+        <div class="chart-section" style="margin-bottom:20px;">
+            <div style="display:flex;gap:8px;margin-bottom:16px;">
+                <button class="period-tab active" onclick="switchTop20Tab('{market_id}','gainers',this)">🔥 漲幅</button>
+                <button class="period-tab" onclick="switchTop20Tab('{market_id}','losers',this)">💧 跌幅</button>
+                <button class="period-tab" onclick="switchTop20Tab('{market_id}','volume',this)">📊 成交量</button>
+            </div>
+            <div id="{market_id}_gainers" style="max-height:480px;overflow-y:auto;">{gainers_table}</div>
+            <div id="{market_id}_losers" style="display:none;max-height:480px;overflow-y:auto;">{losers_table}</div>
+            <div id="{market_id}_volume" style="display:none;max-height:480px;overflow-y:auto;">{volume_table}</div>
+        </div>'''
+
+    tw_top20_html = build_top20_section(tw_top20, "台股", "tw_top20")
+    us_top20_html = build_top20_section(us_top20, "美股", "us_top20")
+
     # ---------- Assemble page HTML ----------
     page_html = f'''
     <div class="market-page">
@@ -256,6 +446,9 @@ def create_market_overview_page(lang: str = "zh-TW"):
             <h1 class="welcome-title">{t("auth.guestWelcome", lang)}</h1>
             <p class="welcome-subtitle">{t("app.tagline", lang)}</p>
         </div>
+
+        <!-- 🕐 台美股開休市即時狀態 -->
+        <div id="market-hours-bar" style="display:flex;gap:16px;margin-bottom:24px;flex-wrap:wrap;"></div>
 
         <div class="market-toolbar">
             <span class="data-note" style="flex:1;">{data_source_note}</span>
@@ -288,12 +481,117 @@ def create_market_overview_page(lang: str = "zh-TW"):
             <div class="etf-grid">{us_etfs_html}</div>
         </div>
 
+        <!-- 📊 Top 20 排行 -->
+        <div class="market-section">
+            <h2 class="section-title" style="display:flex;align-items:center;gap:8px;">
+                <span class="section-icon">📊</span>
+                漲跌幅 & 成交量排行
+            </h2>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                <div>
+                    <h3 class="subsection-title">🇹🇼 台股 Top 20</h3>
+                    {tw_top20_html}
+                </div>
+                <div>
+                    <h3 class="subsection-title">🇺🇸 美股 Top 20</h3>
+                    {us_top20_html}
+                </div>
+            </div>
+        </div>
+
         <div class="market-footer">
-            <p>點擊 ETF 卡片可查看個股分析 &middot; 使用上方搜尋列輸入代號快速查詢</p>
+            <p>點擊 ETF / 股票可查看個股分析 &middot; 使用上方搜尋列輸入代號快速查詢</p>
         </div>
     </div>
-    
+
+    <script>
+    // ── 開休市即時狀態 ──
+    (function() {{
+        function updateMarketHours() {{
+            var bar = document.getElementById('market-hours-bar');
+            if (!bar) return;
+
+            var now = new Date();
+            // 台灣時間（UTC+8）
+            var twTime = new Date(now.toLocaleString('en-US', {{timeZone: 'Asia/Taipei'}}));
+            var twDay = twTime.getDay(); // 0=Sun, 6=Sat
+            var twHour = twTime.getHours();
+            var twMin = twTime.getMinutes();
+            var twMins = twHour * 60 + twMin; // 分鐘數
+            var twOpen = twDay >= 1 && twDay <= 5 && twMins >= 540 && twMins < 810; // 09:00-13:30
+            var twStatus, twNext;
+            if (twOpen) {{
+                var remaining = 810 - twMins;
+                twStatus = '🟢 開盤中';
+                twNext = '收盤倒數 ' + Math.floor(remaining/60) + 'h ' + (remaining%60) + 'm';
+            }} else {{
+                twStatus = '🔴 已收盤';
+                // 計算距離下次開盤
+                if (twDay === 0) twNext = '週一 09:00 開盤';
+                else if (twDay === 6) twNext = '週一 09:00 開盤';
+                else if (twMins >= 810) twNext = '明日 09:00 開盤';
+                else twNext = '今日 09:00 開盤';
+            }}
+
+            // 美東時間（EST/EDT）
+            var usTime = new Date(now.toLocaleString('en-US', {{timeZone: 'America/New_York'}}));
+            var usDay = usTime.getDay();
+            var usHour = usTime.getHours();
+            var usMin = usTime.getMinutes();
+            var usMins = usHour * 60 + usMin;
+            var usOpen = usDay >= 1 && usDay <= 5 && usMins >= 570 && usMins < 960; // 09:30-16:00
+            var usStatus, usNext;
+            if (usOpen) {{
+                var usRemaining = 960 - usMins;
+                usStatus = '🟢 開盤中';
+                usNext = '收盤倒數 ' + Math.floor(usRemaining/60) + 'h ' + (usRemaining%60) + 'm';
+            }} else {{
+                usStatus = '🔴 已收盤';
+                if (usDay === 0) usNext = '週一 09:30 開盤 (ET)';
+                else if (usDay === 6) usNext = '週一 09:30 開盤 (ET)';
+                else if (usMins >= 960) usNext = '明日 09:30 開盤 (ET)';
+                else usNext = '今日 09:30 開盤 (ET)';
+            }}
+
+            bar.innerHTML = `
+                <div style="flex:1;min-width:200px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:14px;">
+                    <span style="font-size:20px;">🇹🇼</span>
+                    <div>
+                        <div style="font-size:14px;font-weight:600;color:var(--text-1);">台股 ${{twStatus}}</div>
+                        <div style="font-size:12px;color:var(--text-3);margin-top:2px;">${{twNext}} · ${{twTime.toLocaleTimeString('zh-TW', {{hour:'2-digit',minute:'2-digit'}})}}</div>
+                    </div>
+                </div>
+                <div style="flex:1;min-width:200px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);display:flex;align-items:center;gap:14px;">
+                    <span style="font-size:20px;">🇺🇸</span>
+                    <div>
+                        <div style="font-size:14px;font-weight:600;color:var(--text-1);">美股 ${{usStatus}}</div>
+                        <div style="font-size:12px;color:var(--text-3);margin-top:2px;">${{usNext}} · ${{usTime.toLocaleTimeString('en-US', {{hour:'2-digit',minute:'2-digit',timeZoneName:'short'}})}}</div>
+                    </div>
+                </div>
+            `;
+        }}
+        updateMarketHours();
+        setInterval(updateMarketHours, 30000); // 每 30 秒更新
+    }})();
+
+    // ── Top20 Tab 切換 ──
+    window.switchTop20Tab = function(marketId, tab, btn) {{
+        ['gainers', 'losers', 'volume'].forEach(function(t) {{
+            var el = document.getElementById(marketId + '_' + t);
+            if (el) el.style.display = t === tab ? 'block' : 'none';
+        }});
+        btn.parentNode.querySelectorAll('.period-tab').forEach(function(b) {{ b.classList.remove('active'); }});
+        btn.classList.add('active');
+    }};
+    </script>
+
+    <style>
+    @media (max-width: 768px) {{
+        .market-page [style*="grid-template-columns: 1fr 1fr"] {{
+            grid-template-columns: 1fr !important;
+        }}
+    }}
+    </style>
     '''
 
     return page_html
-

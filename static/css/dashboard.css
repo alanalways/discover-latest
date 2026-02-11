@@ -4417,3 +4417,49 @@ textarea:focus {
 .lock-upgrade-btn:hover {
     box-shadow: 0 4px 12px rgba(0, 217, 126, 0.3);
 }
+
+/* =========================================
+   SMC Chart overflow fix — 避免字體被裁切
+   ========================================= */
+.smc-chart-wrap {
+    overflow: visible !important;
+}
+
+.smc-chart-wrap .smc-tgl {
+    white-space: nowrap;
+    padding: 5px 14px;
+    min-width: fit-content;
+}
+
+.smc-popup {
+    z-index: 50 !important;
+}
+
+/* =========================================
+   Top20 排行表格
+   ========================================= */
+.chart-section table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.chart-section table tbody tr:nth-child(1) td:first-child,
+.chart-section table tbody tr:nth-child(2) td:first-child,
+.chart-section table tbody tr:nth-child(3) td:first-child {
+    color: var(--primary) !important;
+    font-weight: 700;
+}
+
+/* 市場時間卡片 hover */
+#market-hours-bar>div:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(18, 16, 12, 0.8);
+}
+
+/* =========================================
+   Market Overview Responsive (Top20)
+   ========================================= */
+@media (max-width: 900px) {
+    .market-page [style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+    }
+}

@@ -58,7 +58,7 @@ def create_smc_chart(
                 "text": "H" if sw["type"] == "high" else "L",
             })
     if show_structures:
-        for st in smc_analysis.get("structures", []):
+        for st in smc_analysis.get("structures", [])[-5:]:
             c = "#22c55e" if st["direction"] == "bullish" else "#ef4444"
             markers.append({
                 "time": st["to_date"],
@@ -72,7 +72,7 @@ def create_smc_chart(
     rects = []
     last_date = data[-1].get("date", "")
     if show_ob:
-        for ob in smc_analysis.get("order_blocks", []):
+        for ob in smc_analysis.get("order_blocks", [])[-5:]:
             rects.append({
                 "kind": "OB",
                 "subtype": ob["type"],
@@ -84,7 +84,7 @@ def create_smc_chart(
                 "desc": ob.get("description", ""),
             })
     if show_fvg:
-        for fvg in smc_analysis.get("fvg", []):
+        for fvg in smc_analysis.get("fvg", [])[-5:]:
             rects.append({
                 "kind": "FVG",
                 "subtype": fvg["type"],
@@ -334,8 +334,9 @@ def create_smc_summary_card(smc_analysis: Dict, lang: str = "zh-TW") -> str:
     fvgs = smc_analysis.get("fvg", [])
     liquidity = smc_analysis.get("liquidity", [])
 
-    active_obs = [ob for ob in obs if not ob.get("mitigated")]
-    active_fvgs = [f for f in fvgs if not f.get("filled")]
+    # 只取最後 5 個（與圖表顯示同步）
+    active_obs = [ob for ob in obs[-5:] if not ob.get("mitigated")]
+    active_fvgs = [f for f in fvgs[-5:] if not f.get("filled")]
     bull_ob = len([o for o in active_obs if "bullish" in o["type"]])
     bear_ob = len([o for o in active_obs if "bearish" in o["type"]])
     bull_fvg = len([f for f in active_fvgs if "bullish" in f["type"]])
@@ -346,7 +347,7 @@ def create_smc_summary_card(smc_analysis: Dict, lang: str = "zh-TW") -> str:
 
     # Key levels
     key_levels_html = ""
-    for ob in active_obs[:3]:
+    for ob in active_obs[:5]:
         c = "#26a69a" if "bullish" in ob["type"] else "#ef5350"
         key_levels_html += f'<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px;"><span style="color:{c};">OB {ob.get("date","")}</span><span style="color:var(--text-1);">{ob["low"]:.2f} — {ob["high"]:.2f}</span></div>'
     for liq in liquidity[:2]:
@@ -367,7 +368,7 @@ def create_smc_summary_card(smc_analysis: Dict, lang: str = "zh-TW") -> str:
             rr_text = f"1:{max(1,round(ob_mid / ob_range / 5))}"
 
     # Recent structures
-    recent = structures[-3:]
+    recent = structures[-5:]
     struct_html = ""
     for s in recent:
         dc = "#22c55e" if s["direction"] == "bullish" else "#ef4444"
