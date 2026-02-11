@@ -339,6 +339,7 @@ h3 {
     min-height: calc(100vh - var(--topbar-h));
     background: var(--bg-void) !important;
     color: var(--text-1);
+    transition: margin-left var(--duration-slow) var(--ease-out);
 }
 
 /* =========================================
@@ -362,8 +363,75 @@ h3 {
 }
 
 .sidebar.collapsed {
-    width: 0;
-    overflow: hidden;
+    width: 64px;
+    overflow: visible;
+}
+
+/* Collapsed: 隱藏文字，只留 icon */
+.sidebar.collapsed .logo-text,
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .sidebar-footer,
+.sidebar.collapsed .usage-card {
+    display: none;
+}
+
+.sidebar.collapsed .logo {
+    justify-content: center;
+    padding: 0;
+}
+
+.sidebar.collapsed .nav-item {
+    justify-content: center;
+    padding: 12px;
+    gap: 0;
+    border-left: none;
+}
+
+.sidebar.collapsed .nav-item.active {
+    border-left: none;
+    border-radius: var(--radius-md);
+}
+
+.sidebar.collapsed .sidebar-nav {
+    padding: 16px 6px;
+}
+
+/* Collapsed 時 nav-item tooltip（hover 顯示頁面名稱）*/
+.sidebar.collapsed .nav-item {
+    position: relative;
+}
+
+.sidebar.collapsed .nav-item::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 6px 12px;
+    background: rgba(20, 20, 22, 0.95);
+    color: var(--text-1);
+    font-size: 12px;
+    white-space: nowrap;
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 200;
+}
+
+.sidebar.collapsed .nav-item:hover::after {
+    opacity: 1;
+}
+
+/* Collapsed 時 main-content 和 topbar 跟隨 */
+.sidebar.collapsed~.main-content,
+body.sidebar-collapsed .main-content {
+    margin-left: 64px;
+}
+
+body.sidebar-collapsed .topbar-wrapper {
+    left: 64px;
 }
 
 .sidebar-header {
@@ -739,6 +807,7 @@ h3 {
     display: flex;
     align-items: center;
     padding: 0 28px;
+    transition: left var(--duration-slow) var(--ease-out);
 }
 
 .topbar {
@@ -772,7 +841,9 @@ h3 {
     cursor: pointer;
     padding: 6px;
     border-radius: var(--radius-sm);
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     transition: color var(--duration-fast) ease;
 }
 

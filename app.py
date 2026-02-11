@@ -1608,11 +1608,22 @@ def create_app():
             })();
 
             setTimeout(() => {
-                // ── Sidebar toggle ──
+                // ── Sidebar toggle（可摺疊，含 localStorage 記憶）──
                 window.toggleSidebar = function() {
                     const s = document.querySelector('.sidebar');
-                    if (s) s.classList.toggle('collapsed');
+                    if (!s) return;
+                    s.classList.toggle('collapsed');
+                    document.body.classList.toggle('sidebar-collapsed');
+                    // 記住摺疊狀態
+                    try { localStorage.setItem('sidebar_collapsed', s.classList.contains('collapsed') ? '1' : '0'); } catch(e) {}
                 };
+                // 啟動時還原摺疊狀態
+                try {
+                    if (localStorage.getItem('sidebar_collapsed') === '1') {
+                        const s = document.querySelector('.sidebar');
+                        if (s) { s.classList.add('collapsed'); document.body.classList.add('sidebar-collapsed'); }
+                    }
+                } catch(e) {}
 
                 // ── Page navigation (with loading overlay) ──
                 window.navigateTo = function(page) {

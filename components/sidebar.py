@@ -44,10 +44,11 @@ def create_sidebar_html(lang: str = 'zh-TW', user_info: dict = None, current_pag
     for page_id, label_key, icon_key in nav_items:
         active_class = 'active' if page_id == current_page else ''
         icon_svg = _ICONS.get(icon_key, '')
+        label_text = t(label_key, lang)
         nav_html += f'''
-        <a href="#{page_id}" class="nav-item {active_class}" data-page="{page_id}" onclick="event.preventDefault(); navigateTo('{page_id}');">
+        <a href="#{page_id}" class="nav-item {active_class}" data-page="{page_id}" data-tooltip="{label_text}" onclick="event.preventDefault(); navigateTo('{page_id}');">
             <span class="nav-icon">{icon_svg}</span>
-            <span class="nav-label">{t(label_key, lang)}</span>
+            <span class="nav-label">{label_text}</span>
         </a>
         '''
 
