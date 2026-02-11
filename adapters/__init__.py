@@ -8,6 +8,7 @@ from .yahoo_adapter import YahooAdapter, yahoo_adapter
 from .stooq_adapter import StooqAdapter, stooq_adapter
 from .fx_adapter import FXAdapter, fx_adapter
 from .finmind_adapter import FinMindAdapter, finmind_adapter
+from .ndc_adapter import NDCAdapter, ndc_adapter
 
 __all__ = [
     # Supabase
@@ -31,4 +32,7 @@ __all__ = [
     # FinMind
     "FinMindAdapter",
     "finmind_adapter",
+    # NDC
+    "NDCAdapter",
+    "ndc_adapter",
 ]

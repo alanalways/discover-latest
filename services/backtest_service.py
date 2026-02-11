@@ -5,8 +5,8 @@ Backtest Service - 回測服務
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import math
-import finmind_adapter
-import ndc_adapter
+from adapters.finmind_adapter import finmind_adapter
+from adapters.ndc_adapter import ndc_adapter
 
 
 class BacktestService:
