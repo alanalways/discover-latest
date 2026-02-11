@@ -5,6 +5,8 @@ Backtest Service - 回測服務
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import math
+import finmind_adapter
+import ndc_adapter
 
 
 class BacktestService:
@@ -17,6 +19,7 @@ class BacktestService:
         "momentum": "動能策略",
         "rsi": "RSI 策略",
         "martingale": "馬丁格爾策略",
+        "monitoring_indicator": "景氣燈號策略",
     }
     
     def __init__(self):
@@ -62,6 +65,8 @@ class BacktestService:
         elif strategy == "martingale":
             # 馬丁格爾使用專用模擬器
             return self._run_martingale(history, params, initial_capital)
+        elif strategy == "monitoring_indicator":
+            signals = self._monitoring_indicator_strategy(history, params)
         else:
             return {"error": f"不支援的策略: {strategy}"}
         
@@ -100,6 +105,10 @@ class BacktestService:
                 "commission": 0.001425,    # 手續費
                 "slippage": 0.001,         # 滑價 0.1%
                 "base_amount_pct": 0.02,   # 基礎買入金額佔比 2%
+            },
+            "monitoring_indicator": {
+                "buy_score": 22,   # 低於此分數買入 (黃藍燈 22 / 藍燈 16)
+                "sell_score": 38,  # 高於此分數賣出 (紅燈 38)
             },
         }
         return defaults.get(strategy, {})
@@ -301,10 +310,72 @@ class BacktestService:
             
             rsi_values.append(rsi)
         
+        
         return rsi_values
-    
+
+    def _monitoring_indicator_strategy(self, history: List[Dict], params: Dict) -> List[Dict]:
+        """
+        景氣燈號策略
+        - 藍燈/黃藍燈 (<= 22) → 買入
+        - 紅燈 (>= 38) → 賣出
+        資料來源：NDC Adapter
+        """
+        buy_score = params.get("buy_score", 22)
+        sell_score = params.get("sell_score", 38)
+
+        # 取得景氣燈號資料
+        try:
+            lights = ndc_adapter.get_business_cycle_score() # List[Dict] with 'date' (YYYYMM), 'score'
+            # 建立 lookup map: YYYYMM -> score
+            score_map = {item["date"]: item["score"] for item in lights}
+        except Exception as e:
+            print(f"[Backtest] 取得景氣燈號失敗: {e}")
+            return []
+
+        signals = []
+        position = 0
+
+        for h in history:
+            date_str = h.get("date", "") # YYYY-MM-DD
+            if not date_str or len(date_str) < 7:
+                continue
+            
+            # 轉換日期為 YYYYMM
+            # date_str: "2023-01-05" -> "202301"
+            parts = date_str.split("-")
+            month_key = f"{parts[0]}{parts[1]}"
+            
+            # 取得該月分數 (若無則跳過，或沿用上月？暫且跳過)
+            score = score_map.get(month_key)
+            if score is None:
+                continue
+            
+            price = h.get("close", 0)
+
+            # 買入訊號
+            if score <= buy_score and position == 0:
+                signals.append({
+                    "date": date_str,
+                    "signal": "buy",
+                    "price": price,
+                    "reason": f"景氣分數 {score:.0f} <= {buy_score} (藍/黃藍燈)"
+                })
+                position = 1
+            
+            # 賣出訊號
+            elif score >= sell_score and position == 1:
+                signals.append({
+                    "date": date_str,
+                    "signal": "sell",
+                    "price": price,
+                    "reason": f"景氣分數 {score:.0f} >= {sell_score} (紅燈)"
+                })
+                position = 0
+            
+            # (選擇性) 紅燈減碼? 這裡簡化為全賣出
+        
+        return signals
     def _simulate_trades(
-        self,
         history: List[Dict],
         signals: List[Dict],
         initial_capital: float,

@@ -8,7 +8,7 @@ interface FetchOptions extends RequestInit {
     skipAuth?: boolean;
 }
 
-class ApiClient {
+export class ApiClient {
     private token: string | null = null;
 
     setToken(token: string | null) {
@@ -79,7 +79,7 @@ class ApiClient {
     }
 
     // ── Analysis ──
-    async runAiAnalysis(symbol: string, period: string = '1y') {
+    async getAiAnalysis(symbol: string, period: string = '1y') {
         return this.fetch('/api/analysis/ai', {
             method: 'POST',
             body: JSON.stringify({ symbol, period }),

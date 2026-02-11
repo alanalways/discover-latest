@@ -99,6 +99,7 @@ class GeminiService:
         stock_info: Dict = None,
         smc_summary: str = "",
         prediction_summary: str = "",
+        macro_data: Dict = None,
         user_question: str = "",
         tier: str = "free",
     ) -> Dict[str, Any]:
@@ -121,7 +122,7 @@ class GeminiService:
         with self._generate_lock:
             return self._generate_analysis_locked(
                 api_key, symbol, stock_info, smc_summary,
-                prediction_summary, user_question,
+                prediction_summary, macro_data, user_question,
             )
 
     def _generate_analysis_locked(
@@ -131,6 +132,7 @@ class GeminiService:
         stock_info: Dict = None,
         smc_summary: str = "",
         prediction_summary: str = "",
+        macro_data: Dict = None,
         user_question: str = "",
         tier: str = "free",
     ) -> Dict[str, Any]:
@@ -151,6 +153,11 @@ class GeminiService:
             context_parts.append(f"SMC 分析: {smc_summary}")
         if prediction_summary:
             context_parts.append(f"預測摘要: {prediction_summary}")
+        if macro_data:
+            score = macro_data.get("score")
+            light = macro_data.get("light")
+            date = macro_data.get("date")
+            context_parts.append(f"台灣景氣對策信號 (國發會 {date}): 分數 {score}, 燈號 {light}")
         context = "\n".join(context_parts)
 
         # ── Stage 1: Grounding with Google Search ──

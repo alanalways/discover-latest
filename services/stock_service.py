@@ -9,7 +9,7 @@ import asyncio
 from adapters import (
     supabase, twse_adapter, tpex_adapter, 
     yahoo_adapter, stooq_adapter, fx_adapter,
-    finmind_adapter
+    finmind_adapter, ndc_adapter
 )
 
 
@@ -40,12 +40,63 @@ class StockService:
         if market is None:
             market = await self._detect_market(symbol)
         
-        # 並行取得資訊與歷史
-        info_task = self._get_stock_info(symbol, market)
-        history_task = self._get_stock_history(symbol, market, period)
+        # 建立並行任務
+        tasks = [
+            self._get_stock_info(symbol, market),
+            self._get_stock_history(symbol, market, period),
+        ]
+
+        # 台股額外取得：本益比/股淨比、市值、法人籌碼
+        if market in ["TWSE", "TPEX"]:
+            tasks.append(finmind_adapter.get_tw_per_pbr(symbol, start_date=None))  # Task 2
+            tasks.append(finmind_adapter.get_tw_market_value(symbol, start_date=None)) # Task 3
         
-        info, history = await asyncio.gather(info_task, history_task)
+        results = await asyncio.gather(*tasks)
         
+        info = results[0]
+        history = results[1]
+        
+        # 處理台股額外資料
+        per_pbr = []
+        market_value_data = []
+        if len(results) > 2:
+            per_pbr = results[2]
+            market_value_data = results[3]
+
+        # 計算 52 週高低點 (若 history 足夠)
+        high_52w = None
+        low_52w = None
+        if history and len(history) > 0:
+            # 確保 history 有 sort
+            # 轉換為 Lightweight Charts 格式 (增加 time 欄位)
+            for h in history:
+                h["time"] = h.get("date")  # Alias date -> time
+            
+            # 取最近 250 筆計算 52w
+            recent_250 = history[-250:]
+            try:
+                high_52w = max(d.get("high", 0) for d in recent_250)
+                low_52w = min(d.get("low", 0) for d in recent_250)
+            except:
+                pass
+        
+        # 整合最新數值到 info
+        if info:
+            if high_52w: info["high_52w"] = high_52w
+            if low_52w: info["low_52w"] = low_52w
+            
+            # 整合 PER/PBR
+            if per_pbr:
+                latest_per = per_pbr[-1]
+                info["pe_ratio"] = latest_per.get("PER")
+                info["pb_ratio"] = latest_per.get("PBR")
+                info["dividend_yield"] = latest_per.get("dividend_yield")
+            
+            # 整合市值
+            if market_value_data:
+                latest_mv = market_value_data[-1]
+                info["market_cap"] = latest_mv.get("Market_Value")
+
         return {
             "symbol": symbol,
             "market": market,
@@ -180,6 +231,31 @@ class StockService:
                         results.append(y)
             except Exception as e:
                 print(f"[StockService] Yahoo 搜尋失敗: {e}")
+
+        # 強制檢查 4 碼代號 (針對 FinMind 遺漏的上櫃股票，如 8048)
+        if len(results) == 0 and len(query_stripped) == 4 and query_stripped.isdigit():
+            try:
+                # 嘗試 TPEX
+                tpex_info = await tpex_adapter.get_stock_info(query_stripped)
+                if tpex_info:
+                    results.append({
+                        "symbol": query_stripped,
+                        "name": tpex_info.get("name", query_stripped),
+                        "market": "TPEX",
+                        "type": "stock"
+                    })
+                else:
+                    # 嘗試 TWSE
+                    twse_info = await twse_adapter.get_stock_info(query_stripped)
+                    if twse_info:
+                        results.append({
+                            "symbol": query_stripped,
+                            "name": twse_info.get("name", query_stripped),
+                            "market": "TWSE",
+                            "type": "stock"
+                        })
+            except Exception as e:
+                print(f"[StockService] Fallback 搜尋失敗 ({query_stripped}): {e}")
 
         return results[:limit]
 

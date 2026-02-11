@@ -19,7 +19,8 @@ FEATURE_ACCESS = {
     "indicator_max_count":  {"free": 0,     "pro": 3,     "premium": 99},
 
     # ── AI 分析 (AI Analysis) ──
-    "ai_full_analysis":     {"free": False, "pro": True,  "premium": True},  # Free 僅看簡報
+    "ai_analysis":          {"free": True,  "pro": True,  "premium": True},
+    "ai_full_analysis":     {"free": True,  "pro": True,  "premium": True},
     "ai_followup":          {"free": False, "pro": True,  "premium": True},
     "ai_chat_rounds":       {"free": 0,     "pro": 3,     "premium": 10},
     "ai_dexter":            {"free": False, "pro": False, "premium": True},

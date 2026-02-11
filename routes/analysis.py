@@ -43,6 +43,10 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         if not can_access(tier, "ai_analysis"):
             raise HTTPException(status_code=403, detail="此功能需要升級方案")
 
+        # 取得最新景氣燈號
+        from adapters.ndc_adapter import ndc_adapter
+        macro_data = ndc_adapter.get_latest_light()
+
         # 檢查每日額度
         if user_id:
             allowed, info = rate_limiter.check_rate_limit(user_id)
@@ -58,7 +62,7 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
             raise HTTPException(status_code=404, detail=f"無法取得 {req.symbol} 資料")
 
         result = await asyncio.to_thread(
-            gemini_service.analyze_stock, req.symbol, stock_data
+            gemini_service.generate_analysis, req.symbol, stock_data, "", "", macro_data, "", tier
         )
         return {"analysis": result}
 

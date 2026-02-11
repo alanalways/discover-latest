@@ -1,295 +1,219 @@
-'use client';
+"use client";
 
-import { useState, useCallback } from 'react';
-import {
-    Search,
-    BarChart3,
-    TrendingUp,
-    TrendingDown,
-    ArrowUpRight,
-    ArrowDownRight,
-    Brain,
-    Loader2,
-    AlertCircle,
-    ChevronDown,
-    Shield,
-    Activity,
-} from 'lucide-react';
-import styles from './page.module.css';
-import api from '@/lib/api';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
+import CandlestickChart from '@/components/charts/CandlestickChart';
+import { ApiClient } from '@/lib/api';
 
-interface StockInfo {
-    symbol?: string;
-    name?: string;
-    price?: number;
-    change?: number;
-    change_pct?: number;
-    market_cap?: number;
-    pe_ratio?: number;
-    volume?: number;
-    high_52w?: number;
-    low_52w?: number;
-    [key: string]: unknown;
-}
-
-interface HistoryPoint {
-    date: string;
-    open: number;
-    high: number;
-    low: number;
-    close: number;
-    volume: number;
-}
+const api = new ApiClient();
 
 export default function AnalysisPage() {
-    const [searchQuery, setSearchQuery] = useState('');
-    const [stockInfo, setStockInfo] = useState<StockInfo | null>(null);
-    const [history, setHistory] = useState<HistoryPoint[]>([]);
-    const [period, setPeriod] = useState('1y');
+    const searchParams = useSearchParams();
+    const symbolParam = searchParams.get('symbol');
+
+    const [symbol, setSymbol] = useState(symbolParam || '2330');
+    const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [aiResult, setAiResult] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
+    const [aiResult, setAiResult] = useState('');
 
-    const handleSearch = useCallback(async () => {
-        const symbol = searchQuery.trim().toUpperCase();
-        if (!symbol) return;
-
+    const fetchData = async (sym: string) => {
         setLoading(true);
         setError('');
-        setStockInfo(null);
-        setHistory([]);
-        setAiResult(null);
-
+        setAiResult(''); // 換股時清空 AI 結果
         try {
-            const [info, histRes] = await Promise.all([
-                api.getStock(symbol).catch(() => null),
-                api.getStockHistory(symbol, period).catch(() => ({ data: [] })),
-            ]);
-
-            if (!info) {
-                setError(`找不到股票: ${symbol}`);
-                return;
-            }
-
-            setStockInfo(info as StockInfo);
-            const h = histRes as { data: HistoryPoint[] };
-            setHistory(h.data || []);
+            // 呼叫後端 API (已優化 < 5s 並包含市值、52w 等)
+            const result = await api.getStock(sym);
+            setData(result);
         } catch (err) {
-            setError('查詢失敗，請重試');
+            console.error(err);
+            setError('無法取得資料，請確認股票代號或網路連線。');
         } finally {
             setLoading(false);
         }
-    }, [searchQuery, period]);
+    };
 
     const handleAiAnalysis = async () => {
-        if (!stockInfo?.symbol) return;
+        if (!symbol || aiLoading) return;
         setAiLoading(true);
-        setAiResult(null);
         try {
-            const res = await api.runAiAnalysis(stockInfo.symbol, period);
-            const data = res as { analysis: string };
-            setAiResult(data.analysis || '分析完成但無結果');
-        } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : '分析失敗';
-            setAiResult(`❌ ${msg}`);
+            const result = (await api.getAiAnalysis(symbol)) as any;
+            setAiResult(result.analysis || 'AI 分析未回傳有效結果。');
+        } catch (err) {
+            console.error(err);
+            setAiResult('AI 分析暫時無法使用，請稍後再試。');
         } finally {
             setAiLoading(false);
         }
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleSearch();
+    useEffect(() => {
+        if (symbol) {
+            fetchData(symbol);
+        }
+    }, [symbol]);
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        const trimmed = searchQuery.trim();
+        if (trimmed) {
+            setSymbol(trimmed);
+            // 更新 URL 參數
+            const url = new URL(window.location.href);
+            url.searchParams.set('symbol', trimmed);
+            window.history.pushState({}, '', url.toString());
+        }
     };
 
-    const changePct = stockInfo?.change_pct ?? 0;
-    const isUp = changePct >= 0;
+    if (loading && !data) return <div className="p-20 text-center text-white text-xl">載入中...</div>;
+
+    const info = data?.info || {};
+    const history = data?.history || [];
+
+    // 格式化市值的顯示 (單位：億 TWD)
+    const formatMarketCap = (val: number) => {
+        if (!val) return 'N/A';
+        return (val / 100000000).toFixed(2) + ' 億';
+    };
+
+    // 準備圖表資料 (後端已整合 time 欄位)
+    const chartData = history.map((h: any) => ({
+        time: h.time || h.date,
+        open: h.open,
+        high: h.high,
+        low: h.low,
+        close: h.close,
+        volume: h.volume,
+    }));
+
+    const lastPrice = history.length > 0 ? history[history.length - 1].close : '-';
 
     return (
-        <div className={styles.container}>
-            {/* 搜尋欄 */}
-            <div className={styles.searchSection}>
-                <div className={styles.searchBox}>
-                    <Search size={18} className={styles.searchIcon} />
-                    <input
-                        className={styles.searchInput}
-                        type="text"
-                        placeholder="輸入股票代號（如 2330、AAPL、0050.TW）"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                    />
-                    <button
-                        className={styles.searchBtn}
-                        onClick={handleSearch}
-                        disabled={loading}
-                    >
-                        {loading ? <Loader2 size={16} className={styles.spinning} /> : '搜尋'}
-                    </button>
-                </div>
-                <div className={styles.periodTabs}>
-                    {['1mo', '3mo', '6mo', '1y', '3y', '5y'].map((p) => (
+        <div className="min-h-screen bg-gray-950 p-6 text-white">
+            <div className="max-w-7xl mx-auto space-y-6">
+
+                {/* 搜尋列 */}
+                <div className="flex flex-col md:flex-row gap-4 items-center">
+                    <form onSubmit={handleSearch} className="w-full flex-1 flex gap-2">
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="輸入股票代號 (如 2330, 8048)..."
+                            className="flex-1 p-3 rounded-lg bg-gray-900 border border-gray-800 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
                         <button
-                            key={p}
-                            className={`${styles.periodBtn} ${period === p ? styles.periodActive : ''}`}
-                            onClick={() => setPeriod(p)}
+                            type="submit"
+                            className="px-8 py-3 bg-blue-600 rounded-lg hover:bg-blue-700 transition font-bold"
                         >
-                            {p.toUpperCase()}
+                            搜尋
                         </button>
-                    ))}
+                    </form>
                 </div>
-            </div>
 
-            {/* 錯誤訊息 */}
-            {error && (
-                <div className={styles.errorCard}>
-                    <AlertCircle size={16} /> {error}
-                </div>
-            )}
+                {error && <div className="bg-red-900/30 border border-red-800 p-4 rounded-lg text-red-300">{error}</div>}
 
-            {/* 股票資訊 */}
-            {stockInfo && (
-                <>
-                    {/* 基本資訊卡 */}
-                    <div className={styles.infoCard}>
-                        <div className={styles.infoMain}>
-                            <div className={styles.infoHeader}>
-                                <h2 className={styles.stockSymbol}>{stockInfo.symbol}</h2>
-                                <span className={styles.stockName}>{stockInfo.name}</span>
+                {data && (
+                    <>
+                        {/* 股票基本資訊卡片 */}
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <div className="col-span-1 md:col-span-2 bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-xl">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <div className="text-blue-400 text-sm font-bold tracking-wider mb-1">
+                                            {info.market} | {info.industry || '未分類'}
+                                        </div>
+                                        <h1 className="text-4xl font-black">{info.name}</h1>
+                                        <div className="text-xl text-gray-500">{info.symbol}</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-5xl font-black text-red-500">{lastPrice}</div>
+                                        <div className="text-red-400 text-sm font-bold">TWD</div>
+                                    </div>
+                                </div>
                             </div>
-                            <div className={styles.priceRow}>
-                                <span className={styles.price}>{stockInfo.price?.toFixed(2) ?? '—'}</span>
-                                <span className={`${styles.changeTag} ${isUp ? styles.up : styles.down}`}>
-                                    {isUp ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                                    {stockInfo.change?.toFixed(2)} ({changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%)
-                                </span>
+
+                            <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-xl grid grid-cols-2 gap-4">
+                                <div>
+                                    <div className="text-gray-500 text-sm">市值</div>
+                                    <div className="text-lg font-bold">{formatMarketCap(info.market_cap)}</div>
+                                </div>
+                                <div>
+                                    <div className="text-gray-500 text-sm">殖利率</div>
+                                    <div className="text-lg font-bold text-green-400">{info.dividend_yield ? info.dividend_yield + '%' : 'N/A'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-gray-500 text-sm">P/E 本益比</div>
+                                    <div className="text-lg font-bold">{info.pe_ratio || 'N/A'}</div>
+                                </div>
+                                <div>
+                                    <div className="text-gray-500 text-sm">P/B 股淨比</div>
+                                    <div className="text-lg font-bold">{info.pb_ratio || 'N/A'}</div>
+                                </div>
+                            </div>
+
+                            <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-xl space-y-4">
+                                <div>
+                                    <div className="text-gray-500 text-sm">52週 最高</div>
+                                    <div className="text-xl font-bold text-red-500">{info.high_52w || 'N/A'}</div>
+                                </div>
+                                <div className="h-px bg-gray-800 w-full"></div>
+                                <div>
+                                    <div className="text-gray-500 text-sm">52週 最低</div>
+                                    <div className="text-xl font-bold text-green-500">{info.low_52w || 'N/A'}</div>
+                                </div>
                             </div>
                         </div>
-                        <div className={styles.metricsGrid}>
-                            <Metric label="市值" value={formatMarketCap(stockInfo.market_cap)} icon={<Activity size={14} />} />
-                            <Metric label="本益比" value={stockInfo.pe_ratio?.toFixed(1) ?? '—'} icon={<BarChart3 size={14} />} />
-                            <Metric label="成交量" value={formatVolume(stockInfo.volume)} icon={<TrendingUp size={14} />} />
-                            <Metric label="52W High" value={stockInfo.high_52w?.toFixed(2) ?? '—'} icon={<TrendingUp size={14} />} />
-                            <Metric label="52W Low" value={stockInfo.low_52w?.toFixed(2) ?? '—'} icon={<TrendingDown size={14} />} />
+
+                        {/* K 線圖區塊 */}
+                        <div className="bg-gray-900 rounded-2xl p-6 border border-gray-800 shadow-xl">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-black flex items-center gap-2">
+                                    <span className="w-2 h-8 bg-blue-600 rounded-full"></span>
+                                    技術走勢圖 (日線)
+                                </h2>
+                            </div>
+                            <div className="h-[450px]">
+                                {chartData.length > 0 ? (
+                                    <CandlestickChart data={chartData} />
+                                ) : (
+                                    <div className="h-full flex items-center justify-center text-gray-600">無 K 線資料</div>
+                                )}
+                            </div>
                         </div>
-                    </div>
 
-                    {/* 價格走勢（文字版 — Phase 4 換成 LWC） */}
-                    <div className={styles.chartCard}>
-                        <h3 className={styles.cardTitle}>
-                            <BarChart3 size={16} /> 價格走勢
-                        </h3>
-                        {history.length > 0 ? (
-                            <div className={styles.miniChart}>
-                                {renderTextChart(history)}
+                        {/* AI 分析區塊 */}
+                        <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-900 shadow-2xl relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                                <svg className="w-32 h-32 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" /></svg>
                             </div>
-                        ) : (
-                            <div className={styles.emptyChart}>載入中...</div>
-                        )}
-                    </div>
 
-                    {/* AI 分析 */}
-                    <div className={styles.aiCard}>
-                        <div className={styles.aiHeader}>
-                            <h3 className={styles.cardTitle}>
-                                <Brain size={16} /> AI 深度分析
-                            </h3>
-                            <button
-                                className={styles.aiBtn}
-                                onClick={handleAiAnalysis}
-                                disabled={aiLoading}
-                            >
-                                {aiLoading ? <Loader2 size={14} className={styles.spinning} /> : <Brain size={14} />}
-                                {aiLoading ? '分析中...' : '執行分析'}
-                            </button>
+                            <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                                <div className="space-y-2">
+                                    <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 flex items-center gap-3">
+                                        ✨ AI 智慧深度分析
+                                    </h2>
+                                    <p className="text-indigo-300 font-medium">基於 FinMind 技術指標與國發會景氣燈號進行綜合判斷</p>
+                                </div>
+                                <button
+                                    onClick={handleAiAnalysis}
+                                    disabled={aiLoading}
+                                    className={`px-10 py-4 rounded-full font-black text-lg transition shadow-xl transform active:scale-95 ${aiLoading ? 'bg-gray-700 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500'}`}
+                                >
+                                    {aiLoading ? '分析中...' : '開始分析'}
+                                </button>
+                            </div>
+
+                            {aiResult && (
+                                <div className="mt-8 p-6 bg-black/40 rounded-xl border border-indigo-800 leading-relaxed text-gray-200 whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                    {aiResult}
+                                </div>
+                            )}
                         </div>
-                        {aiResult && (
-                            <div className={styles.aiContent}>
-                                {aiResult.split('\n').map((line, i) => (
-                                    <p key={i}>{line}</p>
-                                ))}
-                            </div>
-                        )}
-                        {!aiResult && !aiLoading && (
-                            <div className={styles.aiEmpty}>
-                                點擊「執行分析」讓 AI 幫你做深度研究
-                            </div>
-                        )}
-                    </div>
-                </>
-            )}
-
-            {/* 搜尋引導 */}
-            {!stockInfo && !loading && !error && (
-                <div className={styles.guide}>
-                    <Search size={48} className={styles.guideIcon} />
-                    <h3>搜尋股票開始分析</h3>
-                    <p>輸入股票代號或名稱</p>
-                    <div className={styles.guideTags}>
-                        {['2330', 'AAPL', '0050.TW', 'TSLA', 'NVDA', '2317'].map((tag) => (
-                            <button
-                                key={tag}
-                                className={styles.guideTag}
-                                onClick={() => { setSearchQuery(tag); }}
-                            >
-                                {tag}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-}
-
-/* ── Metric 小元件 ── */
-function Metric({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
-    return (
-        <div className={styles.metric}>
-            <span className={styles.metricIcon}>{icon}</span>
-            <span className={styles.metricLabel}>{label}</span>
-            <span className={styles.metricValue}>{value}</span>
-        </div>
-    );
-}
-
-/* ── 格式化 ── */
-function formatMarketCap(val?: number): string {
-    if (!val) return '—';
-    if (val >= 1e12) return `${(val / 1e12).toFixed(1)}T`;
-    if (val >= 1e8) return `${(val / 1e8).toFixed(0)}億`;
-    if (val >= 1e6) return `${(val / 1e6).toFixed(1)}M`;
-    return String(val);
-}
-
-function formatVolume(vol?: number): string {
-    if (!vol) return '—';
-    if (vol >= 1e9) return `${(vol / 1e9).toFixed(1)}B`;
-    if (vol >= 1e6) return `${(vol / 1e6).toFixed(1)}M`;
-    if (vol >= 1e3) return `${(vol / 1e3).toFixed(1)}K`;
-    return String(vol);
-}
-
-/* ── 簡易文字走勢圖（Phase 4 會換 LWC）── */
-function renderTextChart(history: HistoryPoint[]): React.ReactNode {
-    const closes = history.map(h => h.close);
-    const min = Math.min(...closes);
-    const max = Math.max(...closes);
-    const range = max - min || 1;
-    const latest = closes[closes.length - 1];
-    const first = closes[0];
-    const pct = ((latest - first) / first * 100);
-
-    return (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-2)' }}>
-            <div style={{ marginBottom: 8 }}>
-                High: {max.toFixed(2)} / Low: {min.toFixed(2)} / Latest: {latest.toFixed(2)}
-                <span style={{ color: pct >= 0 ? 'var(--success)' : 'var(--danger)', marginLeft: 8 }}>
-                    {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                </span>
-            </div>
-            <div style={{ color: 'var(--text-3)', fontSize: 11 }}>
-                {history.length} 筆資料 | {history[0]?.date} → {history[history.length - 1]?.date}
+                    </>
+                )}
             </div>
         </div>
     );
