@@ -77,7 +77,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
                 setToken(backendToken);
                 api.setToken(backendToken);
-                setUser(res.user as User);
+                setUser(res.user as unknown as User);
                 setShowLoginModal(false);
             }
         } catch (err) {
