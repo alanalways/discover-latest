@@ -4610,7 +4610,7 @@ textarea:focus {
 
 /* 單一指數卡片 */
 .index-card {
-    background: rgba(18, 16, 12, 0.7);
+    background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius);
     padding: 18px 20px;
@@ -4619,7 +4619,7 @@ textarea:focus {
 
 .index-card:hover {
     border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(18, 16, 12, 0.9);
+    background: var(--bg-elevated);
 }
 
 .index-header {
@@ -4675,7 +4675,7 @@ textarea:focus {
 
 /* 單一 ETF 卡片 */
 .etf-card {
-    background: rgba(18, 16, 12, 0.7);
+    background: var(--bg-card);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: var(--radius);
     padding: 16px 18px;
@@ -4684,8 +4684,8 @@ textarea:focus {
 }
 
 .etf-card:hover {
-    border-color: rgba(212, 167, 106, 0.2);
-    background: rgba(18, 16, 12, 0.9);
+    border-color: rgba(0, 217, 126, 0.15);
+    background: var(--bg-elevated);
     transform: translateY(-1px);
 }
 
