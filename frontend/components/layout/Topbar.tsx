@@ -11,6 +11,17 @@ interface TopbarProps {
     onMenuClick?: () => void;
 }
 
+const PAGE_TITLES: Record<string, string> = {
+    '/': '儀表板',
+    '/watchlist': '自選清單',
+    '/analysis': '深度分析',
+    '/backtest': '回測模擬器',
+    '/market': '國際市場',
+    '/compare': '股票比較',
+    '/pricing': '會員方案',
+    '/admin': '管理後台',
+};
+
 export default function Topbar({ onMenuClick }: TopbarProps) {
     const pathname = usePathname();
     const router = useRouter();

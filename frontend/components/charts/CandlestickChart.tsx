@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, CandlestickSeries, HistogramSeries } from 'lightweight-charts';
 
 interface ChartData {
     time: string; // YYYY-MM-DD
@@ -16,10 +16,7 @@ interface Props {
     data: ChartData[];
     colors?: {
         backgroundColor?: string;
-        lineColor?: string;
         textColor?: string;
-        areaTopColor?: string;
-        areaBottomColor?: string;
     };
 }
 
@@ -58,35 +55,16 @@ export default function CandlestickChart({ data, colors = {} }: Props) {
 
         chartRef.current = chart;
 
-        // K線圖系列
-        const candlestickSeries = chart.addCandlestickSeries({
-            upColor: '#ef5350',      // 紅K (跌) - 台股慣例其實是綠跌紅漲，但這裡先照國際慣例或之後改
-            downColor: '#26a69a',    // 綠K (漲)
+        // K線圖系列 — lightweight-charts v5 API
+        const candlestickSeries = chart.addSeries(CandlestickSeries, {
+            upColor: '#ef5350',     // 台股慣例：紅漲
+            downColor: '#26a69a',   // 綠跌
             borderVisible: false,
             wickUpColor: '#ef5350',
             wickDownColor: '#26a69a',
         });
 
-        // 台股慣例：紅漲綠跌
-        candlestickSeries.applyOptions({
-            upColor: '#ef5350',     // 紅
-            downColor: '#26a69a',   // 綠
-            wickUpColor: '#ef5350',
-            wickDownColor: '#26a69a',
-        });
-        // 等等，國際是 綠漲(up) 紅跌(down)。台股是 紅漲 綠跌。
-        // Lightweight chart: upColor is for "close > open".
-        // So for TW, upColor should be Red (#ef5350), downColor Green (#26a69a).
-        // Let's force it.
-        candlestickSeries.applyOptions({
-            upColor: '#ef5350',
-            downColor: '#26a69a',
-            wickUpColor: '#ef5350',
-            wickDownColor: '#26a69a',
-        });
-
-        // 處理資料格式
-        // 確保 data 已經排序且無重複
+        // 處理資料格式：排序 + 去除重複日期
         const validData = data.map(d => ({
             time: d.time,
             open: d.open,
@@ -95,12 +73,10 @@ export default function CandlestickChart({ data, colors = {} }: Props) {
             close: d.close,
         })).sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
 
-        // 去除重複日期
-        const uniqueData = [];
-        const seenDates = new Set();
+        const uniqueData: typeof validData = [];
+        const seenDates = new Set<string>();
         for (const d of validData) {
             if (!seenDates.has(d.time)) {
-                uniqueData.append(d) // JS logic error, use push
                 seenDates.add(d.time);
                 uniqueData.push(d);
             }
@@ -108,17 +84,17 @@ export default function CandlestickChart({ data, colors = {} }: Props) {
 
         candlestickSeries.setData(uniqueData);
 
-        // 成交量 (Histogram)
-        const volumeSeries = chart.addHistogramSeries({
+        // 成交量 (Histogram) — v5 API
+        const volumeSeries = chart.addSeries(HistogramSeries, {
             priceFormat: {
                 type: 'volume',
             },
-            priceScaleId: '', // Set as an overlay
+            priceScaleId: '', // overlay
         });
 
         volumeSeries.priceScale().applyOptions({
             scaleMargins: {
-                top: 0.8, // volume takes bottom 20%
+                top: 0.8,
                 bottom: 0,
             },
         });
@@ -128,13 +104,12 @@ export default function CandlestickChart({ data, colors = {} }: Props) {
             .map(d => ({
                 time: d.time,
                 value: d.volume!,
-                color: d.close >= d.open ? '#ef5350' : '#26a69a', // 紅漲綠跌 matching candle
+                color: d.close >= d.open ? '#ef5350' : '#26a69a',
             }))
             .sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
 
-        // Unique volume
-        const uniqueVolume = [];
-        const seenVolDates = new Set();
+        const uniqueVolume: typeof volumeData = [];
+        const seenVolDates = new Set<string>();
         for (const d of volumeData) {
             if (!seenVolDates.has(d.time)) {
                 seenVolDates.add(d.time);

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from 'react';
-import { createChart, ColorType, IChartApi, LineStyle } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, LineSeries } from 'lightweight-charts';
 
 interface ChartData {
     time: string;
@@ -38,10 +38,7 @@ export default function PerformanceChart({ series }: Props) {
             },
             rightPriceScale: {
                 borderColor: 'rgba(197, 203, 206, 0.2)',
-                mode: 2, // Percentage mode (0: Normal, 1: Log, 2: %?, 3: Indexed to 100)
-                // Actually Mode 2 is Percentage in recent versions? 
-                // Let's check docs or use default and calculate % manually.
-                // Lightweight charts 4.0: PriceScaleMode.Percentage = 2
+                mode: 2, // Percentage mode
             },
             timeScale: {
                 borderColor: 'rgba(197, 203, 206, 0.2)',
@@ -50,26 +47,21 @@ export default function PerformanceChart({ series }: Props) {
 
         chartRef.current = chart;
 
-        // Add series
+        // 使用 v5 API: addSeries(LineSeries, options)
         series.forEach((s) => {
-            const lineSeries = chart.addLineSeries({
+            const lineSeries = chart.addSeries(LineSeries, {
                 color: s.color,
                 lineWidth: 2,
                 title: s.name,
-                priceScaleId: 'right', // Share scale
+                priceScaleId: 'right',
             });
-
-            // Generate normalized data or just pass raw price and let chart handle % mode?
-            // If using mode 2 (Percentage), it calculates change from first visible point.
-            // But we want change from start of period.
-            // Let's assume input data is RAW price, and we set scale mode to Percentage.
 
             lineSeries.setData(s.data);
         });
 
-        // Handling Percentage Mode explicitly
+        // Percentage Mode
         chart.priceScale('right').applyOptions({
-            mode: 2, // Percentage
+            mode: 2,
         });
 
         const handleResize = () => {
