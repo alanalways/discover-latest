@@ -112,27 +112,15 @@ body,
     letter-spacing: -0.003em;
 }
 
-/* ── 全面消滅白色背景（Gradio 所有內建容器） ── */
-.gradio-container *,
-.gradio-container .wrap,
-.gradio-container .form,
-.gradio-container .block,
-.gradio-container .contain,
-.gradio-container [class*="svelte"],
-.gradio-container .prose,
-.gradio-container .prose>*,
-#app-root,
-#app-root>*,
-#component-0,
-[id^="component-"] {
+/* ── 深色背景（僅 dashboard 區域，不影響登入頁） ── */
+.app-shell .wrap,
+.app-shell .form,
+.app-shell .block,
+.app-shell .contain,
+.app-shell [class*="svelte"],
+.app-shell .prose,
+.app-shell .prose>* {
     background-color: transparent !important;
-}
-
-.gradio-container,
-.gradio-container>.wrap,
-.gradio-container>.main,
-.gradio-container>div {
-    background: var(--bg-void) !important;
 }
 
 .gradio-container {
