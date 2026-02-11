@@ -1,0 +1,207 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+}
+
+.panelTitle {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.panelTitle svg {
+    color: var(--accent);
+}
+
+.form {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+    align-items: end;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.field label {
+    font-size: 12px;
+    color: var(--text-3);
+    font-weight: 500;
+}
+
+.field input,
+.field select {
+    padding: 10px 12px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-family: var(--font-body);
+    font-size: 14px;
+    outline: none;
+    transition: border-color var(--duration-fast);
+}
+
+.field input:focus,
+.field select:focus {
+    border-color: var(--accent);
+}
+
+.field select {
+    cursor: pointer;
+}
+
+.runBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 24px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--duration-fast);
+    grid-column: span 2;
+}
+
+.runBtn:hover {
+    background: var(--accent-solid);
+}
+
+.runBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.errorCard {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 20px;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 14px;
+}
+
+.resultSection {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.metricsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 12px;
+}
+
+.resultMetric {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.resultLabel {
+    font-size: 12px;
+    color: var(--text-3);
+}
+
+.resultValue {
+    font-size: 22px;
+    font-weight: 700;
+    font-family: var(--font-heading);
+    color: var(--text-1);
+}
+
+.up {
+    color: var(--success) !important;
+}
+
+.down {
+    color: var(--danger) !important;
+}
+
+.tradesCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.tradesCard h4 {
+    font-family: var(--font-heading);
+    font-size: 14px;
+    color: var(--text-1);
+    margin-bottom: 12px;
+}
+
+.tradesTable {
+    display: flex;
+    flex-direction: column;
+}
+
+.tradeHeader,
+.tradeRow {
+    display: grid;
+    grid-template-columns: 1fr 1fr 100px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: 13px;
+}
+
+.tradeHeader {
+    color: var(--text-3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tradeRow {
+    color: var(--text-2);
+}
+
+.tradeRow:last-child {
+    border-bottom: none;
+}
+
+.tradeRow span:last-child {
+    text-align: right;
+    font-weight: 600;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}

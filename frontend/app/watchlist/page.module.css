@@ -1,0 +1,202 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.addBar {
+    display: flex;
+    gap: 8px;
+}
+
+.addInput {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+}
+
+.addInput:focus-within {
+    border-color: var(--accent);
+}
+
+.addInput svg {
+    color: var(--text-3);
+}
+
+.addInput input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-1);
+    font-family: var(--font-body);
+    font-size: 14px;
+}
+
+.addInput input::placeholder {
+    color: var(--text-3);
+}
+
+.addBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 20px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--duration-fast);
+}
+
+.addBtn:hover {
+    background: var(--accent-solid);
+}
+
+.addBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.errorCard {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 13px;
+}
+
+.listCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+
+.listHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    color: var(--primary);
+}
+
+.listTitle {
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+.listCount {
+    font-size: 12px;
+    color: var(--text-3);
+    margin-left: auto;
+}
+
+.listBody {
+    display: flex;
+    flex-direction: column;
+}
+
+.listItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background var(--duration-fast);
+}
+
+.listItem:last-child {
+    border-bottom: none;
+}
+
+.listItem:hover {
+    background: var(--bg-hover);
+}
+
+.itemInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.itemSymbol {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+.itemName {
+    font-size: 12px;
+    color: var(--text-3);
+}
+
+.itemActions {
+    display: flex;
+    gap: 8px;
+}
+
+.actionBtn,
+.removeBtn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: none;
+    color: var(--text-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--duration-fast);
+}
+
+.actionBtn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+.removeBtn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 60px 20px;
+    color: var(--text-3);
+    text-align: center;
+}
+
+.emptyHint {
+    font-size: 12px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}

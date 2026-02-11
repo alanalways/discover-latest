@@ -1,33 +1,104 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 28px;
 }
 
-.welcomeCard {
+/* ── 狀態列 ── */
+.statusBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 28px 32px;
+  border-radius: var(--radius);
 }
 
-.welcomeTitle {
-  font-family: var(--font-heading);
-  font-size: 24px;
-  font-weight: 600;
-  color: var(--text-1);
-  margin-bottom: 6px;
-}
-
-.welcomeSubtitle {
-  color: var(--text-2);
+.statusLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   font-size: 14px;
+  font-weight: 500;
+  color: var(--text-1);
 }
 
+.statusIcon {
+  color: var(--accent);
+}
+
+.marketStatus {
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+.open {
+  background: rgba(52, 211, 153, 0.1);
+  color: var(--success);
+}
+
+.closed {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-3);
+}
+
+.statusRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.updateTime {
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.refreshBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 12px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.refreshBtn:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.refreshBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+/* ── Section ── */
 .section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .sectionTitle {
@@ -35,15 +106,250 @@
   font-size: 16px;
   font-weight: 600;
   color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   letter-spacing: 0.02em;
 }
 
-.placeholder {
+.sectionTitle svg {
+  color: var(--primary);
+}
+
+/* ── 指數卡片 ── */
+.indexGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.indexCard {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 40px 24px;
+  padding: 18px;
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.indexCard:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-2px);
+}
+
+.indexHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.indexSymbol {
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  letter-spacing: 0.05em;
+}
+
+.indexName {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.indexValue {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+  font-family: var(--font-heading);
+  margin-bottom: 4px;
+}
+
+.indexChange {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.up {
+  color: var(--success);
+}
+
+.down {
+  color: var(--danger);
+}
+
+/* ── ETF 卡片 ── */
+.etfGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.etfCard {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.etfCard:hover {
+  border-color: var(--border-hover);
+}
+
+.etfName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  margin-bottom: 2px;
+}
+
+.etfSymbol {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.etfValue {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-1);
+  font-family: var(--font-heading);
+}
+
+.etfChange {
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+/* ── Top20 ── */
+.top20Header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tabGroup {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+}
+
+.tabBtn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.tabBtn:hover {
+  color: var(--text-1);
+}
+
+.tabActive {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.top20Table {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.tableHeader {
+  display: grid;
+  grid-template-columns: 40px 1fr 120px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.tableRow {
+  display: grid;
+  grid-template-columns: 40px 1fr 120px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--duration-fast);
+  align-items: center;
+}
+
+.tableRow:last-child {
+  border-bottom: none;
+}
+
+.tableRow:hover {
+  background: var(--bg-hover);
+}
+
+.colRank {
+  font-size: 12px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.colName {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stockSymbol {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.stockName {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.colValue {
+  text-align: right;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-body);
+}
+
+.emptyRow {
+  padding: 40px 16px;
   text-align: center;
   color: var(--text-3);
   font-size: 14px;
+}
+
+/* ── Skeleton ── */
+.skeleton {
+  min-height: 100px;
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-hover) 50%, var(--bg-card) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
 }

@@ -1,0 +1,360 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* ── 搜尋 ── */
+.searchSection {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.searchBox {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.searchBox:focus-within {
+    border-color: var(--accent);
+}
+
+.searchIcon {
+    color: var(--text-3);
+    flex-shrink: 0;
+}
+
+.searchInput {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-1);
+    font-family: var(--font-body);
+    font-size: 15px;
+}
+
+.searchInput::placeholder {
+    color: var(--text-3);
+}
+
+.searchBtn {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background var(--duration-fast);
+}
+
+.searchBtn:hover {
+    background: var(--accent-solid);
+}
+
+.searchBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.periodTabs {
+    display: flex;
+    gap: 4px;
+}
+
+.periodBtn {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-3);
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--duration-fast);
+}
+
+.periodBtn:hover {
+    color: var(--text-1);
+    border-color: var(--border-hover);
+}
+
+.periodActive {
+    background: var(--accent-dim);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Error ── */
+.errorCard {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 20px;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.2);
+    border-radius: var(--radius-sm);
+    color: var(--danger);
+    font-size: 14px;
+}
+
+/* ── Info Card ── */
+.infoCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.infoMain {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.infoHeader {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.stockSymbol {
+    font-family: var(--font-heading);
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.stockName {
+    font-size: 14px;
+    color: var(--text-2);
+}
+
+.priceRow {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.price {
+    font-size: 36px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+.changeTag {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.up {
+    color: var(--success);
+    background: rgba(52, 211, 153, 0.1);
+}
+
+.down {
+    color: var(--danger);
+    background: rgba(248, 113, 113, 0.1);
+}
+
+/* Metrics */
+.metricsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+}
+
+.metricIcon {
+    color: var(--accent);
+}
+
+.metricLabel {
+    font-size: 11px;
+    color: var(--text-3);
+}
+
+.metricValue {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+/* ── Chart ── */
+.chartCard,
+.aiCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+}
+
+.cardTitle {
+    font-family: var(--font-heading);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-1);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.cardTitle svg {
+    color: var(--accent);
+}
+
+.miniChart {
+    padding: 12px;
+}
+
+.emptyChart {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-3);
+}
+
+/* ── AI ── */
+.aiHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.aiBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--duration-fast);
+}
+
+.aiBtn:hover {
+    background: var(--accent-solid);
+}
+
+.aiBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.aiContent {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.aiContent p {
+    margin-bottom: 8px;
+}
+
+.aiEmpty {
+    padding: 32px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 14px;
+}
+
+/* ── 引導 ── */
+.guide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 80px 20px;
+    text-align: center;
+}
+
+.guideIcon {
+    color: var(--text-3);
+}
+
+.guide h3 {
+    font-family: var(--font-heading);
+    color: var(--text-1);
+    font-size: 20px;
+}
+
+.guide p {
+    color: var(--text-3);
+    font-size: 14px;
+}
+
+.guideTags {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.guideTag {
+    padding: 6px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text-2);
+    font-size: 13px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: all var(--duration-fast);
+}
+
+.guideTag:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spinning {
+    animation: spin 1s linear infinite;
+}

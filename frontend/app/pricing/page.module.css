@@ -1,0 +1,176 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px 0;
+}
+
+.header {
+    text-align: center;
+}
+
+.title {
+    font-family: var(--font-heading);
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: 8px;
+}
+
+.subtitle {
+    color: var(--text-2);
+    font-size: 15px;
+}
+
+.planGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    width: 100%;
+}
+
+@media (max-width: 800px) {
+    .planGrid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.planCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 32px 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    position: relative;
+    transition: all var(--duration-normal) var(--ease-out);
+}
+
+.planCard:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-card-hover);
+}
+
+.popular {
+    border-color: var(--accent);
+    box-shadow: var(--glow-accent);
+}
+
+.popularBadge {
+    position: absolute;
+    top: -12px;
+    padding: 4px 16px;
+    background: var(--accent);
+    color: white;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.planIcon {
+    margin-bottom: 4px;
+}
+
+.planName {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+.planPrice {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.priceAmount {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+.pricePeriod {
+    font-size: 14px;
+    color: var(--text-3);
+}
+
+.featureList {
+    list-style: none;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0;
+}
+
+.featureList li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+}
+
+.checkIcon {
+    color: var(--success);
+    flex-shrink: 0;
+}
+
+.ctaBtn {
+    width: 100%;
+    padding: 12px;
+    margin-top: auto;
+    background: var(--bg-hover);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--duration-fast);
+}
+
+.ctaBtn:hover {
+    background: var(--bg-surface);
+    color: var(--text-1);
+}
+
+.ctaBtn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.ctaPrimary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: white;
+}
+
+.ctaPrimary:hover {
+    background: var(--accent-solid);
+}
+
+.faq {
+    text-align: center;
+}
+
+.faqNote {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    color: var(--text-3);
+    font-size: 13px;
+}
+
+.faqNote svg {
+    color: var(--primary);
+}
