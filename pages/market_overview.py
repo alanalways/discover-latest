@@ -48,7 +48,7 @@ _US_TOP_SYMBOLS = [
     "JPM", "V", "JNJ", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "ADBE",
     "CRM", "INTC", "AMD", "QCOM", "TXN", "AVGO", "COST", "PEP", "KO",
     "MRK", "ABT", "TMO", "UNH", "LLY", "NKE", "BA", "CAT", "GS",
-    "MS", "AXP", "PYPL", "SQ", "SHOP", "UBER", "ABNB", "PLTR", "COIN",
+    "MS", "AXP", "PYPL", "SHOP", "UBER", "ABNB", "PLTR", "COIN",
     "SOFI", "RIVN", "ARM", "SMCI", "MU",
 ]
 

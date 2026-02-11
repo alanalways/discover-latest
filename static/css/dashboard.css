@@ -4462,4 +4462,260 @@ textarea:focus {
     .market-page [style*="grid-template-columns"] {
         grid-template-columns: 1fr !important;
     }
+
+    .indices-grid,
+    .etf-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}
+
+@media (max-width: 480px) {
+
+    .indices-grid,
+    .etf-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* =========================================
+   Market Overview — 完整暗色主題樣式
+   ========================================= */
+.market-page {
+    color: var(--text-1);
+}
+
+/* 歡迎區塊 */
+.welcome-section {
+    margin-bottom: 24px;
+}
+
+.welcome-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-1);
+    background: linear-gradient(135deg, #F5F0E8 30%, #D4A76A 90%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0 0 8px 0;
+}
+
+.welcome-subtitle {
+    color: var(--text-3);
+    font-size: 14px;
+    margin: 0;
+}
+
+/* 工具列 */
+.market-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 24px;
+    padding: 10px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.data-note {
+    font-size: 11px;
+    color: var(--text-3);
+}
+
+.refresh-countdown {
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+}
+
+.refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.refresh-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--primary);
+    color: var(--text-1);
+}
+
+/* 市場區塊 */
+.market-section {
+    margin-bottom: 32px;
+}
+
+.section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-1);
+    margin: 0 0 16px 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.section-icon {
+    font-size: 22px;
+}
+
+.subsection-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-2);
+    margin: 16px 0 12px 0;
+}
+
+/* 指數卡片 grid */
+.indices-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+/* 單一指數卡片 */
+.index-card {
+    background: rgba(18, 16, 12, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    transition: all 0.2s var(--ease-out);
+}
+
+.index-card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(18, 16, 12, 0.9);
+}
+
+.index-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.index-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+}
+
+.index-symbol {
+    font-size: 11px;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    letter-spacing: 0.5px;
+}
+
+.index-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+}
+
+.index-change {
+    font-size: 13px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.index-change.green {
+    color: #22c55e;
+}
+
+.index-change.red {
+    color: #ef4444;
+}
+
+/* ETF 卡片 grid */
+.etf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+/* 單一 ETF 卡片 */
+.etf-card {
+    background: rgba(18, 16, 12, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    transition: all 0.2s var(--ease-out);
+    cursor: pointer;
+}
+
+.etf-card:hover {
+    border-color: rgba(212, 167, 106, 0.2);
+    background: rgba(18, 16, 12, 0.9);
+    transform: translateY(-1px);
+}
+
+.etf-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.etf-symbol {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--primary);
+    font-family: var(--font-mono);
+}
+
+.etf-name {
+    font-size: 11px;
+    color: var(--text-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.etf-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.etf-change {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+}
+
+.etf-change.green {
+    color: #22c55e;
+}
+
+.etf-change.red {
+    color: #ef4444;
+}
+
+/* 市場 footer */
+.market-footer {
+    padding: 20px 0;
+    text-align: center;
+}
+
+.market-footer p {
+    font-size: 12px;
+    color: var(--text-3);
 }
