@@ -1,107 +1,120 @@
 """
 Backtest API — 回測模擬器
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 import asyncio
 
 router = APIRouter()
 
 
 class BacktestRequest(BaseModel):
-    """回測請求"""
+    """回測參數"""
     symbol: str
-    strategy: str = "ma_cross"          # ma_cross | kd_cross
-    period: str = "1y"                  # 1y | 3y | 5y
+    strategy: str = "ma_cross"
+    period: str = "1y"
     ma_fast: int = 5
     ma_slow: int = 20
-    initial_capital: float = 1000000.0
+    initial_capital: float = 1000000
+    position_size: float = 1.0
+    # RSI 策略參數
+    rsi_period: int = 14
+    rsi_buy: int = 30
+    rsi_sell: int = 70
+    # 突破策略參數
+    breakout_period: int = 20
+    # 動能策略參數
+    momentum_period: int = 20
+    momentum_threshold: float = 0.05
 
 
 @router.post("/backtest/run")
-async def run_backtest(req: BacktestRequest, request: Request):
+async def run_backtest(req: BacktestRequest):
     """執行回測"""
-    auth_header = request.headers.get("Authorization", "")
-    user_id = _extract_user_id(auth_header)
-
     try:
-        # Feature gate
-        from services.feature_gate import can_access, get_limit
-        from services.rate_limiter import rate_limiter
-
-        tier = "free"
-        if user_id:
-            tier = rate_limiter.check_and_downgrade(user_id)
-
-        if not can_access(tier, "backtest"):
-            raise HTTPException(status_code=403, detail="此功能需要升級方案")
-
-        # 檢查最大回測年數
-        max_years = get_limit(tier, "backtest_max_years")
-        period_years = {"1y": 1, "3y": 3, "5y": 5}
-        requested_years = period_years.get(req.period, 1)
-        if max_years and requested_years > max_years:
-            raise HTTPException(
-                status_code=403,
-                detail=f"您的方案最多回測 {max_years} 年"
-            )
-
-        # 先取歷史資料
         from services.stock_service import stock_service
-        stock_data = stock_service.get_stock_data(req.symbol, period=req.period)
-        if not stock_data or not stock_data.get("history"):
-            raise HTTPException(status_code=404, detail=f"無法取得 {req.symbol} 歷史資料")
-
-        history = stock_data["history"]
-        # 確保是 list of dict
-        if hasattr(history, "to_dict"):
-            history = history.to_dict("records")
-
-        # 組合策略參數
-        params = {}
-        if req.strategy == "ma_cross":
-            params = {"fast": req.ma_fast, "slow": req.ma_slow}
-
-        # 執行回測
         from services.backtest_service import backtest_service
 
+        # 1. 取得歷史資料（async）
+        stock_data = await stock_service.get_stock_data(
+            req.symbol, period=req.period
+        )
+
+        if not stock_data:
+            raise HTTPException(
+                status_code=404,
+                detail=f"無法取得 {req.symbol} 的歷史資料"
+            )
+
+        history = stock_data.get("history") or []
+        if len(history) < 30:
+            raise HTTPException(
+                status_code=400,
+                detail=f"歷史資料不足（僅 {len(history)} 筆），需至少 30 筆"
+            )
+
+        # 2. 組裝策略參數
+        params: Dict = {
+            "ma_fast": req.ma_fast,
+            "ma_slow": req.ma_slow,
+            "rsi_period": req.rsi_period,
+            "rsi_buy": req.rsi_buy,
+            "rsi_sell": req.rsi_sell,
+            "breakout_period": req.breakout_period,
+            "momentum_period": req.momentum_period,
+            "momentum_threshold": req.momentum_threshold,
+        }
+
+        # 3. 執行回測（同步方法，用 to_thread 避免阻塞）
         result = await asyncio.to_thread(
             backtest_service.run_backtest,
             history=history,
             strategy=req.strategy,
             params=params,
             initial_capital=req.initial_capital,
+            position_size=req.position_size,
         )
 
-        # 整理回傳格式（統一前端預期的 key）
+        if not result:
+            raise HTTPException(status_code=500, detail="回測執行失敗")
+
+        # 4. 整理回傳格式
         metrics = result.get("metrics", {})
         return {
-            "total_return": metrics.get("total_return", 0),
-            "max_drawdown": metrics.get("max_drawdown", 0),
-            "win_rate": metrics.get("win_rate", 0),
-            "total_trades": metrics.get("total_trades", 0),
-            "sharpe_ratio": metrics.get("sharpe_ratio", 0),
-            "profit_factor": metrics.get("profit_factor", 0),
-            "trades": result.get("trades", [])[:20],  # 最多回傳 20 筆
+            "symbol": req.symbol,
+            "strategy": req.strategy,
+            "period": req.period,
+            "initial_capital": req.initial_capital,
+            "metrics": {
+                "total_return": metrics.get("total_return", 0),
+                "total_return_pct": metrics.get("total_return_pct", 0),
+                "max_drawdown": metrics.get("max_drawdown", 0),
+                "max_drawdown_pct": metrics.get("max_drawdown_pct", 0),
+                "win_rate": metrics.get("win_rate", 0),
+                "total_trades": metrics.get("total_trades", 0),
+                "sharpe_ratio": metrics.get("sharpe_ratio", 0),
+                "final_value": metrics.get("final_value", req.initial_capital),
+                "profit_factor": metrics.get("profit_factor", 0),
+            },
+            "trades": result.get("trades", [])[:50],  # 最多 50 筆
             "equity_curve": result.get("equity_curve", []),
-            "strategy": result.get("strategy_name", req.strategy),
         }
 
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[Backtest] 回測失敗: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _extract_user_id(auth_header: str) -> Optional[str]:
-    """從 Authorization header 取出 user_id"""
-    if not auth_header.startswith("Bearer "):
-        return None
-    token = auth_header.split(" ", 1)[1]
-    try:
-        from services.auth_service import auth_service
-        user = auth_service.verify_session(token)
-        return user.get("id") if user else None
-    except Exception:
-        return None
+@router.get("/backtest/strategies")
+async def get_strategies():
+    """取得可用回測策略列表"""
+    from services.backtest_service import backtest_service
+    return {
+        "strategies": [
+            {"id": k, "name": v}
+            for k, v in backtest_service.STRATEGIES.items()
+        ]
+    }
