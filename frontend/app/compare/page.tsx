@@ -47,7 +47,7 @@ export default function ComparePage() {
             // Parallel fetch
             const promises = symbols.map(sym => api.getStock(sym));
             const results = await Promise.all(promises);
-            setStocks(results);
+            setStocks(results as StockData[]);
         } catch (err) {
             console.error(err);
             setError('部分股票資料讀取失敗，請確認代號是否正確。');
