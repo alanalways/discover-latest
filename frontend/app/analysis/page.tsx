@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
 
 const api = new ApiClient();
 
-export default function AnalysisPage() {
+// 內部組件：使用 useSearchParams 必須包裹在 Suspense 內
+function AnalysisContent() {
     const searchParams = useSearchParams();
     const symbolParam = searchParams.get('symbol');
 
@@ -22,9 +23,8 @@ export default function AnalysisPage() {
     const fetchData = async (sym: string) => {
         setLoading(true);
         setError('');
-        setAiResult(''); // 換股時清空 AI 結果
+        setAiResult('');
         try {
-            // 呼叫後端 API (已優化 < 5s 並包含市值、52w 等)
             const result = await api.getStock(sym);
             setData(result);
         } catch (err) {
@@ -60,7 +60,6 @@ export default function AnalysisPage() {
         const trimmed = searchQuery.trim();
         if (trimmed) {
             setSymbol(trimmed);
-            // 更新 URL 參數
             const url = new URL(window.location.href);
             url.searchParams.set('symbol', trimmed);
             window.history.pushState({}, '', url.toString());
@@ -72,13 +71,11 @@ export default function AnalysisPage() {
     const info = data?.info || {};
     const history = data?.history || [];
 
-    // 格式化市值的顯示 (單位：億 TWD)
     const formatMarketCap = (val: number) => {
         if (!val) return 'N/A';
         return (val / 100000000).toFixed(2) + ' 億';
     };
 
-    // 準備圖表資料 (後端已整合 time 欄位)
     const chartData = history.map((h: any) => ({
         time: h.time || h.date,
         open: h.open,
@@ -216,5 +213,14 @@ export default function AnalysisPage() {
                 )}
             </div>
         </div>
+    );
+}
+
+// 主元件：用 Suspense 包裹以滿足 Next.js 16 靜態生成要求
+export default function AnalysisPage() {
+    return (
+        <Suspense fallback={<div className="p-20 text-center text-white text-xl">載入中...</div>}>
+            <AnalysisContent />
+        </Suspense>
     );
 }
