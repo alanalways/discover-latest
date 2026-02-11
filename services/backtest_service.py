@@ -315,66 +315,99 @@ class BacktestService:
 
     def _monitoring_indicator_strategy(self, history: List[Dict], params: Dict) -> List[Dict]:
         """
-        景氣燈號策略
-        - 藍燈/黃藍燈 (<= 22) → 買入
-        - 紅燈 (>= 38) → 賣出
-        資料來源：NDC Adapter
-        """
-        buy_score = params.get("buy_score", 22)
-        sell_score = params.get("sell_score", 38)
+        景氣燈號分層倉位策略
 
+        根據 NDC 景氣綜合判斷分數，動態調整目標持倉比例：
+        ┌──────────┬────────┬──────────┐
+        │ 分數區間  │  燈號  │ 目標倉位  │
+        ├──────────┼────────┼──────────┤
+        │ ≤ 16     │ 藍燈   │ 100%     │
+        │ 17 ~ 22  │ 黃藍燈 │  75%     │
+        │ 23 ~ 31  │ 綠燈   │  50%     │
+        │ 32 ~ 37  │ 黃紅燈 │  25%     │
+        │ ≥ 38     │ 紅燈   │   0%     │
+        └──────────┴────────┴──────────┘
+
+        資料來源：NDC Adapter（景氣對策信號）
+        """
         # 取得景氣燈號資料
         try:
-            lights = ndc_adapter.get_business_cycle_score() # List[Dict] with 'date' (YYYYMM), 'score'
-            # 建立 lookup map: YYYYMM -> score
+            lights = ndc_adapter.get_business_cycle_score()
             score_map = {item["date"]: item["score"] for item in lights}
         except Exception as e:
             print(f"[Backtest] 取得景氣燈號失敗: {e}")
             return []
 
+        # 分層倉位規則
+        def _target_position(score: float) -> tuple:
+            """根據景氣分數回傳 (目標倉位比例, 燈號名稱)"""
+            if score <= 16:
+                return 1.00, "藍燈"
+            elif score <= 22:
+                return 0.75, "黃藍燈"
+            elif score <= 31:
+                return 0.50, "綠燈"
+            elif score <= 37:
+                return 0.25, "黃紅燈"
+            else:  # >= 38
+                return 0.00, "紅燈"
+
         signals = []
-        position = 0
+        current_pct = 0.0     # 目前持倉百分比 (0.0 ~ 1.0)
+        last_month = ""      # 避免同月重複觸發
 
         for h in history:
-            date_str = h.get("date", "") # YYYY-MM-DD
+            date_str = h.get("date", "")
             if not date_str or len(date_str) < 7:
                 continue
-            
-            # 轉換日期為 YYYYMM
-            # date_str: "2023-01-05" -> "202301"
+
+            # 每月只在第一筆資料觸發一次
             parts = date_str.split("-")
             month_key = f"{parts[0]}{parts[1]}"
-            
-            # 取得該月分數 (若無則跳過，或沿用上月？暫且跳過)
+            if month_key == last_month:
+                continue
+
             score = score_map.get(month_key)
             if score is None:
                 continue
-            
-            price = h.get("close", 0)
 
-            # 買入訊號
-            if score <= buy_score and position == 0:
+            last_month = month_key
+            price = h.get("close", 0)
+            target_pct, light_name = _target_position(score)
+
+            # 倉位無變化則跳過
+            if abs(target_pct - current_pct) < 0.01:
+                continue
+
+            # 加碼（目標 > 現有）
+            if target_pct > current_pct:
+                delta = target_pct - current_pct
                 signals.append({
                     "date": date_str,
                     "signal": "buy",
                     "price": price,
-                    "reason": f"景氣分數 {score:.0f} <= {buy_score} (藍/黃藍燈)"
+                    "position_pct": target_pct,
+                    "delta_pct": delta,
+                    "reason": f"景氣分數 {score:.0f} ({light_name}) → 加碼至 {target_pct*100:.0f}% (▲{delta*100:.0f}%)",
                 })
-                position = 1
-            
-            # 賣出訊號
-            elif score >= sell_score and position == 1:
+
+            # 減碼（目標 < 現有）
+            elif target_pct < current_pct:
+                delta = current_pct - target_pct
+                signal_type = "sell" if target_pct == 0 else "reduce"
                 signals.append({
                     "date": date_str,
-                    "signal": "sell",
+                    "signal": signal_type,
                     "price": price,
-                    "reason": f"景氣分數 {score:.0f} >= {sell_score} (紅燈)"
+                    "position_pct": target_pct,
+                    "delta_pct": -delta,
+                    "reason": f"景氣分數 {score:.0f} ({light_name}) → {'全數賣出' if target_pct == 0 else f'減碼至 {target_pct*100:.0f}%'} (▼{delta*100:.0f}%)",
                 })
-                position = 0
-            
-            # (選擇性) 紅燈減碼? 這裡簡化為全賣出
-        
+
+            current_pct = target_pct
+
         return signals
+
     def _simulate_trades(
         history: List[Dict],
         signals: List[Dict],

@@ -77,16 +77,7 @@ class ToolRegistry:
         except Exception:
             pass
 
-        try:
-            import yfinance
-            self._tools["yahoo"] = Tool(
-                name="yahoo",
-                description="美股/ETF 價格、基本面、匯率",
-                adapter=None,  # 直接用 yfinance 模組
-                methods={},
-            )
-        except ImportError:
-            pass
+        # yahoo/yfinance 已移除，美股改用 FinMind
 
         try:
             from services.gemini_service import gemini_service

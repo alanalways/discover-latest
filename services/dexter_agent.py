@@ -110,12 +110,12 @@ class DexterAgent:
                 "parallel": True,
             })
         else:
-            # 美股用 yfinance (透過 tool_registry 的 yahoo tool)
+            # 美股用 FinMind USStockPrice
             tasks.append({
                 "name": "美股數據",
-                "tool": "yahoo",
-                "method": "yfinance_info",
-                "kwargs": {"symbol": symbol},
+                "tool": "finmind",
+                "method": "us_stock_price",
+                "kwargs": {"symbol": symbol, "start_date": (today - timedelta(days=365)).strftime("%Y-%m-%d")},
                 "parallel": True,
             })
 
@@ -182,9 +182,9 @@ class DexterAgent:
         method_key = task["method"]
         kwargs = dict(task.get("kwargs", {}))
 
-        # 特殊處理 yahoo (yfinance)
-        if tool_name == "yahoo" and method_key == "yfinance_info":
-            return self._fetch_yfinance(kwargs.get("symbol", ""))
+        # 特殊處理 finmind us_stock_price
+        if tool_name == "finmind" and method_key == "us_stock_price":
+            return self._fetch_us_stock_finmind(kwargs.get("symbol", ""), kwargs.get("start_date", ""))
 
         # 特殊處理 Gemini 綜合分析（注入 context）
         if tool_name == "gemini" and method_key == "analyze":
@@ -193,27 +193,32 @@ class DexterAgent:
         # 一般工具呼叫
         return tool_registry.call_tool(tool_name, method_key, **kwargs)
 
-    def _fetch_yfinance(self, symbol: str) -> Dict:
-        """使用 yfinance 取得美股資料"""
+    def _fetch_us_stock_finmind(self, symbol: str, start_date: str) -> Dict:
+        """使用 FinMind 取得美股資料"""
         try:
-            import yfinance as yf
-            ticker = yf.Ticker(symbol)
-            info = ticker.info or {}
-            return {
-                "name": info.get("shortName", symbol),
-                "price": info.get("currentPrice") or info.get("regularMarketPrice", 0),
-                "pe": info.get("trailingPE", "-"),
-                "pb": info.get("priceToBook", "-"),
-                "eps": info.get("trailingEps", "-"),
-                "dividend_yield": info.get("dividendYield", 0),
-                "market_cap": info.get("marketCap", 0),
-                "52w_high": info.get("fiftyTwoWeekHigh", 0),
-                "52w_low": info.get("fiftyTwoWeekLow", 0),
-                "sector": info.get("sector", ""),
-                "industry": info.get("industry", ""),
-            }
+            from adapters.finmind_adapter import finmind_adapter
+            from datetime import datetime
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            data = finmind_adapter.get_us_stock_price_sync(symbol, start_date, end_date)
+            if data and len(data) > 0:
+                last = data[-1]
+                prev = data[-2] if len(data) > 1 else last
+                return {
+                    "name": symbol,
+                    "price": last["close"],
+                    "pe": "-",
+                    "pb": "-",
+                    "eps": "-",
+                    "dividend_yield": 0,
+                    "market_cap": 0,
+                    "52w_high": max(d["high"] for d in data[-252:]) if len(data) > 0 else 0,
+                    "52w_low": min(d["low"] for d in data[-252:]) if len(data) > 0 else 0,
+                    "sector": "",
+                    "industry": "",
+                }
+            return {"error": f"FinMind 無 {symbol} 資料"}
         except Exception as e:
-            return {"error": f"yfinance: {e}"}
+            return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
         """用 Gemini 綜合分析所有資料"""

@@ -1,7 +1,7 @@
 """
 自選清單頁面
 新增/移除/顯示自選股，點擊跳轉個股分析
-使用 FinMind (台股) / yfinance (美股) 取得即時報價
+使用 FinMind (台股 + 美股) 取得即時報價
 """
 from typing import List, Dict
 from components.i18n import t
@@ -17,7 +17,7 @@ _quote_cache: Dict[str, Dict] = {}
 
 
 def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
-    """批次取得報價（台股 FinMind / 美股 yfinance）"""
+    """批次取得報價（台股 + 美股均使用 FinMind）"""
     global _quote_cache
     results = {}
 
@@ -63,43 +63,34 @@ def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
         except Exception as e:
             print(f"[Watchlist] FinMind batch error: {e}")
 
-    # ── 美股 → yfinance（逐筆查詢，避免 MultiIndex 問題）──
+    # ── 美股 → FinMind USStockPrice ──
     if us_symbols:
         try:
-            import yfinance as yf
+            from adapters.finmind_adapter import finmind_adapter as fm
+            from datetime import datetime, timedelta
+            end = datetime.now().strftime("%Y-%m-%d")
+            start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
-            def _fetch_one(sym):
+            for sym in us_symbols:
                 try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period="5d")
-                    if hist is not None and not hist.empty and len(hist) >= 2:
-                        close = hist["Close"].dropna()
-                        price = float(close.iloc[-1])
-                        prev = float(close.iloc[-2])
-                        chg = price - prev
-                        pct = (chg / prev * 100) if prev else 0
-                        return sym, {
+                    data = fm.get_us_stock_price_sync(sym, start, end)
+                    if data and len(data) >= 2:
+                        last = data[-1]
+                        prev = data[-2]
+                        price = last["close"]
+                        chg = price - prev["close"]
+                        pct = (chg / prev["close"] * 100) if prev["close"] else 0
+                        results[sym] = {
                             "name": sym,
                             "price": f"{price:,.2f}",
                             "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
                             "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
                             "color": "green" if chg >= 0 else "red",
                         }
-                except Exception:
-                    pass
-                return sym, None
-
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {pool.submit(_fetch_one, sym): sym for sym in us_symbols}
-                for future in futures:
-                    try:
-                        sym, quote = future.result(timeout=10)
-                        if quote:
-                            results[sym] = quote
-                    except (FuturesTimeout, Exception):
-                        continue
+                except Exception as e:
+                    print(f"[Watchlist] FinMind US {sym}: {e}")
         except Exception as e:
-            print(f"[Watchlist] yfinance error: {e}")
+            print(f"[Watchlist] FinMind US batch error: {e}")
 
     _quote_cache.update(results)
     return results

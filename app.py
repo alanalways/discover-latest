@@ -104,7 +104,7 @@ def validate_models_on_startup():
 
 # ── Sync data helpers ─────────────────────
 def _fetch_stock_data_sync(symbol: str, days: int = 365):
-    """同步取得個股資料（台股優先 FinMind，失敗再 yfinance）"""
+    """同步取得個股資料（台股優先 FinMind，美股 FinMind + Stooq 備援）"""
     from adapters.finmind_adapter import finmind_adapter
     from datetime import datetime, timedelta
 
@@ -184,11 +184,11 @@ def _fetch_stock_data_sync(symbol: str, days: int = 365):
 
                 return {"info": info, "history": history}
             else:
-                print(f"[DataSource] FinMind 回傳空資料: {symbol}, fallback yfinance")
+                print(f"[DataSource] FinMind 回傳空資料: {symbol}")
         except Exception as e:
             print(f"[DataSource] FinMind failed ({symbol}): {type(e).__name__}: {e}")
 
-    # ── 美股：優先嘗試 FinMind ──
+    # ── 美股：FinMind USStockPrice ──
     if not is_tw:
         try:
             end_date = datetime.now().strftime("%Y-%m-%d")
@@ -221,101 +221,56 @@ def _fetch_stock_data_sync(symbol: str, days: int = 365):
         except Exception as e:
             print(f"[DataSource] FinMind US failed ({symbol}): {type(e).__name__}: {e}")
 
-    # ── Fallback: yfinance（台股 + 美股）──
-    return _fetch_stock_data_yfinance(symbol, market, days=days)
-
-
-def _fetch_stock_data_yfinance(symbol: str, market: str = "US", days: int = 365):
-    """使用 yfinance 取得個股資料（作為 fallback 或美股主要來源）"""
-    import yfinance as yf
-
-    # Map days to yfinance period string
-    if days <= 30:
-        yf_period = "1mo"
-    elif days <= 90:
-        yf_period = "3mo"
-    elif days <= 180:
-        yf_period = "6mo"
-    elif days <= 365:
-        yf_period = "1y"
-    elif days <= 730:
-        yf_period = "2y"
-    elif days <= 1825:
-        yf_period = "5y"
-    else:
-        yf_period = "max"
-
-    if market in ("TWSE", "TPEX"):
-        yf_sym = f"{symbol}.TW"
-    else:
-        yf_sym = symbol
-
-    try:
-        ticker = yf.Ticker(yf_sym)
+    # ── Fallback: Stooq（美股歷史資料）──
+    if not is_tw:
         try:
-            info_raw = ticker.info or {}
-        except Exception as e_info:
-            print(f"[DataSource] yfinance info failed ({yf_sym}): {type(e_info).__name__}: {e_info}")
-            info_raw = {}
-        hist = ticker.history(period=yf_period)
+            from adapters.stooq_adapter import stooq_adapter
+            import asyncio
+            end_dt = datetime.now()
+            start_dt = end_dt - timedelta(days=days)
 
-        # 如果 .TW 沒資料，嘗試 .TWO（上櫃）
-        if hist.empty and market == "TWSE":
-            yf_sym = f"{symbol}.TWO"
-            market = "TPEX"
-            ticker = yf.Ticker(yf_sym)
-            info_raw = ticker.info or {}
-            hist = ticker.history(period=yf_period)
+            # 執行 async Stooq 請求
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as pool:
+                        stooq_data = pool.submit(asyncio.run, stooq_adapter.get_stock_history(symbol, start_dt, end_dt)).result(timeout=15)
+                else:
+                    stooq_data = loop.run_until_complete(stooq_adapter.get_stock_history(symbol, start_dt, end_dt))
+            except Exception:
+                stooq_data = asyncio.run(stooq_adapter.get_stock_history(symbol, start_dt, end_dt))
 
-        if hist.empty:
-            print(f"[DataSource] yfinance 也無資料: {symbol}")
-            return None
+            if stooq_data and len(stooq_data) > 2:
+                print(f"[DataSource] Stooq OK: {symbol} ({len(stooq_data)} rows)")
+                last = stooq_data[-1]
+                prev = stooq_data[-2]
+                price = last["close"]
+                chg = price - prev["close"]
+                pct = (chg / prev["close"] * 100) if prev["close"] else 0
 
-        print(f"[DataSource] yfinance OK: {symbol} ({len(hist)} rows)")
+                info = {
+                    "symbol": symbol, "name": symbol,
+                    "sector": "", "industry": "",
+                    "exchange": "US", "currency": "USD",
+                    "price": price, "change": chg, "change_percent": pct,
+                    "market_cap": 0, "pe_ratio": None, "pb_ratio": None,
+                    "eps": None, "dividend_yield": None, "beta": None,
+                    "52_week_high": max(d["high"] for d in stooq_data),
+                    "52_week_low": min(d["low"] for d in stooq_data),
+                    "avg_volume": int(sum(d["volume"] for d in stooq_data) / len(stooq_data)),
+                }
+                history = [
+                    {"date": d["date"], "open": round(d["open"], 2), "high": round(d["high"], 2),
+                     "low": round(d["low"], 2), "close": round(d["close"], 2), "volume": d["volume"]}
+                    for d in stooq_data
+                ]
+                return {"info": info, "history": history}
+        except Exception as e:
+            print(f"[DataSource] Stooq failed ({symbol}): {type(e).__name__}: {e}")
 
-        price = float(hist["Close"].iloc[-1])
-        prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else price
-        chg = price - prev
-        pct = (chg / prev * 100) if prev else 0
-
-        info = {
-            "symbol": symbol,
-            "name": info_raw.get("longName") or info_raw.get("shortName", symbol),
-            "sector": info_raw.get("sector", ""),
-            "industry": info_raw.get("industry", ""),
-            "exchange": info_raw.get("exchange", market),
-            "currency": info_raw.get("currency", "TWD" if market != "US" else "USD"),
-            "price": price,
-            "change": chg,
-            "change_percent": pct,
-            "market_cap": info_raw.get("marketCap", 0),
-            "pe_ratio": info_raw.get("forwardPE") or info_raw.get("trailingPE"),
-            "pb_ratio": info_raw.get("priceToBook"),
-            "eps": info_raw.get("trailingEps"),
-            "dividend_yield": info_raw.get("dividendYield"),
-            "beta": info_raw.get("beta"),
-            "52_week_high": info_raw.get("fiftyTwoWeekHigh"),
-            "52_week_low": info_raw.get("fiftyTwoWeekLow"),
-            "avg_volume": info_raw.get("averageVolume"),
-        }
-
-        history = []
-        for date, row in hist.iterrows():
-            history.append({
-                "date": date.strftime("%Y-%m-%d"),
-                "open": round(float(row["Open"]), 2),
-                "high": round(float(row["High"]), 2),
-                "low": round(float(row["Low"]), 2),
-                "close": round(float(row["Close"]), 2),
-                "volume": int(row["Volume"]),
-            })
-
-        return {"info": info, "history": history}
-
-    except Exception as e:
-        print(f"[StockData] {symbol}: {e}")
-        traceback.print_exc()
-        return None
+    print(f"[DataSource] 所有資料來源均無法取得 {symbol} 的資料")
+    return None
 
 
 # ── Layout builder ────────────────────────

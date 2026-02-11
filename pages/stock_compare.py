@@ -9,7 +9,6 @@ import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from components.chart_viewer import create_line_chart
 from adapters.finmind_adapter import finmind_adapter
-import yfinance as yf
 from components.i18n import t
 
 def _fetch_history_data(symbol: str, days: int = 365) -> List[Dict]:
@@ -26,24 +25,15 @@ def _fetch_history_data(symbol: str, days: int = 365) -> List[Dict]:
         except Exception as e:
             print(f"[Compare] FinMind {symbol} fail: {e}")
 
-    # 2. 嘗試 yfinance (美股/台股備援)
+    # 2. 嘗試 FinMind USStockPrice (美股)
     try:
-        if symbol.isdigit():
-            ticker = f"{symbol}.TW"
-        else:
-            ticker = symbol
-        
-        df = yf.Ticker(ticker).history(period="1y") # 固定1年比較
-        if not df.empty:
-            res = []
-            for idx, row in df.iterrows():
-                res.append({
-                    "date": idx.strftime("%Y-%m-%d"),
-                    "close": float(row["Close"]),
-                })
-            return res
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        data = finmind_adapter.get_us_stock_price_sync(symbol, start, end)
+        if data:
+            return [{"date": d["date"], "close": d["close"]} for d in data]
     except Exception as e:
-        print(f"[Compare] YFinance {symbol} fail: {e}")
+        print(f"[Compare] FinMind US {symbol} fail: {e}")
     
     return []
 
@@ -67,16 +57,16 @@ def _fetch_fundamentals_batch(symbols: List[str]) -> Dict[str, Dict]:
             except:
                 pass
         
-        # YFinance fallback/supplement
+    # 美股用 FinMind 取得基本面
         if not info.get("pe"):
             try:
-                t = f"{sym}.TW" if sym.isdigit() else sym
-                yf_info = yf.Ticker(t).info
-                info["name"] = info.get("name") or yf_info.get("shortName", sym)
-                info["pe"] = yf_info.get("trailingPE", 0)
-                info["pb"] = yf_info.get("priceToBook", 0)
-                info["yield"] = (yf_info.get("dividendYield") or 0) * 100
-                info["market_cap"] = yf_info.get("marketCap", 0)
+                end = datetime.now().strftime("%Y-%m-%d")
+                start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+                us_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
+                if us_data:
+                    info["name"] = info.get("name") or sym
+                    last = us_data[-1]
+                    info["price"] = last.get("close", 0)
             except:
                 pass
         return sym, info

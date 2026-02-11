@@ -4,8 +4,8 @@ https://finmindtrade.com/
 
 雙 Token 系統：
   FINMIND_TOKEN   — 主帳號 (600 req/hr)
-  FINMIND_TOKEN_2 — 備用帳號 (300 req/hr)
-  總額度：~900 req/hr，主 token 用完自動切備用
+  FINMIND_TOKEN_2 — 備用帳號 (600 req/hr)
+  總額度：~1200 req/hr，主 token 用完自動切備用
 """
 import os
 import httpx
@@ -96,7 +96,7 @@ class FinMindAdapter:
         # 雙 Rate Limiter
         self.rate_limiters = [
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),  # 主 600/hr → 留 50 buffer
-            _FinMindRateLimiter(max_requests=280, window_seconds=3600),  # 備 300/hr → 留 20 buffer
+            _FinMindRateLimiter(max_requests=550, window_seconds=3600),  # 備 600/hr → 留 50 buffer
         ]
 
     @property
