@@ -45,12 +45,7 @@ app = FastAPI(
 # ── CORS（允許前端跨域請求）──
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",       # Next.js dev
-        "http://localhost:7860",       # Docker local
-        "https://*.hf.space",          # HuggingFace Spaces
-        "https://*.vercel.app",        # Vercel
-    ],
+    allow_origins=["*"],               # 同源部署 + dev 用
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -86,18 +81,45 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-# ── SPA Fallback：未匹配的路徑都返回 index.html ──
+# ── SPA Fallback：serve Next.js static export ──
 FRONTEND_DIR = ROOT_DIR / "frontend_out"
 if FRONTEND_DIR.exists():
-    app.mount("/_next", StaticFiles(directory=str(FRONTEND_DIR / "_next")), name="next_assets")
+    # Next.js _next/ 靜態資源
+    next_dir = FRONTEND_DIR / "_next"
+    if next_dir.exists():
+        app.mount("/_next", StaticFiles(directory=str(next_dir)), name="next_assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        """所有非 API 路由都返回前端 index.html"""
+        """
+        Next.js static export 路由解析：
+        1. 完整路徑的檔案（如 favicon.ico）
+        2. 子路由的 index.html（如 analysis/ → analysis/index.html）
+        3. 加 .html 的檔案（如 analysis → analysis.html）
+        4. fallback → index.html
+        """
+        # 直接匹配檔案
         file_path = FRONTEND_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(FRONTEND_DIR / "index.html"))
+
+        # 子目錄的 index.html（Next.js static export 模式）
+        index_path = FRONTEND_DIR / full_path / "index.html"
+        if index_path.is_file():
+            return FileResponse(str(index_path))
+
+        # .html 副檔名
+        html_path = FRONTEND_DIR / f"{full_path}.html"
+        if html_path.is_file():
+            return FileResponse(str(html_path))
+
+        # fallback → 首頁
+        fallback = FRONTEND_DIR / "index.html"
+        if fallback.is_file():
+            return FileResponse(str(fallback))
+
+        return {"error": "Not found"}
+
 
 
 if __name__ == "__main__":
