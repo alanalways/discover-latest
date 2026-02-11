@@ -67,7 +67,7 @@ export default function ComparePage() {
     }));
 
     return (
-        <div className="p-6 text-white min-h-screen bg-gray-950">
+        <div className="space-y-6">
             <div className="max-w-7xl mx-auto space-y-6">
                 <h1 className="text-3xl font-black mb-6">股票對比分析</h1>
 

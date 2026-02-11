@@ -88,7 +88,7 @@ function AnalysisContent() {
     const lastPrice = history.length > 0 ? history[history.length - 1].close : '-';
 
     return (
-        <div className="min-h-screen bg-gray-950 p-6 text-white">
+        <div className="space-y-6">
             <div className="max-w-7xl mx-auto space-y-6">
 
                 {/* 搜尋列 */}
