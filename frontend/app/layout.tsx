@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import Sidebar from '@/components/layout/Sidebar';
-import Topbar from '@/components/layout/Topbar';
+import ClientLayout from '@/components/layout/ClientLayout';
 
 export const metadata: Metadata = {
   title: 'DiscoverLatest — AI 智慧投資分析平台',
@@ -16,19 +15,9 @@ export default function RootLayout({
   return (
     <html lang="zh-TW">
       <body>
-        <Sidebar />
-        <Topbar />
-        <main
-          style={{
-            marginLeft: 'var(--sidebar-w)',
-            marginTop: 'var(--topbar-h)',
-            padding: '24px 32px 48px',
-            minHeight: 'calc(100vh - var(--topbar-h))',
-            background: 'var(--bg-void)',
-          }}
-        >
+        <ClientLayout>
           {children}
-        </main>
+        </ClientLayout>
       </body>
     </html>
   );

@@ -69,6 +69,30 @@
   --duration-normal: 250ms;
 }
 
+[data-theme='light'] {
+  /* Background */
+  --bg-void: #F1F5F9;
+  --bg-base: #FFFFFF;
+  --bg-surface: #F8FAFC;
+  --bg-card: #FFFFFF;
+  --bg-elevated: rgba(255, 255, 255, 0.9);
+  --bg-hover: #F1F5F9;
+
+  /* Text */
+  --text-1: #0F172A;
+  --text-2: #475569;
+  --text-3: #94A3B8;
+
+  /* Borders */
+  --border: #E2E8F0;
+  --border-subtle: #F1F5F9;
+  --border-hover: #CBD5E1;
+  
+  /* Shadows */
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-card-hover: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
 /* ─── Global Reset ─── */
 *,
 *::before,

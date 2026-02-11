@@ -49,28 +49,39 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'gainers' | 'losers' | 'volume'>('gainers');
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
   const [lastUpdate, setLastUpdate] = useState<string>('');
+  const [error, setError] = useState('');
 
   const fetchData = async () => {
     setLoading(true);
+    setError('');
+
+    // 超時控制 (10秒)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('請求超時')), 10000)
+    );
+
     try {
-      const [marketRes, top20Res, hoursRes] = await Promise.all([
+      const dataPromise = Promise.all([
         api.getMarketOverview().catch(() => ({ indices: [], etfs: [] })),
         api.getMarketTop20().catch(() => ({ tw: {}, us: {} })),
         api.getMarketHours().catch(() => null),
       ]);
 
-      const market = marketRes as { indices: MarketItem[]; etfs: MarketItem[] };
+      const [marketRes, top20Res, hoursRes] = await Promise.race([dataPromise, timeoutPromise]) as any;
+
+      const market = marketRes;
       setIndices(market.indices || []);
       setEtfs(market.etfs || []);
 
-      const top20 = top20Res as { tw: typeof top20Tw; us: typeof top20Us };
+      const top20 = top20Res;
       setTop20Tw(top20.tw || { gainers: [], losers: [], volume: [] });
       setTop20Us(top20.us || { gainers: [], losers: [], volume: [] });
 
       if (hoursRes) setHours(hoursRes);
       setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Dashboard fetch error:', err);
+      setError(err.message === '請求超時' ? '載入超時，請重試' : '載入失敗');
     } finally {
       setLoading(false);
     }
@@ -228,8 +239,8 @@ export default function Dashboard() {
                 <span className={styles.stockName}>{stock.name}</span>
               </span>
               <span className={`${styles.colValue} ${activeTab === 'volume'
-                  ? ''
-                  : (stock.change_pct || 0) >= 0 ? styles.up : styles.down
+                ? ''
+                : (stock.change_pct || 0) >= 0 ? styles.up : styles.down
                 }`}>
                 {activeTab === 'volume'
                   ? formatVolume(stock.volume)
@@ -240,7 +251,7 @@ export default function Dashboard() {
           ))}
           {(!top20Data[activeTab] || top20Data[activeTab].length === 0) && (
             <div className={styles.emptyRow}>
-              {loading ? '載入中...' : '暫無資料'}
+              {loading ? '載入中...' : (error ? <span className="text-red-400">{error}</span> : '暫無資料')}
             </div>
           )}
         </div>
