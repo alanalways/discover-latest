@@ -13,15 +13,15 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from components.i18n import t
 
 # ──────────────────────────────────────
-# Module-level cache (TTL = 60s)
+# Module-level cache (TTL = 300s, 降低 API 消耗)
 # ──────────────────────────────────────
 _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
-_CACHE_TTL = 60  # seconds (auto-refresh every 60s)
+_CACHE_TTL = 300  # 5 分鐘（原 60s → 降低 80% API 呼叫）
 _first_load = True  # Skip network on first load for instant startup
 
-# Top20 快取（TTL = 300s，大幅降低 API 呼叫量）
+# Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
-_TOP20_CACHE_TTL = 300  # 5 分鐘
+_TOP20_CACHE_TTL = 600  # 10 分鐘（原 300s）
 
 # ──────────────────────────────────────
 # Ticker definitions

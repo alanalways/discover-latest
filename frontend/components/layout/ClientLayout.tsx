@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import AuthProvider from '@/components/auth/AuthProvider';
@@ -10,19 +10,36 @@ import { usePathname } from 'next/navigation';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [collapsed, setCollapsed] = useState(false);
     const pathname = usePathname();
 
-    // 路由改變時關閉側邊欄
-    React.useEffect(() => {
+    // 從 localStorage 讀取 collapsed 狀態
+    useEffect(() => {
+        const saved = localStorage.getItem('sidebar-collapsed');
+        if (saved === 'true') setCollapsed(true);
+    }, []);
+
+    // 路由改變時關閉 mobile sidebar
+    useEffect(() => {
         setSidebarOpen(false);
     }, [pathname]);
+
+    const handleToggleCollapse = () => {
+        const next = !collapsed;
+        setCollapsed(next);
+        localStorage.setItem('sidebar-collapsed', String(next));
+    };
 
     return (
         <AuthProvider>
             <ThemeProvider>
                 <div className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]">
-                    {/* Sidebar: Mobile overlay + implementation */}
-                    <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+                    {/* Sidebar */}
+                    <Sidebar
+                        isOpen={sidebarOpen}
+                        onClose={() => setSidebarOpen(false)}
+                        collapsed={collapsed}
+                    />
 
                     {/* Mobile Sidebar Overlay */}
                     {sidebarOpen && (
@@ -32,8 +49,18 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                         />
                     )}
 
-                    <div className="flex-1 flex flex-col md:ml-[var(--sidebar-w)] transition-all duration-300 relative w-full">
-                        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+                    <div
+                        className="flex-1 flex flex-col transition-all duration-300 relative w-full"
+                        style={{
+                            '--sidebar-w': collapsed ? '64px' : '240px',
+                            marginLeft: `var(--sidebar-w)`,
+                        } as React.CSSProperties}
+                    >
+                        <Topbar
+                            onMenuClick={() => setSidebarOpen(true)}
+                            onToggleCollapse={handleToggleCollapse}
+                            collapsed={collapsed}
+                        />
 
                         <main className="flex-1 p-4 md:p-8 mt-[var(--topbar-h)] overflow-x-hidden">
                             {children}

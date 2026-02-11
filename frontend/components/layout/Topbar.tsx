@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Search, Moon, Sun, User as UserIcon, LogOut, Menu } from 'lucide-react';
+import { Search, Moon, Sun, User as UserIcon, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useTheme } from '@/components/theme/ThemeProvider';
 import styles from './Topbar.module.css';
 
 interface TopbarProps {
     onMenuClick?: () => void;
+    onToggleCollapse?: () => void;
+    collapsed?: boolean;
 }
 
 const PAGE_TITLES: Record<string, string> = {
@@ -20,9 +22,11 @@ const PAGE_TITLES: Record<string, string> = {
     '/compare': '股票比較',
     '/pricing': '會員方案',
     '/admin': '管理後台',
+    '/settings': '設定',
+    '/help': '幫助中心',
 };
 
-export default function Topbar({ onMenuClick }: TopbarProps) {
+export default function Topbar({ onMenuClick, onToggleCollapse, collapsed }: TopbarProps) {
     const pathname = usePathname();
     const router = useRouter();
     const { user, logout, setShowLoginModal } = useAuth();
@@ -48,13 +52,21 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     };
 
     return (
-        <header className="h-[var(--topbar-h)] fixed top-0 right-0 left-0 md:left-[var(--sidebar-w)] z-40 bg-[var(--bg-elevated)] backdrop-blur-md border-b border-[var(--border-subtle)] flex items-center justify-between px-6 transition-all duration-300">
+        <header className="h-[var(--topbar-h)] fixed top-0 right-0 z-40 bg-[var(--bg-elevated)] backdrop-blur-md border-b border-[var(--border-subtle)] flex items-center justify-between px-6 transition-all duration-300" style={{ left: 'var(--sidebar-w)' }}>
             <div className="flex items-center gap-4">
                 <button
                     onClick={onMenuClick}
                     className="md:hidden text-gray-400 hover:text-[var(--text-1)]"
                 >
                     <Menu size={24} />
+                </button>
+                {/* 桌面版 Sidebar Toggle */}
+                <button
+                    onClick={onToggleCollapse}
+                    className="hidden md:flex p-2 text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--bg-hover)] rounded-lg transition"
+                    title={collapsed ? '展開側邊欄' : '收起側邊欄'}
+                >
+                    {collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}
                 </button>
                 <h1 className="text-xl font-bold text-[var(--text-1)] hidden md:block">{pageTitle}</h1>
             </div>

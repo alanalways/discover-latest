@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/components/auth/AuthProvider';
 import {
   TrendingUp,
   TrendingDown,
@@ -40,6 +41,7 @@ interface MarketHours {
 
 /* ── 元件 ── */
 export default function Dashboard() {
+  const { user } = useAuth();
   const [indices, setIndices] = useState<MarketItem[]>([]);
   const [etfs, setEtfs] = useState<MarketItem[]>([]);
   const [top20Tw, setTop20Tw] = useState<{ gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] }>({ gainers: [], losers: [], volume: [] });
@@ -89,10 +91,16 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    // 每 60 秒自動更新
-    const interval = setInterval(fetchData, 60_000);
+    // 分級自動刷新：FREE=15min, PRO=5min, PREMIUM=1min
+    const tier = user?.tier || 'free';
+    const refreshMs: Record<string, number> = {
+      free: 15 * 60_000,     // 15 分鐘
+      pro: 5 * 60_000,       // 5 分鐘
+      premium: 1 * 60_000,   // 1 分鐘
+    };
+    const interval = setInterval(fetchData, refreshMs[tier] || refreshMs.free);
     return () => clearInterval(interval);
-  }, []);
+  }, [user?.tier]);
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
 

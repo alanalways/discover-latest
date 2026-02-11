@@ -409,6 +409,7 @@ class BacktestService:
         return signals
 
     def _simulate_trades(
+        self,
         history: List[Dict],
         signals: List[Dict],
         initial_capital: float,

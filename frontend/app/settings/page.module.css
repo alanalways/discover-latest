@@ -1,0 +1,163 @@
+.container {
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+.header {
+    margin-bottom: 32px;
+}
+
+.title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    color: var(--text-3);
+    font-size: 14px;
+}
+
+.sections {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 20px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-1);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.sectionBody {
+    padding: 4px 0;
+}
+
+.settingItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    transition: background 0.15s;
+}
+
+.settingItem:hover {
+    background: var(--bg-hover);
+}
+
+.settingLabel {
+    font-size: 14px;
+    color: var(--text-2);
+}
+
+.settingValue {
+    display: flex;
+    align-items: center;
+}
+
+.displayValue {
+    font-size: 14px;
+    color: var(--text-1);
+    font-weight: 500;
+}
+
+/* Toggle */
+.toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+}
+
+.toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggleSlider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--bg-hover);
+    border-radius: 22px;
+    transition: 0.3s;
+}
+
+.toggleSlider::before {
+    content: '';
+    position: absolute;
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: 0.3s;
+}
+
+.toggle input:checked+.toggleSlider {
+    background: var(--accent);
+}
+
+.toggle input:checked+.toggleSlider::before {
+    transform: translateX(18px);
+}
+
+/* Select */
+.select {
+    background: var(--bg-elevated);
+    color: var(--text-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+/* Danger Buttons */
+.dangerBtn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 20px;
+    font-size: 14px;
+    color: var(--text-2);
+    background: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: left;
+}
+
+.dangerBtn:hover {
+    background: var(--bg-hover);
+    color: var(--text-1);
+}
+
+.deleteBtn {
+    color: #ef5350;
+}
+
+.deleteBtn:hover {
+    background: rgba(239, 83, 80, 0.08);
+    color: #ef5350;
+}

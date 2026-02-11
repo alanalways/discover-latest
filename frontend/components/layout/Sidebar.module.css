@@ -11,6 +11,31 @@
     z-index: 100;
     padding: 0;
     overflow-y: auto;
+    transition: width 0.3s ease;
+}
+
+/* 桌面版摺疊 */
+@media (min-width: 768px) {
+    .collapsed {
+        width: 64px;
+    }
+
+    .collapsed .logo {
+        justify-content: center;
+        padding: 20px 8px;
+    }
+
+    .collapsed .navItem {
+        justify-content: center;
+        padding: 10px 0;
+        margin: 0 4px;
+        width: calc(100% - 8px);
+    }
+
+    .collapsed .navItemActive {
+        padding-left: 0;
+        border-left: 3px solid var(--accent);
+    }
 }
 
 .logo {

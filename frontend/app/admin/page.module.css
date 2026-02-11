@@ -1,0 +1,232 @@
+.container {
+    max-width: 960px;
+    margin: 0 auto;
+}
+
+.header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.title {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-1);
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    color: var(--text-3);
+    font-size: 14px;
+}
+
+.refreshBtn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.15s;
+}
+
+.refreshBtn:hover {
+    background: var(--bg-hover);
+    color: var(--text-1);
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.error {
+    background: rgba(239, 83, 80, 0.1);
+    color: #ef5350;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+}
+
+/* 存取拒絕 */
+.accessDenied {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    gap: 12px;
+    color: var(--text-3);
+}
+
+.accessDenied h2 {
+    color: var(--text-1);
+    font-size: 20px;
+}
+
+.accessDenied p {
+    font-size: 14px;
+}
+
+/* Stats */
+.statsGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.statCard {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    color: var(--accent);
+}
+
+.statValue {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+.statLabel {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Section */
+.section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.sectionHeader h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+.searchBox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 12px;
+    color: var(--text-3);
+}
+
+.searchBox input {
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--text-1);
+    font-size: 13px;
+    width: 180px;
+}
+
+/* User Table */
+.userTable {
+    font-size: 13px;
+}
+
+.tableHeader {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 120px;
+    padding: 10px 20px;
+    background: var(--bg-elevated);
+    color: var(--text-3);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.tableRow {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 120px;
+    padding: 12px 20px;
+    align-items: center;
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 0.1s;
+}
+
+.tableRow:hover {
+    background: var(--bg-hover);
+}
+
+.email {
+    color: var(--text-1);
+    font-weight: 500;
+}
+
+.tierCell {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.iconPremium {
+    color: #9b59b6;
+}
+
+.iconPro {
+    color: #f1c40f;
+}
+
+.iconFree {
+    color: var(--text-3);
+}
+
+.tierSelect {
+    background: var(--bg-elevated);
+    color: var(--text-1);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.loadingText {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-3);
+}
+
+.emptyRow {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 14px;
+}

@@ -83,20 +83,20 @@ def _set_cache(key: str, data: Any):
 
 
 class FinMindAdapter:
-    """FinMind 資料 Adapter（台股 + 美股主要來源，雙 Token 輪替）"""
+    """FinMind 資料 Adapter（台股 + 美股主要來源，多 Token 輪替）"""
 
     BASE_URL = "https://api.finmindtrade.com/api/v4"
 
     def __init__(self):
-        self._token_primary: Optional[str] = None
-        self._token_secondary: Optional[str] = None
-        self._active_token_idx = 0  # 0 = primary, 1 = secondary
+        self._tokens: List[Optional[str]] = [None, None, None]  # 支援最多 3 組 Token
+        self._active_token_idx = 0
         self._available = True
         self._last_check: Optional[datetime] = None
-        # 雙 Rate Limiter
+        # 多組 Rate Limiter（每組 600/hr，留 50 buffer）
         self.rate_limiters = [
-            _FinMindRateLimiter(max_requests=550, window_seconds=3600),  # 主 600/hr → 留 50 buffer
-            _FinMindRateLimiter(max_requests=550, window_seconds=3600),  # 備 600/hr → 留 50 buffer
+            _FinMindRateLimiter(max_requests=550, window_seconds=3600),
+            _FinMindRateLimiter(max_requests=550, window_seconds=3600),
+            _FinMindRateLimiter(max_requests=550, window_seconds=3600),
         ]
 
     @property
@@ -105,30 +105,32 @@ class FinMindAdapter:
         return self.rate_limiters[self._active_token_idx]
 
     def _get_token(self) -> str:
-        """取得 FinMind API Token（雙 Token 自動切換）"""
-        if not self._token_primary:
-            self._token_primary = os.environ.get("FINMIND_TOKEN", "")
-        if not self._token_secondary:
-            self._token_secondary = os.environ.get("FINMIND_TOKEN_2", "")
+        """取得 FinMind API Token（多 Token 自動切換）"""
+        # 載入所有 Token
+        env_keys = ["FINMIND_TOKEN", "FINMIND_TOKEN_2", "FINMIND_TOKEN_3"]
+        for i, key in enumerate(env_keys):
+            if not self._tokens[i]:
+                self._tokens[i] = os.environ.get(key, "")
 
-        tokens = [self._token_primary, self._token_secondary]
         # 嘗試當前 token
-        current = tokens[self._active_token_idx]
+        current = self._tokens[self._active_token_idx]
         if current and self.rate_limiters[self._active_token_idx].can_request():
             return current
 
-        # 切換到另一個 token
-        other_idx = 1 - self._active_token_idx
-        other = tokens[other_idx]
-        if other and self.rate_limiters[other_idx].can_request():
-            old_idx = self._active_token_idx
-            self._active_token_idx = other_idx
-            r1 = self.rate_limiters[old_idx].remaining
-            r2 = self.rate_limiters[other_idx].remaining
-            print(f"[FinMind] Token 切換 #{old_idx}→#{other_idx}（剩餘 {r1}/{r2}）")
-            return other
+        # 嘗試切換到其他有額度的 token
+        old_idx = self._active_token_idx
+        for i in range(len(self._tokens)):
+            if i == old_idx:
+                continue
+            if self._tokens[i] and self.rate_limiters[i].can_request():
+                self._active_token_idx = i
+                remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+                print(f"[FinMind] Token 切換 #{old_idx}→#{i}（剩餘 {'/'.join(remaining)}）")
+                return self._tokens[i]
 
-        # 都沒有可用額度
+        # 所有 token 都沒有可用額度
+        remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+        print(f"[FinMind] 所有 Token 額度耗盡（剩餘 {'/'.join(remaining)}）")
         return current or ""
 
     async def health_check(self) -> bool:
@@ -412,17 +414,23 @@ class FinMindAdapter:
     # ===== 同步包裝 =====
 
     def _sync_request(self, params: Dict) -> Optional[List[Dict]]:
-        """同步 API 請求（含速率限制）"""
-        if not self.rate_limiter.can_request():
-            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
+        """同步 API 請求（含速率限制 + 多 Token 自動切換）"""
+        # 先取 token（會自動切換到有額度的 token）
+        token = self._get_token()
+        if not token:
+            print("[FinMind] 無可用 Token")
             return None
-        params["token"] = self._get_token()
-        if not params["token"]:
+        # 用切換後的 limiter 檢查
+        limiter = self.rate_limiters[self._active_token_idx]
+        if not limiter.can_request():
+            remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
             return None
+        params["token"] = token
         try:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{self.BASE_URL}/data", params=params)
-                self.rate_limiter.record()
+                limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
                 if result.get("status") == 200 and result.get("data"):
@@ -545,12 +553,15 @@ class FinMindAdapter:
         self, symbol: str, start_date: str, end_date: str = None
     ) -> List[Dict]:
         """同步版本的 get_tw_stock_price，供非 async 函式呼叫"""
-        if not self.rate_limiter.can_request():
-            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
-            return []
+        # 先取 token（會自動切換到有額度的 token）
         token = self._get_token()
         if not token:
             print("[FinMind] FINMIND_TOKEN 未設定，跳過")
+            return []
+        limiter = self.rate_limiters[self._active_token_idx]
+        if not limiter.can_request():
+            remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
             return []
         params = {
             "dataset": "TaiwanStockPrice",
@@ -566,7 +577,7 @@ class FinMindAdapter:
             import httpx as _httpx
             with _httpx.Client(timeout=30.0) as client:
                 resp = client.get(f"{self.BASE_URL}/data", params=params)
-                self.rate_limiter.record()
+                limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
                 if result.get("status") == 200 and result.get("data"):
@@ -594,11 +605,14 @@ class FinMindAdapter:
 
     def get_tw_stock_info_sync(self, symbol: str = None) -> List[Dict]:
         """同步版本的 get_tw_stock_info"""
-        if not self.rate_limiter.can_request():
-            print(f"[FinMind] 速率限制 — 剩餘 {self.rate_limiter.remaining} req/hr，跳過")
-            return []
+        # 先取 token（會自動切換）
         token = self._get_token()
         if not token:
+            return []
+        limiter = self.rate_limiters[self._active_token_idx]
+        if not limiter.can_request():
+            remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
             return []
         params = {"dataset": "TaiwanStockInfo", "token": token}
         if symbol:
