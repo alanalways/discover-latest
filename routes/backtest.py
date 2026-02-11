@@ -47,19 +47,46 @@ async def run_backtest(req: BacktestRequest, request: Request):
                 detail=f"您的方案最多回測 {max_years} 年"
             )
 
+        # 先取歷史資料
+        from services.stock_service import stock_service
+        stock_data = stock_service.get_stock_data(req.symbol, period=req.period)
+        if not stock_data or not stock_data.get("history"):
+            raise HTTPException(status_code=404, detail=f"無法取得 {req.symbol} 歷史資料")
+
+        history = stock_data["history"]
+        # 確保是 list of dict
+        if hasattr(history, "to_dict"):
+            history = history.to_dict("records")
+
+        # 組合策略參數
+        params = {}
+        if req.strategy == "ma_cross":
+            params = {"fast": req.ma_fast, "slow": req.ma_slow}
+
         # 執行回測
         from services.backtest_service import backtest_service
 
         result = await asyncio.to_thread(
             backtest_service.run_backtest,
-            symbol=req.symbol,
+            history=history,
             strategy=req.strategy,
-            period=req.period,
-            ma_fast=req.ma_fast,
-            ma_slow=req.ma_slow,
+            params=params,
             initial_capital=req.initial_capital,
         )
-        return result
+
+        # 整理回傳格式（統一前端預期的 key）
+        metrics = result.get("metrics", {})
+        return {
+            "total_return": metrics.get("total_return", 0),
+            "max_drawdown": metrics.get("max_drawdown", 0),
+            "win_rate": metrics.get("win_rate", 0),
+            "total_trades": metrics.get("total_trades", 0),
+            "sharpe_ratio": metrics.get("sharpe_ratio", 0),
+            "profit_factor": metrics.get("profit_factor", 0),
+            "trades": result.get("trades", [])[:20],  # 最多回傳 20 筆
+            "equity_curve": result.get("equity_curve", []),
+            "strategy": result.get("strategy_name", req.strategy),
+        }
 
     except HTTPException:
         raise
