@@ -113,6 +113,8 @@ export default function Dashboard() {
       setEtfs(marketRes.etfs || []);
       if (hoursRes) setHours(hoursRes);
       setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
+      // 優先結束骨架 loading，Top20 慢載入不再卡整頁
+      setLoading(false);
 
       const top20Res = await top20Promise;
       setTop20Tw(top20Res.tw || emptyTop20);

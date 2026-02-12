@@ -90,8 +90,10 @@ async def get_current_user(request: Request):
 async def get_auth_config():
     """回傳 Google OAuth client ID（前端需要）"""
     try:
-        from adapters.supabase_adapter import supabase_adapter
-        client_id = supabase_adapter.get_vault_secret("GOOGLE_CLIENT_ID")
+        client_id = (os.environ.get("GOOGLE_CLIENT_ID", "") or "").strip()
+        if not client_id:
+            from adapters.supabase_adapter import supabase_adapter
+            client_id = (supabase_adapter.get_vault_secret("GOOGLE_CLIENT_ID") or "").strip()
         if not client_id:
             raise HTTPException(status_code=500, detail="OAuth 設定缺失")
         return {"client_id": client_id}
@@ -133,15 +135,19 @@ async def auth_diagnose():
     if supabase_url:
         authorize_preview = f"{supabase_url}/auth/v1/authorize?provider=google&redirect_to={callback_default}"
 
-    google_client_id = ""
-    google_client_id_present = False
+    env_google_client_id = (os.environ.get("GOOGLE_CLIENT_ID", "") or "").strip()
+    env_google_client_id_present = bool(env_google_client_id)
+
+    vault_google_client_id = ""
+    vault_google_client_id_present = False
     try:
         from adapters.supabase_adapter import supabase_adapter
-        google_client_id = (supabase_adapter.get_vault_secret("GOOGLE_CLIENT_ID") or "").strip()
-        google_client_id_present = bool(google_client_id)
+        vault_google_client_id = (supabase_adapter.get_vault_secret("GOOGLE_CLIENT_ID") or "").strip()
+        vault_google_client_id_present = bool(vault_google_client_id)
     except Exception:
         pass
 
+    google_client_id = env_google_client_id or vault_google_client_id
     masked_client_id = ""
     if google_client_id:
         if len(google_client_id) <= 20:
@@ -154,7 +160,9 @@ async def auth_diagnose():
         "supabase_host_valid": bool(supabase_host.endswith(".supabase.co")),
         "space_url_present": bool(space_url),
         "anon_key_present": bool(anon_key),
-        "google_client_id_present_in_vault": google_client_id_present,
+        "google_client_id_present_in_env": env_google_client_id_present,
+        "google_client_id_present_in_vault": vault_google_client_id_present,
+        "google_client_id_present_anywhere": bool(google_client_id),
     }
 
     return {

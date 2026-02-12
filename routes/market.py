@@ -2,7 +2,8 @@
 Market API — 市場總覽 + Top20 排行
 """
 from fastapi import APIRouter
-from typing import Optional
+import asyncio
+from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
 
@@ -26,7 +27,15 @@ async def market_top20():
     """取得台美股 Top20 漲跌幅 + 成交量排行"""
     try:
         from pages.market_overview import _fetch_top20_data
-        data = _fetch_top20_data()
+        # _fetch_top20_data 內含大量同步 IO，丟到 threadpool 避免阻塞整個 event loop
+        try:
+            data = await asyncio.wait_for(run_in_threadpool(_fetch_top20_data), timeout=8.0)
+        except asyncio.TimeoutError:
+            return {
+                "tw": {"gainers": [], "losers": [], "volume": []},
+                "us": {"gainers": [], "losers": [], "volume": []},
+                "error": "top20_timeout",
+            }
         tw = data.get("tw", [])
         us = data.get("us", [])
 
