@@ -33,6 +33,10 @@ class StockService:
             text = value.strip().replace(",", "")
             if not text or text in {"-", "N/A", "nan", "None"}:
                 return None
+            if text.endswith("%"):
+                text = text[:-1].strip()
+                if not text:
+                    return None
             try:
                 return float(text)
             except Exception:
@@ -55,10 +59,23 @@ class StockService:
         for r in rows or []:
             normalized.append({
                 "date": r.get("date"),
-                "PER": self._to_float(r.get("PER") or r.get("per") or r.get("pe_ratio") or r.get("PriceEarningRatio")),
-                "PBR": self._to_float(r.get("PBR") or r.get("pbr") or r.get("pb_ratio") or r.get("PriceBookRatio")),
+                "PER": self._to_float(
+                    r.get("PER") or r.get("per") or r.get("pe_ratio") or r.get("PriceEarningRatio") or r.get("本益比")
+                ),
+                "PBR": self._to_float(
+                    r.get("PBR") or r.get("pbr") or r.get("pb_ratio") or r.get("PriceBookRatio") or r.get("股價淨值比")
+                ),
                 "dividend_yield": self._to_float(
-                    r.get("dividend_yield") or r.get("DividendYield") or r.get("yield") or r.get("cash_dividend_yield")
+                    r.get("dividend_yield")
+                    or r.get("DividendYield")
+                    or r.get("DividendYieldRatio")
+                    or r.get("dividend_yield_ratio")
+                    or r.get("yield")
+                    or r.get("Yield")
+                    or r.get("cash_dividend_yield")
+                    or r.get("CashDividendYield")
+                    or r.get("殖利率")
+                    or r.get("殖利率(%)")
                 ),
             })
         return normalized
@@ -237,6 +254,28 @@ class StockService:
                 )
                 if mv_val is not None:
                     info["market_cap"] = mv_val
+
+            # 台股殖利率補值：若 PER 資料無殖利率，改用股利資料 + 近期股價估算
+            if market in ["TWSE", "TPEX"] and self._to_float(info.get("dividend_yield")) is None:
+                try:
+                    start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
+                    div_rows = await finmind_adapter.get_tw_dividend(symbol, start_3y)
+                    cash_dividend = self._pick_latest_numeric(
+                        div_rows or [],
+                        [
+                            "CashEarningsDistribution",
+                            "cash_dividend",
+                            "cash_dividend_per_share",
+                            "cash_dividend_rate",
+                        ],
+                    )
+                    last_close = self._to_float(info.get("price"))
+                    if last_close is None and history:
+                        last_close = self._to_float(history[-1].get("close"))
+                    if cash_dividend is not None and last_close and last_close > 0:
+                        info["dividend_yield"] = round(cash_dividend / last_close * 100, 4)
+                except Exception:
+                    pass
 
             # US：若 USStockInfo 有估值欄位，補到統一欄位
             if market == "US":

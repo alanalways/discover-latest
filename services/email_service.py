@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import time
 from typing import Any, Dict, Optional
+from datetime import datetime, timezone
 
 import httpx
 
@@ -77,6 +78,14 @@ class EmailService:
         # Resend default sender works without custom domain verification.
         return os.environ.get("UPGRADE_FROM_EMAIL", "DiscoverLatest <onboarding@resend.dev>")
 
+    @staticmethod
+    def _gas_webhook_url() -> str:
+        return (os.environ.get("GAS_WEBHOOK_URL") or "").strip()
+
+    @staticmethod
+    def _gas_webhook_token() -> str:
+        return (os.environ.get("GAS_WEBHOOK_TOKEN") or "").strip()
+
     def _to_usdt(self, twd_amount: float) -> str:
         rate = self._get_usdt_twd_rate()
         usdt = twd_amount / rate if rate > 0 else 0
@@ -112,6 +121,56 @@ class EmailService:
         </div>
         """
 
+    def _send_via_gas_webhook(
+        self,
+        *,
+        request_id: str,
+        user_email: str,
+        user_name: str,
+        plan: str,
+        billing_cycle: str,
+    ) -> Dict[str, Any]:
+        webhook_url = self._gas_webhook_url()
+        if not webhook_url:
+            return {"success": False, "message": "未設定 GAS_WEBHOOK_URL"}
+
+        plan_info = PRICING[plan]
+        price_twd = plan_info["yearly"] if billing_cycle == "yearly" else plan_info["monthly"]
+        cycle_label = "yearly" if billing_cycle == "yearly" else "monthly"
+        payload = {
+            "event": "upgrade_request",
+            "request_id": request_id,
+            "user_email": user_email,
+            "user_name": user_name,
+            "plan": plan,
+            "plan_name": plan_info["name"],
+            "billing_cycle": cycle_label,
+            "price_twd": price_twd,
+            "price_usdt": self._to_usdt(price_twd),
+            "admin_email": PAYMENT_INFO.get("admin_email"),
+            "payment_info": PAYMENT_INFO,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        headers = {"Content-Type": "application/json"}
+        token = self._gas_webhook_token()
+        if token:
+            headers["X-DL-Token"] = token
+
+        try:
+            with httpx.Client(timeout=20.0) as client:
+                resp = client.post(webhook_url, headers=headers, json=payload)
+            if not resp.is_success:
+                return {
+                    "success": False,
+                    "message": f"GAS webhook 失敗（HTTP {resp.status_code}）: {resp.text}",
+                }
+            return {
+                "success": True,
+                "message": "已通知管理員，請等待人工審核（約 1-5 個工作天）",
+            }
+        except Exception as e:
+            return {"success": False, "message": f"GAS webhook 呼叫失敗: {e}"}
+
     def send_upgrade_request(
         self,
         *,
@@ -129,11 +188,26 @@ class EmailService:
         if not admin_email:
             return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定", "order_id": rid}
 
+        # 優先走 GAS webhook（免網域，設定較簡單）
+        gas_result = self._send_via_gas_webhook(
+            request_id=rid,
+            user_email=user_email,
+            user_name=user_name,
+            plan=plan,
+            billing_cycle=billing_cycle,
+        )
+        if gas_result.get("success"):
+            return {
+                "success": True,
+                "message": gas_result.get("message", "已通知管理員，請等待人工審核"),
+                "order_id": rid,
+            }
+
         resend_key = self._get_resend_key()
         if not resend_key:
             return {
                 "success": False,
-                "message": "缺少 RESEND_API_KEY，無法寄送通知信",
+                "message": f"{gas_result.get('message', 'GAS 通知失敗')}；且缺少 RESEND_API_KEY",
                 "order_id": rid,
             }
 
@@ -178,4 +252,3 @@ class EmailService:
 
 
 email_service = EmailService()
-

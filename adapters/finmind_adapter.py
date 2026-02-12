@@ -363,15 +363,32 @@ class FinMindAdapter:
         self, symbol: str, start_date: str, end_date: str = None
     ) -> List[Dict]:
         """取得台股 PER / PBR / 殖利率 (TaiwanStockPER)"""
-        # TaiwanStockPER 在部分帳號/版本下帶 end_date 容易回 400，僅帶 start_date
+        # TaiwanStockPER 在不同帳號下參數容忍度不同，採兩段式重試
         start_date = self._normalize_start_date(start_date, fallback_days=365)
-        params = {
-            "dataset": "TaiwanStockPER",
-            "data_id": symbol,
-            "start_date": start_date,
-        }
-        data = await self._request(params)
-        return data or []
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        attempts = [
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+                "start_date": start_date,
+            },
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+            },
+        ]
+        for params in attempts:
+            data = await self._request(params)
+            if data:
+                return data
+        return []
 
     async def get_tw_financial_statements(
         self, symbol: str, start_date: str
@@ -595,15 +612,32 @@ class FinMindAdapter:
         self, symbol: str, start_date: str, end_date: str = None
     ) -> List[Dict]:
         """同步：PER/PBR/殖利率"""
-        # TaiwanStockPER 在部分帳號/版本下帶 end_date 容易回 400，僅帶 start_date
+        # TaiwanStockPER 在不同帳號下參數容忍度不同，採兩段式重試
         start_date = self._normalize_start_date(start_date, fallback_days=365)
-        params = {
-            "dataset": "TaiwanStockPER",
-            "data_id": symbol,
-            "start_date": start_date,
-        }
-        data = self._sync_request(params)
-        return data or []
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        attempts = [
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+                "start_date": start_date,
+            },
+            {
+                "dataset": "TaiwanStockPER",
+                "data_id": symbol,
+            },
+        ]
+        for params in attempts:
+            data = self._sync_request(params)
+            if data:
+                return data
+        return []
 
     def get_tw_financial_statements_sync(self, symbol: str, start_date: str) -> List[Dict]:
         """同步：綜合損益表"""
@@ -791,15 +825,32 @@ class FinMindAdapter:
         self, symbol: str, start_date: str, end_date: str = None
     ) -> List[Dict]:
         """取得台股市值 (TaiwanStockMarketValue)"""
-        # TaiwanStockMarketValue 在部分帳號/版本下帶 end_date 容易回 400，僅帶 start_date
+        # TaiwanStockMarketValue 在部分帳號常見 400，採容錯重試
         start_date = self._normalize_start_date(start_date, fallback_days=365)
-        params = {
-            "dataset": "TaiwanStockMarketValue",
-            "data_id": symbol,
-            "start_date": start_date,
-        }
-        data = await self._request(params)
-        return data or []
+        if end_date is None:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        attempts = [
+            {
+                "dataset": "TaiwanStockMarketValue",
+                "data_id": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+            {
+                "dataset": "TaiwanStockMarketValue",
+                "data_id": symbol,
+                "start_date": start_date,
+            },
+            {
+                "dataset": "TaiwanStockMarketValue",
+                "data_id": symbol,
+            },
+        ]
+        for params in attempts:
+            data = await self._request(params)
+            if data:
+                return data
+        return []
 
     def get_tw_market_snapshot_sync(self, start_date: str, end_date: str = None) -> List[Dict]:
         """同步：取得台股市場快照（不帶 data_id，回傳多檔股票）"""

@@ -816,85 +816,171 @@ class SupabaseAdapter:
     # ===== AI 用量追蹤 =====
     
     def get_ai_usage_today(self, user_id: str) -> int:
-        """取得用戶今日 AI 使用次數（真實筆數，無預設值）"""
+        """取得用戶今日 AI 使用次數（相容 count / usage_count / logs）"""
         today = date.today().isoformat()
-        # 若表為 ai_usage(user_id, date, count) 一筆/日：取 count；若為 ai_usage_logs 多筆/日：計數
-        result = self._request(
+        if not user_id:
+            return 0
+
+        rows = self._request(
             "GET",
             "ai_usage",
-            params={"user_id": f"eq.{user_id}", "date": f"eq.{today}", "select": "*"},
+            params={
+                "user_id": f"eq.{user_id}",
+                "date": f"eq.{today}",
+                "select": "id,count,usage_count",
+            },
             use_service_key=True,
         )
-        if not result or not isinstance(result, list):
-            return 0
-        if len(result) == 1 and isinstance(result[0], dict) and "count" in result[0]:
-            return int(result[0].get("count", 0))
-        return len(result)
+        if isinstance(rows, list) and rows:
+            total = 0
+            has_numeric = False
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                raw = row.get("count")
+                if raw is None:
+                    raw = row.get("usage_count")
+                if raw is None:
+                    continue
+                try:
+                    total += int(raw)
+                    has_numeric = True
+                except Exception:
+                    continue
+            if has_numeric:
+                return total
+            return len(rows)
+
+        logs = self._request(
+            "GET",
+            "ai_usage_logs",
+            params={
+                "user_id": f"eq.{user_id}",
+                "date": f"eq.{today}",
+                "select": "id",
+            },
+            use_service_key=True,
+        )
+        return len(logs) if isinstance(logs, list) else 0
     
     def increment_ai_usage(self, user_id: str) -> bool:
-        """增加用戶 AI 使用次數（優先 RPC，失敗時 fallback 寫表）"""
+        """增加用戶 AI 使用次數（優先 RPC，含 409 競態容錯）"""
         today = date.today().isoformat()
         url, _, _ = self._get_config()
+        if not url or not user_id:
+            return False
+
         try:
             with httpx.Client(timeout=30.0) as client:
-                response = client.post(
-                    f"{url}/rest/v1/rpc/increment_ai_usage",
-                    headers=self._get_headers(use_service_key=True),
-                    json={"p_user_id": user_id, "p_date": today}
-                )
-                if response.is_success:
-                    return True
-                print(f"[DB] increment_ai_usage RPC 失敗: status={response.status_code}")
-        except Exception as e:
-            print(f"[DB] 增加 AI 用量 RPC 失敗: {type(e).__name__}")
+                headers = self._get_headers(use_service_key=True)
 
-        # Fallback：直接更新 ai_usage 表
-        try:
-            rows = self._request(
-                "GET",
-                "ai_usage",
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "date": f"eq.{today}",
-                    "select": "id,count",
-                    "limit": "1",
-                },
-                use_service_key=True,
-            ) or []
-
-            if rows:
-                row = rows[0] if isinstance(rows[0], dict) else {}
-                current = int(row.get("count", 0) or 0)
-                new_count = current + 1
-                row_id = row.get("id")
-                if row_id:
-                    updated = self._request(
-                        "PATCH",
-                        "ai_usage",
-                        params={"id": f"eq.{row_id}"},
-                        json={"count": new_count},
-                        use_service_key=True,
+                # 1) 優先 RPC
+                try:
+                    rpc_resp = client.post(
+                        f"{url}/rest/v1/rpc/increment_ai_usage",
+                        headers=headers,
+                        json={"p_user_id": user_id, "p_date": today},
                     )
-                else:
-                    updated = self._request(
-                        "PATCH",
-                        "ai_usage",
-                        params={"user_id": f"eq.{user_id}", "date": f"eq.{today}"},
-                        json={"count": new_count},
-                        use_service_key=True,
-                    )
-                return updated is not None
+                    if rpc_resp.is_success:
+                        return True
+                    print(f"[DB] increment_ai_usage RPC 失敗: status={rpc_resp.status_code}")
+                except Exception as e:
+                    print(f"[DB] 增加 AI 用量 RPC 失敗: {type(e).__name__}: {e}")
 
-            inserted = self._request(
-                "POST",
-                "ai_usage",
-                json={"user_id": user_id, "date": today, "count": 1},
-                use_service_key=True,
-            )
-            return inserted is not None
+                # 2) Fallback：直接更新 ai_usage
+                def fetch_row() -> Optional[Dict[str, Any]]:
+                    resp = client.get(
+                        f"{url}/rest/v1/ai_usage",
+                        headers=headers,
+                        params={
+                            "user_id": f"eq.{user_id}",
+                            "date": f"eq.{today}",
+                            "select": "id,count,usage_count",
+                            "limit": "1",
+                        },
+                    )
+                    if not resp.is_success:
+                        return None
+                    data = resp.json() if resp.text else []
+                    if isinstance(data, list) and data and isinstance(data[0], dict):
+                        return data[0]
+                    return None
+
+                row = fetch_row()
+                if row:
+                    col = "count" if "count" in row else ("usage_count" if "usage_count" in row else "count")
+                    try:
+                        current = int((row.get(col) or 0))
+                    except Exception:
+                        current = 0
+                    row_id = row.get("id")
+                    patch_params = {"id": f"eq.{row_id}"} if row_id else {
+                        "user_id": f"eq.{user_id}",
+                        "date": f"eq.{today}",
+                    }
+                    patch_resp = client.patch(
+                        f"{url}/rest/v1/ai_usage",
+                        headers=headers,
+                        params=patch_params,
+                        json={col: current + 1},
+                    )
+                    if patch_resp.is_success:
+                        return True
+                    if patch_resp.status_code == 409:
+                        # 競態重試一次
+                        row_retry = fetch_row()
+                        if row_retry:
+                            col_retry = "count" if "count" in row_retry else ("usage_count" if "usage_count" in row_retry else "count")
+                            try:
+                                now_val = int((row_retry.get(col_retry) or 0))
+                            except Exception:
+                                now_val = 0
+                            row_id_retry = row_retry.get("id")
+                            patch_params_retry = {"id": f"eq.{row_id_retry}"} if row_id_retry else {
+                                "user_id": f"eq.{user_id}",
+                                "date": f"eq.{today}",
+                            }
+                            retry_resp = client.patch(
+                                f"{url}/rest/v1/ai_usage",
+                                headers=headers,
+                                params=patch_params_retry,
+                                json={col_retry: now_val + 1},
+                            )
+                            if retry_resp.is_success:
+                                return True
+
+                # 3) 無 row：upsert 建立
+                upsert_headers = dict(headers)
+                upsert_headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+                for payload in (
+                    {"user_id": user_id, "date": today, "count": 1},
+                    {"user_id": user_id, "date": today, "usage_count": 1},
+                ):
+                    ins_resp = client.post(
+                        f"{url}/rest/v1/ai_usage",
+                        headers=upsert_headers,
+                        params={"on_conflict": "user_id,date"},
+                        json=payload,
+                    )
+                    if ins_resp.is_success or ins_resp.status_code == 409:
+                        return True
+
+                # 4) 最後 fallback：寫 ai_usage_logs（若有該表）
+                for payload in (
+                    {"user_id": user_id, "date": today},
+                    {"user_id": user_id, "date": today, "count": 1},
+                ):
+                    log_resp = client.post(
+                        f"{url}/rest/v1/ai_usage_logs",
+                        headers=headers,
+                        json=payload,
+                    )
+                    if log_resp.is_success:
+                        return True
         except Exception as e:
-            print(f"[DB] 增加 AI 用量 fallback 失敗: {type(e).__name__}")
-            return False
+            print(f"[DB] 增加 AI 用量 fallback 失敗: {type(e).__name__}: {e}")
+
+        return False
     
     # ===== 股票資料 =====
     
