@@ -223,6 +223,8 @@ class FinMindAdapter:
             return None
 
         attempted: Set[int] = set()
+        had_payment_limit = False
+        had_rate_limit = False
         for _ in range(total_tokens):
             token, token_idx = self._pick_token(exclude=attempted)
             if not token or token_idx < 0:
@@ -252,8 +254,9 @@ class FinMindAdapter:
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
                     if status == 402:
-                        dataset_cooldown = 300 if dataset == "USStockPrice" else 120
-                        self._mark_dataset_cooldown(dataset, dataset_cooldown, "付費限制或配額不足")
+                        had_payment_limit = True
+                    elif status == 429:
+                        had_rate_limit = True
                     continue
                 print(f"[FinMind] 請求失敗: HTTP {status}: {e}")
                 self._available = False
@@ -263,8 +266,11 @@ class FinMindAdapter:
                 self._available = False
                 return None
 
-        if dataset == "USStockPrice":
-            self._mark_dataset_cooldown(dataset, 300, "所有 Token 暫時不可用")
+        if had_payment_limit:
+            dataset_cooldown = 180 if dataset == "USStockPrice" else 120
+            self._mark_dataset_cooldown(dataset, dataset_cooldown, "所有 Token 付費限制或配額不足")
+        elif had_rate_limit:
+            self._mark_dataset_cooldown(dataset, 60, "所有 Token 速率限制")
         return None
 
     # ===== 台股資料 =====
@@ -427,12 +433,12 @@ class FinMindAdapter:
             {
                 "symbol": d.get("stock_id", symbol),
                 "date": d.get("date"),
-                "open": float(d.get("Open", 0)),
-                "high": float(d.get("High", 0)),
-                "low": float(d.get("Low", 0)),
-                "close": float(d.get("Close", 0)),
-                "volume": int(d.get("Volume", 0)),
-                "adj_close": float(d.get("Adj_Close", 0)),
+                "open": float(d.get("Open", d.get("open", 0))),
+                "high": float(d.get("High", d.get("high", 0))),
+                "low": float(d.get("Low", d.get("low", 0))),
+                "close": float(d.get("Close", d.get("close", 0))),
+                "volume": int(d.get("Volume", d.get("Trading_Volume", d.get("volume", 0)))),
+                "adj_close": float(d.get("Adj_Close", d.get("adj_close", d.get("close", 0)))),
             }
             for d in data
         ]
@@ -496,6 +502,8 @@ class FinMindAdapter:
             return None
 
         attempted: Set[int] = set()
+        had_payment_limit = False
+        had_rate_limit = False
         for _ in range(total_tokens):
             token, token_idx = self._pick_token(exclude=attempted)
             if not token or token_idx < 0:
@@ -523,8 +531,9 @@ class FinMindAdapter:
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
                     if status == 402:
-                        dataset_cooldown = 300 if dataset == "USStockPrice" else 120
-                        self._mark_dataset_cooldown(dataset, dataset_cooldown, "付費限制或配額不足")
+                        had_payment_limit = True
+                    elif status == 429:
+                        had_rate_limit = True
                     continue
                 print(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
                 return None
@@ -532,8 +541,11 @@ class FinMindAdapter:
                 print(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
                 return None
 
-        if dataset == "USStockPrice":
-            self._mark_dataset_cooldown(dataset, 300, "所有 Token 暫時不可用")
+        if had_payment_limit:
+            dataset_cooldown = 180 if dataset == "USStockPrice" else 120
+            self._mark_dataset_cooldown(dataset, dataset_cooldown, "所有 Token 付費限制或配額不足")
+        elif had_rate_limit:
+            self._mark_dataset_cooldown(dataset, 60, "所有 Token 速率限制")
         return None
 
     def get_tw_institutional_sync(
@@ -755,11 +767,11 @@ class FinMindAdapter:
             {
                 "symbol": d.get("stock_id", symbol),
                 "date": d.get("date"),
-                "open": float(d.get("Open", 0)),
-                "high": float(d.get("High", 0)),
-                "low": float(d.get("Low", 0)),
-                "close": float(d.get("Close", 0)),
-                "volume": int(d.get("Volume", 0)),
+                "open": float(d.get("Open", d.get("open", 0))),
+                "high": float(d.get("High", d.get("high", 0))),
+                "low": float(d.get("Low", d.get("low", 0))),
+                "close": float(d.get("Close", d.get("close", 0))),
+                "volume": int(d.get("Volume", d.get("Trading_Volume", d.get("volume", 0)))),
             }
             for d in data
         ]

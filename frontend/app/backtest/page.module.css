@@ -204,7 +204,7 @@
 .tradeHeader,
 .tradeRow {
     display: grid;
-    grid-template-columns: 1fr 1fr 100px;
+    grid-template-columns: 1fr 1.2fr 100px 120px;
     padding: 8px 0;
     border-bottom: 1px solid var(--border-subtle);
     font-size: 13px;
@@ -225,7 +225,8 @@
     border-bottom: none;
 }
 
-.tradeRow span:last-child {
+.tradeRow span:nth-child(3),
+.tradeRow span:nth-child(4) {
     text-align: right;
     font-weight: 600;
 }

@@ -6,6 +6,7 @@ import time
 import traceback
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from zoneinfo import ZoneInfo
 
 from components.i18n import t
 
@@ -70,6 +71,7 @@ _FALLBACK_ETFS = [
 
 _FALLBACK_TOP20_TW: List[Dict] = []
 _FALLBACK_TOP20_US: List[Dict] = []
+_TOP20_ROTATION: Dict[str, int] = {"tw": 0, "us": 0}
 
 
 # ──────────────────────────────────────
@@ -106,6 +108,108 @@ _US_STOCK_NAMES = {
     "SOFI": "SoFi", "RIVN": "Rivian", "ARM": "Arm",
     "SMCI": "Super Micro", "MU": "Micron",
 }
+
+if not _FALLBACK_TOP20_TW:
+    _FALLBACK_TOP20_TW = [
+        {"symbol": sym, "name": _TW_STOCK_NAMES.get(sym, sym), "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0}
+        for sym in [
+            "2330", "2454", "2317", "2308", "2303", "2603", "2609", "2881", "2882", "2891",
+            "2886", "2412", "1301", "1303", "2002", "3711", "2357", "3034", "2379", "3231",
+        ]
+    ]
+if not _FALLBACK_TOP20_US:
+    _FALLBACK_TOP20_US = [
+        {"symbol": sym, "name": _US_STOCK_NAMES.get(sym, sym), "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0}
+        for sym in _US_TOP_SYMBOLS[:20]
+    ]
+
+_TW_TZ = ZoneInfo("Asia/Taipei")
+_US_TZ = ZoneInfo("America/New_York")
+
+# 2026 休市日（交易所公告）
+_TW_HOLIDAYS_2026 = {
+    "2026-01-01",
+    "2026-02-12", "2026-02-13", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
+    "2026-02-27",
+    "2026-04-03", "2026-04-06",
+    "2026-05-01",
+    "2026-06-19",
+    "2026-09-25", "2026-09-28",
+    "2026-10-09",
+    "2026-10-26",
+    "2026-12-25",
+}
+
+_US_HOLIDAYS_2026 = {
+    "2026-01-01",  # New Year's Day
+    "2026-01-19",  # Martin Luther King Jr. Day
+    "2026-02-16",  # Washington's Birthday
+    "2026-04-03",  # Good Friday
+    "2026-05-25",  # Memorial Day
+    "2026-06-19",  # Juneteenth National Independence Day
+    "2026-07-03",  # Independence Day (observed)
+    "2026-09-07",  # Labor Day
+    "2026-11-26",  # Thanksgiving Day
+    "2026-12-25",  # Christmas Day
+}
+
+
+def _is_tw_holiday(dt_local: datetime) -> bool:
+    return dt_local.strftime("%Y-%m-%d") in _TW_HOLIDAYS_2026
+
+
+def _is_us_holiday(dt_local: datetime) -> bool:
+    return dt_local.strftime("%Y-%m-%d") in _US_HOLIDAYS_2026
+
+
+def _is_tw_trading_day(dt_local: datetime) -> bool:
+    return dt_local.weekday() < 5 and not _is_tw_holiday(dt_local)
+
+
+def _is_us_trading_day(dt_local: datetime) -> bool:
+    return dt_local.weekday() < 5 and not _is_us_holiday(dt_local)
+
+
+def _is_tw_market_open(dt_local: datetime) -> bool:
+    if not _is_tw_trading_day(dt_local):
+        return False
+    mins = dt_local.hour * 60 + dt_local.minute
+    return 9 * 60 <= mins < 13 * 60 + 30
+
+
+def _is_us_market_open(dt_local: datetime) -> bool:
+    if not _is_us_trading_day(dt_local):
+        return False
+    mins = dt_local.hour * 60 + dt_local.minute
+    return 9 * 60 + 30 <= mins < 16 * 60
+
+
+def _top20_cache_ttl(now_utc: datetime) -> int:
+    """依市場時段動態調整 Top20 快取時間"""
+    tw_now = now_utc.astimezone(_TW_TZ)
+    us_now = now_utc.astimezone(_US_TZ)
+    tw_open = _is_tw_market_open(tw_now)
+    us_open = _is_us_market_open(us_now)
+    if tw_open or us_open:
+        return 180  # 盤中：3 分鐘
+    if _is_tw_trading_day(tw_now) or _is_us_trading_day(us_now):
+        return 1800  # 交易日但休市時段：30 分鐘
+    return 21600  # 兩市場皆非交易日：6 小時
+
+
+def _rotate_pool(pool: List[str], batch_size: int, market_key: str) -> List[str]:
+    """輪替挑選候選清單，降低單次 API 請求量"""
+    if not pool:
+        return []
+    n = len(pool)
+    size = max(1, min(batch_size, n))
+    start = _TOP20_ROTATION.get(market_key, 0) % n
+    end = start + size
+    selected = pool[start:end]
+    if len(selected) < size:
+        selected += pool[: size - len(selected)]
+    _TOP20_ROTATION[market_key] = (start + size) % n
+    return selected
 
 
 # ──────────────────────────────────────
@@ -210,18 +314,39 @@ def _fetch_top20_data() -> Dict:
     """取得台美股 Top 20 漲跌幅/成交量（含快取）"""
     global _top20_cache
     now = time.time()
+    now_utc = datetime.now().astimezone(ZoneInfo("UTC"))
+    tw_now = now_utc.astimezone(_TW_TZ)
+    us_now = now_utc.astimezone(_US_TZ)
+    tw_open = _is_tw_market_open(tw_now)
+    us_open = _is_us_market_open(us_now)
+    ttl = _top20_cache_ttl(now_utc)
 
-    if _top20_cache["tw"] is not None and (now - _top20_cache["ts"]) < _TOP20_CACHE_TTL:
+    if _top20_cache["tw"] is not None and (now - _top20_cache["ts"]) < ttl:
         return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
 
     tw_data = []
     us_data = []
+    prev_tw = list(_top20_cache.get("tw") or [])
+    prev_us = list(_top20_cache.get("us") or [])
 
-    # ── 台股 Top20：優先使用 FinMind 市場快照（不帶 data_id）──
+    def merge_with_previous(current: List[Dict], previous: List[Dict], target: int = 20) -> List[Dict]:
+        merged = []
+        seen = set()
+        for row in current + previous:
+            sym = (row.get("symbol") or "").upper()
+            if not sym or sym in seen:
+                continue
+            seen.add(sym)
+            merged.append(row)
+            if len(merged) >= target:
+                break
+        return merged
+
+    # ── 台股 Top20：逐檔抓取（避免無 data_id 快照造成 400）──
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
         tw_name_map = dict(_TW_STOCK_NAMES)
         try:
@@ -233,40 +358,28 @@ def _fetch_top20_data() -> Dict:
         except Exception:
             pass
 
-        snapshot = finmind_adapter.get_tw_market_snapshot_sync(start, end)
-        if snapshot:
-            grouped: Dict[str, List[tuple]] = {}
-            for row in snapshot:
-                sym = (row.get("stock_id") or "").strip().upper()
-                date_str = (row.get("date") or "").strip()
-                if not sym or not date_str:
-                    continue
-                try:
-                    close = float(row.get("close", 0) or 0)
-                    volume = int(float(row.get("Trading_Volume", row.get("volume", 0)) or 0))
-                except Exception:
-                    continue
-                if close <= 0:
-                    continue
-                grouped.setdefault(sym, []).append((date_str, close, volume))
+        candidate_symbols = [
+            "2330", "2454", "2317", "2382", "2308", "2303", "2603", "2609", "2881", "2882",
+            "2891", "2886", "2412", "1301", "1303", "2002", "3711", "2357", "3034", "2379",
+            "3231", "2356", "3045", "4904", "3661", "2345", "5274", "2327", "3443", "8069",
+            "3037", "0050", "0056", "00878", "00919", "0052", "006208", "00929", "00939", "00940",
+        ]
+        # 補齊更多台股代號，避免名單不足
+        candidate_symbols.extend([s for s in tw_name_map.keys() if s.isdigit() and s not in candidate_symbols][:30])
+        tw_pool = list(dict.fromkeys(candidate_symbols))
+        tw_batch_size = 28 if tw_open else 16
+        tw_symbols = _rotate_pool(tw_pool, tw_batch_size, "tw")
 
-            for sym, rows in grouped.items():
-                rows.sort(key=lambda x: x[0])
-                deduped: List[tuple] = []
-                last_date = None
-                for item in rows:
-                    if item[0] == last_date and deduped:
-                        deduped[-1] = item
-                    else:
-                        deduped.append(item)
-                        last_date = item[0]
-                if len(deduped) < 2:
+        for sym in tw_symbols:
+            try:
+                fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+                if not fm_data or len(fm_data) < 2:
                     continue
-                prev_price = deduped[-2][1]
-                price = deduped[-1][1]
-                volume = deduped[-1][2]
-                if prev_price <= 0:
+                price = float(fm_data[-1].get("close", 0) or 0)
+                prev_price = float(fm_data[-2].get("close", 0) or 0)
+                if price <= 0 or prev_price <= 0:
                     continue
+                volume = int(fm_data[-1].get("volume", 0) or 0)
                 chg = price - prev_price
                 pct = (chg / prev_price * 100)
                 tw_data.append({
@@ -277,38 +390,8 @@ def _fetch_top20_data() -> Dict:
                     "change_pct": pct,
                     "volume": volume,
                 })
-
-        # 快照不足時，補抓有限符號（避免只剩極少筆）
-        if len(tw_data) < 20:
-            existing_symbols = {item.get("symbol") for item in tw_data}
-            backup_symbols = [s for s in tw_name_map.keys() if s.isdigit()][:40]
-            for sym in backup_symbols:
-                if sym in existing_symbols:
-                    continue
-                try:
-                    fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
-                    if not fm_data or len(fm_data) < 2:
-                        continue
-                    price = float(fm_data[-1].get("close", 0) or 0)
-                    prev_price = float(fm_data[-2].get("close", 0) or 0)
-                    if price <= 0 or prev_price <= 0:
-                        continue
-                    volume = int(fm_data[-1].get("volume", 0) or 0)
-                    chg = price - prev_price
-                    pct = (chg / prev_price * 100)
-                    tw_data.append({
-                        "symbol": sym,
-                        "name": tw_name_map.get(sym, sym),
-                        "price": price,
-                        "change": chg,
-                        "change_pct": pct,
-                        "volume": volume,
-                    })
-                    existing_symbols.add(sym)
-                    if len(tw_data) >= 60:
-                        break
-                except Exception:
-                    continue
+            except Exception:
+                continue
     except Exception as e:
         print(f"[Top20] TW error: {e}")
 
@@ -317,8 +400,10 @@ def _fetch_top20_data() -> Dict:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        us_batch_size = 12 if us_open else 6
+        us_symbols = _rotate_pool(_US_TOP_SYMBOLS, us_batch_size, "us")
 
-        for sym in _US_TOP_SYMBOLS:
+        for sym in us_symbols:
             try:
                 fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
                 if fm_data and len(fm_data) >= 2:
@@ -341,6 +426,15 @@ def _fetch_top20_data() -> Dict:
                 continue
     except Exception as e:
         print(f"[Top20] US FinMind error: {e}")
+
+    # 若本次抓到太少，沿用前次資料補齊，避免榜單突然只剩 2-3 檔
+    tw_data = merge_with_previous(tw_data, prev_tw, target=80)
+    us_data = merge_with_previous(us_data, prev_us, target=80)
+
+    if len(tw_data) < 20:
+        tw_data = merge_with_previous(tw_data, _FALLBACK_TOP20_TW, target=20)
+    if len(us_data) < 20:
+        us_data = merge_with_previous(us_data, _FALLBACK_TOP20_US, target=20)
 
     if not tw_data:
         tw_data = list(_FALLBACK_TOP20_TW)

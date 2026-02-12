@@ -184,11 +184,14 @@ async def run_backtest(req: BacktestRequest, request: Request):
                 "win_rate": win_rate_pct,
                 "total_trades": metrics.get("total_trades", 0),
                 "sharpe_ratio": metrics.get("sharpe_ratio", 0),
+                "final_capital": metrics.get("final_capital", req.initial_capital),
                 "final_value": metrics.get("final_capital", req.initial_capital),
                 "profit_factor": metrics.get("profit_factor", 0),
+                "total_invested_capital": (result.get("dca", {}) or {}).get("total_invested_capital", req.initial_capital),
             },
+            "final_capital": metrics.get("final_capital", req.initial_capital),
             "dca": result.get("dca", {}),
-            "trades": result.get("trades", [])[:50],  # 最多 50 筆
+            "trades": result.get("trades", [])[-50:],  # 最近 50 筆
             "equity_curve": equity_curve,
         }
 

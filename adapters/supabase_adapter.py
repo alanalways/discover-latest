@@ -684,18 +684,68 @@ class SupabaseAdapter:
         return len(result)
     
     def increment_ai_usage(self, user_id: str) -> bool:
-        """增加用戶 AI 使用次數（使用 RPC）"""
-        url, _, service_key = self._get_config()
+        """增加用戶 AI 使用次數（優先 RPC，失敗時 fallback 寫表）"""
+        today = date.today().isoformat()
+        url, _, _ = self._get_config()
         try:
             with httpx.Client(timeout=30.0) as client:
                 response = client.post(
                     f"{url}/rest/v1/rpc/increment_ai_usage",
                     headers=self._get_headers(use_service_key=True),
-                    json={"p_user_id": user_id, "p_date": date.today().isoformat()}
+                    json={"p_user_id": user_id, "p_date": today}
                 )
-                return response.is_success
+                if response.is_success:
+                    return True
+                print(f"[DB] increment_ai_usage RPC 失敗: status={response.status_code}")
         except Exception as e:
-            print(f"[DB] 增加 AI 用量失敗: {type(e).__name__}")
+            print(f"[DB] 增加 AI 用量 RPC 失敗: {type(e).__name__}")
+
+        # Fallback：直接更新 ai_usage 表
+        try:
+            rows = self._request(
+                "GET",
+                "ai_usage",
+                params={
+                    "user_id": f"eq.{user_id}",
+                    "date": f"eq.{today}",
+                    "select": "id,count",
+                    "limit": "1",
+                },
+                use_service_key=True,
+            ) or []
+
+            if rows:
+                row = rows[0] if isinstance(rows[0], dict) else {}
+                current = int(row.get("count", 0) or 0)
+                new_count = current + 1
+                row_id = row.get("id")
+                if row_id:
+                    updated = self._request(
+                        "PATCH",
+                        "ai_usage",
+                        params={"id": f"eq.{row_id}"},
+                        json={"count": new_count},
+                        use_service_key=True,
+                    )
+                else:
+                    updated = self._request(
+                        "PATCH",
+                        "ai_usage",
+                        params={"user_id": f"eq.{user_id}", "date": f"eq.{today}"},
+                        json={"count": new_count},
+                        use_service_key=True,
+                    )
+                return updated is not None
+
+            inserted = self._request(
+                "POST",
+                "ai_usage",
+                json={"user_id": user_id, "date": today, "count": 1},
+                use_service_key=True,
+            )
+            return inserted is not None
+        except Exception as e:
+            print(f"[DB] 增加 AI 用量 fallback 失敗: {type(e).__name__}")
             return False
     
     # ===== 股票資料 =====

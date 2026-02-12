@@ -129,8 +129,8 @@ export class ApiClient {
     }
 
     // ── Stock ──
-    async getStock(symbol: string) {
-        return this.fetch(`/api/stock/${symbol}`, { skipAuth: true });
+    async getStock(symbol: string, period: string = '1y') {
+        return this.fetch(`/api/stock/${symbol}?period=${encodeURIComponent(period)}`, { skipAuth: true });
     }
 
     async getStockHistory(symbol: string, period: string = '1y') {
@@ -249,7 +249,11 @@ export class ApiClient {
         if (!this.getToken()) {
             return FREE_AUTH_LIMITS_FALLBACK;
         }
-        return this.fetch<AuthLimits>('/api/auth/limits');
+        try {
+            return await this.fetch<AuthLimits>('/api/auth/limits');
+        } catch {
+            return FREE_AUTH_LIMITS_FALLBACK;
+        }
     }
 }
 

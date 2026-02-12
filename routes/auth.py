@@ -235,9 +235,10 @@ async def get_auth_limits(request: Request):
             },
         }
     except HTTPException:
-        raise
+        return _free_limits_payload()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Auth] 取得額度失敗，改回傳 free fallback: {type(e).__name__}: {e}")
+        return _free_limits_payload()
 
 
 def _inject_tier(user: dict, tier: str) -> None:

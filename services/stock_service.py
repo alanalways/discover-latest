@@ -201,6 +201,20 @@ class StockService:
         if info:
             if high_52w: info["high_52w"] = high_52w
             if low_52w: info["low_52w"] = low_52w
+
+            # 用歷史資料補齊最新價與漲跌幅（比較頁/分析頁需要）
+            try:
+                if history and len(history) >= 1:
+                    last_close = self._to_float(history[-1].get("close"))
+                    prev_close = self._to_float(history[-2].get("close")) if len(history) >= 2 else None
+                    if last_close is not None:
+                        info["price"] = round(last_close, 4)
+                    if last_close is not None and prev_close and prev_close > 0:
+                        change = last_close - prev_close
+                        info["change"] = round(change, 4)
+                        info["change_percent"] = round(change / prev_close * 100, 4)
+            except Exception:
+                pass
             
             # 整合 PER/PBR
             if per_pbr:
@@ -223,6 +237,31 @@ class StockService:
                 )
                 if mv_val is not None:
                     info["market_cap"] = mv_val
+
+            # US：若 USStockInfo 有估值欄位，補到統一欄位
+            if market == "US":
+                if not info.get("market_cap"):
+                    mv_val = self._pick_latest_numeric(
+                        [info],
+                        [
+                            "market_cap", "market_value", "marketValue", "marketCapitalization",
+                            "market_capitalization", "MarketCapitalization", "Market_Capitalization", "marketCap",
+                        ],
+                    )
+                    if mv_val is not None:
+                        info["market_cap"] = mv_val
+                if not info.get("pe_ratio"):
+                    pe_val = self._pick_latest_numeric([info], ["pe_ratio", "PER", "price_earning_ratio", "PriceEarningRatio"])
+                    if pe_val is not None:
+                        info["pe_ratio"] = pe_val
+                if not info.get("pb_ratio"):
+                    pb_val = self._pick_latest_numeric([info], ["pb_ratio", "PBR", "price_book_ratio", "PriceBookRatio"])
+                    if pb_val is not None:
+                        info["pb_ratio"] = pb_val
+                if not info.get("dividend_yield"):
+                    dy_val = self._pick_latest_numeric([info], ["dividend_yield", "DividendYield", "yield"])
+                    if dy_val is not None:
+                        info["dividend_yield"] = dy_val
 
         return {
             "symbol": symbol,
@@ -295,15 +334,49 @@ class StockService:
 
         # 美股：走 FinMind USStockInfo，同步包裝成 async
         try:
-            us_info = await asyncio.to_thread(finmind_adapter.get_us_stock_info_sync, symbol)
+            normalized_symbol = str(symbol or "").strip().upper()
+            us_info = await asyncio.to_thread(finmind_adapter.get_us_stock_info_sync, normalized_symbol)
+            if not us_info and "." in normalized_symbol:
+                us_info = await asyncio.to_thread(finmind_adapter.get_us_stock_info_sync, normalized_symbol.replace(".", "-"))
             if us_info:
                 info = us_info[0]
+                market_cap = self._to_float(
+                    info.get("market_cap")
+                    or info.get("market_value")
+                    or info.get("marketValue")
+                    or info.get("marketCapitalization")
+                    or info.get("market_capitalization")
+                    or info.get("MarketCapitalization")
+                    or info.get("Market_Capitalization")
+                    or info.get("marketCap")
+                )
+                pe_ratio = self._to_float(
+                    info.get("pe_ratio")
+                    or info.get("PER")
+                    or info.get("price_earning_ratio")
+                    or info.get("PriceEarningRatio")
+                )
+                pb_ratio = self._to_float(
+                    info.get("pb_ratio")
+                    or info.get("PBR")
+                    or info.get("price_book_ratio")
+                    or info.get("PriceBookRatio")
+                )
+                dividend_yield = self._to_float(
+                    info.get("dividend_yield")
+                    or info.get("DividendYield")
+                    or info.get("yield")
+                )
                 return {
-                    "symbol": info.get("stock_id") or symbol,
-                    "name": info.get("stock_name") or symbol,
+                    "symbol": info.get("stock_id") or normalized_symbol,
+                    "name": info.get("stock_name") or normalized_symbol,
                     "industry": info.get("industry") or "",
                     "market": "US",
                     "type": "stock",
+                    "market_cap": market_cap,
+                    "pe_ratio": pe_ratio,
+                    "pb_ratio": pb_ratio,
+                    "dividend_yield": dividend_yield,
                 }
         except Exception as e:
             print(f"[StockInfo] FinMind US 失敗 ({symbol}): {e}")
@@ -323,15 +396,27 @@ class StockService:
     ) -> List[Dict]:
         """取得歷史資料（優先 FinMind → DB → TWSE/TPEX/Yahoo）"""
         end_date = datetime.now()
-        period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "5y": 1825}
+        period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "3y": 1095, "5y": 1825, "max": 3650}
         start_date = end_date - timedelta(days=period_days.get(period, 365))
 
-        # 台股優先使用 FinMind
-        if market in ["TWSE", "TPEX"]:
+        # 台美股優先使用 FinMind
+        if market in ["TWSE", "TPEX", "US"]:
             try:
-                fm_data = await finmind_adapter.get_tw_stock_price(
-                    symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-                )
+                if market in ["TWSE", "TPEX"]:
+                    fm_data = await finmind_adapter.get_tw_stock_price(
+                        symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+                    )
+                else:
+                    us_symbol = str(symbol or "").strip().upper()
+                    fm_data = await finmind_adapter.get_us_stock_price(
+                        us_symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+                    )
+                    if (not fm_data) and "." in us_symbol:
+                        fm_data = await finmind_adapter.get_us_stock_price(
+                            us_symbol.replace(".", "-"),
+                            start_date.strftime("%Y-%m-%d"),
+                            end_date.strftime("%Y-%m-%d")
+                        )
                 if fm_data:
                     print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
                     return fm_data
@@ -394,7 +479,26 @@ class StockService:
         if market is None:
             market = await self._detect_market(symbol)
         if market not in ["TWSE", "TPEX"]:
-            return {}
+            stock_data = await self.get_stock_data(symbol=symbol, market=market, period="1y")
+            info = stock_data.get("info", {}) if stock_data else {}
+            today = datetime.now().strftime("%Y-%m-%d")
+            per = self._to_float(info.get("pe_ratio"))
+            pbr = self._to_float(info.get("pb_ratio"))
+            dy = self._to_float(info.get("dividend_yield"))
+            per_pbr = []
+            if per is not None or pbr is not None or dy is not None:
+                per_pbr.append({
+                    "date": today,
+                    "PER": per,
+                    "PBR": pbr,
+                    "dividend_yield": dy,
+                })
+            return {
+                "revenue": [],
+                "per_pbr": per_pbr,
+                "financials": [],
+                "dividend": [],
+            }
         from datetime import datetime, timedelta
         start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
         start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
@@ -431,7 +535,34 @@ class StockService:
         if market is None:
             market = await self._detect_market(symbol)
         if market not in ["TWSE", "TPEX"]:
-            return {}
+            # US 無相同籌碼資料集：以成交量動能提供替代資訊
+            history = await self._get_stock_history(symbol, market, period="3mo")
+            institutional = []
+            margin = []
+            for i in range(1, len(history)):
+                curr = history[i]
+                prev = history[i - 1]
+                close_now = self._to_float(curr.get("close")) or 0.0
+                close_prev = self._to_float(prev.get("close")) or 0.0
+                vol_now = self._to_float(curr.get("volume")) or 0.0
+                vol_prev = self._to_float(prev.get("volume")) or 0.0
+                up_day = close_now >= close_prev
+                institutional.append({
+                    "date": curr.get("date"),
+                    "buy": vol_now if up_day else 0.0,
+                    "sell": 0.0 if up_day else vol_now,
+                })
+                margin.append({
+                    "date": curr.get("date"),
+                    "margin_balance": vol_now,
+                    "margin_change": vol_now - vol_prev,
+                    "short_balance": 0.0,
+                    "short_change": 0.0,
+                })
+            return {
+                "institutional": institutional[-20:],
+                "margin": margin[-20:],
+            }
         from datetime import datetime, timedelta
         start_3m = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
         result = {}

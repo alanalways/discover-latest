@@ -9,10 +9,13 @@ import asyncio
 router = APIRouter()
 
 @router.get("/stock/{symbol}")
-async def get_stock_overview(symbol: str):
+async def get_stock_overview(
+    symbol: str,
+    period: str = Query("1y", description="1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, max")
+):
     """取得股票概要 (Info + Latest History + Valuation + Market Cap)"""
     try:
-        data = await stock_service.get_stock_data(symbol)
+        data = await stock_service.get_stock_data(symbol, period=period)
         if not data:
             raise HTTPException(status_code=404, detail=f"找不到股票: {symbol}")
         return data

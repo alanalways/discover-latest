@@ -24,6 +24,12 @@ interface StockData {
     }>;
 }
 
+const toNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(String(value).replace(/,/g, '').trim());
+    return Number.isFinite(n) ? n : null;
+};
+
 export default function ComparePage() {
     const { isLoggedIn, setShowLoginModal } = useAuth();
     const [inputs, setInputs] = useState(['2330', '2454']);
@@ -91,14 +97,34 @@ export default function ComparePage() {
     };
 
     // Prepare Chart Data
-    const chartSeries = stocks.map((stock, index) => ({
-        name: stock.info.name || stock.info.symbol || 'Unknown',
-        color: COLORS[index % COLORS.length],
-        data: (stock.history || []).map((h) => ({
-            time: h.time || h.date || '',
-            value: h.close
-        })).sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()))
-    }));
+    const chartSeries = stocks.map((stock, index) => {
+        const sorted = (stock.history || [])
+            .map((h) => ({
+                time: h.time || h.date || '',
+                close: h.close,
+            }))
+            .sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()));
+        const base = sorted[0]?.close || 0;
+        const data = sorted.map((p) => ({
+            time: p.time,
+            value: base > 0 ? ((p.close - base) / base) * 100 : 0,
+        }));
+        return {
+            name: stock.info.name || stock.info.symbol || 'Unknown',
+            color: COLORS[index % COLORS.length],
+            data,
+        };
+    });
+
+    const getChangePct = (stock: StockData): number | null => {
+        const direct = stock.info.change_percent;
+        if (typeof direct === 'number' && Number.isFinite(direct)) return direct;
+        if (stock.history.length < 2) return null;
+        const last = stock.history[stock.history.length - 1]?.close;
+        const prev = stock.history[stock.history.length - 2]?.close;
+        if (!prev) return null;
+        return ((last - prev) / prev) * 100;
+    };
 
     return (
         <div className="space-y-6">
@@ -163,18 +189,20 @@ export default function ComparePage() {
                                         <td className="p-4 text-[var(--text-3)]">最新收盤</td>
                                         {stocks.map((s, i) => (
                                             <td key={i} className="p-4 font-mono font-bold text-[var(--text-1)]">
-                                                {s.history.length > 0 ? s.history[s.history.length - 1].close : '-'}
+                                                {s.history.length > 0 ? s.history[s.history.length - 1].close.toFixed(2) : '-'}
                                             </td>
                                         ))}
                                     </tr>
                                     <tr>
                                         <td className="p-4 text-[var(--text-3)]">漲跌幅</td>
                                         {stocks.map((s, i) => {
-                                            const chg = s.info.change_percent || 0;
-                                            const color = chg >= 0 ? 'text-red-400' : 'text-green-400';
+                                            const chg = getChangePct(s);
+                                            const color = (chg ?? 0) >= 0 ? 'text-red-400' : 'text-green-400';
                                             return (
                                                 <td key={i} className={`p-4 font-mono ${color}`}>
-                                                    {chg > 0 ? '+' : ''}{chg}%
+                                                    {chg === null
+                                                        ? '-'
+                                                        : `${chg > 0 ? '+' : ''}${chg.toFixed(2)}%`}
                                                 </td>
                                             );
                                         })}
@@ -197,7 +225,10 @@ export default function ComparePage() {
                                         <td className="p-4 text-[var(--text-3)]">市值 (億)</td>
                                         {stocks.map((s, i) => (
                                             <td key={i} className="p-4 font-mono text-[var(--text-1)]">
-                                                {s.info.market_cap ? (s.info.market_cap / 100000000).toFixed(1) : '-'}
+                                                {(() => {
+                                                    const cap = toNumber(s.info.market_cap);
+                                                    return cap && cap > 0 ? (cap / 100000000).toFixed(1) : '-';
+                                                })()}
                                             </td>
                                         ))}
                                     </tr>

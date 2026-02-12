@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
@@ -151,11 +151,12 @@ const formatPercentValue = (val: number | string | null | undefined): string => 
 // ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
 function AnalysisContent() {
     const router = useRouter();
-    const { isLoggedIn, setShowLoginModal } = useAuth();
+    const { user, isLoggedIn, setShowLoginModal } = useAuth();
     const searchParams = useSearchParams();
     const initialSymbol = searchParams.get('symbol') || '2330';
     const [symbol, setSymbol] = useState(initialSymbol);
     const [symbolInput, setSymbolInput] = useState(initialSymbol);
+    const [period, setPeriod] = useState<'1y' | '3y' | '5y'>('1y');
     const [data, setData] = useState<{ info?: StockInfo; history?: StockHistoryRow[] } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -177,6 +178,20 @@ function AnalysisContent() {
     // Tab 控制
     const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals' | 'chips'>('chart');
 
+    const periodOptions = useMemo<Array<'1y' | '3y' | '5y'>>(() => {
+        const tier = user?.tier || 'free';
+        if (tier === 'pro' || tier === 'premium') {
+            return ['1y', '3y', '5y'];
+        }
+        return ['1y'];
+    }, [user?.tier]);
+
+    useEffect(() => {
+        if (!periodOptions.includes(period)) {
+            setPeriod('1y');
+        }
+    }, [period, periodOptions]);
+
     const fetchData = async (sym: string) => {
         setLoading(true);
         setError('');
@@ -184,7 +199,7 @@ function AnalysisContent() {
         setFundamentals(null);
         setChips(null);
         try {
-            const result = await api.getStock(sym) as { info?: StockInfo; history?: StockHistoryRow[] };
+            const result = await api.getStock(sym, period) as { info?: StockInfo; history?: StockHistoryRow[] };
             setData(result);
 
             // 並行取得基本面+籌碼面資料
@@ -236,7 +251,7 @@ function AnalysisContent() {
             setSymbolInput(symbol);
             void fetchData(symbol);
         }
-    }, [symbol]);
+    }, [symbol, period]);
 
     const handleSymbolSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -353,6 +368,23 @@ function AnalysisContent() {
                     >
                         送出
                     </button>
+                    <select
+                        value={period}
+                        onChange={(e) => setPeriod(e.target.value as '1y' | '3y' | '5y')}
+                        style={{
+                            border: '1px solid var(--border)',
+                            borderRadius: 8,
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-1)',
+                            padding: '10px 12px',
+                        }}
+                    >
+                        {periodOptions.map((opt) => (
+                            <option key={opt} value={opt}>
+                                {opt === '1y' ? '近 1 年' : opt === '3y' ? '近 3 年' : '近 5 年'}
+                            </option>
+                        ))}
+                    </select>
                 </form>
 
                 <div className="text-sm text-[var(--text-3)] flex items-center gap-2 flex-wrap">
@@ -379,7 +411,7 @@ function AnalysisContent() {
                                     </div>
                                     <div className="text-right">
                                         <div className="text-5xl font-black text-red-400">{lastPrice}</div>
-                                        <div className="text-red-400/70 text-sm font-bold">TWD</div>
+                                        <div className="text-red-400/70 text-sm font-bold">{info.market === 'US' ? 'USD' : 'TWD'}</div>
                                     </div>
                                 </div>
                             </div>
@@ -445,7 +477,7 @@ function AnalysisContent() {
                                 <div className="flex justify-between items-center mb-6">
                                     <h2 className="text-2xl font-black text-[var(--text-1)] flex items-center gap-2">
                                         <span className="w-2 h-8 bg-[var(--accent)] rounded-full" />
-                                        技術走勢圖 (日線)
+                                        技術走勢圖 ({period === '1y' ? '近 1 年' : period === '3y' ? '近 3 年' : '近 5 年'})
                                     </h2>
                                 </div>
                                 <div className="h-[450px]">

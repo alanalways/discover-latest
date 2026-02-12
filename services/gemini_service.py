@@ -152,7 +152,7 @@ class GeminiService:
         if smc_summary:
             context_parts.append(f"SMC 分析: {smc_summary}")
         if prediction_summary:
-            context_parts.append(f"預測摘要: {prediction_summary}")
+            context_parts.append(f"技術指標快照: {prediction_summary}")
         if macro_data:
             score = macro_data.get("score")
             light = macro_data.get("light")
@@ -234,6 +234,7 @@ class GeminiService:
 
         # ── Prompt 分級：Free vs Pro/Premium ──
         is_paid = tier in ("pro", "premium")
+        is_premium = tier == "premium"
 
         # SMC 條件化：僅在有數據時才要求分析（防止幻覺）
         smc_section = ""
@@ -241,9 +242,18 @@ class GeminiService:
             smc_section = """\n📈 技術面觀察\n結合 SMC/ICT 分析（結構突破、訂單區塊、流動性等），說明目前的技術面狀況。用淺白的方式解釋，讓一般投資人也能理解。"""
 
         if is_paid:
-            # Pro/Premium 完整版
-            final_prompt = f"""你是「洞察運算」的資深投資分析顧問，正在為客戶做一對一的投資諮詢。
-請用專業但親切易懂的語氣，像是跟朋友聊天一樣自然地分析這檔股票。
+            # Pro/Premium 完整版（Premium 額外要求更細的情境拆解）
+            premium_extra = ""
+            if is_premium:
+                premium_extra = """
+📚 SMC/ICT 進階觀察
+根據市場結構（BOS/CHoCH）、流動性掃描、可能的訂單區塊，補充目前最可能的主力行為。
+
+🧭 三情境交易地圖
+請給「偏多情境」「偏空情境」「震盪情境」各一段，且每段都要有：觸發條件、進場想法、失效點。"""
+
+            final_prompt = f"""你是「洞察運算」的資深投資分析顧問，正在為付費會員提供策略型建議。
+請用專業、直接、可執行的語氣輸出，不要空泛。
 
 【股票資訊】
 {context}
@@ -251,16 +261,26 @@ class GeminiService:
 【即時市場情報】
 {grounding_text}
 
+請務必結合以下維度：EMA、RSI、MACD、布林帶、Keltner 通道，以及（若有）SMC/ICT。
+若資料不足請明確說「資料不足」，不要杜撰數值。
+
 請依照以下結構回覆：
 
 📊 市場快報
-用 2-3 句話說明這檔股票最近的市場動態和新聞重點。
-{smc_section}
-⚠️ 風險提醒
-列出 2-3 個需要留意的風險因素。
+用 2-3 句話說明最新市場動態與基本定位（偏多/偏空/盤整）。
 
-💡 投資建議
-給出偏多、偏空或觀望的建議，並簡述理由。
+📈 技術面判讀
+整理短中長線趨勢，明確指出 EMA 結構、RSI 區間、MACD 狀態、布林/Keltner 位置關係。
+{smc_section}
+🎯 進出場計畫
+分成短線（1-5日）、中線（2-6週）、波段（1-3月）三段，每段都給：進場區、失效點（停損）、第一目標位。
+
+⚠️ 風險提醒
+列 2-3 個最重要風險，包含「什麼訊號出現時代表判斷失效」。
+
+💡 結論
+給出偏多、偏空或觀望，並說明一個最關鍵理由。
+{premium_extra}
 
 最後加上一行：
 ⚖️ 以上分析僅供參考，不構成投資建議，投資人應獨立評估風險。
@@ -269,8 +289,8 @@ class GeminiService:
 1. 禁止使用任何 Markdown 語法，包括：##、**、__、---、```、- 列表符號
 2. 不要用星號 * 做強調
 3. 段落之間用空行分隔
-4. 每個段落標題用上面指定的 emoji 開頭（📊📈⚠️💡⚖️）
-5. 用自然的中文段落寫作，不要用條列式"""
+4. 每個段落標題用上面指定的 emoji 開頭
+5. 用自然中文段落，不要用條列式"""
         else:
             # Free 用戶精簡版（省 token）
             final_prompt = f"""你是「洞察運算」的投資分析工具。請用簡潔的方式分析這檔股票。
@@ -291,7 +311,7 @@ class GeminiService:
 
 ⚖️ 以上分析僅供參考，不構成投資建議。
 
-💬 升級 Pro 方案可解鎖完整技術面分析、SMC/ICT 策略和投資建議。
+💬 升級 Pro / Premium 可解鎖 EMA、RSI、MACD、布林帶、Keltner、SMC/ICT 與進出場計畫。
 
 【格式規則】
 1. 禁止 Markdown 語法（##、**、```、- 列表）

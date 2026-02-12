@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Star, Plus, Trash2, Bell, Loader2, AlertCircle, Search } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
@@ -14,6 +15,7 @@ interface AlertItem {
 }
 
 export default function WatchlistPage() {
+    const router = useRouter();
     const [list, setList] = useState<WatchItem[]>([]);
     const [alerts, setAlerts] = useState<AlertItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -159,9 +161,21 @@ export default function WatchlistPage() {
                             const hasAlert = alerts.some((alert) => alert.symbol === item.symbol);
                             return (
                                 <div key={item.symbol} className={styles.listItem}>
-                                    <div className={styles.itemInfo}>
+                                    <div
+                                        className={styles.itemInfo}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => router.push(`/analysis?symbol=${item.symbol}`)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.preventDefault();
+                                                router.push(`/analysis?symbol=${item.symbol}`);
+                                            }
+                                        }}
+                                        title={`查看 ${item.symbol} 深度分析`}
+                                    >
                                         <span className={styles.itemSymbol}>{item.symbol}</span>
-                                        {item.name && <span className={styles.itemName}>{item.name}</span>}
+                                        <span className={styles.itemName}>{item.name || '點擊查看深度分析'}</span>
                                     </div>
                                     <div className={styles.itemActions}>
                                         <button

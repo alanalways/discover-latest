@@ -22,6 +22,7 @@ interface BacktestResult {
     sharpe_ratio?: number;
     profit_factor?: number;
     final_capital?: number;
+    final_value?: number;
     metrics?: {
         total_return?: number;
         total_return_pct?: number;
@@ -31,6 +32,7 @@ interface BacktestResult {
         sharpe_ratio?: number;
         profit_factor?: number;
         final_capital?: number;
+        final_value?: number;
     };
     dca?: {
         enabled?: boolean;
@@ -45,6 +47,7 @@ interface BacktestResult {
         date?: string;
         action?: string;
         pnl_pct?: number;
+        capital_after?: number;
         entry_date?: string;
         exit_date?: string;
         return_pct?: number;
@@ -173,6 +176,7 @@ export default function BacktestPage() {
     const totalTrades = metrics?.total_trades ?? 0;
     const sharpeRatio = metrics?.sharpe_ratio ?? 0;
     const strategyGuide = STRATEGY_GUIDES[strategy] || STRATEGY_GUIDES.ma_cross;
+    const finalCapital = metrics?.final_capital ?? metrics?.final_value ?? result?.final_capital ?? capital;
 
     const equitySeries = useMemo(() => {
         if (!result?.equity_curve || result.equity_curve.length === 0) return [];
@@ -312,7 +316,7 @@ export default function BacktestPage() {
                         <ResultMetric label="勝率" value={`${winRatePct.toFixed(1)}%`} isPositive={winRatePct >= 50} />
                         <ResultMetric label="交易次數" value={String(totalTrades)} />
                         <ResultMetric label="Sharpe Ratio" value={sharpeRatio.toFixed(2)} isPositive={sharpeRatio > 0} />
-                        <ResultMetric label="期末資產" value={`${(metrics?.final_capital ?? capital).toLocaleString()}`} />
+                        <ResultMetric label="期末資產" value={`${finalCapital.toLocaleString()}`} />
                     </div>
 
                     {result.dca?.enabled && (
@@ -334,6 +338,11 @@ export default function BacktestPage() {
                                     <span>{(result.dca.total_contribution ?? 0).toLocaleString()}</span>
                                     <span>NTD</span>
                                 </div>
+                                <div className={styles.tradeRow}>
+                                    <span>總投入本金</span>
+                                    <span>{(result.dca.total_invested_capital ?? capital).toLocaleString()}</span>
+                                    <span>NTD</span>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -350,21 +359,26 @@ export default function BacktestPage() {
                     {/* 交易紀錄 */}
                     {result.trades && result.trades.length > 0 && (
                         <div className={styles.tradesCard}>
-                            <h4>交易紀錄（前 10 筆）</h4>
+                            <h4>交易紀錄（最近 10 筆）</h4>
                             <div className={styles.tradesTable}>
                                 <div className={styles.tradeHeader}>
-                                    <span>日期</span><span>動作</span><span>報酬</span>
+                                    <span>日期</span><span>動作</span><span>報酬</span><span>資產</span>
                                 </div>
-                                {result.trades.slice(0, 10).map((t, i) => (
-                                    <div key={i} className={styles.tradeRow}>
-                                        <span>{t.date || `${t.entry_date || '-'} → ${t.exit_date || '-'}`}</span>
-                                        <span>{t.action || '交易'}</span>
-                                        <span className={(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)) >= 0 ? styles.up : styles.down}>
-                                            {(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)) >= 0 ? '+' : ''}
-                                            {(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)).toFixed(2)}%
-                                        </span>
-                                    </div>
-                                ))}
+                                {result.trades.slice(-10).map((t, i) => {
+                                    const pnlPct = typeof t.pnl_pct === 'number'
+                                        ? t.pnl_pct
+                                        : (typeof t.return_pct === 'number' ? t.return_pct * 100 : null);
+                                    return (
+                                        <div key={i} className={styles.tradeRow}>
+                                            <span>{t.date || `${t.entry_date || '-'} → ${t.exit_date || '-'}`}</span>
+                                            <span>{t.action || '交易'}</span>
+                                            <span className={pnlPct === null ? '' : (pnlPct >= 0 ? styles.up : styles.down)}>
+                                                {pnlPct === null ? '—' : `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%`}
+                                            </span>
+                                            <span>{typeof t.capital_after === 'number' ? t.capital_after.toLocaleString() : '—'}</span>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

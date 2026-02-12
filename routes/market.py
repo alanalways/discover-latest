@@ -56,30 +56,30 @@ async def market_top20():
 
 @router.get("/market/hours")
 async def market_hours():
-    """取得台美股開休市狀態（前端也可用 JS 自行計算）"""
+    """取得台美股開休市狀態（含 2026 休市日規則）"""
     from datetime import datetime
-    import pytz
+    from zoneinfo import ZoneInfo
+    from pages.market_overview import (
+        _is_tw_market_open,
+        _is_us_market_open,
+        _is_tw_trading_day,
+        _is_us_trading_day,
+    )
 
-    tw_tz = pytz.timezone("Asia/Taipei")
-    us_tz = pytz.timezone("America/New_York")
-    now = datetime.now(pytz.utc)
-    tw_now = now.astimezone(tw_tz)
-    us_now = now.astimezone(us_tz)
-
-    def is_open(dt, open_h, open_m, close_h, close_m):
-        if dt.weekday() >= 5:  # 週末
-            return False
-        mins = dt.hour * 60 + dt.minute
-        return open_h * 60 + open_m <= mins < close_h * 60 + close_m
+    now = datetime.now(ZoneInfo("UTC"))
+    tw_now = now.astimezone(ZoneInfo("Asia/Taipei"))
+    us_now = now.astimezone(ZoneInfo("America/New_York"))
 
     return {
         "tw": {
-            "is_open": is_open(tw_now, 9, 0, 13, 30),
+            "is_open": _is_tw_market_open(tw_now),
+            "is_trading_day": _is_tw_trading_day(tw_now),
             "time": tw_now.strftime("%H:%M"),
             "timezone": "Asia/Taipei",
         },
         "us": {
-            "is_open": is_open(us_now, 9, 30, 16, 0),
+            "is_open": _is_us_market_open(us_now),
+            "is_trading_day": _is_us_trading_day(us_now),
             "time": us_now.strftime("%H:%M"),
             "timezone": "America/New_York",
         },
