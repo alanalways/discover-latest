@@ -1023,6 +1023,7 @@ class SupabaseAdapter:
                 "select": "*",
             },
             use_service_key=True,
+            silent=True,
         )
         if not isinstance(logs, list):
             logs = self._request(
@@ -1033,6 +1034,7 @@ class SupabaseAdapter:
                     "select": "*",
                 },
                 use_service_key=True,
+                silent=True,
             )
         return len(logs) if isinstance(logs, list) else 0
     
