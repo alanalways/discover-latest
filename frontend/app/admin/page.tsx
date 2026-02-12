@@ -2,11 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { useRouter } from 'next/navigation';
 import { ApiClient } from '@/lib/api';
 import {
     Users,
-    BarChart2,
     Shield,
     Search,
     RefreshCw,
@@ -34,8 +32,7 @@ interface Stats {
 }
 
 export default function AdminPage() {
-    const { user, token } = useAuth();
-    const router = useRouter();
+    const { user } = useAuth();
     const [stats, setStats] = useState<Stats | null>(null);
     const [users, setUsers] = useState<UserItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -55,11 +52,11 @@ export default function AdminPage() {
         try {
             const [statsRes, usersRes] = await Promise.all([
                 apiClient.fetch('/api/admin/stats', { method: 'GET' }).catch(() => null),
-                apiClient.fetch('/api/admin/users', { method: 'GET' }).catch(() => ({ users: [] })),
+                apiClient.fetch<{ users: UserItem[] }>('/api/admin/users', { method: 'GET' }).catch(() => ({ users: [] })),
             ]);
             if (statsRes) setStats(statsRes as Stats);
-            setUsers((usersRes as any)?.users || []);
-        } catch (err) {
+            setUsers(usersRes?.users || []);
+        } catch {
             setError('載入失敗，請確認管理員權限。');
         } finally {
             setLoading(false);

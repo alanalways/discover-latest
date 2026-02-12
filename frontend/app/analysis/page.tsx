@@ -1,15 +1,92 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
 import {
-    TrendingUp, TrendingDown, BarChart3, PieChart as PieChartIcon,
+    TrendingUp, BarChart3, PieChart as PieChartIcon,
     DollarSign, Users, Activity, Landmark,
 } from 'lucide-react';
 
 const api = new ApiClient();
+
+interface StockInfo {
+    name?: string;
+    symbol?: string;
+    market?: string;
+    industry?: string;
+    market_cap?: number;
+    dividend_yield?: number | string;
+    pe_ratio?: number | string;
+    pb_ratio?: number | string;
+    high_52w?: number | string;
+    low_52w?: number | string;
+}
+
+interface StockHistoryRow {
+    time?: string;
+    date?: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+}
+
+interface RevenueRow {
+    date?: string;
+    revenue_date?: string;
+    revenue?: number;
+    revenue_month_over_month?: number;
+    revenue_year_over_year?: number;
+}
+
+interface PerPbrRow {
+    date?: string;
+    PER?: number;
+    PBR?: number;
+    dividend_yield?: number;
+}
+
+interface DividendRow {
+    date?: string;
+    AnnouncementDate?: string;
+    CashEarningsDistribution?: number;
+    cash_dividend?: number;
+    StockEarningsDistribution?: number;
+    stock_dividend?: number;
+}
+
+interface InstitutionalRow {
+    date?: string;
+    Foreign_Investor_buy?: number;
+    Foreign_Investor_sell?: number;
+    Investment_Trust_buy?: number;
+    Investment_Trust_sell?: number;
+    Dealer_self_buy?: number;
+    Dealer_self_sell?: number;
+    buy?: number;
+    sell?: number;
+}
+
+interface MarginRow {
+    date?: string;
+    MarginPurchaseLimit?: number;
+    margin_balance?: number;
+    MarginPurchaseChange?: number;
+    margin_change?: number;
+    ShortSaleLimit?: number;
+    short_balance?: number;
+    ShortSaleChange?: number;
+    short_change?: number;
+}
+
+function getErrorStatus(err: unknown): number | undefined {
+    if (!err || typeof err !== 'object') return undefined;
+    const value = (err as { status?: unknown }).status;
+    return typeof value === 'number' ? value : undefined;
+}
 
 // ── 格式化工具函數 ──
 const formatNumber = (val: number | null | undefined, decimals = 2): string => {
@@ -25,25 +102,34 @@ const formatVolume = (vol: number): string => {
     return String(vol);
 };
 
-const formatMarketCap = (val: number) => {
+const formatMarketCap = (val?: number) => {
     if (!val) return 'N/A';
     return (val / 100000000).toFixed(2) + ' 億';
 };
 
 // ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
 function AnalysisContent() {
+    const router = useRouter();
     const searchParams = useSearchParams();
     const initialSymbol = searchParams.get('symbol') || '2330';
     const [symbol, setSymbol] = useState(initialSymbol);
-    const [data, setData] = useState<any>(null);
+    const [symbolInput, setSymbolInput] = useState(initialSymbol);
+    const [data, setData] = useState<{ info?: StockInfo; history?: StockHistoryRow[] } | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [aiResult, setAiResult] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
 
     // 基本面 + 籌碼面
-    const [fundamentals, setFundamentals] = useState<any>(null);
-    const [chips, setChips] = useState<any>(null);
+    const [fundamentals, setFundamentals] = useState<{
+        revenue?: RevenueRow[];
+        per_pbr?: PerPbrRow[];
+        dividend?: DividendRow[];
+    } | null>(null);
+    const [chips, setChips] = useState<{
+        institutional?: InstitutionalRow[];
+        margin?: MarginRow[];
+    } | null>(null);
     const [extraLoading, setExtraLoading] = useState(false);
 
     // Tab 控制
@@ -56,7 +142,7 @@ function AnalysisContent() {
         setFundamentals(null);
         setChips(null);
         try {
-            const result = await api.getStock(sym);
+            const result = await api.getStock(sym) as { info?: StockInfo; history?: StockHistoryRow[] };
             setData(result);
 
             // 並行取得基本面+籌碼面資料
@@ -65,14 +151,26 @@ function AnalysisContent() {
                 api.getStockFundamentals(sym),
                 api.getStockChips(sym),
             ]);
-            if (fundRes.status === 'fulfilled') setFundamentals(fundRes.value);
-            if (chipRes.status === 'fulfilled') setChips(chipRes.value);
+            if (fundRes.status === 'fulfilled') {
+                setFundamentals(fundRes.value as {
+                    revenue?: RevenueRow[];
+                    per_pbr?: PerPbrRow[];
+                    dividend?: DividendRow[];
+                });
+            }
+            if (chipRes.status === 'fulfilled') {
+                setChips(chipRes.value as {
+                    institutional?: InstitutionalRow[];
+                    margin?: MarginRow[];
+                });
+            }
             setExtraLoading(false);
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err);
-            if (err?.status === 404) {
+            const status = getErrorStatus(err);
+            if (status === 404) {
                 setError(`找不到股票代號「${sym}」，請確認後重新搜尋。`);
-            } else if (err?.status >= 500) {
+            } else if (status && status >= 500) {
                 setError('伺服器暫時忙碌，請稍候再試。');
             } else {
                 setError('無法取得資料，請檢查網路連線後重試。');
@@ -87,26 +185,37 @@ function AnalysisContent() {
         const urlSymbol = searchParams.get('symbol');
         if (urlSymbol && urlSymbol !== symbol) {
             setSymbol(urlSymbol);
+            setSymbolInput(urlSymbol);
         }
-    }, [searchParams]);
+    }, [searchParams, symbol]);
 
     useEffect(() => {
         if (symbol) {
-            fetchData(symbol);
+            setSymbolInput(symbol);
+            void fetchData(symbol);
         }
     }, [symbol]);
+
+    const handleSymbolSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const nextSymbol = symbolInput.trim().toUpperCase();
+        if (!nextSymbol) return;
+        setSymbol(nextSymbol);
+        router.push(`/analysis?symbol=${nextSymbol}`);
+    };
 
     const handleAiAnalysis = async () => {
         if (!symbol || aiLoading) return;
         setAiLoading(true);
         try {
-            const result = (await api.getAiAnalysis(symbol)) as any;
+            const result = await api.getAiAnalysis(symbol) as { analysis?: string };
             setAiResult(result.analysis || 'AI 分析未回傳有效結果。');
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err);
-            if (err?.status === 403) {
+            const status = getErrorStatus(err);
+            if (status === 403) {
                 setAiResult('此功能需要升級方案，請前往「會員方案」查看。');
-            } else if (err?.status === 429) {
+            } else if (status === 429) {
                 setAiResult('今日 AI 分析次數已達上限，明天再試吧！');
             } else {
                 setAiResult('AI 分析暫時無法使用，請稍後再試。');
@@ -121,8 +230,8 @@ function AnalysisContent() {
     const info = data?.info || {};
     const history = data?.history || [];
 
-    const chartData = history.map((h: any) => ({
-        time: h.time || h.date,
+    const chartData = history.map((h: StockHistoryRow) => ({
+        time: h.time || h.date || '',
         open: h.open,
         high: h.high,
         low: h.low,
@@ -155,6 +264,48 @@ function AnalysisContent() {
             <div className="max-w-7xl mx-auto space-y-6">
 
                 {/* 目前分析的個股 + 提示 */}
+                <form
+                    onSubmit={handleSymbolSubmit}
+                    style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        padding: '12px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                        background: 'var(--bg-card)',
+                    }}
+                >
+                    <input
+                        value={symbolInput}
+                        onChange={(e) => setSymbolInput(e.target.value)}
+                        placeholder="輸入股票代號（2330 / AAPL）"
+                        style={{
+                            flex: '1 1 220px',
+                            border: '1px solid var(--border)',
+                            borderRadius: 8,
+                            background: 'var(--bg-elevated)',
+                            color: 'var(--text-1)',
+                            padding: '10px 12px',
+                        }}
+                    />
+                    <button
+                        type="submit"
+                        style={{
+                            border: 0,
+                            borderRadius: 8,
+                            background: 'var(--accent)',
+                            color: '#fff',
+                            padding: '10px 14px',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                        }}
+                    >
+                        送出
+                    </button>
+                </form>
+
                 <div className="text-sm text-[var(--text-3)] flex items-center gap-2 flex-wrap">
                     <span>📊 深度分析：</span>
                     <span className="font-bold text-[var(--accent)] text-base">{info.name || symbol}</span>
@@ -279,11 +430,11 @@ function AnalysisContent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                                                    {latestRevenues.slice().reverse().map((r: any, i: number) => (
+                                                    {latestRevenues.slice().reverse().map((r: RevenueRow, i: number) => (
                                                         <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                             <td className="py-2 px-3 text-[var(--text-2)]">{r.date || r.revenue_date}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
-                                                                {formatNumber(r.revenue / 1000, 0)}K
+                                                                {formatNumber((r.revenue || 0) / 1000, 0)}K
                                                             </td>
                                                             <td className={`py-2 px-3 text-right font-mono ${(r.revenue_month_over_month || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
                                                                 {r.revenue_month_over_month ? `${r.revenue_month_over_month > 0 ? '+' : ''}${formatNumber(r.revenue_month_over_month)}%` : 'N/A'}
@@ -321,7 +472,7 @@ function AnalysisContent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                                                    {perPbrData.slice().reverse().slice(0, 15).map((r: any, i: number) => (
+                                                    {perPbrData.slice().reverse().slice(0, 15).map((r: PerPbrRow, i: number) => (
                                                         <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                             <td className="py-2 px-3 text-[var(--text-2)]">{r.date}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PER)}</td>
@@ -359,7 +510,7 @@ function AnalysisContent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                                                    {dividendData.slice(-10).reverse().map((d: any, i: number) => (
+                                                    {dividendData.slice(-10).reverse().map((d: DividendRow, i: number) => (
                                                         <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                             <td className="py-2 px-3 text-[var(--text-2)]">{d.date || d.AnnouncementDate}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-green-400">
@@ -406,10 +557,10 @@ function AnalysisContent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                                                    {latestInst.slice().reverse().map((r: any, i: number) => {
-                                                        const foreign = r.Foreign_Investor_buy - r.Foreign_Investor_sell || r.buy - r.sell || 0;
-                                                        const trust = r.Investment_Trust_buy - r.Investment_Trust_sell || 0;
-                                                        const dealer = r.Dealer_self_buy - r.Dealer_self_sell || 0;
+                                                    {latestInst.slice().reverse().map((r: InstitutionalRow, i: number) => {
+                                                        const foreign = ((r.Foreign_Investor_buy || 0) - (r.Foreign_Investor_sell || 0)) || ((r.buy || 0) - (r.sell || 0));
+                                                        const trust = (r.Investment_Trust_buy || 0) - (r.Investment_Trust_sell || 0);
+                                                        const dealer = (r.Dealer_self_buy || 0) - (r.Dealer_self_sell || 0);
                                                         const total = foreign + trust + dealer;
                                                         return (
                                                             <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
@@ -458,7 +609,7 @@ function AnalysisContent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
-                                                    {latestMargin.slice().reverse().map((r: any, i: number) => {
+                                                    {latestMargin.slice().reverse().map((r: MarginRow, i: number) => {
                                                         const marginBuyBal = r.MarginPurchaseLimit || r.margin_balance || 0;
                                                         const marginChg = r.MarginPurchaseChange || r.margin_change || 0;
                                                         const shortBal = r.ShortSaleLimit || r.short_balance || 0;

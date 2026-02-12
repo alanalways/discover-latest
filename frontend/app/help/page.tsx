@@ -9,7 +9,6 @@ import {
     MessageCircle,
     FileText,
     Mail,
-    ExternalLink,
 } from 'lucide-react';
 import styles from './page.module.css';
 
@@ -20,11 +19,11 @@ const FAQ_ITEMS = [
     },
     {
         q: '回測模擬的策略有哪些？',
-        a: '目前支援：MA 均線交叉、RSI 超買超賣、MACD 交叉、布林通道。Pro/Premium 版解鎖進階策略如 Martingale 和 Grid Trading。',
+        a: '目前支援：MA 均線交叉、RSI、突破、動能與景氣燈號策略；Premium 可用馬丁格爾策略。回測區間上限：Free/Pro 1 年、Premium 5 年。',
     },
     {
         q: '自選清單最多可以加幾檔？',
-        a: '免費版最多 5 檔，Pro 版 20 檔，Premium 版無限制。',
+        a: '免費版最多 5 檔，Pro 版 30 檔，Premium 版 100 檔。價格警報上限分別為 1 / 10 / 50 組。',
     },
     {
         q: '台股資料更新頻率是多少？',
@@ -120,9 +119,9 @@ export default function HelpPage() {
                 </h3>
                 <div className={styles.versionList}>
                     <div className={styles.versionItem}>
-                        <span className={styles.versionTag}>v2.1.0</span>
-                        <span className={styles.versionDate}>2024-12</span>
-                        <p>新增 Sidebar 摺疊、設定頁面、幫助中心、管理後台。API 請求優化。</p>
+                        <span className={styles.versionTag}>v2.2.0</span>
+                        <span className={styles.versionDate}>2026-02</span>
+                        <p>修正 OAuth 登入流程、手機版導覽偏移、分析頁手機輸入入口與警報互動邏輯。</p>
                     </div>
                     <div className={styles.versionItem}>
                         <span className={styles.versionTag}>v2.0.0</span>

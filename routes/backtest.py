@@ -56,6 +56,10 @@ async def run_backtest(req: BacktestRequest):
 
         # 2. 組裝策略參數
         params: Dict = {
+            # ma_cross 策略實際讀 short_period / long_period
+            "short_period": req.ma_fast,
+            "long_period": req.ma_slow,
+            # 保留舊鍵名，避免既有流程中斷
             "ma_fast": req.ma_fast,
             "ma_slow": req.ma_slow,
             "rsi_period": req.rsi_period,

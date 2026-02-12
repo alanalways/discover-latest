@@ -42,11 +42,35 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── CORS Origins（白名單）──
+def _parse_allowed_origins() -> list[str]:
+    origins = []
+    raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
+    if raw:
+        origins.extend([o.strip().rstrip("/") for o in raw.split(",") if o.strip()])
+
+    space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
+    if space_url:
+        origins.append(space_url)
+
+    origins.extend([
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ])
+
+    deduped = []
+    for o in origins:
+        if o and o not in deduped:
+            deduped.append(o)
+    return deduped
+
+
 # ── CORS（允許前端跨域請求）──
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],               # 同源部署 + dev 用
-    allow_credentials=True,
+    allow_origins=_parse_allowed_origins(),
+    # 本專案使用 Bearer Token，不依賴 Cookie，避免 wildcard+credentials 風險
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

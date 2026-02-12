@@ -9,7 +9,6 @@ import {
     BarChart2,
     LogOut,
     Trash2,
-    ChevronRight,
 } from 'lucide-react';
 import styles from './page.module.css';
 
@@ -54,6 +53,9 @@ export default function SettingsPage() {
     const { user, logout } = useAuth();
     const tier = user?.tier || 'free';
     const tierLabel: Record<string, string> = { free: '免費版', pro: 'Pro', premium: 'Premium' };
+    const memberSince = user?.createdAt
+        ? new Date(user.createdAt).toLocaleDateString('zh-TW')
+        : '—';
 
     return (
         <div className={styles.container}>
@@ -78,7 +80,7 @@ export default function SettingsPage() {
                                             <span className={styles.displayValue}>
                                                 {item.label === 'Email' ? (user?.email || '未登入') :
                                                     item.label === '方案等級' ? tierLabel[tier] :
-                                                        '2024-01-01'}
+                                                        memberSince}
                                             </span>
                                         )}
                                         {item.type === 'toggle' && (

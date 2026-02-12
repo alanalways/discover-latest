@@ -5,18 +5,16 @@ import { useAuth } from './AuthProvider';
 import { X } from 'lucide-react';
 
 export default function LoginModal() {
-    const { showLoginModal, setShowLoginModal, login } = useAuth();
+    const { showLoginModal, setShowLoginModal } = useAuth();
 
     if (!showLoginModal) return null;
 
     const handleGoogleLogin = async () => {
-        // 這裡模擬 Google Auth 流程
-        // 實際專案應使用 @react-oauth/google 或 firebase
-        // 這裡直接模擬取得一個 token 並呼叫 login
         try {
-            const mockToken = "mock_google_token_" + Date.now();
-            await login(mockToken);
-        } catch (e) {
+            const callback = `${window.location.origin}/auth/callback`;
+            const authStartUrl = `/api/auth/google/start?redirect_to=${encodeURIComponent(callback)}`;
+            window.location.href = authStartUrl;
+        } catch {
             alert("登入失敗，請稍後再試");
         }
     };

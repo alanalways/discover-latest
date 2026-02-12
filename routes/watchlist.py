@@ -15,7 +15,7 @@ class WatchlistAddRequest(BaseModel):
 class AlertAddRequest(BaseModel):
     symbol: str
     target_price: float
-    direction: str = "above"  # above | below
+    direction: str = "above"  # above | below | gte | lte
 
 
 # ── 自選清單 ──
@@ -74,6 +74,7 @@ async def add_alert(req: AlertAddRequest, request: Request):
     user_id = _require_auth(request)
     try:
         from services.feature_gate import can_access
+        from services.feature_gate import get_limit
         from services.rate_limiter import rate_limiter
 
         tier = rate_limiter.check_and_downgrade(user_id)
@@ -81,8 +82,21 @@ async def add_alert(req: AlertAddRequest, request: Request):
             raise HTTPException(status_code=403, detail="此功能需要升級方案")
 
         from adapters.supabase_adapter import supabase_adapter
+        alerts = supabase_adapter.get_user_alerts(user_id) or []
+        max_alerts = get_limit(tier, "price_alert_max")
+        if max_alerts > 0 and len(alerts) >= max_alerts:
+            raise HTTPException(status_code=403, detail=f"已達警報上限（{max_alerts}）")
+
+        direction = (req.direction or "above").lower()
+        if direction in ("gte", "above"):
+            normalized_direction = "above"
+        elif direction in ("lte", "below"):
+            normalized_direction = "below"
+        else:
+            raise HTTPException(status_code=400, detail="direction 僅支援 above/below/gte/lte")
+
         result = supabase_adapter.add_alert(
-            user_id, req.symbol, req.target_price, req.direction
+            user_id, req.symbol, req.target_price, normalized_direction
         )
         return {"success": result}
     except HTTPException:

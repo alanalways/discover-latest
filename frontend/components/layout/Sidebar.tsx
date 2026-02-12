@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { api } from '@/lib/api';
 import {
     LayoutDashboard,
     BarChart2,
@@ -42,25 +44,51 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
     const { user } = useAuth();
+    const [dailyLimit, setDailyLimit] = useState(2);
+    const [dailyUsed, setDailyUsed] = useState(0);
 
     // 動態 tier 資訊
     const tier = user?.tier || 'free';
-    const tierLabel: Record<string, string> = { free: 'Free Plan', pro: 'Pro Plan', premium: 'Premium' };
-    const tierCredits: Record<string, { used: number; total: number }> = {
-        free: { used: 3, total: 10 },
-        pro: { used: 5, total: 50 },
-        premium: { used: 10, total: 200 },
-    };
-    const credits = tierCredits[tier] || tierCredits.free;
-    const creditPct = Math.round((credits.used / credits.total) * 100);
+    const tierLabel: Record<string, string> = { free: 'Free', pro: 'Pro', premium: 'Premium' };
+    const creditPct = Math.min(100, Math.round((dailyUsed / Math.max(1, dailyLimit)) * 100));
+    const currentYear = new Date().getFullYear();
+    const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'v2.2.0';
 
     // 判斷是否為管理員
     const isAdmin = user?.email === ADMIN_EMAIL;
+    const handleNavClick = () => {
+        onClose?.();
+    };
+
+    useEffect(() => {
+        let mounted = true;
+        const loadLimits = async () => {
+            if (!user) {
+                if (!mounted) return;
+                setDailyLimit(2);
+                setDailyUsed(0);
+                return;
+            }
+            try {
+                const limits = await api.getAuthLimits();
+                if (!mounted) return;
+                setDailyLimit(limits.ai.daily_limit);
+                setDailyUsed(limits.ai.daily_used);
+            } catch {
+                if (!mounted) return;
+                setDailyLimit(tier === 'premium' ? 200 : tier === 'pro' ? 20 : 2);
+            }
+        };
+        void loadLimits();
+        return () => {
+            mounted = false;
+        };
+    }, [tier, user]);
 
     return (
         <aside
-            className={`${styles.sidebar} ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} transition-all duration-300 md:shadow-none shadow-2xl`}
-            style={{ '--sidebar-w': '240px' } as React.CSSProperties}
+            className={`${styles.sidebar} ${isOpen ? styles.mobileOpen : ''}`}
+            style={{ '--sidebar-w': '240px' } as { [key: string]: string }}
         >
             {/* Logo Area */}
             <div className={styles.logo}>
@@ -75,7 +103,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 {/* Mobile Close Button */}
                 <button
                     onClick={onClose}
-                    className="md:hidden ml-auto p-2 text-gray-400 hover:text-white"
+                    className={`${styles.mobileCloseBtn} ${styles.mobileOnly}`}
                 >
                     <X size={20} />
                 </button>
@@ -89,6 +117,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <Link
                             key={item.href}
                             href={item.href}
+                            onClick={handleNavClick}
                             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                         >
                             <item.icon className={styles.navIcon} />
@@ -101,6 +130,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 {isAdmin && (
                     <Link
                         href="/admin"
+                        onClick={handleNavClick}
                         className={`${styles.navItem} ${pathname === '/admin' ? styles.navItemActive : ''}`}
                     >
                         <Shield className={styles.navIcon} />
@@ -113,10 +143,10 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className={styles.usageCard}>
                 <div className={styles.usageHeader}>
                     <span className={styles.tierBadge}>{tierLabel[tier]}</span>
-                    <Link href="/pricing" className={styles.upgradeLink}>Upgrade</Link>
+                <Link href="/pricing" className={styles.upgradeLink}>升級</Link>
                 </div>
-                <div className={styles.usageCount}>{credits.used}/{credits.total}</div>
-                <div className={styles.usageLabel}>AI Analysis Credits</div>
+                <div className={styles.usageCount}>{dailyUsed}/{dailyLimit}</div>
+                <div className={styles.usageLabel}>今日 AI 次數</div>
                 <div className={styles.usageBar}>
                     <div className={styles.usageBarFill} style={{ width: `${creditPct}%` }}></div>
                 </div>
@@ -136,6 +166,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     <Link
                         key={item.href}
                         href={item.href}
+                        onClick={handleNavClick}
                         className={styles.navItem}
                     >
                         <item.icon className={styles.navIcon} />
@@ -146,8 +177,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
             {/* Footer */}
             <div className={styles.footer}>
-                <span>© 2024 DiscoverLatest</span>
-                <span>v2.1.0 (Beta)</span>
+                <span>© {currentYear} DiscoverLatest</span>
+                <span>{appVersion}</span>
             </div>
         </aside>
     );

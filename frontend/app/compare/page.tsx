@@ -7,8 +7,20 @@ import { api } from '@/lib/api';
 const COLORS = ['#ef5350', '#26a69a', '#2962FF', '#FFD600', '#AB47BC'];
 
 interface StockData {
-    info: any;
-    history: any[];
+    info: {
+        name?: string;
+        symbol?: string;
+        change_percent?: number;
+        pe_ratio?: number;
+        dividend_yield?: number;
+        market_cap?: number;
+        high_52w?: number;
+    };
+    history: Array<{
+        time?: string;
+        date?: string;
+        close: number;
+    }>;
 }
 
 export default function ComparePage() {
@@ -63,8 +75,8 @@ export default function ComparePage() {
             if (failedSymbols.length > 0) {
                 setError(`以下股票資料取得失敗：${failedSymbols.join(', ')}`);
             }
-        } catch (err) {
-            console.error(err);
+        } catch (error) {
+            console.error(error);
             setError('資料讀取失敗，請確認代號是否正確。');
         } finally {
             setLoading(false);
@@ -73,12 +85,12 @@ export default function ComparePage() {
 
     // Prepare Chart Data
     const chartSeries = stocks.map((stock, index) => ({
-        name: stock.info.name || stock.info.symbol,
+        name: stock.info.name || stock.info.symbol || 'Unknown',
         color: COLORS[index % COLORS.length],
-        data: (stock.history || []).map((h: any) => ({
-            time: h.time || h.date,
+        data: (stock.history || []).map((h) => ({
+            time: h.time || h.date || '',
             value: h.close
-        })).sort((a: any, b: any) => (new Date(a.time).getTime() - new Date(b.time).getTime()))
+        })).sort((a, b) => (new Date(a.time).getTime() - new Date(b.time).getTime()))
     }));
 
     return (

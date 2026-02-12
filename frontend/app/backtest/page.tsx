@@ -5,10 +5,7 @@ import {
     FlaskConical,
     Play,
     Loader2,
-    TrendingUp,
-    TrendingDown,
     BarChart3,
-    Activity,
     AlertCircle,
 } from 'lucide-react';
 import styles from './page.module.css';
@@ -64,6 +61,8 @@ export default function BacktestPage() {
                 period,
                 ma_fast: maFast,
                 ma_slow: maSlow,
+                short_period: maFast,
+                long_period: maSlow,
                 initial_capital: capital,
             });
             setResult(res as BacktestResult);

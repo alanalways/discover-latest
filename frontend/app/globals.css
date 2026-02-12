@@ -267,3 +267,44 @@ a:hover {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─── Layout Helpers ─── */
+.dl-shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg-void);
+  color: var(--text-1);
+}
+
+.dl-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  margin-left: 0;
+}
+
+.dl-content {
+  flex: 1;
+  margin-top: var(--topbar-h);
+  padding: 16px;
+  overflow-x: hidden;
+}
+
+.dl-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 80;
+}
+
+@media (min-width: 768px) {
+  .dl-main {
+    margin-left: var(--sidebar-w);
+  }
+
+  .dl-content {
+    padding: 24px 30px;
+  }
+}

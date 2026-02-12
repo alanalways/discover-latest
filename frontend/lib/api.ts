@@ -13,10 +13,12 @@ export class ApiClient {
 
     setToken(token: string | null) {
         this.token = token;
-        if (token) {
-            localStorage.setItem('dl_token', token);
-        } else {
-            localStorage.removeItem('dl_token');
+        if (typeof window !== 'undefined') {
+            if (token) {
+                localStorage.setItem('dl_token', token);
+            } else {
+                localStorage.removeItem('dl_token');
+            }
         }
     }
 
@@ -126,6 +128,25 @@ export class ApiClient {
         return this.fetch(`/api/watchlist/${symbol}`, { method: 'DELETE' });
     }
 
+    async getAlerts() {
+        return this.fetch<{ alerts: PriceAlert[] }>('/api/alerts');
+    }
+
+    async addAlert(symbol: string, targetPrice: number, direction: AlertDirection = 'above') {
+        return this.fetch('/api/alerts/add', {
+            method: 'POST',
+            body: JSON.stringify({
+                symbol,
+                target_price: targetPrice,
+                direction,
+            }),
+        });
+    }
+
+    async deleteAlert(alertId: string) {
+        return this.fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
+    }
+
     // ── Auth ──
     async loginWithGoogle(token: string) {
         const res = await this.fetch<AuthResponse>('/api/auth/google', {
@@ -136,12 +157,25 @@ export class ApiClient {
         return res;
     }
 
+    async loginWithGoogleCode(code: string) {
+        const res = await this.fetch<AuthResponse>('/api/auth/google', {
+            method: 'POST',
+            body: JSON.stringify({ code }),
+            skipAuth: true,
+        });
+        return res;
+    }
+
     async getCurrentUser() {
-        return this.fetch('/api/auth/me');
+        return this.fetch<{ user: AuthUser }>('/api/auth/me');
     }
 
     async getAuthConfig() {
         return this.fetch<{ client_id: string }>('/api/auth/config', { skipAuth: true });
+    }
+
+    async getAuthLimits() {
+        return this.fetch<AuthLimits>('/api/auth/limits');
     }
 }
 
@@ -165,13 +199,55 @@ interface BacktestParams {
     period?: string;
     ma_fast?: number;
     ma_slow?: number;
+    short_period?: number;
+    long_period?: number;
     initial_capital?: number;
 }
 
 interface AuthResponse {
     success: boolean;
-    user: Record<string, unknown> | null;
+    user: AuthUser | null;
+    access_token?: string | null;
     message?: string;
+}
+
+interface AuthUser {
+    id: string;
+    email?: string;
+    tier?: 'free' | 'pro' | 'premium';
+    created_at?: string;
+    user_metadata?: {
+        full_name?: string;
+        avatar_url?: string;
+        tier?: 'free' | 'pro' | 'premium';
+    };
+}
+
+type AlertDirection = 'above' | 'below' | 'gte' | 'lte';
+
+interface PriceAlert {
+    id: string;
+    symbol: string;
+    target_price: number;
+    condition?: 'gte' | 'lte';
+    direction?: AlertDirection;
+    is_active?: boolean;
+    created_at?: string;
+}
+
+interface AuthLimits {
+    tier: 'free' | 'pro' | 'premium';
+    ai: {
+        daily_limit: number;
+        daily_used: number;
+        daily_remaining: number;
+    };
+    watchlist: {
+        max: number;
+    };
+    alerts: {
+        max: number;
+    };
 }
 
 // 全域單例

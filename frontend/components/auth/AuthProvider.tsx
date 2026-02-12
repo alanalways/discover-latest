@@ -1,14 +1,55 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 
 interface User {
     id: string;
-    email: string;
+    email?: string;
     name: string;
     picture?: string;
-    tier?: string; // free, pro, premium
+    tier: 'free' | 'pro' | 'premium';
+    createdAt?: string;
+    userMetadata?: {
+        full_name?: string;
+        avatar_url?: string;
+        tier?: 'free' | 'pro' | 'premium';
+    };
+}
+
+function normalizeUser(raw: unknown): User | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const data = raw as {
+        id?: string;
+        email?: string;
+        name?: string;
+        tier?: 'free' | 'pro' | 'premium';
+        created_at?: string;
+        picture?: string;
+        avatar_url?: string;
+        user_metadata?: {
+            full_name?: string;
+            avatar_url?: string;
+            tier?: 'free' | 'pro' | 'premium';
+        };
+    };
+
+    if (!data.id) return null;
+
+    const metadata = data.user_metadata || {};
+    const tier = data.tier || metadata.tier || 'free';
+    const name = data.name || metadata.full_name || data.email || '使用者';
+    const picture = data.picture || data.avatar_url || metadata.avatar_url;
+
+    return {
+        id: data.id,
+        email: data.email,
+        name,
+        picture,
+        tier,
+        createdAt: data.created_at,
+        userMetadata: metadata,
+    };
 }
 
 interface AuthContextType {
@@ -38,60 +79,70 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const [token, setToken] = useState<string | null>(null);
     const [showLoginModal, setShowLoginModal] = useState(false);
 
-    // 初始化檢查 Token
-    useEffect(() => {
-        const storedToken = localStorage.getItem('dl_token');
-        if (storedToken) {
-            setToken(storedToken);
-            api.setToken(storedToken);
-            fetchUser();
+    const logout = useCallback(() => {
+        setUser(null);
+        setToken(null);
+        api.setToken(null);
+        if (typeof window !== 'undefined') {
+            localStorage.removeItem('dl_token');
+            window.location.href = '/';
         }
     }, []);
 
-    const fetchUser = async () => {
+    const fetchUser = useCallback(async () => {
         try {
-            const res = await api.getCurrentUser() as any;
-            if (res && res.user) {
-                setUser(res.user);
+            const res = await api.getCurrentUser();
+            const normalized = normalizeUser(res?.user);
+            if (normalized) {
+                setUser(normalized);
             } else {
-                logout(); // Token 無效
+                logout();
             }
         } catch (err) {
             console.error(err);
             logout();
         }
-    };
+    }, [logout]);
+
+    // 初始化檢查 Token
+    useEffect(() => {
+        const storedToken = typeof window !== 'undefined' ? localStorage.getItem('dl_token') : null;
+        if (!storedToken) return;
+        setToken(storedToken);
+        api.setToken(storedToken);
+        void fetchUser();
+    }, [fetchUser]);
 
     const login = async (googleToken: string) => {
         try {
             const res = await api.loginWithGoogle(googleToken);
-            if (res.success && res.user) {
-                const newToken = (res as any).token || googleToken; // 假設後端回傳 JWT，或直接用 google token
-                // 注意：實際上後端 /auth/google 應該回傳自己的 JWT
-                // 這裡暫時假設 loginWithGoogle 會設定好 cookie 或回傳 token
-                // 如果後端只是驗證，我們可能需要調整。
-                // 根據 api.ts: return res.json()
-
-                // 假設 res 包含 token
-                const backendToken = (res as any).access_token || googleToken;
-
-                setToken(backendToken);
-                api.setToken(backendToken);
-                setUser(res.user as unknown as User);
+            if (res.success && res.user && res.access_token) {
+                const normalized = normalizeUser(res.user);
+                if (!normalized) {
+                    throw new Error('登入成功但使用者資料無效');
+                }
+                setToken(res.access_token);
+                api.setToken(res.access_token);
+                setUser(normalized);
                 setShowLoginModal(false);
+                return;
             }
+            if (res.success && res.user) {
+                const normalized = normalizeUser(res.user);
+                if (!normalized) {
+                    throw new Error('登入成功但使用者資料無效');
+                }
+                setToken(googleToken);
+                api.setToken(googleToken);
+                setUser(normalized);
+                setShowLoginModal(false);
+                return;
+            }
+            throw new Error(res.message || '登入失敗');
         } catch (err) {
             console.error("Login failed", err);
             throw err;
         }
-    };
-
-    const logout = () => {
-        setUser(null);
-        setToken(null);
-        api.setToken(null);
-        localStorage.removeItem('dl_token');
-        window.location.href = '/'; // 重導回首頁
     };
 
     return (

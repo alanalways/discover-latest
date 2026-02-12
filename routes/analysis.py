@@ -7,8 +7,13 @@ from pydantic import BaseModel
 from typing import Optional
 import json
 import asyncio
+import threading
+from datetime import date
 
 router = APIRouter()
+_ANON_LIMIT_PER_DAY = 2
+_anon_usage_lock = threading.Lock()
+_anon_usage_by_day = {}
 
 
 class AnalysisRequest(BaseModel):
@@ -52,6 +57,10 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
             allowed, reason = rate_limiter.acquire_request(user_id)
             if not allowed:
                 raise HTTPException(status_code=429, detail=reason or "今日 AI 分析次數已達上限")
+        else:
+            allowed, reason = _acquire_anonymous_request(request)
+            if not allowed:
+                raise HTTPException(status_code=429, detail=reason or "匿名使用已達今日上限，請登入後繼續")
 
         # 執行分析
         from services.stock_service import stock_service
@@ -111,3 +120,33 @@ def _extract_user_id(auth_header: str) -> Optional[str]:
         return user.get("id") if user else None
     except Exception:
         return None
+
+
+def _acquire_anonymous_request(request: Request) -> tuple[bool, str]:
+    """匿名使用者限流（按 IP + 每日）"""
+    ip = _resolve_client_ip(request)
+    today = date.today().isoformat()
+    with _anon_usage_lock:
+        day_bucket = _anon_usage_by_day.setdefault(today, {})
+        # 清掉前一天資料，避免記憶體持續累積
+        stale_days = [d for d in _anon_usage_by_day.keys() if d != today]
+        for stale in stale_days:
+            _anon_usage_by_day.pop(stale, None)
+
+        used = int(day_bucket.get(ip, 0))
+        if used >= _ANON_LIMIT_PER_DAY:
+            return False, f"匿名用戶每日僅可分析 {_ANON_LIMIT_PER_DAY} 次，請登入後繼續使用"
+        day_bucket[ip] = used + 1
+    return True, ""
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip", "")
+    if real_ip:
+        return real_ip.strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "anonymous"

@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import {
   TrendingUp,
-  TrendingDown,
   Activity,
   BarChart3,
   Globe,
@@ -33,6 +32,16 @@ interface Top20Stock {
   change_pct: number;
   volume: number;
   close?: number;
+}
+
+interface MarketOverviewResponse {
+  indices?: MarketItem[];
+  etfs?: MarketItem[];
+}
+
+interface Top20Response {
+  tw?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+  us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
 }
 
 interface MarketHours {
@@ -71,7 +80,12 @@ export default function Dashboard() {
         api.getMarketHours().catch(() => null),
       ]);
 
-      const [marketRes, top20Res, hoursRes] = await Promise.race([dataPromise, timeoutPromise]) as any;
+      const raced = await Promise.race([dataPromise, timeoutPromise]);
+      const [marketRes, top20Res, hoursRes] = raced as [
+        MarketOverviewResponse,
+        Top20Response,
+        { tw: MarketHours; us: MarketHours } | null
+      ];
 
       const market = marketRes;
       setIndices(market.indices || []);
@@ -83,9 +97,10 @@ export default function Dashboard() {
 
       if (hoursRes) setHours(hoursRes);
       setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Dashboard fetch error:', err);
-      setError(err.message === '請求超時' ? '載入超時，請重試' : '載入失敗');
+      const msg = err instanceof Error ? err.message : '';
+      setError(msg === '請求超時' ? '載入超時，請重試' : '載入失敗');
     } finally {
       setLoading(false);
     }
