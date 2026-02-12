@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import {
   TrendingUp,
@@ -42,6 +43,7 @@ interface MarketHours {
 /* ── 元件 ── */
 export default function Dashboard() {
   const { user } = useAuth();
+  const router = useRouter();
   const [indices, setIndices] = useState<MarketItem[]>([]);
   const [etfs, setEtfs] = useState<MarketItem[]>([]);
   const [top20Tw, setTop20Tw] = useState<{ gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] }>({ gainers: [], losers: [], volume: [] });
@@ -240,7 +242,13 @@ export default function Dashboard() {
             <span className={styles.colValue}>{activeTab === 'volume' ? '成交量' : '漲跌幅'}</span>
           </div>
           {(top20Data[activeTab] || []).slice(0, 20).map((stock, i) => (
-            <div key={stock.symbol} className={styles.tableRow}>
+            <div
+              key={stock.symbol}
+              className={styles.tableRow}
+              onClick={() => router.push(`/analysis?symbol=${stock.symbol}`)}
+              style={{ cursor: 'pointer' }}
+              title={`查看 ${stock.name} (${stock.symbol}) 的深度分析`}
+            >
               <span className={styles.colRank}>{i + 1}</span>
               <span className={styles.colName}>
                 <span className={styles.stockSymbol}>{stock.symbol}</span>

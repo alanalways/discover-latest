@@ -78,6 +78,14 @@ export class ApiClient {
         return this.fetch(`/api/stock/search/${encodeURIComponent(query)}`, { skipAuth: true });
     }
 
+    async getStockFundamentals(symbol: string) {
+        return this.fetch(`/api/stock/${symbol}/fundamentals`, { skipAuth: true });
+    }
+
+    async getStockChips(symbol: string) {
+        return this.fetch(`/api/stock/${symbol}/chips`, { skipAuth: true });
+    }
+
     // ── Analysis ──
     async getAiAnalysis(symbol: string, period: string = '1y') {
         return this.fetch('/api/analysis/ai', {

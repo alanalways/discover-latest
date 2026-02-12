@@ -4,10 +4,33 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
+import {
+    TrendingUp, TrendingDown, BarChart3, PieChart as PieChartIcon,
+    DollarSign, Users, Activity, Landmark,
+} from 'lucide-react';
 
 const api = new ApiClient();
 
-// 內部組件：使用 useSearchParams 必須包裹在 Suspense 內
+// ── 格式化工具函數 ──
+const formatNumber = (val: number | null | undefined, decimals = 2): string => {
+    if (val === null || val === undefined) return 'N/A';
+    return val.toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
+const formatVolume = (vol: number): string => {
+    if (!vol) return '—';
+    if (vol >= 1_000_000_000) return `${(vol / 1_000_000_000).toFixed(1)}B`;
+    if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
+    if (vol >= 1_000) return `${(vol / 1_000).toFixed(1)}K`;
+    return String(vol);
+};
+
+const formatMarketCap = (val: number) => {
+    if (!val) return 'N/A';
+    return (val / 100000000).toFixed(2) + ' 億';
+};
+
+// ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
 function AnalysisContent() {
     const searchParams = useSearchParams();
     const initialSymbol = searchParams.get('symbol') || '2330';
@@ -18,13 +41,33 @@ function AnalysisContent() {
     const [aiResult, setAiResult] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
 
+    // 基本面 + 籌碼面
+    const [fundamentals, setFundamentals] = useState<any>(null);
+    const [chips, setChips] = useState<any>(null);
+    const [extraLoading, setExtraLoading] = useState(false);
+
+    // Tab 控制
+    const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals' | 'chips'>('chart');
+
     const fetchData = async (sym: string) => {
         setLoading(true);
         setError('');
         setAiResult('');
+        setFundamentals(null);
+        setChips(null);
         try {
             const result = await api.getStock(sym);
             setData(result);
+
+            // 並行取得基本面+籌碼面資料
+            setExtraLoading(true);
+            const [fundRes, chipRes] = await Promise.allSettled([
+                api.getStockFundamentals(sym),
+                api.getStockChips(sym),
+            ]);
+            if (fundRes.status === 'fulfilled') setFundamentals(fundRes.value);
+            if (chipRes.status === 'fulfilled') setChips(chipRes.value);
+            setExtraLoading(false);
         } catch (err: any) {
             console.error(err);
             if (err?.status === 404) {
@@ -78,11 +121,6 @@ function AnalysisContent() {
     const info = data?.info || {};
     const history = data?.history || [];
 
-    const formatMarketCap = (val: number) => {
-        if (!val) return 'N/A';
-        return (val / 100000000).toFixed(2) + ' 億';
-    };
-
     const chartData = history.map((h: any) => ({
         time: h.time || h.date,
         open: h.open,
@@ -94,22 +132,41 @@ function AnalysisContent() {
 
     const lastPrice = history.length > 0 ? history[history.length - 1].close : '-';
 
+    // ── 基本面計算 ──
+    const revenueData = fundamentals?.revenue || [];
+    const latestRevenues = revenueData.slice(-12); // 最近 12 個月
+    const perPbrData = fundamentals?.per_pbr || [];
+    const dividendData = fundamentals?.dividend || [];
+
+    // ── 籌碼面計算 ──
+    const institutionalData = chips?.institutional || [];
+    const marginData = chips?.margin || [];
+    const latestInst = institutionalData.slice(-20); // 最近 20 天
+    const latestMargin = marginData.slice(-20);
+
+    const tabs = [
+        { key: 'chart' as const, label: '技術走勢', icon: <Activity size={16} /> },
+        { key: 'fundamentals' as const, label: '基本面', icon: <DollarSign size={16} /> },
+        { key: 'chips' as const, label: '籌碼面', icon: <Users size={16} /> },
+    ];
+
     return (
         <div className="space-y-6">
             <div className="max-w-7xl mx-auto space-y-6">
 
-                {/* 提示：使用 Topbar 搜尋列可快速切換股票 */}
-                <div className="text-sm text-[var(--text-3)] flex items-center gap-2">
-                    <span>📊 目前分析：</span>
-                    <span className="font-bold text-[var(--accent)]">{symbol}</span>
-                    <span className="text-[var(--text-3)]">— 在頂部搜尋列輸入代號即可切換</span>
+                {/* 目前分析的個股 + 提示 */}
+                <div className="text-sm text-[var(--text-3)] flex items-center gap-2 flex-wrap">
+                    <span>📊 深度分析：</span>
+                    <span className="font-bold text-[var(--accent)] text-base">{info.name || symbol}</span>
+                    <span className="text-[var(--text-3)]">({symbol})</span>
+                    <span className="text-[var(--text-3)] ml-2">— 在頂部搜尋列輸入代號即可切換</span>
                 </div>
 
                 {error && <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-lg text-red-300">{error}</div>}
 
                 {data && (
                     <>
-                        {/* 股票基本資訊卡片 */}
+                        {/* ── 股票基本資訊卡片 ── */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <div className="col-span-1 md:col-span-2 bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
                                 <div className="flex justify-between items-start mb-4">
@@ -159,24 +216,284 @@ function AnalysisContent() {
                             </div>
                         </div>
 
-                        {/* K 線圖區塊 */}
-                        <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-2xl font-black text-[var(--text-1)] flex items-center gap-2">
-                                    <span className="w-2 h-8 bg-[var(--accent)] rounded-full" />
-                                    技術走勢圖 (日線)
-                                </h2>
-                            </div>
-                            <div className="h-[450px]">
-                                {chartData.length > 0 ? (
-                                    <CandlestickChart data={chartData} />
-                                ) : (
-                                    <div className="h-full flex items-center justify-center text-[var(--text-3)]">無 K 線資料</div>
-                                )}
-                            </div>
+                        {/* ── Tab 切換 ── */}
+                        <div className="flex gap-1 bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border)] w-fit">
+                            {tabs.map(tab => (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setActiveTab(tab.key)}
+                                    className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all
+                                        ${activeTab === tab.key
+                                            ? 'bg-[var(--accent)] text-white shadow-lg'
+                                            : 'text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--bg-hover)]'
+                                        }`}
+                                >
+                                    {tab.icon}
+                                    {tab.label}
+                                    {tab.key !== 'chart' && extraLoading && (
+                                        <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                    )}
+                                </button>
+                            ))}
                         </div>
 
-                        {/* AI 分析區塊 */}
+                        {/* ── Tab 內容 ── */}
+
+                        {/* 技術走勢 */}
+                        {activeTab === 'chart' && (
+                            <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-black text-[var(--text-1)] flex items-center gap-2">
+                                        <span className="w-2 h-8 bg-[var(--accent)] rounded-full" />
+                                        技術走勢圖 (日線)
+                                    </h2>
+                                </div>
+                                <div className="h-[450px]">
+                                    {chartData.length > 0 ? (
+                                        <CandlestickChart data={chartData} />
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-[var(--text-3)]">無 K 線資料</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 基本面 */}
+                        {activeTab === 'fundamentals' && (
+                            <div className="space-y-6">
+                                {/* 月營收趨勢 */}
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <BarChart3 size={20} className="text-[var(--accent)]" />
+                                        月營收趨勢
+                                    </h2>
+                                    {latestRevenues.length > 0 ? (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-3)]">
+                                                        <th className="py-2 px-3 text-left">日期</th>
+                                                        <th className="py-2 px-3 text-right">營收</th>
+                                                        <th className="py-2 px-3 text-right">月增率</th>
+                                                        <th className="py-2 px-3 text-right">年增率</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border-subtle)]">
+                                                    {latestRevenues.slice().reverse().map((r: any, i: number) => (
+                                                        <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
+                                                            <td className="py-2 px-3 text-[var(--text-2)]">{r.date || r.revenue_date}</td>
+                                                            <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
+                                                                {formatNumber(r.revenue / 1000, 0)}K
+                                                            </td>
+                                                            <td className={`py-2 px-3 text-right font-mono ${(r.revenue_month_over_month || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {r.revenue_month_over_month ? `${r.revenue_month_over_month > 0 ? '+' : ''}${formatNumber(r.revenue_month_over_month)}%` : 'N/A'}
+                                                            </td>
+                                                            <td className={`py-2 px-3 text-right font-mono ${(r.revenue_year_over_year || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {r.revenue_year_over_year ? `${r.revenue_year_over_year > 0 ? '+' : ''}${formatNumber(r.revenue_year_over_year)}%` : 'N/A'}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 text-[var(--text-3)]">
+                                            {extraLoading ? '載入中...' : '暫無月營收資料'}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* PER/PBR 歷史 */}
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <PieChartIcon size={20} className="text-[var(--accent)]" />
+                                        估值指標歷史（近 30 日）
+                                    </h2>
+                                    {perPbrData.length > 0 ? (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-3)]">
+                                                        <th className="py-2 px-3 text-left">日期</th>
+                                                        <th className="py-2 px-3 text-right">P/E</th>
+                                                        <th className="py-2 px-3 text-right">P/B</th>
+                                                        <th className="py-2 px-3 text-right">殖利率</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border-subtle)]">
+                                                    {perPbrData.slice().reverse().slice(0, 15).map((r: any, i: number) => (
+                                                        <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
+                                                            <td className="py-2 px-3 text-[var(--text-2)]">{r.date}</td>
+                                                            <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PER)}</td>
+                                                            <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PBR)}</td>
+                                                            <td className="py-2 px-3 text-right font-mono text-green-400">
+                                                                {r.dividend_yield ? `${formatNumber(r.dividend_yield)}%` : 'N/A'}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 text-[var(--text-3)]">
+                                            {extraLoading ? '載入中...' : '暫無估值資料'}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 股利政策 */}
+                                {dividendData.length > 0 && (
+                                    <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                        <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                            <Landmark size={20} className="text-[var(--accent)]" />
+                                            股利政策
+                                        </h2>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-3)]">
+                                                        <th className="py-2 px-3 text-left">年度</th>
+                                                        <th className="py-2 px-3 text-right">現金股利</th>
+                                                        <th className="py-2 px-3 text-right">股票股利</th>
+                                                        <th className="py-2 px-3 text-right">合計</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border-subtle)]">
+                                                    {dividendData.slice(-10).reverse().map((d: any, i: number) => (
+                                                        <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
+                                                            <td className="py-2 px-3 text-[var(--text-2)]">{d.date || d.AnnouncementDate}</td>
+                                                            <td className="py-2 px-3 text-right font-mono text-green-400">
+                                                                {formatNumber(d.CashEarningsDistribution || d.cash_dividend)}
+                                                            </td>
+                                                            <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
+                                                                {formatNumber(d.StockEarningsDistribution || d.stock_dividend)}
+                                                            </td>
+                                                            <td className="py-2 px-3 text-right font-mono font-bold text-[var(--text-1)]">
+                                                                {formatNumber(
+                                                                    (d.CashEarningsDistribution || d.cash_dividend || 0) +
+                                                                    (d.StockEarningsDistribution || d.stock_dividend || 0)
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* 籌碼面 */}
+                        {activeTab === 'chips' && (
+                            <div className="space-y-6">
+                                {/* 三大法人買賣超 */}
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <Users size={20} className="text-[var(--accent)]" />
+                                        三大法人買賣超（近 20 日）
+                                    </h2>
+                                    {latestInst.length > 0 ? (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-3)]">
+                                                        <th className="py-2 px-3 text-left">日期</th>
+                                                        <th className="py-2 px-3 text-right">外資</th>
+                                                        <th className="py-2 px-3 text-right">投信</th>
+                                                        <th className="py-2 px-3 text-right">自營商</th>
+                                                        <th className="py-2 px-3 text-right">合計</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border-subtle)]">
+                                                    {latestInst.slice().reverse().map((r: any, i: number) => {
+                                                        const foreign = r.Foreign_Investor_buy - r.Foreign_Investor_sell || r.buy - r.sell || 0;
+                                                        const trust = r.Investment_Trust_buy - r.Investment_Trust_sell || 0;
+                                                        const dealer = r.Dealer_self_buy - r.Dealer_self_sell || 0;
+                                                        const total = foreign + trust + dealer;
+                                                        return (
+                                                            <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
+                                                                <td className="py-2 px-3 text-[var(--text-2)]">{r.date}</td>
+                                                                <td className={`py-2 px-3 text-right font-mono ${foreign >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {foreign >= 0 ? '+' : ''}{formatVolume(foreign)}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono ${trust >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {trust >= 0 ? '+' : ''}{formatVolume(trust)}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono ${dealer >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {dealer >= 0 ? '+' : ''}{formatVolume(dealer)}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono font-bold ${total >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {total >= 0 ? '+' : ''}{formatVolume(total)}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 text-[var(--text-3)]">
+                                            {extraLoading ? '載入中...' : '暫無法人資料（僅支援台股）'}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 融資融券 */}
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <TrendingUp size={20} className="text-[var(--accent)]" />
+                                        融資融券（近 20 日）
+                                    </h2>
+                                    {latestMargin.length > 0 ? (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full text-sm">
+                                                <thead>
+                                                    <tr className="border-b border-[var(--border)] text-[var(--text-3)]">
+                                                        <th className="py-2 px-3 text-left">日期</th>
+                                                        <th className="py-2 px-3 text-right">融資餘額</th>
+                                                        <th className="py-2 px-3 text-right">融資增減</th>
+                                                        <th className="py-2 px-3 text-right">融券餘額</th>
+                                                        <th className="py-2 px-3 text-right">融券增減</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-[var(--border-subtle)]">
+                                                    {latestMargin.slice().reverse().map((r: any, i: number) => {
+                                                        const marginBuyBal = r.MarginPurchaseLimit || r.margin_balance || 0;
+                                                        const marginChg = r.MarginPurchaseChange || r.margin_change || 0;
+                                                        const shortBal = r.ShortSaleLimit || r.short_balance || 0;
+                                                        const shortChg = r.ShortSaleChange || r.short_change || 0;
+                                                        return (
+                                                            <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
+                                                                <td className="py-2 px-3 text-[var(--text-2)]">{r.date}</td>
+                                                                <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
+                                                                    {formatVolume(marginBuyBal)}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono ${marginChg >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {marginChg >= 0 ? '+' : ''}{formatVolume(marginChg)}
+                                                                </td>
+                                                                <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
+                                                                    {formatVolume(shortBal)}
+                                                                </td>
+                                                                <td className={`py-2 px-3 text-right font-mono ${shortChg >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                    {shortChg >= 0 ? '+' : ''}{formatVolume(shortChg)}
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    ) : (
+                                        <div className="text-center py-8 text-[var(--text-3)]">
+                                            {extraLoading ? '載入中...' : '暫無融資融券資料（僅支援台股）'}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ── AI 分析區塊 ── */}
                         <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <svg className="w-32 h-32 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" /></svg>
@@ -211,7 +528,7 @@ function AnalysisContent() {
     );
 }
 
-// 主元件：用 Suspense 包裹以滿足 Next.js 16 靜態生成要求
+// 主元件：用 Suspense 包裹
 export default function AnalysisPage() {
     return (
         <Suspense fallback={<div className="p-20 text-center text-[var(--text-1)] text-xl">載入中...</div>}>
