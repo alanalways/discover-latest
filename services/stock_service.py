@@ -519,7 +519,9 @@ class StockService:
             market = await self._detect_market(symbol)
         if market not in ["TWSE", "TPEX"]:
             stock_data = await self.get_stock_data(symbol=symbol, market=market, period="1y")
-            info = stock_data.get("info", {}) if stock_data else {}
+            info = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
+            if not isinstance(info, dict):
+                info = {}
             today = datetime.now().strftime("%Y-%m-%d")
             per = self._to_float(info.get("pe_ratio"))
             pbr = self._to_float(info.get("pb_ratio"))

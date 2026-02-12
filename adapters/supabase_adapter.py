@@ -194,6 +194,72 @@ class SupabaseAdapter:
             return result[0]
         return None
 
+    def ensure_public_user_record(self, user_id: str) -> bool:
+        """確保 public.users 存在對應 user（避免 ai_usage FK 失敗）。"""
+        if not user_id:
+            return False
+        try:
+            existing = self._request(
+                "GET",
+                "users",
+                params={"id": f"eq.{user_id}", "select": "id", "limit": "1"},
+                use_service_key=True,
+                silent=True,
+            )
+            if isinstance(existing, list) and existing:
+                return True
+
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            email = (auth_user.get("email") or "").strip()
+            name = (
+                metadata.get("full_name")
+                or metadata.get("name")
+                or (email.split("@", 1)[0] if email else "")
+            )
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            payload_variants = [
+                {"id": user_id, "email": email, "name": name, "tier": "free", "created_at": now_iso},
+                {"id": user_id, "email": email, "name": name, "tier": "free"},
+                {"id": user_id, "email": email, "name": name},
+                {"id": user_id, "email": email},
+                {"id": user_id},
+            ]
+            for payload in payload_variants:
+                # 一般 insert
+                inserted = self._request(
+                    "POST",
+                    "users",
+                    json=payload,
+                    use_service_key=True,
+                    silent=True,
+                )
+                if inserted is not None:
+                    return True
+                # upsert insert
+                upserted = self._request(
+                    "POST",
+                    "users",
+                    params={"on_conflict": "id"},
+                    json=payload,
+                    use_service_key=True,
+                    silent=True,
+                )
+                if upserted is not None:
+                    return True
+
+            verify = self._request(
+                "GET",
+                "users",
+                params={"id": f"eq.{user_id}", "select": "id", "limit": "1"},
+                use_service_key=True,
+                silent=True,
+            )
+            return bool(isinstance(verify, list) and verify)
+        except Exception:
+            return False
+
     def auth_admin_get_user_by_id(self, uid: str) -> Optional[Dict[str, Any]]:
         """Auth Admin API：依 UID 取得 auth.users 用戶"""
         if not uid:
@@ -755,6 +821,91 @@ class SupabaseAdapter:
             "status": "pending",
         }
 
+    def _extract_pending_from_metadata(self, user_id: str, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        if not isinstance(metadata, dict):
+            return None
+        raw = metadata.get("pending_upgrade")
+        details = self._parse_upgrade_request_details(raw)
+        if not details:
+            return None
+        status = str(details.get("status") or "pending").strip().lower()
+        if status and status != "pending":
+            return None
+        return {
+            "id": details.get("id") or details.get("request_id") or f"UPG-{int(time.time())}",
+            "user_id": user_id,
+            "plan": details.get("plan"),
+            "billing_cycle": details.get("billing_cycle") or "monthly",
+            "email": details.get("email"),
+            "name": details.get("name"),
+            "created_at": details.get("created_at"),
+            "status": "pending",
+        }
+
+    def _get_pending_upgrade_request_from_metadata(self, user_id: str) -> Optional[Dict[str, Any]]:
+        if not user_id:
+            return None
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            return self._extract_pending_from_metadata(user_id, metadata)
+        except Exception:
+            return None
+
+    def _set_pending_upgrade_request_metadata(
+        self,
+        *,
+        user_id: str,
+        user_email: str,
+        user_name: str,
+        plan: str,
+        billing_cycle: str,
+        request_id: str,
+    ) -> bool:
+        if not user_id:
+            return False
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            new_metadata = dict(metadata)
+            new_metadata["pending_upgrade"] = {
+                "id": request_id,
+                "request_id": request_id,
+                "status": "pending",
+                "plan": plan,
+                "billing_cycle": billing_cycle,
+                "email": user_email,
+                "name": user_name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            res = self._auth_admin_request(
+                "PUT",
+                f"admin/users/{user_id}",
+                json={"user_metadata": new_metadata},
+            )
+            return res is not None
+        except Exception:
+            return False
+
+    def _clear_pending_upgrade_request_metadata(self, user_id: str) -> bool:
+        if not user_id:
+            return False
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            if "pending_upgrade" not in metadata:
+                return True
+            new_metadata = dict(metadata)
+            new_metadata.pop("pending_upgrade", None)
+            res = self._auth_admin_request(
+                "PUT",
+                f"admin/users/{user_id}",
+                json={"user_metadata": new_metadata},
+            )
+            return res is not None
+        except Exception:
+            return False
+
     def get_pending_upgrade_request(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Read latest pending upgrade request for a user.
 
@@ -765,6 +916,11 @@ class SupabaseAdapter:
         """
         if not user_id:
             return None
+
+        metadata_pending = self._get_pending_upgrade_request_from_metadata(user_id)
+        if metadata_pending:
+            return metadata_pending
+
         try:
             query_variants = [
                 {
@@ -847,6 +1003,7 @@ class SupabaseAdapter:
             "billing_cycle": billing_cycle,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        request_id = f"UPG-{int(time.time())}"
         payload = {
             "admin_id": "system",
             "action": "upgrade_request_pending",
@@ -855,6 +1012,27 @@ class SupabaseAdapter:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
+            # 1) Primary storage: auth.users.user_metadata.pending_upgrade
+            if self._set_pending_upgrade_request_metadata(
+                user_id=user_id,
+                user_email=user_email,
+                user_name=user_name,
+                plan=plan,
+                billing_cycle=billing_cycle,
+                request_id=request_id,
+            ):
+                pending = self.get_pending_upgrade_request(user_id) or {
+                    "id": request_id,
+                    "user_id": user_id,
+                    "plan": plan,
+                    "billing_cycle": billing_cycle,
+                    "email": user_email,
+                    "name": user_name,
+                    "status": "pending",
+                }
+                return {"success": True, "request_id": request_id, "pending": pending}
+
+            # 2) Fallback storage: admin_logs (for old schema/project)
             payload_variants = [
                 payload,
                 {
@@ -919,7 +1097,7 @@ class SupabaseAdapter:
                 return {"success": False, "message": "建立待審核申請失敗"}
 
             row = inserted[0] if isinstance(inserted, list) and inserted else {}
-            request_id = str((row or {}).get("id") or f"UPG-{int(time.time())}")
+            request_id = str((row or {}).get("id") or request_id)
             pending = self.get_pending_upgrade_request(user_id) or {
                 "id": request_id,
                 "user_id": user_id,
@@ -937,10 +1115,11 @@ class SupabaseAdapter:
         """Clear pending upgrade request after manual approval."""
         if not user_id:
             return False
+        metadata_ok = self._clear_pending_upgrade_request_metadata(user_id)
         try:
             url, _, _ = self._get_config()
             if not url:
-                return False
+                return metadata_ok
             with httpx.Client(timeout=15.0) as client:
                 query_variants = [
                     {"target_user_id": f"eq.{user_id}", "action": "eq.upgrade_request_pending"},
@@ -956,9 +1135,9 @@ class SupabaseAdapter:
                     )
                     if 200 <= resp.status_code < 300:
                         return True
-                return False
+                return metadata_ok
         except Exception:
-            return False
+            return metadata_ok
     
     # ===== AI 用量追蹤 =====
     
@@ -1058,7 +1237,20 @@ class SupabaseAdapter:
                     )
                     if rpc_resp.is_success:
                         return True
-                    print(f"[DB] increment_ai_usage RPC 失敗: status={rpc_resp.status_code}, body={(rpc_resp.text or '')[:200]}")
+                    rpc_body = (rpc_resp.text or "")[:300]
+                    print(f"[DB] increment_ai_usage RPC 失敗: status={rpc_resp.status_code}, body={rpc_body}")
+                    if rpc_resp.status_code == 409 and (
+                        "violates foreign key constraint" in rpc_body
+                        or "is not present in table" in rpc_body
+                    ):
+                        if self.ensure_public_user_record(user_id):
+                            retry_rpc = client.post(
+                                f"{url}/rest/v1/rpc/increment_ai_usage",
+                                headers=headers,
+                                json={"p_user_id": user_id, "p_date": today},
+                            )
+                            if retry_rpc.is_success:
+                                return True
                 except Exception as e:
                     print(f"[DB] 增加 AI 用量 RPC 失敗: {type(e).__name__}: {e}")
 

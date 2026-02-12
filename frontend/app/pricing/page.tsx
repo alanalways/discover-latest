@@ -18,10 +18,10 @@ const PLANS = [
         icon: <Star size={24} />,
         color: 'var(--text-2)',
         features: [
-            '每日 2 次 AI 分析',
-            '基本技術分析與儀表板',
-            '自選清單最多 5 檔',
-            '價格提醒最多 1 組',
+            '每日 2 次 AI 分析（入門版）',
+            '基本技術面與市場儀表板',
+            '自選清單上限 5 檔',
+            '價格提醒上限 1 組',
         ],
         cta: '目前方案',
         disabled: true,
@@ -35,9 +35,10 @@ const PLANS = [
         color: 'var(--accent)',
         popular: true,
         features: [
-            '每日 20 次 AI 分析',
-            '更完整技術指標與策略說明',
-            '更高自選與提醒上限',
+            '每日 20 次 AI 分析（短中線策略版）',
+            '訊號判讀更完整：EMA / RSI / MACD / 布林帶',
+            '更高資料上限與更長歷史區間',
+            '適合想把交易流程系統化的主力使用者',
         ],
         cta: '升級 Pro',
         disabled: false,
@@ -50,9 +51,10 @@ const PLANS = [
         icon: <Crown size={24} />,
         color: 'var(--primary)',
         features: [
-            '每日 200 次 AI 分析',
-            '最高資料與功能上限',
-            '優先使用高階分析能力',
+            '每日 200 次 AI 分析（進階研究版）',
+            '加入 SMC / ICT 結構觀點與進出場情境',
+            '最高資料權限、最長回測區間、完整功能上限',
+            '適合重度研究與多標的策略管理',
         ],
         cta: '升級 Premium',
         disabled: false,
@@ -150,7 +152,9 @@ export default function PricingPage() {
         <div className={styles.container}>
             <div className={styles.header}>
                 <h2 className={styles.title}>方案與價格</h2>
-                <p className={styles.subtitle}>按下升級後會先送審，待你人工確認後才會正式升級。</p>
+                <p className={styles.subtitle}>
+                    從入門到進階一次到位。送出升級後系統會先建立待審申請，審核完成才會正式開通，避免重複扣款與誤升級。
+                </p>
 
                 <div className={styles.currencyToggle}>
                     <button
@@ -229,7 +233,7 @@ export default function PricingPage() {
             <div className={styles.faq}>
                 <p className={styles.faqNote}>
                     <Zap size={14} />
-                    送出升級申請後，你會在管理員人工審核與調整方案後完成升級。
+                    升級流程：送出申請 → 系統鎖定重複申請 → 管理員人工審核 → 開通對應方案權限。
                 </p>
             </div>
         </div>
