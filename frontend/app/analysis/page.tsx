@@ -83,10 +83,38 @@ interface MarginRow {
     short_change?: number;
 }
 
+interface AiAnalysisPayload {
+    analysis?: unknown;
+    result?: unknown;
+}
+
 function getErrorStatus(err: unknown): number | undefined {
     if (!err || typeof err !== 'object') return undefined;
     const value = (err as { status?: unknown }).status;
     return typeof value === 'number' ? value : undefined;
+}
+
+function extractAiText(payload: AiAnalysisPayload | null | undefined): string {
+    if (!payload || typeof payload !== 'object') return '';
+
+    const pick = (value: unknown): string => {
+        if (typeof value === 'string') return value.trim();
+        if (!value || typeof value !== 'object') return '';
+        const obj = value as Record<string, unknown>;
+
+        const nestedAnalysis = obj.analysis;
+        if (typeof nestedAnalysis === 'string' && nestedAnalysis.trim()) return nestedAnalysis.trim();
+
+        const nestedError = obj.error;
+        if (typeof nestedError === 'string' && nestedError.trim()) return `AI 分析失敗：${nestedError.trim()}`;
+
+        return '';
+    };
+
+    const fromTop = pick(payload.analysis);
+    if (fromTop) return fromTop;
+
+    return pick(payload.result);
 }
 
 // ── 格式化工具函數 ──
@@ -215,8 +243,9 @@ function AnalysisContent() {
         }
         setAiLoading(true);
         try {
-            const result = await api.getAiAnalysis(symbol) as { analysis?: string };
-            setAiResult(result.analysis || 'AI 分析未回傳有效結果。');
+            const result = await api.getAiAnalysis(symbol) as AiAnalysisPayload;
+            const text = extractAiText(result);
+            setAiResult(text || 'AI 分析未回傳有效結果。');
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);

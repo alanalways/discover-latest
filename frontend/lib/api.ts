@@ -35,6 +35,18 @@ interface Top20Response {
     us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
 }
 
+interface AiAnalysisResultPayload {
+    success?: boolean;
+    analysis?: string;
+    error?: string | null;
+    [key: string]: unknown;
+}
+
+interface AiAnalysisResponse {
+    analysis?: string | AiAnalysisResultPayload;
+    result?: AiAnalysisResultPayload | string;
+}
+
 export class ApiClient {
     private token: string | null = null;
 
@@ -116,8 +128,8 @@ export class ApiClient {
     }
 
     // ── Analysis ──
-    async getAiAnalysis(symbol: string, period: string = '1y') {
-        return this.fetch('/api/analysis/ai', {
+    async getAiAnalysis(symbol: string, period: string = '1y'): Promise<AiAnalysisResponse> {
+        return this.fetch<AiAnalysisResponse>('/api/analysis/ai', {
             method: 'POST',
             body: JSON.stringify({ symbol, period }),
         });

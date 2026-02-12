@@ -64,7 +64,26 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         result = await asyncio.to_thread(
             gemini_service.generate_analysis, req.symbol, stock_data, "", "", macro_data, "", tier
         )
-        return {"analysis": result}
+        # 統一回傳：analysis 一律字串，避免前端渲染物件造成 client-side exception
+        analysis_text = ""
+        if isinstance(result, dict):
+            raw_analysis = result.get("analysis", "")
+            if isinstance(raw_analysis, str):
+                analysis_text = raw_analysis.strip()
+            elif raw_analysis is not None:
+                analysis_text = str(raw_analysis)
+
+            if not analysis_text:
+                raw_error = result.get("error")
+                if isinstance(raw_error, str) and raw_error.strip():
+                    analysis_text = f"AI 分析失敗：{raw_error.strip()}"
+        elif result is not None:
+            analysis_text = str(result)
+
+        return {
+            "analysis": analysis_text,
+            "result": result,  # 保留原始結果給進階前端或偵錯
+        }
 
     except HTTPException:
         raise
