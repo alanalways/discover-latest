@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import {
@@ -49,6 +49,22 @@ interface MarketHours {
   time: string;
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } catch {
+    return fallback;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /* ── 元件 ── */
 export default function Dashboard() {
   const { user } = useAuth();
@@ -64,47 +80,52 @@ export default function Dashboard() {
   const [lastUpdate, setLastUpdate] = useState<string>('');
   const [error, setError] = useState('');
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     setError('');
 
-    // 超時控制 (25秒，考慮遠端環境網路延遲)
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('請求超時')), 25000)
-    );
+    const emptyTop20 = { gainers: [], losers: [], volume: [] };
+    const top20Fallback: Top20Response = { tw: emptyTop20, us: emptyTop20 };
+    const marketFallback: MarketOverviewResponse = { indices: [], etfs: [] };
 
     try {
-      const dataPromise = Promise.all([
-        api.getMarketOverview().catch(() => ({ indices: [], etfs: [] })),
-        api.getMarketTop20().catch(() => ({ tw: {}, us: {} })),
-        api.getMarketHours().catch(() => null),
+      // 非阻塞：Top20 與 market overview 同時啟動，但 UI 先渲染 overview
+      const top20Promise = withTimeout<Top20Response>(
+        api.getMarketTop20().catch(() => top20Fallback),
+        12000,
+        top20Fallback
+      );
+
+      const [marketRes, hoursRes] = await Promise.all([
+        withTimeout<MarketOverviewResponse>(
+          api.getMarketOverview().catch(() => marketFallback),
+          8000,
+          marketFallback
+        ),
+        withTimeout<{ tw: MarketHours; us: MarketHours } | null>(
+          api.getMarketHours().catch(() => null),
+          5000,
+          null
+        ),
       ]);
 
-      const raced = await Promise.race([dataPromise, timeoutPromise]);
-      const [marketRes, top20Res, hoursRes] = raced as [
-        MarketOverviewResponse,
-        Top20Response,
-        { tw: MarketHours; us: MarketHours } | null
-      ];
-
-      const market = marketRes;
-      setIndices(market.indices || []);
-      setEtfs(market.etfs || []);
-
-      const top20 = top20Res;
-      setTop20Tw(top20.tw || { gainers: [], losers: [], volume: [] });
-      setTop20Us(top20.us || { gainers: [], losers: [], volume: [] });
-
+      setIndices(marketRes.indices || []);
+      setEtfs(marketRes.etfs || []);
       if (hoursRes) setHours(hoursRes);
       setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
+
+      const top20Res = await top20Promise;
+      setTop20Tw(top20Res.tw || emptyTop20);
+      setTop20Us(top20Res.us || emptyTop20);
     } catch (err: unknown) {
       console.error('Dashboard fetch error:', err);
-      const msg = err instanceof Error ? err.message : '';
-      setError(msg === '請求超時' ? '載入超時，請重試' : '載入失敗');
+      setError('載入失敗，請稍後重試');
+      setTop20Tw(emptyTop20);
+      setTop20Us(emptyTop20);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -117,7 +138,7 @@ export default function Dashboard() {
     };
     const interval = setInterval(fetchData, refreshMs[tier] || refreshMs.free);
     return () => clearInterval(interval);
-  }, [user?.tier]);
+  }, [fetchData, user?.tier]);
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
 

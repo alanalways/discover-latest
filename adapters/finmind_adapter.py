@@ -12,7 +12,7 @@ import httpx
 import time
 import threading
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set, Tuple
 import asyncio
 
 
@@ -92,6 +92,8 @@ class FinMindAdapter:
         self._active_token_idx = 0
         self._available = True
         self._last_check: Optional[datetime] = None
+        self._token_cooldown_until: List[float] = [0.0, 0.0, 0.0]
+        self._dataset_cooldown_until: Dict[str, float] = {}
         # 多組 Rate Limiter（每組 600/hr，留 50 buffer）
         self.rate_limiters = [
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
@@ -104,34 +106,71 @@ class FinMindAdapter:
         """相容舊 API：回傳當前 active limiter"""
         return self.rate_limiters[self._active_token_idx]
 
-    def _get_token(self) -> str:
-        """取得 FinMind API Token（多 Token 自動切換）"""
-        # 載入所有 Token
+    def _load_tokens(self):
+        """載入環境變數中的 Token"""
         env_keys = ["FINMIND_TOKEN", "FINMIND_TOKEN_2", "FINMIND_TOKEN_3"]
         for i, key in enumerate(env_keys):
             if not self._tokens[i]:
                 self._tokens[i] = os.environ.get(key, "")
 
-        # 嘗試當前 token
-        current = self._tokens[self._active_token_idx]
-        if current and self.rate_limiters[self._active_token_idx].can_request():
-            return current
+    def _token_is_usable(self, idx: int) -> bool:
+        token = self._tokens[idx]
+        if not token:
+            return False
+        if time.time() < self._token_cooldown_until[idx]:
+            return False
+        if not self.rate_limiters[idx].can_request():
+            return False
+        return True
 
-        # 嘗試切換到其他有額度的 token
+    def _pick_token(self, exclude: Optional[Set[int]] = None) -> Tuple[str, int]:
+        """挑選可用 token，必要時自動切換"""
+        self._load_tokens()
+        exclude = exclude or set()
+        order = [self._active_token_idx] + [i for i in range(len(self._tokens)) if i != self._active_token_idx]
+
         old_idx = self._active_token_idx
-        for i in range(len(self._tokens)):
-            if i == old_idx:
+        for i in order:
+            if i in exclude:
                 continue
-            if self._tokens[i] and self.rate_limiters[i].can_request():
+            if self._token_is_usable(i):
                 self._active_token_idx = i
-                remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-                print(f"[FinMind] Token 切換 #{old_idx}→#{i}（剩餘 {'/'.join(remaining)}）")
-                return self._tokens[i]
+                if i != old_idx:
+                    remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
+                    print(f"[FinMind] Token 切換 #{old_idx}→#{i}（剩餘 {'/'.join(remaining)}）")
+                return self._tokens[i] or "", i
 
-        # 所有 token 都沒有可用額度
         remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
         print(f"[FinMind] 所有 Token 額度耗盡（剩餘 {'/'.join(remaining)}）")
-        return current or ""
+        return "", -1
+
+    def _mark_token_cooldown(self, idx: int, seconds: int, reason: str):
+        until = time.time() + seconds
+        self._token_cooldown_until[idx] = max(self._token_cooldown_until[idx], until)
+        print(f"[FinMind] Token #{idx} 暫停 {seconds}s（{reason}）")
+
+    def _is_dataset_cooling_down(self, dataset: str) -> bool:
+        if not dataset:
+            return False
+        until = self._dataset_cooldown_until.get(dataset, 0.0)
+        now = time.time()
+        if now < until:
+            return True
+        if until:
+            self._dataset_cooldown_until.pop(dataset, None)
+        return False
+
+    def _mark_dataset_cooldown(self, dataset: str, seconds: int, reason: str):
+        if not dataset:
+            return
+        until = time.time() + seconds
+        self._dataset_cooldown_until[dataset] = max(self._dataset_cooldown_until.get(dataset, 0.0), until)
+        print(f"[FinMind] Dataset {dataset} 暫停 {seconds}s（{reason}）")
+
+    def _get_token(self) -> str:
+        """取得 FinMind API Token（多 Token 自動切換）"""
+        token, _ = self._pick_token()
+        return token
 
     async def health_check(self) -> bool:
         """可用性偵測"""
@@ -159,6 +198,9 @@ class FinMindAdapter:
         """發送 API 請求（含快取 + 雙 Token 速率限制）"""
         # 快取檢查
         dataset = params.get("dataset", "")
+        if self._is_dataset_cooling_down(dataset):
+            return None
+
         data_id = params.get("data_id", "")
         start = params.get("start_date", "")
         ckey = _cache_key(dataset, data_id, start)
@@ -167,35 +209,53 @@ class FinMindAdapter:
             if cached is not None:
                 return cached
 
-        # Token + 速率限制
-        token = self._get_token()
-        if not token:
+        self._load_tokens()
+        total_tokens = len([t for t in self._tokens if t])
+        if total_tokens == 0:
             print("[FinMind] 無可用 Token")
             return None
 
-        limiter = self.rate_limiters[self._active_token_idx]
-        if not limiter.can_request():
-            r0 = self.rate_limiters[0].remaining
-            r1 = self.rate_limiters[1].remaining
-            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {r0}/{r1}），跳過")
-            return None
+        attempted: Set[int] = set()
+        for _ in range(total_tokens):
+            token, token_idx = self._pick_token(exclude=attempted)
+            if not token or token_idx < 0:
+                break
 
-        params["token"] = token
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.get(f"{self.BASE_URL}/data", params=params)
-                limiter.record()
-                resp.raise_for_status()
-                result = resp.json()
-                if result.get("status") == 200 and result.get("data"):
-                    self._available = True
-                    _set_cache(ckey, result["data"])  # 寫入快取
-                    return result["data"]
+            attempted.add(token_idx)
+            limiter = self.rate_limiters[token_idx]
+            req_params = dict(params)
+            req_params["token"] = token
+
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(f"{self.BASE_URL}/data", params=req_params)
+                    limiter.record()
+                    resp.raise_for_status()
+                    result = resp.json()
+                    if result.get("status") == 200 and result.get("data"):
+                        self._available = True
+                        _set_cache(ckey, result["data"])  # 寫入快取
+                        return result["data"]
+                    return None
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code if e.response else None
+                if status in (402, 429):
+                    cooldown = 900 if status == 402 else 120
+                    self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
+                    if status == 402 and dataset == "USStockPrice":
+                        self._mark_dataset_cooldown(dataset, 300, "付費限制或配額不足")
+                    continue
+                print(f"[FinMind] 請求失敗: HTTP {status}: {e}")
+                self._available = False
                 return None
-        except Exception as e:
-            print(f"[FinMind] 請求失敗: {type(e).__name__}: {e}")
-            self._available = False
-            return None
+            except Exception as e:
+                print(f"[FinMind] 請求失敗: {type(e).__name__}: {e}")
+                self._available = False
+                return None
+
+        if dataset == "USStockPrice":
+            self._mark_dataset_cooldown(dataset, 300, "所有 Token 暫時不可用")
+        return None
 
     # ===== 台股資料 =====
 
@@ -415,30 +475,53 @@ class FinMindAdapter:
 
     def _sync_request(self, params: Dict) -> Optional[List[Dict]]:
         """同步 API 請求（含速率限制 + 多 Token 自動切換）"""
-        # 先取 token（會自動切換到有額度的 token）
-        token = self._get_token()
-        if not token:
+        dataset = params.get("dataset", "")
+        if self._is_dataset_cooling_down(dataset):
+            return None
+
+        self._load_tokens()
+        total_tokens = len([t for t in self._tokens if t])
+        if total_tokens == 0:
             print("[FinMind] 無可用 Token")
             return None
-        # 用切換後的 limiter 檢查
-        limiter = self.rate_limiters[self._active_token_idx]
-        if not limiter.can_request():
-            remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
-            return None
-        params["token"] = token
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.get(f"{self.BASE_URL}/data", params=params)
-                limiter.record()
-                resp.raise_for_status()
-                result = resp.json()
-                if result.get("status") == 200 and result.get("data"):
-                    return result["data"]
+
+        attempted: Set[int] = set()
+        for _ in range(total_tokens):
+            token, token_idx = self._pick_token(exclude=attempted)
+            if not token or token_idx < 0:
+                break
+
+            attempted.add(token_idx)
+            limiter = self.rate_limiters[token_idx]
+            req_params = dict(params)
+            req_params["token"] = token
+
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.get(f"{self.BASE_URL}/data", params=req_params)
+                    limiter.record()
+                    resp.raise_for_status()
+                    result = resp.json()
+                    if result.get("status") == 200 and result.get("data"):
+                        return result["data"]
+                    return None
+            except httpx.HTTPStatusError as e:
+                status = e.response.status_code if e.response else None
+                if status in (402, 429):
+                    cooldown = 900 if status == 402 else 120
+                    self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
+                    if status == 402 and dataset == "USStockPrice":
+                        self._mark_dataset_cooldown(dataset, 300, "付費限制或配額不足")
+                    continue
+                print(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
                 return None
-        except Exception as e:
-            print(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
-            return None
+            except Exception as e:
+                print(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
+                return None
+
+        if dataset == "USStockPrice":
+            self._mark_dataset_cooldown(dataset, 300, "所有 Token 暫時不可用")
+        return None
 
     def get_tw_institutional_sync(
         self, symbol: str, start_date: str, end_date: str = None
