@@ -12,7 +12,7 @@ async def market_overview():
     """取得指數 + ETF 資料（台股 + 美股）"""
     try:
         from pages.market_overview import _fetch_market_data
-        data = _fetch_market_data()
+        data = await _fetch_market_data()
         return {
             "indices": data.get("indices", []),
             "etfs": data.get("etfs", []),

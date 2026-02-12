@@ -57,9 +57,9 @@ export default function Dashboard() {
     setLoading(true);
     setError('');
 
-    // 超時控制 (10秒)
+    // 超時控制 (25秒，考慮遠端環境網路延遲)
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('請求超時')), 10000)
+      setTimeout(() => reject(new Error('請求超時')), 25000)
     );
 
     try {

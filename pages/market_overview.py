@@ -76,26 +76,45 @@ _FALLBACK_ETFS = [
 
 
 # ──────────────────────────────────────
-# Helper: 執行 async 函式（同步呼叫用）
+# 台股名稱映射
 # ──────────────────────────────────────
-def _run_async(coro):
-    """安全地在同步環境執行 async coroutine"""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                return pool.submit(asyncio.run, coro).result(timeout=15)
-        else:
-            return loop.run_until_complete(coro)
-    except Exception:
-        return asyncio.run(coro)
+_TW_STOCK_NAMES = {
+    "2330": "台積電", "2454": "聯發科", "2317": "鴻海", "2382": "廣達",
+    "3034": "聯詠", "2308": "台達電", "2303": "聯電", "2881": "富邦金",
+    "2882": "國泰金", "2884": "玉山金", "2886": "兆豐金", "2891": "中信金",
+    "2412": "中華電", "1301": "台塑", "1303": "南亞", "2002": "中鋼",
+    "3231": "緯創", "2357": "華碩", "3711": "日月光投控", "6446": "藥華藥",
+    "2379": "瑞昱", "2356": "英業達", "3045": "台灣大", "4904": "遠傳",
+    "00878": "國泰永續高股息", "0050": "元大台灣50", "0056": "元大高股息",
+    "3661": "世芯-KY", "2345": "智邦", "5274": "信驊", "2327": "國巨",
+    "3443": "創意", "2603": "長榮", "2609": "陽明", "1216": "統一",
+    "2912": "統一超", "8069": "元太", "3037": "欣興", "6547": "高端疫苗",
+    "2474": "可成",
+}
+
+_US_STOCK_NAMES = {
+    "AAPL": "Apple", "MSFT": "Microsoft", "GOOGL": "Alphabet",
+    "AMZN": "Amazon", "NVDA": "NVIDIA", "META": "Meta",
+    "TSLA": "Tesla", "TSM": "台積電ADR", "AVGO": "Broadcom",
+    "NFLX": "Netflix", "AMD": "AMD", "INTC": "Intel",
+    "QCOM": "Qualcomm", "ADBE": "Adobe", "CRM": "Salesforce",
+    "ORCL": "Oracle", "CSCO": "Cisco", "IBM": "IBM",
+    "TXN": "TI", "NOW": "ServiceNow", "BABA": "Alibaba",
+    "JD": "JD.com", "BIDU": "Baidu", "PDD": "PDD",
+    "BRK.B": "Berkshire B", "JPM": "JPMorgan", "V": "Visa",
+    "MA": "Mastercard", "BAC": "BofA", "WFC": "Wells Fargo",
+    "GS": "Goldman Sachs", "MS": "Morgan Stanley",
+    "AXP": "AmEx", "PYPL": "PayPal", "UBER": "Uber",
+    "ABNB": "Airbnb", "PLTR": "Palantir", "COIN": "Coinbase",
+    "SOFI": "SoFi", "RIVN": "Rivian", "ARM": "Arm",
+    "SMCI": "Super Micro", "MU": "Micron",
+}
 
 
 # ──────────────────────────────────────
 # Batch fetcher — Stooq (指數/美股ETF) + FinMind (台股ETF)
 # ──────────────────────────────────────
-def _fetch_market_data() -> Dict[str, list]:
+async def _fetch_market_data() -> Dict[str, list]:
     """Fetch all indices + ETFs. First load uses fallback for instant startup."""
     global _market_cache, _first_load
     now = time.time()
@@ -147,54 +166,74 @@ def _fetch_market_data() -> Dict[str, list]:
     except Exception as e:
         print(f"[Market] FinMind ETF batch error: {e}")
 
-    # ── 指數 + 美股 ETF：Stooq ──
+    # ── 指數 + 美股 ETF：Stooq（直接 await，不走 _run_async）──
     try:
         from adapters.stooq_adapter import stooq_adapter
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=7)
 
-        # 指數
-        for sym, meta in _INDEX_TICKERS.items():
+        # 指數：平行 await 所有指數
+        async def _fetch_index(sym, meta):
             try:
                 stooq_sym = meta["stooq"]
-                data = _run_async(stooq_adapter.get_index_history(stooq_sym, start_dt, end_dt))
+                data = await asyncio.wait_for(
+                    stooq_adapter.get_index_history(stooq_sym, start_dt, end_dt),
+                    timeout=10
+                )
                 if data and len(data) >= 2:
                     last = data[-1]["close"]
                     prev = data[-2]["close"]
                     chg = last - prev
                     pct = (chg / prev * 100) if prev != 0 else 0.0
-                    indices.append({
+                    return {
                         "name": meta["name"],
                         "symbol": meta["display"],
                         "value": f"{last:,.2f}",
                         "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
                         "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
                         "color": "green" if chg >= 0 else "red",
-                    })
+                    }
             except Exception as e:
                 print(f"[Market] Stooq index {sym}: {e}")
+            return None
 
-        # 美股 ETF
-        for sym, meta in _ETF_TICKERS.items():
-            if meta["type"] != "us":
-                continue
+        async def _fetch_etf(sym, meta):
             try:
-                data = _run_async(stooq_adapter.get_stock_history(sym, start_dt, end_dt))
+                data = await asyncio.wait_for(
+                    stooq_adapter.get_stock_history(sym, start_dt, end_dt),
+                    timeout=10
+                )
                 if data and len(data) >= 2:
                     last = data[-1]["close"]
                     prev = data[-2]["close"]
                     chg = last - prev
                     pct = (chg / prev * 100) if prev != 0 else 0.0
-                    etfs.append({
+                    return {
                         "name": meta["name"],
                         "symbol": meta["display"],
                         "value": f"{last:,.2f}",
                         "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
                         "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
                         "color": "green" if chg >= 0 else "red",
-                    })
+                    }
             except Exception as e:
                 print(f"[Market] Stooq ETF {sym}: {e}")
+            return None
+
+        # 平行取指數
+        index_tasks = [_fetch_index(sym, meta) for sym, meta in _INDEX_TICKERS.items()]
+        index_results = await asyncio.gather(*index_tasks, return_exceptions=True)
+        for r in index_results:
+            if r and not isinstance(r, Exception):
+                indices.append(r)
+
+        # 平行取美股 ETF
+        us_etf_items = [(sym, meta) for sym, meta in _ETF_TICKERS.items() if meta["type"] == "us"]
+        etf_tasks = [_fetch_etf(sym, meta) for sym, meta in us_etf_items]
+        etf_results = await asyncio.gather(*etf_tasks, return_exceptions=True)
+        for r in etf_results:
+            if r and not isinstance(r, Exception):
+                etfs.append(r)
     except Exception as e:
         print(f"[Market] Stooq batch error: {e}")
 
@@ -253,7 +292,7 @@ def _fetch_top20_data() -> Dict:
                     pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
                     tw_data.append({
                         "symbol": sym,
-                        "name": sym,
+                        "name": _TW_STOCK_NAMES.get(sym, sym),
                         "price": price,
                         "change": chg,
                         "change_pct": pct,
@@ -283,7 +322,7 @@ def _fetch_top20_data() -> Dict:
                     pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
                     us_data.append({
                         "symbol": sym,
-                        "name": sym,
+                        "name": _US_STOCK_NAMES.get(sym, sym),
                         "price": price,
                         "change": chg,
                         "change_pct": pct,
