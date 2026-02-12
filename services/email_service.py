@@ -13,6 +13,8 @@ import os
 import time
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
+import smtplib
+from email.message import EmailMessage
 
 import httpx
 
@@ -77,6 +79,30 @@ class EmailService:
     def _mail_from() -> str:
         # Resend default sender works without custom domain verification.
         return os.environ.get("UPGRADE_FROM_EMAIL", "DiscoverLatest <onboarding@resend.dev>")
+
+    @staticmethod
+    def _smtp_host() -> str:
+        return (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
+
+    @staticmethod
+    def _smtp_port() -> int:
+        raw = (os.environ.get("SMTP_PORT") or "587").strip()
+        try:
+            return int(raw)
+        except Exception:
+            return 587
+
+    @staticmethod
+    def _smtp_user() -> str:
+        return (os.environ.get("SMTP_USER") or "").strip()
+
+    @staticmethod
+    def _smtp_pass() -> str:
+        return (os.environ.get("SMTP_PASS") or "").strip()
+
+    @staticmethod
+    def _smtp_from() -> str:
+        return (os.environ.get("SMTP_FROM") or "").strip()
 
     @staticmethod
     def _gas_webhook_url() -> str:
@@ -171,6 +197,57 @@ class EmailService:
         except Exception as e:
             return {"success": False, "message": f"GAS webhook 呼叫失敗: {e}"}
 
+    def _send_via_smtp(
+        self,
+        *,
+        request_id: str,
+        user_email: str,
+        user_name: str,
+        plan: str,
+        billing_cycle: str,
+    ) -> Dict[str, Any]:
+        smtp_user = self._smtp_user()
+        smtp_pass = self._smtp_pass()
+        if not smtp_user or not smtp_pass:
+            return {"success": False, "message": "未設定 SMTP_USER/SMTP_PASS"}
+
+        admin_email = (PAYMENT_INFO.get("admin_email") or "").strip()
+        if not admin_email:
+            return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定"}
+
+        subject = f"[Upgrade Request] {PRICING[plan]['name']} / {user_email} / {request_id}"
+        html = self._build_admin_email_html(
+            request_id=request_id,
+            user_email=user_email,
+            user_name=user_name,
+            plan=plan,
+            billing_cycle=billing_cycle,
+        )
+
+        from_addr = self._smtp_from() or smtp_user
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = from_addr
+        msg["To"] = admin_email
+        msg["Reply-To"] = user_email
+        msg.set_content(
+            f"使用者 {user_name} ({user_email}) 申請升級 {PRICING[plan]['name']}。"
+            f"\n申請單號：{request_id}"
+        )
+        msg.add_alternative(html, subtype="html")
+
+        try:
+            with smtplib.SMTP(self._smtp_host(), self._smtp_port(), timeout=20) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.send_message(msg)
+            return {
+                "success": True,
+                "message": "已通知管理員，請等待人工審核（約 1-5 個工作天）",
+            }
+        except Exception as e:
+            return {"success": False, "message": f"SMTP 寄信失敗: {e}"}
+
     def send_upgrade_request(
         self,
         *,
@@ -188,7 +265,22 @@ class EmailService:
         if not admin_email:
             return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定", "order_id": rid}
 
-        # 優先走 GAS webhook（免網域，設定較簡單）
+        # 1) 優先走 SMTP（Gmail App Password，不需付費）
+        smtp_result = self._send_via_smtp(
+            request_id=rid,
+            user_email=user_email,
+            user_name=user_name,
+            plan=plan,
+            billing_cycle=billing_cycle,
+        )
+        if smtp_result.get("success"):
+            return {
+                "success": True,
+                "message": smtp_result.get("message", "已通知管理員，請等待人工審核"),
+                "order_id": rid,
+            }
+
+        # 2) 次選走 GAS webhook
         gas_result = self._send_via_gas_webhook(
             request_id=rid,
             user_email=user_email,
@@ -203,11 +295,16 @@ class EmailService:
                 "order_id": rid,
             }
 
+        # 3) 最後 fallback：Resend
         resend_key = self._get_resend_key()
         if not resend_key:
             return {
                 "success": False,
-                "message": f"{gas_result.get('message', 'GAS 通知失敗')}；且缺少 RESEND_API_KEY",
+                "message": (
+                    f"{smtp_result.get('message', 'SMTP 通知失敗')}；"
+                    f"{gas_result.get('message', 'GAS 通知失敗')}；"
+                    "且缺少 RESEND_API_KEY"
+                ),
                 "order_id": rid,
             }
 
