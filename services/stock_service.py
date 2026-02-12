@@ -7,8 +7,7 @@ from typing import Optional, List, Dict, Any
 import asyncio
 
 from adapters import (
-    supabase, twse_adapter, tpex_adapter, 
-    yahoo_adapter, stooq_adapter, fx_adapter,
+    supabase, fx_adapter,
     finmind_adapter, ndc_adapter
 )
 
@@ -143,7 +142,7 @@ class StockService:
         return "US"
     
     async def _get_stock_info(self, symbol: str, market: str) -> Optional[Dict]:
-        """取得股票基本資訊（台股優先 FinMind，再 fallback Yahoo）"""
+        """取得股票基本資訊（僅使用 FinMind，失敗時回傳最小資訊）"""
         if market in ["TWSE", "TPEX"]:
             try:
                 fm_list = await finmind_adapter.get_tw_stock_info(symbol)
@@ -155,12 +154,39 @@ class StockService:
                         "name": info.get("name"),
                         "industry": info.get("industry"),
                         "market": market,
-                        "type": info.get("type", "stock"),
+                            "type": info.get("type", "stock"),
                     }
             except Exception as e:
                 print(f"[StockInfo] FinMind 失敗 ({symbol}): {e}")
-            return await yahoo_adapter.get_stock_info(symbol, market)
-        return await yahoo_adapter.get_stock_info(symbol, "US")
+            return {
+                "symbol": symbol,
+                "name": symbol,
+                "industry": "",
+                "market": market,
+                "type": "stock",
+            }
+
+        # 美股：走 FinMind USStockInfo，同步包裝成 async
+        try:
+            us_info = await asyncio.to_thread(finmind_adapter.get_us_stock_info_sync, symbol)
+            if us_info:
+                info = us_info[0]
+                return {
+                    "symbol": info.get("stock_id") or symbol,
+                    "name": info.get("stock_name") or symbol,
+                    "industry": info.get("industry") or "",
+                    "market": "US",
+                    "type": "stock",
+                }
+        except Exception as e:
+            print(f"[StockInfo] FinMind US 失敗 ({symbol}): {e}")
+        return {
+            "symbol": symbol,
+            "name": symbol,
+            "industry": "",
+            "market": "US",
+            "type": "stock",
+        }
     
     async def _get_stock_history(
         self, 
@@ -197,15 +223,8 @@ class StockService:
         except:
             pass
         
-        # Fallback: 從其他 API 取得
-        if market == "TWSE":
-            print(f"[DataSource] fallback TWSE adapter: {symbol}")
-            return await twse_adapter.get_stock_history(symbol, end_date - timedelta(days=365), end_date)
-        elif market == "TPEX":
-            print(f"[DataSource] fallback TPEX adapter: {symbol}")
-            return await tpex_adapter.get_stock_history(symbol, end_date - timedelta(days=365), end_date)
-        else:
-            return await yahoo_adapter.get_stock_history(symbol, "US", period)
+        # 不再使用其他外部來源（維持 FinMind-only）
+        return []
     
     async def search_symbols(self, query: str, limit: int = 20) -> List[Dict]:
         """搜尋股票代號（台股先 FinMind，再 DB，再 Yahoo）"""
@@ -240,42 +259,6 @@ class StockService:
                         results.append(d)
         except Exception as e:
             print(f"[StockService] DB 搜尋失敗: {e}")
-
-        # Yahoo 補充
-        if len(results) < limit:
-            try:
-                yahoo_results = await yahoo_adapter.search_symbols(query_stripped, limit - len(results))
-                existing = {r["symbol"] for r in results}
-                for y in yahoo_results:
-                    if y.get("symbol") not in existing:
-                        results.append(y)
-            except Exception as e:
-                print(f"[StockService] Yahoo 搜尋失敗: {e}")
-
-        # 強制檢查 4 碼代號 (針對 FinMind 遺漏的上櫃股票，如 8048)
-        if len(results) == 0 and len(query_stripped) == 4 and query_stripped.isdigit():
-            try:
-                # 嘗試 TPEX
-                tpex_info = await tpex_adapter.get_stock_info(query_stripped)
-                if tpex_info:
-                    results.append({
-                        "symbol": query_stripped,
-                        "name": tpex_info.get("name", query_stripped),
-                        "market": "TPEX",
-                        "type": "stock"
-                    })
-                else:
-                    # 嘗試 TWSE
-                    twse_info = await twse_adapter.get_stock_info(query_stripped)
-                    if twse_info:
-                        results.append({
-                            "symbol": query_stripped,
-                            "name": twse_info.get("name", query_stripped),
-                            "market": "TWSE",
-                            "type": "stock"
-                        })
-            except Exception as e:
-                print(f"[StockService] Fallback 搜尋失敗 ({query_stripped}): {e}")
 
         return results[:limit]
 
@@ -339,39 +322,51 @@ class StockService:
         return result
     
     async def get_market_indices(self) -> Dict[str, List[Dict]]:
-        """取得市場指數"""
-        indices = {
+        """取得市場指數（FinMind proxy）"""
+        proxies = {
             "TW": [
-                {"symbol": "^TWII", "name": "加權指數"},
-                {"symbol": "^TWOII", "name": "櫃買指數"},
+                {"symbol": "TAIEX", "name": "加權指數", "proxy": "0050", "market": "TW"},
             ],
             "US": [
-                {"symbol": "^DJI", "name": "道瓊工業"},
-                {"symbol": "^GSPC", "name": "S&P 500"},
-                {"symbol": "^IXIC", "name": "納斯達克"},
-            ]
+                {"symbol": "DJI", "name": "道瓊工業", "proxy": "DIA", "market": "US"},
+                {"symbol": "SPX", "name": "S&P 500", "proxy": "SPY", "market": "US"},
+                {"symbol": "IXIC", "name": "納斯達克", "proxy": "QQQ", "market": "US"},
+            ],
         }
-        
         results = {"TW": [], "US": []}
-        
-        for market, index_list in indices.items():
-            for index in index_list:
+        start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        end = datetime.now().strftime("%Y-%m-%d")
+
+        for market, items in proxies.items():
+            for item in items:
                 try:
-                    quote = await yahoo_adapter.get_realtime_quote(index["symbol"], "US")
-                    if quote:
+                    if item["market"] == "TW":
+                        rows = await asyncio.to_thread(finmind_adapter.get_tw_stock_price_sync, item["proxy"], start, end)
+                    else:
+                        rows = await asyncio.to_thread(finmind_adapter.get_us_stock_price_sync, item["proxy"], start, end)
+                    if rows and len(rows) >= 2:
+                        last_row = rows[-1]
+                        prev_row = rows[-2]
+                        price = float(last_row.get("close", 0))
+                        prev = float(prev_row.get("close", 0))
+                        change = price - prev
+                        change_pct = (change / prev * 100) if prev else 0.0
                         results[market].append({
-                            **index,
-                            "price": quote.get("price"),
-                            "change": quote.get("change"),
-                            "change_percent": quote.get("change_percent")
+                            "symbol": item["symbol"],
+                            "name": item["name"],
+                            "price": price,
+                            "change": change,
+                            "change_percent": change_pct,
                         })
-                except:
-                    results[market].append(index)
-        
+                        continue
+                except Exception:
+                    pass
+                results[market].append({"symbol": item["symbol"], "name": item["name"]})
+
         return results
     
     async def get_popular_etfs(self) -> List[Dict]:
-        """取得熱門 ETF"""
+        """取得熱門 ETF（FinMind only）"""
         etfs = [
             {"symbol": "0050", "name": "台灣50", "market": "TWSE"},
             {"symbol": "0056", "name": "高股息", "market": "TWSE"},
@@ -382,15 +377,26 @@ class StockService:
         ]
         
         results = []
+        start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        end = datetime.now().strftime("%Y-%m-%d")
         for etf in etfs:
             try:
-                quote = await yahoo_adapter.get_realtime_quote(etf["symbol"], etf["market"])
-                if quote:
+                if etf["market"] == "US":
+                    rows = await asyncio.to_thread(finmind_adapter.get_us_stock_price_sync, etf["symbol"], start, end)
+                else:
+                    rows = await asyncio.to_thread(finmind_adapter.get_tw_stock_price_sync, etf["symbol"], start, end)
+                if rows and len(rows) >= 2:
+                    last_row = rows[-1]
+                    prev_row = rows[-2]
+                    price = float(last_row.get("close", 0))
+                    prev = float(prev_row.get("close", 0))
+                    change = price - prev
+                    change_percent = (change / prev * 100) if prev else 0.0
                     results.append({
                         **etf,
-                        "price": quote.get("price"),
-                        "change": quote.get("change"),
-                        "change_percent": quote.get("change_percent")
+                        "price": price,
+                        "change": change,
+                        "change_percent": change_percent,
                     })
                 else:
                     results.append(etf)
@@ -415,29 +421,37 @@ class StockService:
             {"success": n, "failed": m}
         """
         if symbols is None:
-            # 取得全部代號
+            stocks = await asyncio.to_thread(finmind_adapter.get_tw_stock_info_all_sync)
             if market == "TWSE":
-                stocks = await twse_adapter.get_all_stocks_list()
+                stocks = [s for s in stocks if s.get("market") == "TWSE"]
             elif market == "TPEX":
-                stocks = await tpex_adapter.get_all_stocks_list()
+                stocks = [s for s in stocks if s.get("market") == "TPEX"]
             else:
                 stocks = []
-            symbols = [s["symbol"] for s in stocks]
+            symbols = [s.get("symbol") for s in stocks if s.get("symbol")]
         
         success = 0
         failed = 0
+        end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         
         for symbol in symbols:
             try:
-                # 取得最新資料
-                if market == "TWSE":
-                    quote = await twse_adapter.get_daily_quote(symbol)
-                elif market == "TPEX":
-                    quote = await tpex_adapter.get_daily_quote(symbol)
+                # 取得最新資料（FinMind）
+                if market in ("TWSE", "TPEX"):
+                    rows = await asyncio.to_thread(finmind_adapter.get_tw_stock_price_sync, symbol, start_date, end_date)
                 else:
-                    quote = await yahoo_adapter.get_realtime_quote(symbol, market)
-                
-                if quote:
+                    rows = await asyncio.to_thread(finmind_adapter.get_us_stock_price_sync, symbol, start_date, end_date)
+                if rows:
+                    latest = rows[-1]
+                    quote = {
+                        "date": latest.get("date"),
+                        "open": latest.get("open"),
+                        "high": latest.get("high"),
+                        "low": latest.get("low"),
+                        "close": latest.get("close"),
+                        "volume": latest.get("volume"),
+                    }
                     # 寫入資料庫
                     await supabase.upsert_stock_data(symbol, quote)
                     success += 1
@@ -460,10 +474,11 @@ class StockService:
         Returns:
             新增/更新的代號數量
         """
+        stocks = await asyncio.to_thread(finmind_adapter.get_tw_stock_info_all_sync)
         if market == "TWSE":
-            stocks = await twse_adapter.get_all_stocks_list()
+            stocks = [s for s in stocks if s.get("market") == "TWSE"]
         elif market == "TPEX":
-            stocks = await tpex_adapter.get_all_stocks_list()
+            stocks = [s for s in stocks if s.get("market") == "TPEX"]
         else:
             return 0
         
@@ -471,8 +486,8 @@ class StockService:
         for stock in stocks:
             try:
                 await supabase.get_client().from_("symbol_index").upsert({
-                    "symbol": stock["symbol"],
-                    "name": stock["name"],
+                    "symbol": stock.get("symbol"),
+                    "name": stock.get("name"),
                     "market": market,
                     "type": stock.get("type", "stock"),
                     "updated_at": datetime.now().isoformat()

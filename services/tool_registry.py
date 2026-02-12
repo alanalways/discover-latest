@@ -49,35 +49,7 @@ class ToolRegistry:
         except Exception:
             pass
 
-        try:
-            from adapters.twse_adapter import twse_adapter
-            self._tools["twse"] = Tool(
-                name="twse",
-                description="上市股票即時報價、指數",
-                adapter=twse_adapter,
-                methods={
-                    "daily_quote": "get_daily_quote",
-                    "index": "get_index_daily",
-                },
-            )
-        except Exception:
-            pass
-
-        try:
-            from adapters.tpex_adapter import tpex_adapter
-            self._tools["tpex"] = Tool(
-                name="tpex",
-                description="上櫃股票即時報價、指數",
-                adapter=tpex_adapter,
-                methods={
-                    "daily_quote": "get_daily_quote",
-                    "index": "get_index_daily",
-                },
-            )
-        except Exception:
-            pass
-
-        # yahoo/yfinance 已移除，美股改用 FinMind
+        # 非 FinMind 資料來源已移除
 
         try:
             from services.gemini_service import gemini_service
@@ -103,32 +75,19 @@ class ToolRegistry:
     def select_tools(self, symbol: str, query_type: str = "analysis") -> List[str]:
         """智能工具選擇"""
         self._lazy_init()
-        is_tw = symbol.isdigit() and len(symbol) >= 4
         tools = []
 
         if query_type == "analysis":
-            if is_tw:
-                if "finmind" in self._tools:
-                    tools.append("finmind")
-                if "twse" in self._tools:
-                    tools.append("twse")
-            else:
-                if "yahoo" in self._tools:
-                    tools.append("yahoo")
+            if "finmind" in self._tools:
+                tools.append("finmind")
             if "gemini" in self._tools:
                 tools.append("gemini")
         elif query_type == "market":
-            if "twse" in self._tools:
-                tools.append("twse")
-            if "tpex" in self._tools:
-                tools.append("tpex")
-            if "yahoo" in self._tools:
-                tools.append("yahoo")
-        elif query_type == "backtest":
-            if is_tw and "finmind" in self._tools:
+            if "finmind" in self._tools:
                 tools.append("finmind")
-            elif "yahoo" in self._tools:
-                tools.append("yahoo")
+        elif query_type == "backtest":
+            if "finmind" in self._tools:
+                tools.append("finmind")
 
         return tools
 

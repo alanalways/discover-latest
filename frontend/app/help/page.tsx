@@ -35,7 +35,7 @@ const FAQ_ITEMS = [
     },
     {
         q: '資料來源是什麼？',
-        a: '台股資料主要來自 FinMind API（含股價、法人買賣、PER/PBR）。美股資料來自 Stooq 和 FinMind。景氣燈號來自國發會 NDC。',
+        a: '台股與美股資料皆來自 FinMind API（含股價、法人買賣、PER/PBR 等）。景氣燈號來自國發會 NDC。',
     },
 ];
 

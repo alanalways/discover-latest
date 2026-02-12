@@ -1,6 +1,7 @@
 
 import requests
 import json
+import time
 from datetime import datetime
 from typing import List, Dict, Optional
 
@@ -9,13 +10,28 @@ class NDCAdapter:
     
     LIGHTSCORE_URL = 'https://index.ndc.gov.tw/n/json/lightscore'
 
+    def __init__(self):
+        self._cache: List[Dict] = []
+        self._cache_ts: float = 0.0
+        self._ttl_seconds = 6 * 3600  # 6 小時
+
     def get_business_cycle_score(self) -> List[Dict]:
         """
         取得台灣景氣對策信號分數
         回傳欄位: date (YYYYMM), score, light (藍/黃藍/綠/黃紅/紅)
         """
+        now = time.time()
+        if self._cache and (now - self._cache_ts) < self._ttl_seconds:
+            return self._cache
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Referer": "https://index.ndc.gov.tw/",
+            "Origin": "https://index.ndc.gov.tw",
+        }
         try:
-            res = requests.post(self.LIGHTSCORE_URL, timeout=10)
+            res = requests.get(self.LIGHTSCORE_URL, headers=headers, timeout=12)
             res.raise_for_status()
             data = json.loads(res.text)
             
@@ -48,10 +64,15 @@ class NDCAdapter:
                 
             # 排序：舊 -> 新
             result.sort(key=lambda x: x['date'])
+            if result:
+                self._cache = result
+                self._cache_ts = now
             return result
             
         except Exception as e:
             print(f"[NDC] 取得景氣燈號失敗: {e}")
+            if self._cache:
+                return self._cache
             return []
 
     def get_latest_light(self) -> Optional[Dict]:

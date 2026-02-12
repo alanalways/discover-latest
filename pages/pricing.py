@@ -33,8 +33,8 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
         {
             "id": "pro",
             "name": "Pro",
-            "price_monthly": 99,
-            "price_yearly": 980,
+            "price_monthly": 198,
+            "price_yearly": 1980,
             "features": [
                 ("AI 分析次數", "20 次/日"),
                 ("AI 追問功能", "3 輪/次"),
@@ -51,8 +51,8 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
         {
             "id": "premium",
             "name": "Premium",
-            "price_monthly": 599,
-            "price_yearly": 5900,
+            "price_monthly": 1088,
+            "price_yearly": 10880,
             "features": [
                 ("AI 分析次數", "200 次/日"),
                 ("AI 追問功能", "10 輪/次"),
@@ -142,7 +142,7 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
             
             <div class="faq-item">
                 <h3>付款後多久開通？</h3>
-                <p>付款完成後請回覆確認信件並附上轉帳明細，我們將於 24 小時內為您開通服務。</p>
+                <p>付款完成後請回覆確認信件並附上匯款截圖，我們將於 1-5 個工作天內人工審核開通。</p>
             </div>
             
             <div class="faq-item">
@@ -157,7 +157,7 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
         </div>
         
         <div class="pricing-footer">
-            <p>有任何問題？請聯繫 <a href="mailto:cmshj3026@gmail.com">cmshj3026@gmail.com</a></p>
+            <p>有任何問題？請聯繫 <a href="mailto:cmshj30326@gmail.com">cmshj30326@gmail.com</a></p>
         </div>
     </div>
     

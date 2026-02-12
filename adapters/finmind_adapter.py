@@ -172,6 +172,13 @@ class FinMindAdapter:
         token, _ = self._pick_token()
         return token
 
+    @staticmethod
+    def _normalize_start_date(start_date: Optional[str], fallback_days: int = 365) -> str:
+        """防呆：避免送出空 start_date 造成 FinMind 400"""
+        if isinstance(start_date, str) and start_date.strip():
+            return start_date.strip()
+        return (datetime.now() - timedelta(days=fallback_days)).strftime("%Y-%m-%d")
+
     async def health_check(self) -> bool:
         """可用性偵測"""
         try:
@@ -224,6 +231,8 @@ class FinMindAdapter:
             attempted.add(token_idx)
             limiter = self.rate_limiters[token_idx]
             req_params = dict(params)
+            if "start_date" in req_params:
+                req_params["start_date"] = self._normalize_start_date(req_params.get("start_date"))
             req_params["token"] = token
 
             try:
@@ -242,8 +251,9 @@ class FinMindAdapter:
                 if status in (402, 429):
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
-                    if status == 402 and dataset == "USStockPrice":
-                        self._mark_dataset_cooldown(dataset, 300, "付費限制或配額不足")
+                    if status == 402:
+                        dataset_cooldown = 300 if dataset == "USStockPrice" else 120
+                        self._mark_dataset_cooldown(dataset, dataset_cooldown, "付費限制或配額不足")
                     continue
                 print(f"[FinMind] 請求失敗: HTTP {status}: {e}")
                 self._available = False
@@ -348,6 +358,7 @@ class FinMindAdapter:
         """取得台股 PER / PBR / 殖利率 (TaiwanStockPER)"""
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = self._normalize_start_date(start_date, fallback_days=365)
         data = await self._request({
             "dataset": "TaiwanStockPER",
             "data_id": symbol,
@@ -494,6 +505,8 @@ class FinMindAdapter:
             attempted.add(token_idx)
             limiter = self.rate_limiters[token_idx]
             req_params = dict(params)
+            if "start_date" in req_params:
+                req_params["start_date"] = self._normalize_start_date(req_params.get("start_date"))
             req_params["token"] = token
 
             try:
@@ -510,8 +523,9 @@ class FinMindAdapter:
                 if status in (402, 429):
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
-                    if status == 402 and dataset == "USStockPrice":
-                        self._mark_dataset_cooldown(dataset, 300, "付費限制或配額不足")
+                    if status == 402:
+                        dataset_cooldown = 300 if dataset == "USStockPrice" else 120
+                        self._mark_dataset_cooldown(dataset, dataset_cooldown, "付費限制或配額不足")
                     continue
                 print(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
                 return None
@@ -571,6 +585,7 @@ class FinMindAdapter:
         """同步：PER/PBR/殖利率"""
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = self._normalize_start_date(start_date, fallback_days=365)
         data = self._sync_request({
             "dataset": "TaiwanStockPER",
             "data_id": symbol,
@@ -767,6 +782,7 @@ class FinMindAdapter:
         """取得台股市值 (TaiwanStockMarketValue)"""
         if end_date is None:
             end_date = datetime.now().strftime("%Y-%m-%d")
+        start_date = self._normalize_start_date(start_date, fallback_days=365)
         data = await self._request({
             "dataset": "TaiwanStockMarketValue",
             "data_id": symbol,

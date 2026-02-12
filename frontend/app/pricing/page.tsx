@@ -6,11 +6,13 @@ import styles from './page.module.css';
 import api, { ApiError } from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
 
+const USDT_TWD_RATE = Number(process.env.NEXT_PUBLIC_USDT_TWD_RATE || 32);
+
 const PLANS = [
     {
         id: 'free',
         name: '免費版',
-        price: 'NT$ 0',
+        priceNtd: 0,
         period: '永久免費',
         icon: <Star size={24} />,
         color: 'var(--text-2)',
@@ -27,7 +29,7 @@ const PLANS = [
     {
         id: 'pro',
         name: 'Pro',
-        price: 'NT$ 299',
+        priceNtd: 198,
         period: '/月',
         icon: <Gem size={24} />,
         color: 'var(--accent)',
@@ -47,7 +49,7 @@ const PLANS = [
     {
         id: 'premium',
         name: 'Premium',
-        price: 'NT$ 799',
+        priceNtd: 1088,
         period: '/月',
         icon: <Crown size={24} />,
         color: 'var(--primary)',
@@ -69,6 +71,7 @@ const PLANS = [
 export default function PricingPage() {
     const { isLoggedIn, setShowLoginModal } = useAuth();
     const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+    const [currency, setCurrency] = useState<'NTD' | 'USDT'>('NTD');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
@@ -104,6 +107,22 @@ export default function PricingPage() {
             <div className={styles.header}>
                 <h2 className={styles.title}>會員方案</h2>
                 <p className={styles.subtitle}>選擇適合你的方案，解鎖完整 AI 投資分析功能</p>
+                <div className={styles.currencyToggle}>
+                    <button
+                        type="button"
+                        className={`${styles.toggleBtn} ${currency === 'NTD' ? styles.toggleBtnActive : ''}`}
+                        onClick={() => setCurrency('NTD')}
+                    >
+                        NTD
+                    </button>
+                    <button
+                        type="button"
+                        className={`${styles.toggleBtn} ${currency === 'USDT' ? styles.toggleBtnActive : ''}`}
+                        onClick={() => setCurrency('USDT')}
+                    >
+                        USDT
+                    </button>
+                </div>
                 {success && <p className={styles.feedbackSuccess}>{success}</p>}
                 {error && <p className={styles.feedbackError}>{error}</p>}
             </div>
@@ -120,9 +139,22 @@ export default function PricingPage() {
                         </div>
                         <h3 className={styles.planName}>{plan.name}</h3>
                         <div className={styles.planPrice}>
-                            <span className={styles.priceAmount}>{plan.price}</span>
+                            <span className={styles.priceAmount}>
+                                {plan.priceNtd === 0
+                                    ? 'NT$ 0'
+                                    : currency === 'NTD'
+                                        ? `NT$ ${plan.priceNtd.toLocaleString()}`
+                                        : `USDT ${(plan.priceNtd / USDT_TWD_RATE).toFixed(2)}`}
+                            </span>
                             <span className={styles.pricePeriod}>{plan.period}</span>
                         </div>
+                        {plan.priceNtd > 0 && (
+                            <p className={styles.priceHint}>
+                                {currency === 'NTD'
+                                    ? `約 USDT ${(plan.priceNtd / USDT_TWD_RATE).toFixed(2)}`
+                                    : `約 NT$ ${plan.priceNtd.toLocaleString()}`}
+                            </p>
+                        )}
                         <ul className={styles.featureList}>
                             {plan.features.map((f, i) => (
                                 <li key={i}>
@@ -144,7 +176,7 @@ export default function PricingPage() {
 
             <div className={styles.faq}>
                 <p className={styles.faqNote}>
-                    <Zap size={14} /> 所有方案皆支援 Google 帳號快速登入，訂閱後即時升級
+                    <Zap size={14} /> 點擊升級後系統會寄付款資訊到你的信箱，回傳匯款截圖後 1-5 個工作天人工審核開通
                 </p>
             </div>
         </div>

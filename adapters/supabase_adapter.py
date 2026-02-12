@@ -230,6 +230,7 @@ class SupabaseAdapter:
             ("watchlists", {"select": "symbol,name"}),
             ("watchlists", {"select": "symbol"}),
         ]
+        merged: Dict[str, Dict[str, Any]] = {}
         for table, extra_params in table_select_candidates:
             try:
                 with httpx.Client(timeout=30.0) as client:
@@ -241,23 +242,22 @@ class SupabaseAdapter:
                     if resp.status_code == 200:
                         data = resp.json() if resp.text else []
                         rows = data if isinstance(data, list) else []
-                        normalized = []
                         for row in rows:
                             symbol = (row.get("symbol") or "").strip().upper()
                             if not symbol:
                                 continue
-                            normalized.append({
+                            merged[symbol] = {
                                 "symbol": symbol,
                                 "name": row.get("name"),
                                 "added_at": row.get("added_at"),
-                            })
-                        return normalized
+                            }
+                        continue
                     if resp.status_code in (400, 404):
                         continue
             except Exception:
                 continue
 
-        # fallback：若專用表不存在，使用 portfolios 作為自選來源（shares=0 視為 watchlist）
+        # 補充來源：portfolios 中 shares=0 視為 watchlist
         try:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.get(
@@ -273,18 +273,21 @@ class SupabaseAdapter:
                 if resp.status_code == 200:
                     data = resp.json() if resp.text else []
                     rows = data if isinstance(data, list) else []
-                    return [
-                        {
-                            "symbol": (row.get("symbol") or "").strip().upper(),
-                            "name": None,
-                            "added_at": row.get("updated_at"),
-                        }
-                        for row in rows
-                        if (row.get("symbol") or "").strip()
-                    ]
+                    for row in rows:
+                        symbol = (row.get("symbol") or "").strip().upper()
+                        if not symbol:
+                            continue
+                        if symbol not in merged:
+                            merged[symbol] = {
+                                "symbol": symbol,
+                                "name": None,
+                                "added_at": row.get("updated_at"),
+                            }
         except Exception:
             pass
-        return []
+        items = list(merged.values())
+        items.sort(key=lambda x: (x.get("added_at") or ""), reverse=True)
+        return items
 
     def add_to_watchlist(self, user_id: str, symbol: str) -> bool:
         """新增自選股票（相容 watchlist/watchlists 表名）"""
@@ -297,27 +300,27 @@ class SupabaseAdapter:
             return False
 
         tables = ["watchlist", "watchlists"]
-        all_404 = True
+        any_success = False
         for table in tables:
             try:
                 with httpx.Client(timeout=30.0) as client:
+                    headers = self._get_headers(use_service_key=True)
+                    headers["Prefer"] = "resolution=merge-duplicates,return=representation"
                     resp = client.post(
                         f"{url}/rest/v1/{table}",
-                        headers=self._get_headers(use_service_key=True),
+                        headers=headers,
+                        params={"on_conflict": "user_id,symbol"},
                         json={"user_id": user_id, "symbol": symbol},
                     )
                     if resp.status_code in [200, 201, 204, 409]:
-                        return True
+                        any_success = True
+                        continue
                     if resp.status_code == 404:
                         continue
-                    all_404 = False
             except Exception:
                 continue
 
-        if not all_404:
-            return False
-
-        # fallback：專用表不存在時，寫入 portfolios（shares=0 作為自選）
+        # 補寫 portfolios（shares=0 作為自選），避免讀寫來源不一致
         try:
             with httpx.Client(timeout=30.0) as client:
                 headers = self._get_headers(use_service_key=True)
@@ -328,9 +331,11 @@ class SupabaseAdapter:
                     params={"on_conflict": "user_id,symbol"},
                     json={"user_id": user_id, "symbol": symbol, "shares": 0, "avg_price": 0},
                 )
-                return resp.status_code in [200, 201, 204, 409]
+                if resp.status_code in [200, 201, 204, 409]:
+                    any_success = True
         except Exception:
-            return False
+            pass
+        return any_success
 
     def remove_from_watchlist(self, user_id: str, symbol: str) -> bool:
         """移除自選股票（相容 watchlist/watchlists 表名）"""
@@ -343,7 +348,7 @@ class SupabaseAdapter:
             return False
 
         tables = ["watchlist", "watchlists"]
-        all_404 = True
+        any_success = False
         for table in tables:
             try:
                 with httpx.Client(timeout=30.0) as client:
@@ -353,17 +358,14 @@ class SupabaseAdapter:
                         params={"user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}"},
                     )
                     if resp.status_code in [200, 204]:
-                        return True
+                        any_success = True
+                        continue
                     if resp.status_code == 404:
                         continue
-                    all_404 = False
             except Exception:
                 continue
 
-        if not all_404:
-            return False
-
-        # fallback：專用表不存在時，移除 portfolios 中 shares=0 的列
+        # 同步刪除 portfolios 中 shares=0 的列
         try:
             with httpx.Client(timeout=30.0) as client:
                 resp = client.delete(
@@ -375,9 +377,11 @@ class SupabaseAdapter:
                         "shares": "eq.0",
                     },
                 )
-                return resp.status_code in [200, 204]
+                if resp.status_code in [200, 204]:
+                    any_success = True
         except Exception:
-            return False
+            pass
+        return any_success
 
     def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> bool:
         """相容舊介面：direction=above|below"""

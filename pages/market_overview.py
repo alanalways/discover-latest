@@ -1,14 +1,11 @@
 """
 DiscoverLatest 洞察運算 - 市場總覽頁面
-使用 FinMind（台股）+ Stooq（美股指數/ETF）+ FinMind（美股個股）
-v3: 完全移除 yfinance 依賴，改用 FinMind + Stooq
+資料來源統一為 FinMind（若額度或網路異常則使用本地 fallback 顯示）
 """
 import time
 import traceback
-import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from components.i18n import t
 
@@ -21,18 +18,19 @@ _first_load = True  # Skip network on first load for instant startup
 
 # Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
-_TOP20_CACHE_TTL = 600  # 10 分鐘（原 300s）
+_TOP20_CACHE_TTL = 1800  # 30 分鐘（進一步降載，減少 402）
+_top20_first_load = True
 
 # ──────────────────────────────────────
 # Ticker definitions
 # ──────────────────────────────────────
-# Stooq 指數代號映射（Stooq 格式不含 ^）
+# 指數採用 FinMind 可取代標的（proxy）估算
 _INDEX_TICKERS = {
-    "^TWII":  {"name": "加權指數", "display": "TAIEX", "stooq": "^twii"},
-    "^GSPC":  {"name": "S&P 500",  "display": "SPX",   "stooq": "^spx"},
-    "^IXIC":  {"name": "NASDAQ",   "display": "IXIC",  "stooq": "^ndq"},
-    "^DJI":   {"name": "道瓊指數", "display": "DJI",   "stooq": "^dji"},
-    "^SOX":   {"name": "費半指數", "display": "SOX",   "stooq": "^sox"},
+    "TAIEX": {"name": "加權指數", "display": "TAIEX", "proxy_symbol": "0050", "type": "tw"},
+    "SPX":   {"name": "S&P 500",  "display": "SPX",   "proxy_symbol": "SPY",  "type": "us"},
+    "IXIC":  {"name": "NASDAQ",   "display": "IXIC",  "proxy_symbol": "QQQ",  "type": "us"},
+    "DJI":   {"name": "道瓊指數", "display": "DJI",   "proxy_symbol": "DIA",  "type": "us"},
+    "SOX":   {"name": "費半指數", "display": "SOX",   "proxy_symbol": "SOXX", "type": "us"},
 }
 
 _ETF_TICKERS = {
@@ -44,14 +42,10 @@ _ETF_TICKERS = {
     "QQQ":    {"name": "Invesco QQQ",      "display": "QQQ", "type": "us"},
 }
 
-# 美股 Top 50 常用股票（用於計算 Top20）
+# 美股 Top 清單（縮減規模，降低 FinMind 壓力）
 _US_TOP_SYMBOLS = [
-    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
-    "JPM", "V", "WMT", "PG", "MA", "HD", "DIS", "NFLX", "ADBE",
-    "CRM", "INTC", "AMD", "QCOM", "TXN", "AVGO", "COST", "PEP", "KO",
-    "MRK", "ABT", "TMO", "UNH", "LLY", "NKE", "BA", "CAT", "GS",
-    "MS", "AXP", "PYPL", "UBER", "ABNB", "PLTR", "COIN",
-    "SOFI", "RIVN", "ARM", "SMCI", "MU",
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
+    "AMD", "NFLX", "JPM", "V",
 ]
 
 # ──────────────────────────────────────
@@ -72,6 +66,18 @@ _FALLBACK_ETFS = [
     {"name": "群益台灣精選高息", "symbol": "00919", "value": "24.06", "change": "+0.08", "change_pct": "+0.33%", "color": "green"},
     {"name": "Vanguard S&P 500", "symbol": "VOO", "value": "556.34", "change": "+3.18", "change_pct": "+0.57%", "color": "green"},
     {"name": "Invesco QQQ",      "symbol": "QQQ", "value": "530.12", "change": "+4.22", "change_pct": "+0.80%", "color": "green"},
+]
+
+_FALLBACK_TOP20_TW = [
+    {"symbol": "2330", "name": "台積電", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+    {"symbol": "2454", "name": "聯發科", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+    {"symbol": "2317", "name": "鴻海", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+]
+
+_FALLBACK_TOP20_US = [
+    {"symbol": "AAPL", "name": "Apple", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+    {"symbol": "MSFT", "name": "Microsoft", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+    {"symbol": "NVDA", "name": "NVIDIA", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
 ]
 
 
@@ -112,7 +118,7 @@ _US_STOCK_NAMES = {
 
 
 # ──────────────────────────────────────
-# Batch fetcher — Stooq (指數/美股ETF) + FinMind (台股ETF)
+# Batch fetcher — FinMind only
 # ──────────────────────────────────────
 async def _fetch_market_data() -> Dict[str, list]:
     """Fetch all indices + ETFs. First load uses fallback for instant startup."""
@@ -136,16 +142,43 @@ async def _fetch_market_data() -> Dict[str, list]:
     indices: list = []
     etfs: list = []
 
-    # ── 台股 ETF：FinMind ──
+    # ── 指數 + ETF：FinMind（指數用 proxy 標的估算）──
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        for sym, meta in _ETF_TICKERS.items():
-            if meta["type"] != "tw":
-                continue
+
+        for _, meta in _INDEX_TICKERS.items():
             try:
-                fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+                proxy_symbol = meta["proxy_symbol"]
+                if meta["type"] == "tw":
+                    fm_data = finmind_adapter.get_tw_stock_price_sync(proxy_symbol, start, end)
+                else:
+                    fm_data = finmind_adapter.get_us_stock_price_sync(proxy_symbol, start, end)
+                if fm_data and len(fm_data) >= 2:
+                    last_row = fm_data[-1]
+                    prev_row = fm_data[-2]
+                    price = last_row["close"]
+                    prev_price = prev_row["close"]
+                    chg = price - prev_price
+                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                    indices.append({
+                        "name": meta["name"],
+                        "symbol": meta["display"],
+                        "value": f"{price:,.2f}",
+                        "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                        "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                        "color": "green" if chg >= 0 else "red",
+                    })
+            except Exception as e:
+                print(f"[Market] FinMind index proxy {meta.get('display')}: {e}")
+
+        for sym, meta in _ETF_TICKERS.items():
+            try:
+                if meta["type"] == "tw":
+                    fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+                else:
+                    fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
                 if fm_data and len(fm_data) >= 2:
                     last_row = fm_data[-1]
                     prev_row = fm_data[-2]
@@ -164,78 +197,7 @@ async def _fetch_market_data() -> Dict[str, list]:
             except Exception as e:
                 print(f"[Market] FinMind ETF {sym}: {e}")
     except Exception as e:
-        print(f"[Market] FinMind ETF batch error: {e}")
-
-    # ── 指數 + 美股 ETF：Stooq（直接 await，不走 _run_async）──
-    try:
-        from adapters.stooq_adapter import stooq_adapter
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=7)
-
-        # 指數：平行 await 所有指數
-        async def _fetch_index(sym, meta):
-            try:
-                stooq_sym = meta["stooq"]
-                data = await asyncio.wait_for(
-                    stooq_adapter.get_index_history(stooq_sym, start_dt, end_dt),
-                    timeout=10
-                )
-                if data and len(data) >= 2:
-                    last = data[-1]["close"]
-                    prev = data[-2]["close"]
-                    chg = last - prev
-                    pct = (chg / prev * 100) if prev != 0 else 0.0
-                    return {
-                        "name": meta["name"],
-                        "symbol": meta["display"],
-                        "value": f"{last:,.2f}",
-                        "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                        "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                        "color": "green" if chg >= 0 else "red",
-                    }
-            except Exception as e:
-                print(f"[Market] Stooq index {sym}: {e}")
-            return None
-
-        async def _fetch_etf(sym, meta):
-            try:
-                data = await asyncio.wait_for(
-                    stooq_adapter.get_stock_history(sym, start_dt, end_dt),
-                    timeout=10
-                )
-                if data and len(data) >= 2:
-                    last = data[-1]["close"]
-                    prev = data[-2]["close"]
-                    chg = last - prev
-                    pct = (chg / prev * 100) if prev != 0 else 0.0
-                    return {
-                        "name": meta["name"],
-                        "symbol": meta["display"],
-                        "value": f"{last:,.2f}",
-                        "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                        "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                        "color": "green" if chg >= 0 else "red",
-                    }
-            except Exception as e:
-                print(f"[Market] Stooq ETF {sym}: {e}")
-            return None
-
-        # 平行取指數
-        index_tasks = [_fetch_index(sym, meta) for sym, meta in _INDEX_TICKERS.items()]
-        index_results = await asyncio.gather(*index_tasks, return_exceptions=True)
-        for r in index_results:
-            if r and not isinstance(r, Exception):
-                indices.append(r)
-
-        # 平行取美股 ETF
-        us_etf_items = [(sym, meta) for sym, meta in _ETF_TICKERS.items() if meta["type"] == "us"]
-        etf_tasks = [_fetch_etf(sym, meta) for sym, meta in us_etf_items]
-        etf_results = await asyncio.gather(*etf_tasks, return_exceptions=True)
-        for r in etf_results:
-            if r and not isinstance(r, Exception):
-                etfs.append(r)
-    except Exception as e:
-        print(f"[Market] Stooq batch error: {e}")
+        print(f"[Market] FinMind batch error: {e}")
 
     # Fallback
     if not indices:
@@ -255,30 +217,31 @@ async def _fetch_market_data() -> Dict[str, list]:
 # ──────────────────────────────────────
 def _fetch_top20_data() -> Dict:
     """取得台美股 Top 20 漲跌幅/成交量（含快取）"""
-    global _top20_cache
+    global _top20_cache, _top20_first_load
     now = time.time()
 
     if _top20_cache["tw"] is not None and (now - _top20_cache["ts"]) < _TOP20_CACHE_TTL:
         return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
 
+    if _top20_first_load:
+        _top20_first_load = False
+        _top20_cache = {"tw": list(_FALLBACK_TOP20_TW), "us": list(_FALLBACK_TOP20_US), "ts": now}
+        return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
+
     tw_data = []
     us_data = []
 
-    # ── 台股 Top20：使用 TWSE/TPEX adapter（不消耗 FinMind 額度）──
+    # ── 台股 Top20：FinMind（縮減清單避免超額）──
     _TW_TOP_SYMBOLS = [
-        "2330", "2454", "2317", "2382", "3034", "2308", "2303",
-        "2881", "2882", "2884", "2886", "2891", "2412", "1301",
-        "1303", "2002", "3231", "2357", "3711", "6446",
-        "2379", "2356", "3045", "4904", "00878", "0050", "0056",
-        "3661", "2345", "5274", "2327", "3443", "2603", "2609",
-        "1216", "2912", "8069", "3037", "6547", "2474",
+        "2330", "2454", "2317", "2303", "2382", "2308",
+        "2412", "1301", "1303", "2002", "3231", "3711",
     ]
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
-        # 逐筆取台股（但 TTL 拉長到 5 分鐘，每小時最多 12 次 × 40 支 = 480 請求）
+        # 逐筆取台股（縮減數量 + 快取 30 分鐘）
         for sym in _TW_TOP_SYMBOLS:
             try:
                 fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
@@ -333,6 +296,11 @@ def _fetch_top20_data() -> Dict:
     except Exception as e:
         print(f"[Top20] US FinMind error: {e}")
 
+    if not tw_data:
+        tw_data = list(_FALLBACK_TOP20_TW)
+    if not us_data:
+        us_data = list(_FALLBACK_TOP20_US)
+
     _top20_cache = {"tw": tw_data, "us": us_data, "ts": now}
     return {"tw": tw_data, "us": us_data}
 
@@ -348,7 +316,7 @@ def create_market_overview_page(lang: str = "zh-TW"):
     etfs = data.get("etfs", [])
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    data_source_note = f"資料來源: FinMind + Stooq &middot; 更新: {now_str}"
+    data_source_note = f"資料來源: FinMind &middot; 更新: {now_str}"
 
     # ---------- 分類 indices ----------
     tw_indices = [idx for idx in indices if idx["symbol"] in ("TAIEX",)]
