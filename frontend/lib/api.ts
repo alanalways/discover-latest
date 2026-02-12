@@ -85,6 +85,13 @@ export class ApiClient {
             headers,
         });
 
+        if (res.status === 401 && !skipAuth) {
+            this.setToken(null);
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new Event('dl:auth-expired'));
+            }
+        }
+
         if (!res.ok) {
             const error = await res.json().catch(() => ({ detail: res.statusText }));
             throw new ApiError(res.status, error.detail || '請求失敗');

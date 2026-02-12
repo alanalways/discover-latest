@@ -81,15 +81,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const [token, setToken] = useState<string | null>(null);
     const [showLoginModal, setShowLoginModal] = useState(false);
 
-    const logout = useCallback(() => {
+    const clearAuthState = useCallback((redirectHome: boolean) => {
         setUser(null);
         setToken(null);
         api.setToken(null);
         if (typeof window !== 'undefined') {
             localStorage.removeItem('dl_token');
-            window.location.href = '/';
+            if (redirectHome) {
+                window.location.href = '/';
+            }
         }
     }, []);
+
+    const logout = useCallback(() => {
+        clearAuthState(true);
+    }, [clearAuthState]);
 
     const fetchUser = useCallback(async () => {
         try {
@@ -128,6 +134,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         window.addEventListener('dl:auth-refresh', onRefresh);
         return () => window.removeEventListener('dl:auth-refresh', onRefresh);
     }, [refreshUser]);
+
+    useEffect(() => {
+        const onAuthExpired = () => {
+            clearAuthState(false);
+            setShowLoginModal(true);
+        };
+        window.addEventListener('dl:auth-expired', onAuthExpired);
+        return () => window.removeEventListener('dl:auth-expired', onAuthExpired);
+    }, [clearAuthState]);
 
     const login = async (googleToken: string) => {
         try {

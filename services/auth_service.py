@@ -198,7 +198,12 @@ class AuthService:
                 if resp.status_code == 200:
                     return resp.json()
                 else:
-                    print(f"[Auth] Session 驗證回應: status={resp.status_code}, body={resp.text[:200]}")
+                    body_preview = resp.text[:200]
+                    lowered = body_preview.lower()
+                    # 過期 token 由前端自動清除，不需要持續刷錯誤 log
+                    if resp.status_code in (401, 403) and ("token is expired" in lowered or "bad_jwt" in lowered):
+                        return None
+                    print(f"[Auth] Session 驗證回應: status={resp.status_code}, body={body_preview}")
         except Exception as e:
             print(f"[Auth] Session 驗證失敗: {type(e).__name__}: {e}")
         return None
