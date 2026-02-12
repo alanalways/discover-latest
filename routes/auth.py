@@ -25,6 +25,25 @@ class AuthResponse(BaseModel):
     message: Optional[str] = None
 
 
+def _free_limits_payload() -> dict:
+    """未登入時回傳前端可用的預設免費額度"""
+    from services.feature_gate import get_limit
+    return {
+        "tier": "free",
+        "ai": {
+            "daily_limit": 2,
+            "daily_used": 0,
+            "daily_remaining": 2,
+        },
+        "watchlist": {
+            "max": get_limit("free", "watchlist_max"),
+        },
+        "alerts": {
+            "max": get_limit("free", "price_alert_max"),
+        },
+    }
+
+
 @router.post("/auth/google")
 async def google_auth(req: GoogleAuthRequest):
     """Google OAuth 登入：接收 token 或 code，驗證後回傳用戶資訊"""
@@ -183,7 +202,7 @@ async def get_auth_limits(request: Request):
     """回傳目前用戶可用額度資訊（前端 UI 顯示用）"""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="未登入")
+        return _free_limits_payload()
     token = auth_header.split(" ", 1)[1]
 
     try:
@@ -193,7 +212,7 @@ async def get_auth_limits(request: Request):
 
         user = auth_service.verify_session(token)
         if not user:
-            raise HTTPException(status_code=401, detail="Session 已過期")
+            return _free_limits_payload()
 
         user_id = user.get("id", "")
         if not user_id:

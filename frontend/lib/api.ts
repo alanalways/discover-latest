@@ -4,6 +4,21 @@
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
+const FREE_AUTH_LIMITS_FALLBACK = {
+    tier: 'free' as const,
+    ai: {
+        daily_limit: 2,
+        daily_used: 0,
+        daily_remaining: 2,
+    },
+    watchlist: {
+        max: 5,
+    },
+    alerts: {
+        max: 1,
+    },
+};
+
 interface FetchOptions extends RequestInit {
     skipAuth?: boolean;
 }
@@ -231,6 +246,9 @@ export class ApiClient {
     }
 
     async getAuthLimits() {
+        if (!this.getToken()) {
+            return FREE_AUTH_LIMITS_FALLBACK;
+        }
         return this.fetch<AuthLimits>('/api/auth/limits');
     }
 }
