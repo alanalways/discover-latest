@@ -18,8 +18,7 @@ _first_load = True  # Skip network on first load for instant startup
 
 # Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
-_TOP20_CACHE_TTL = 1800  # 30 分鐘（進一步降載，減少 402）
-_top20_first_load = True
+_TOP20_CACHE_TTL = 180  # 3 分鐘（保留即時性，避免長時間顯示舊榜單）
 
 # ──────────────────────────────────────
 # Ticker definitions
@@ -42,10 +41,11 @@ _ETF_TICKERS = {
     "QQQ":    {"name": "Invesco QQQ",      "display": "QQQ", "type": "us"},
 }
 
-# 美股 Top 清單（縮減規模，降低 FinMind 壓力）
+# 美股 Top 清單（FinMind-only，控制數量避免 402）
 _US_TOP_SYMBOLS = [
     "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AVGO",
-    "AMD", "NFLX", "JPM", "V",
+    "AMD", "NFLX", "JPM", "V", "MA", "WMT", "PG", "COST", "KO", "PEP",
+    "QCOM", "TXN", "ADBE", "CRM", "INTC", "BAC", "GS", "MS",
 ]
 
 # ──────────────────────────────────────
@@ -68,17 +68,8 @@ _FALLBACK_ETFS = [
     {"name": "Invesco QQQ",      "symbol": "QQQ", "value": "530.12", "change": "+4.22", "change_pct": "+0.80%", "color": "green"},
 ]
 
-_FALLBACK_TOP20_TW = [
-    {"symbol": "2330", "name": "台積電", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-    {"symbol": "2454", "name": "聯發科", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-    {"symbol": "2317", "name": "鴻海", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-]
-
-_FALLBACK_TOP20_US = [
-    {"symbol": "AAPL", "name": "Apple", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-    {"symbol": "MSFT", "name": "Microsoft", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-    {"symbol": "NVDA", "name": "NVIDIA", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-]
+_FALLBACK_TOP20_TW: List[Dict] = []
+_FALLBACK_TOP20_US: List[Dict] = []
 
 
 # ──────────────────────────────────────
@@ -217,52 +208,101 @@ async def _fetch_market_data() -> Dict[str, list]:
 # ──────────────────────────────────────
 def _fetch_top20_data() -> Dict:
     """取得台美股 Top 20 漲跌幅/成交量（含快取）"""
-    global _top20_cache, _top20_first_load
+    global _top20_cache
     now = time.time()
 
     if _top20_cache["tw"] is not None and (now - _top20_cache["ts"]) < _TOP20_CACHE_TTL:
         return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
 
-    if _top20_first_load:
-        _top20_first_load = False
-        _top20_cache = {"tw": list(_FALLBACK_TOP20_TW), "us": list(_FALLBACK_TOP20_US), "ts": now}
-        return {"tw": _top20_cache["tw"], "us": _top20_cache["us"]}
-
     tw_data = []
     us_data = []
 
-    # ── 台股 Top20：FinMind（縮減清單避免超額）──
-    _TW_TOP_SYMBOLS = [
-        "2330", "2454", "2317", "2303", "2382", "2308",
-        "2412", "1301", "1303", "2002", "3231", "3711",
-    ]
+    # ── 台股 Top20：優先使用 FinMind 市場快照（不帶 data_id）──
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
 
-        # 逐筆取台股（縮減數量 + 快取 30 分鐘）
-        for sym in _TW_TOP_SYMBOLS:
-            try:
-                fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
-                if fm_data and len(fm_data) >= 2:
-                    last_row = fm_data[-1]
-                    prev_row = fm_data[-2]
-                    price = last_row["close"]
-                    prev_price = prev_row["close"]
-                    vol = last_row.get("Trading_Volume", last_row.get("volume", 0))
+        tw_name_map = dict(_TW_STOCK_NAMES)
+        try:
+            tw_info = finmind_adapter.get_tw_stock_info_all_sync()
+            for item in tw_info:
+                sym = (item.get("symbol") or "").strip()
+                if sym:
+                    tw_name_map[sym] = item.get("name") or tw_name_map.get(sym) or sym
+        except Exception:
+            pass
+
+        snapshot = finmind_adapter.get_tw_market_snapshot_sync(start, end)
+        if snapshot:
+            grouped: Dict[str, List[tuple]] = {}
+            for row in snapshot:
+                sym = (row.get("stock_id") or "").strip().upper()
+                date_str = (row.get("date") or "").strip()
+                if not sym or not date_str:
+                    continue
+                try:
+                    close = float(row.get("close", 0) or 0)
+                    volume = int(float(row.get("Trading_Volume", row.get("volume", 0)) or 0))
+                except Exception:
+                    continue
+                if close <= 0:
+                    continue
+                grouped.setdefault(sym, []).append((date_str, close, volume))
+
+            for sym, rows in grouped.items():
+                rows.sort(key=lambda x: x[0])
+                deduped: List[tuple] = []
+                last_date = None
+                for item in rows:
+                    if item[0] == last_date and deduped:
+                        deduped[-1] = item
+                    else:
+                        deduped.append(item)
+                        last_date = item[0]
+                if len(deduped) < 2:
+                    continue
+                prev_price = deduped[-2][1]
+                price = deduped[-1][1]
+                volume = deduped[-1][2]
+                if prev_price <= 0:
+                    continue
+                chg = price - prev_price
+                pct = (chg / prev_price * 100)
+                tw_data.append({
+                    "symbol": sym,
+                    "name": tw_name_map.get(sym, sym),
+                    "price": price,
+                    "change": chg,
+                    "change_pct": pct,
+                    "volume": volume,
+                })
+
+        # 快照失敗時，退回有限符號逐筆抓取（避免整頁空白）
+        if not tw_data:
+            backup_symbols = [s for s in tw_name_map.keys() if s.isdigit()][:40]
+            for sym in backup_symbols:
+                try:
+                    fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+                    if not fm_data or len(fm_data) < 2:
+                        continue
+                    price = float(fm_data[-1].get("close", 0) or 0)
+                    prev_price = float(fm_data[-2].get("close", 0) or 0)
+                    if price <= 0 or prev_price <= 0:
+                        continue
+                    volume = int(fm_data[-1].get("volume", 0) or 0)
                     chg = price - prev_price
-                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                    pct = (chg / prev_price * 100)
                     tw_data.append({
                         "symbol": sym,
-                        "name": _TW_STOCK_NAMES.get(sym, sym),
+                        "name": tw_name_map.get(sym, sym),
                         "price": price,
                         "change": chg,
                         "change_pct": pct,
-                        "volume": vol,
+                        "volume": volume,
                     })
-            except Exception:
-                continue
+                except Exception:
+                    continue
     except Exception as e:
         print(f"[Top20] TW error: {e}")
 

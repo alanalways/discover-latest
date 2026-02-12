@@ -88,14 +88,31 @@ class StockService:
             # 整合 PER/PBR
             if per_pbr:
                 latest_per = per_pbr[-1]
-                info["pe_ratio"] = latest_per.get("PER")
-                info["pb_ratio"] = latest_per.get("PBR")
-                info["dividend_yield"] = latest_per.get("dividend_yield")
-            
+                info["pe_ratio"] = (
+                    latest_per.get("PER")
+                    or latest_per.get("per")
+                    or latest_per.get("pe_ratio")
+                )
+                info["pb_ratio"] = (
+                    latest_per.get("PBR")
+                    or latest_per.get("pbr")
+                    or latest_per.get("pb_ratio")
+                )
+                info["dividend_yield"] = (
+                    latest_per.get("dividend_yield")
+                    or latest_per.get("DividendYield")
+                    or latest_per.get("yield")
+                )
+             
             # 整合市值
             if market_value_data:
                 latest_mv = market_value_data[-1]
-                info["market_cap"] = latest_mv.get("Market_Value")
+                info["market_cap"] = (
+                    latest_mv.get("Market_Value")
+                    or latest_mv.get("market_value")
+                    or latest_mv.get("market_cap")
+                    or latest_mv.get("marketValue")
+                )
 
         return {
             "symbol": symbol,

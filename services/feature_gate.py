@@ -35,7 +35,7 @@ FEATURE_ACCESS = {
     # ── 回測 (Backtest) ──
     "backtest":             {"free": True,  "pro": True,  "premium": True},
     "backtest_martingale":  {"free": False, "pro": False, "premium": True},
-    "backtest_max_years":   {"free": 1,     "pro": 1,     "premium": 5},
+    "backtest_max_years":   {"free": 1,     "pro": 3,     "premium": 5},
     "backtest_compare":     {"free": False, "pro": False, "premium": True},
 
     # ── 預測 (Prediction) ──

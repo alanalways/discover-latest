@@ -44,9 +44,8 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         if not can_access(tier, "ai_analysis"):
             raise HTTPException(status_code=403, detail="此功能需要升級方案")
 
-        # 取得最新景氣燈號
-        from adapters.ndc_adapter import ndc_adapter
-        macro_data = ndc_adapter.get_latest_light()
+        # FinMind-only：不依賴 NDC 外部來源
+        macro_data = None
 
         # 檢查每日額度並記錄用量（登入用戶）
         allowed, reason = rate_limiter.acquire_request(user_id)

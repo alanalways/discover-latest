@@ -39,7 +39,20 @@ class BacktestRequest(BaseModel):
 async def run_backtest(req: BacktestRequest, request: Request):
     """執行回測"""
     try:
-        _require_auth(request)
+        user = _require_auth(request)
+        user_id = user.get("id", "")
+        from services.feature_gate import get_limit
+        from services.rate_limiter import rate_limiter
+
+        tier = rate_limiter.check_and_downgrade(user_id)
+        max_years = get_limit(tier, "backtest_max_years")
+        period_years = _period_to_years(req.period)
+        if max_years > 0 and period_years > max_years:
+            raise HTTPException(
+                status_code=403,
+                detail=f"{tier.upper()} 方案回測區間上限為 {max_years} 年",
+            )
+
         from services.stock_service import stock_service
         from services.backtest_service import backtest_service
 
@@ -171,7 +184,7 @@ async def get_strategies():
     }
 
 
-def _require_auth(request: Request) -> str:
+def _require_auth(request: Request) -> dict:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="請先登入")
@@ -181,8 +194,23 @@ def _require_auth(request: Request) -> str:
         user = auth_service.verify_session(token)
         if not user:
             raise HTTPException(status_code=401, detail="Session 已過期")
-        return user.get("id", "")
+        return user
     except HTTPException:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="驗證失敗")
+
+
+def _period_to_years(period: str) -> int:
+    mapping = {
+        "1mo": 1 / 12,
+        "3mo": 3 / 12,
+        "6mo": 6 / 12,
+        "1y": 1,
+        "2y": 2,
+        "3y": 3,
+        "5y": 5,
+        "max": 99,
+    }
+    years = mapping.get((period or "").lower(), 1)
+    return int(years) if years >= 1 else 1

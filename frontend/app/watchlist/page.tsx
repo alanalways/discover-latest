@@ -46,7 +46,8 @@ export default function WatchlistPage() {
     useEffect(() => { void fetchList(); }, [fetchList]);
 
     const handleAdd = async () => {
-        const sym = addSymbol.trim().toUpperCase();
+        const raw = addSymbol.trim().toUpperCase();
+        const sym = (raw.match(/[A-Z0-9.]{1,12}/)?.[0] || '').trim();
         if (!sym) return;
         setAdding(true);
         try {
@@ -55,6 +56,7 @@ export default function WatchlistPage() {
                 throw new Error('加入自選失敗，請確認資料表設定');
             }
             setAddSymbol('');
+            setList((prev) => (prev.some((item) => item.symbol === sym) ? prev : [{ symbol: sym }, ...prev]));
             await fetchList();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : '新增失敗';

@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import math
 from adapters.finmind_adapter import finmind_adapter
-from adapters.ndc_adapter import ndc_adapter
 
 
 class BacktestService:
@@ -510,9 +509,9 @@ class BacktestService:
 
     def _monitoring_indicator_strategy(self, history: List[Dict], params: Dict) -> List[Dict]:
         """
-        景氣燈號分層倉位策略
+        景氣循環分層倉位策略（FinMind-only）
 
-        根據 NDC 景氣綜合判斷分數，動態調整目標持倉比例：
+        以 FinMind 的 0050 月報酬作為景氣循環代理分數，動態調整目標持倉比例：
         ┌──────────┬────────┬──────────┐
         │ 分數區間  │  燈號  │ 目標倉位  │
         ├──────────┼────────┼──────────┤
@@ -522,16 +521,63 @@ class BacktestService:
         │ 32 ~ 37  │ 黃紅燈 │  25%     │
         │ ≥ 38     │ 紅燈   │   0%     │
         └──────────┴────────┴──────────┘
-
-        資料來源：NDC Adapter（景氣對策信號）
         """
-        # 取得景氣燈號資料
-        try:
-            lights = ndc_adapter.get_business_cycle_score()
-            score_map = {item["date"]: item["score"] for item in lights}
-        except Exception as e:
-            print(f"[Backtest] 取得景氣燈號失敗: {e}")
+        if not history:
             return []
+
+        def _build_monthly_close_map(rows: List[Dict], date_key: str = "date", close_key: str = "close") -> Dict[str, float]:
+            month_close: Dict[str, float] = {}
+            for row in rows:
+                date_str = str(row.get(date_key, "") or "")
+                if len(date_str) < 7:
+                    continue
+                month_key = date_str[:7].replace("-", "")
+                try:
+                    close = float(row.get(close_key, 0) or 0)
+                except Exception:
+                    close = 0.0
+                if close <= 0:
+                    continue
+                month_close[month_key] = close
+            return month_close
+
+        def _score_from_monthly_close(month_close: Dict[str, float]) -> Dict[str, float]:
+            score_map: Dict[str, float] = {}
+            prev_close: Optional[float] = None
+            for mk in sorted(month_close.keys()):
+                close = month_close[mk]
+                if prev_close and prev_close > 0:
+                    mom_pct = (close - prev_close) / prev_close * 100
+                    if mom_pct <= -8:
+                        score = 14
+                    elif mom_pct <= -2:
+                        score = 20
+                    elif mom_pct < 2:
+                        score = 27
+                    elif mom_pct < 8:
+                        score = 34
+                    else:
+                        score = 40
+                else:
+                    score = 27
+                score_map[mk] = float(score)
+                prev_close = close
+            return score_map
+
+        score_map: Dict[str, float] = {}
+        try:
+            start_date = str(history[0].get("date", "") or "")[:10]
+            end_date = str(history[-1].get("date", "") or "")[:10]
+            if start_date and end_date:
+                proxy_rows = finmind_adapter.get_tw_stock_price_sync("0050", start_date, end_date)
+                if proxy_rows:
+                    score_map = _score_from_monthly_close(_build_monthly_close_map(proxy_rows))
+        except Exception as e:
+            print(f"[Backtest] FinMind 0050 景氣代理失敗: {e}")
+
+        # 若 0050 失敗，退回股票本身月報酬（仍為 FinMind 歷史資料）
+        if not score_map:
+            score_map = _score_from_monthly_close(_build_monthly_close_map(history))
 
         # 分層倉位規則
         def _target_position(score: float) -> tuple:
@@ -583,7 +629,7 @@ class BacktestService:
                     "price": price,
                     "position_pct": target_pct,
                     "delta_pct": delta,
-                    "reason": f"景氣分數 {score:.0f} ({light_name}) → 加碼至 {target_pct*100:.0f}% (▲{delta*100:.0f}%)",
+                    "reason": f"景氣分數 {score:.0f} ({light_name}) → 加碼至 {target_pct*100:.0f}% (▲{delta*100:.0f}%) [FinMind]",
                 })
 
             # 減碼（目標 < 現有）
@@ -596,7 +642,7 @@ class BacktestService:
                     "price": price,
                     "position_pct": target_pct,
                     "delta_pct": -delta,
-                    "reason": f"景氣分數 {score:.0f} ({light_name}) → {'全數賣出' if target_pct == 0 else f'減碼至 {target_pct*100:.0f}%'} (▼{delta*100:.0f}%)",
+                    "reason": f"景氣分數 {score:.0f} ({light_name}) → {'全數賣出' if target_pct == 0 else f'減碼至 {target_pct*100:.0f}%'} (▼{delta*100:.0f}%) [FinMind]",
                 })
 
             current_pct = target_pct

@@ -42,7 +42,13 @@ class SupabaseAdapter:
         url, _, _ = self._get_config()
         return f"{url}/rest/v1" if url else ""
     
-    def _auth_admin_request(self, method: str, path: str, json: Any = None) -> Optional[Any]:
+    def _auth_admin_request(
+        self,
+        method: str,
+        path: str,
+        json: Any = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Any]:
         """Auth Admin API（需 SUPABASE_SERVICE_ROLE_KEY）"""
         url, _, service_key = self._get_config()
         if not url or not service_key:
@@ -58,10 +64,11 @@ class SupabaseAdapter:
                         "Content-Type": "application/json",
                     },
                     json=json,
+                    params=params or {},
                 )
-                if resp.status_code != 200:
+                if resp.status_code < 200 or resp.status_code >= 300:
                     return None
-                return resp.json() if resp.text else None
+                return resp.json() if resp.text else {}
         except Exception as e:
             print(f"[Supabase Auth Admin] {method} {path} 失敗: {type(e).__name__}")
             return None
@@ -170,6 +177,27 @@ class SupabaseAdapter:
             return data["user"]
         return None
 
+    def auth_admin_list_users(self, page: int = 1, per_page: int = 200) -> List[Dict[str, Any]]:
+        """Auth Admin API：列出 auth.users（分頁）"""
+        if page < 1:
+            page = 1
+        if per_page < 1:
+            per_page = 200
+        data = self._auth_admin_request(
+            "GET",
+            "admin/users",
+            params={"page": page, "per_page": per_page},
+        )
+        if not data:
+            return []
+        if isinstance(data, dict):
+            users = data.get("users")
+            if isinstance(users, list):
+                return users
+        if isinstance(data, list):
+            return data
+        return []
+
     def rpc_get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
         """RPC get_user_by_email(email)：查 auth.users，回傳 id, email, created_at"""
         if not email:
@@ -198,7 +226,7 @@ class SupabaseAdapter:
 
     def get_all_users(self) -> List[Dict[str, Any]]:
         """取得用戶列表（管理後台）"""
-        result = self._request(
+        public_users = self._request(
             "GET",
             "users",
             params={
@@ -207,11 +235,68 @@ class SupabaseAdapter:
             },
             use_service_key=True,
         )
-        if not result or not isinstance(result, list):
-            return []
-        return result
+        merged: Dict[str, Dict[str, Any]] = {}
+
+        if public_users and isinstance(public_users, list):
+            for row in public_users:
+                uid = row.get("id")
+                if not uid:
+                    continue
+                merged[uid] = {
+                    "id": uid,
+                    "email": row.get("email") or "",
+                    "name": row.get("name") or "",
+                    "tier": row.get("tier") or "free",
+                    "created_at": row.get("created_at"),
+                }
+
+        # 補齊 auth.users（避免 public.users 為空時管理後台看不到使用者）
+        auth_users: List[Dict[str, Any]] = []
+        for page in range(1, 11):  # 最多抓 2000 筆
+            rows = self.auth_admin_list_users(page=page, per_page=200)
+            if not rows:
+                break
+            auth_users.extend(rows)
+            if len(rows) < 200:
+                break
+
+        for row in auth_users:
+            uid = row.get("id")
+            if not uid:
+                continue
+            metadata = row.get("user_metadata") if isinstance(row.get("user_metadata"), dict) else {}
+            sub = self.get_user_subscription(uid)
+            tier = sub.get("tier") or metadata.get("tier") or "free"
+            name = (
+                metadata.get("full_name")
+                or metadata.get("name")
+                or (merged.get(uid) or {}).get("name")
+                or ""
+            )
+            email = row.get("email") or (merged.get(uid) or {}).get("email") or ""
+            created_at = row.get("created_at") or (merged.get(uid) or {}).get("created_at")
+            merged[uid] = {
+                "id": uid,
+                "email": email,
+                "name": name,
+                "tier": tier,
+                "created_at": created_at,
+            }
+
+        users = list(merged.values())
+        users.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
+        return users
 
     # ===== 自選清單 (watchlist/watchlists) =====
+
+    @staticmethod
+    def _extract_watch_symbol(row: Dict[str, Any]) -> str:
+        """相容不同 schema 的 symbol 欄位命名"""
+        for key in ("symbol", "stock_id", "ticker", "code"):
+            value = row.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip().upper()
+        return ""
 
     def get_user_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
         """取得自選清單（相容 watchlist/watchlists 表名）"""
@@ -222,13 +307,21 @@ class SupabaseAdapter:
         # 先嘗試專用 watchlist 表（欄位可能不一致，逐步降級）
         table_select_candidates = [
             ("watchlist", {"select": "symbol,name,added_at", "order": "added_at.desc"}),
+            ("watchlist", {"select": "stock_id,name,added_at", "order": "added_at.desc"}),
             ("watchlist", {"select": "symbol,added_at", "order": "added_at.desc"}),
+            ("watchlist", {"select": "stock_id,added_at", "order": "added_at.desc"}),
             ("watchlist", {"select": "symbol,name"}),
+            ("watchlist", {"select": "stock_id,name"}),
             ("watchlist", {"select": "symbol"}),
+            ("watchlist", {"select": "stock_id"}),
             ("watchlists", {"select": "symbol,name,added_at", "order": "added_at.desc"}),
+            ("watchlists", {"select": "stock_id,name,added_at", "order": "added_at.desc"}),
             ("watchlists", {"select": "symbol,added_at", "order": "added_at.desc"}),
+            ("watchlists", {"select": "stock_id,added_at", "order": "added_at.desc"}),
             ("watchlists", {"select": "symbol,name"}),
+            ("watchlists", {"select": "stock_id,name"}),
             ("watchlists", {"select": "symbol"}),
+            ("watchlists", {"select": "stock_id"}),
         ]
         merged: Dict[str, Dict[str, Any]] = {}
         for table, extra_params in table_select_candidates:
@@ -243,13 +336,13 @@ class SupabaseAdapter:
                         data = resp.json() if resp.text else []
                         rows = data if isinstance(data, list) else []
                         for row in rows:
-                            symbol = (row.get("symbol") or "").strip().upper()
+                            symbol = self._extract_watch_symbol(row)
                             if not symbol:
                                 continue
                             merged[symbol] = {
                                 "symbol": symbol,
                                 "name": row.get("name"),
-                                "added_at": row.get("added_at"),
+                                "added_at": row.get("added_at") or row.get("created_at") or row.get("updated_at"),
                             }
                         continue
                     if resp.status_code in (400, 404):
@@ -258,33 +351,53 @@ class SupabaseAdapter:
                 continue
 
         # 補充來源：portfolios 中 shares=0 視為 watchlist
-        try:
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.get(
-                    f"{url}/rest/v1/portfolios",
-                    headers=self._get_headers(use_service_key=True),
-                    params={
-                        "user_id": f"eq.{user_id}",
-                        "shares": "eq.0",
-                        "select": "symbol,updated_at",
-                        "order": "updated_at.desc",
-                    },
-                )
-                if resp.status_code == 200:
+        portfolio_queries = [
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "symbol,shares,updated_at", "order": "updated_at.desc"},
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "symbol,shares,created_at", "order": "created_at.desc"},
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "symbol,shares"},
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "stock_id,shares,updated_at", "order": "updated_at.desc"},
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "stock_id,shares,created_at", "order": "created_at.desc"},
+            {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "stock_id,shares"},
+            {"user_id": f"eq.{user_id}", "select": "symbol,shares,updated_at", "order": "updated_at.desc"},
+            {"user_id": f"eq.{user_id}", "select": "symbol,shares,created_at", "order": "created_at.desc"},
+            {"user_id": f"eq.{user_id}", "select": "stock_id,shares,updated_at", "order": "updated_at.desc"},
+            {"user_id": f"eq.{user_id}", "select": "stock_id,shares,created_at", "order": "created_at.desc"},
+        ]
+        for q in portfolio_queries:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.get(
+                        f"{url}/rest/v1/portfolios",
+                        headers=self._get_headers(use_service_key=True),
+                        params=q,
+                    )
+                    if resp.status_code in (400, 404):
+                        continue
+                    if resp.status_code != 200:
+                        continue
                     data = resp.json() if resp.text else []
                     rows = data if isinstance(data, list) else []
                     for row in rows:
-                        symbol = (row.get("symbol") or "").strip().upper()
+                        symbol = self._extract_watch_symbol(row)
                         if not symbol:
+                            continue
+                        shares_val = row.get("shares")
+                        try:
+                            shares_num = float(shares_val) if shares_val is not None else 0.0
+                        except Exception:
+                            shares_num = 0.0
+                        # 若該 query 未帶 shares=eq.0，仍僅把 shares<=0 視為 watchlist
+                        if "shares" in q and q.get("shares") != "eq.0" and shares_num > 0:
                             continue
                         if symbol not in merged:
                             merged[symbol] = {
                                 "symbol": symbol,
                                 "name": None,
-                                "added_at": row.get("updated_at"),
+                                "added_at": row.get("updated_at") or row.get("created_at"),
                             }
-        except Exception:
-            pass
+                    break
+            except Exception:
+                continue
         items = list(merged.values())
         items.sort(key=lambda x: (x.get("added_at") or ""), reverse=True)
         return items
@@ -302,37 +415,48 @@ class SupabaseAdapter:
         tables = ["watchlist", "watchlists"]
         any_success = False
         for table in tables:
-            try:
-                with httpx.Client(timeout=30.0) as client:
-                    headers = self._get_headers(use_service_key=True)
-                    headers["Prefer"] = "resolution=merge-duplicates,return=representation"
-                    resp = client.post(
-                        f"{url}/rest/v1/{table}",
-                        headers=headers,
-                        params={"on_conflict": "user_id,symbol"},
-                        json={"user_id": user_id, "symbol": symbol},
-                    )
-                    if resp.status_code in [200, 201, 204, 409]:
-                        any_success = True
-                        continue
-                    if resp.status_code == 404:
-                        continue
-            except Exception:
-                continue
+            payload_variants = [
+                ({"user_id": user_id, "symbol": symbol}, "user_id,symbol"),
+                ({"user_id": user_id, "stock_id": symbol}, "user_id,stock_id"),
+            ]
+            for payload, conflict in payload_variants:
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        headers = self._get_headers(use_service_key=True)
+                        headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+                        resp = client.post(
+                            f"{url}/rest/v1/{table}",
+                            headers=headers,
+                            params={"on_conflict": conflict},
+                            json=payload,
+                        )
+                        if resp.status_code in [200, 201, 204, 409]:
+                            any_success = True
+                            break
+                        if resp.status_code in (400, 404):
+                            continue
+                except Exception:
+                    continue
 
         # 補寫 portfolios（shares=0 作為自選），避免讀寫來源不一致
         try:
+            portfolio_variants = [
+                ({"user_id": user_id, "symbol": symbol, "shares": 0, "avg_price": 0}, "user_id,symbol"),
+                ({"user_id": user_id, "stock_id": symbol, "shares": 0, "avg_price": 0}, "user_id,stock_id"),
+            ]
             with httpx.Client(timeout=30.0) as client:
-                headers = self._get_headers(use_service_key=True)
-                headers["Prefer"] = "resolution=merge-duplicates,return=representation"
-                resp = client.post(
-                    f"{url}/rest/v1/portfolios",
-                    headers=headers,
-                    params={"on_conflict": "user_id,symbol"},
-                    json={"user_id": user_id, "symbol": symbol, "shares": 0, "avg_price": 0},
-                )
-                if resp.status_code in [200, 201, 204, 409]:
-                    any_success = True
+                for payload, conflict in portfolio_variants:
+                    headers = self._get_headers(use_service_key=True)
+                    headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+                    resp = client.post(
+                        f"{url}/rest/v1/portfolios",
+                        headers=headers,
+                        params={"on_conflict": conflict},
+                        json=payload,
+                    )
+                    if resp.status_code in [200, 201, 204, 409]:
+                        any_success = True
+                        break
         except Exception:
             pass
         return any_success
@@ -350,35 +474,42 @@ class SupabaseAdapter:
         tables = ["watchlist", "watchlists"]
         any_success = False
         for table in tables:
-            try:
-                with httpx.Client(timeout=30.0) as client:
-                    resp = client.delete(
-                        f"{url}/rest/v1/{table}",
-                        headers=self._get_headers(use_service_key=True),
-                        params={"user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}"},
-                    )
-                    if resp.status_code in [200, 204]:
-                        any_success = True
-                        continue
-                    if resp.status_code == 404:
-                        continue
-            except Exception:
-                continue
+            delete_params = [
+                {"user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}"},
+                {"user_id": f"eq.{user_id}", "stock_id": f"eq.{symbol}"},
+            ]
+            for params in delete_params:
+                try:
+                    with httpx.Client(timeout=30.0) as client:
+                        resp = client.delete(
+                            f"{url}/rest/v1/{table}",
+                            headers=self._get_headers(use_service_key=True),
+                            params=params,
+                        )
+                        if resp.status_code in [200, 204]:
+                            any_success = True
+                            break
+                        if resp.status_code in (400, 404):
+                            continue
+                except Exception:
+                    continue
 
         # 同步刪除 portfolios 中 shares=0 的列
         try:
             with httpx.Client(timeout=30.0) as client:
-                resp = client.delete(
-                    f"{url}/rest/v1/portfolios",
-                    headers=self._get_headers(use_service_key=True),
-                    params={
-                        "user_id": f"eq.{user_id}",
-                        "symbol": f"eq.{symbol}",
-                        "shares": "eq.0",
-                    },
-                )
-                if resp.status_code in [200, 204]:
-                    any_success = True
+                delete_variants = [
+                    {"user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}", "shares": "eq.0"},
+                    {"user_id": f"eq.{user_id}", "stock_id": f"eq.{symbol}", "shares": "eq.0"},
+                ]
+                for params in delete_variants:
+                    resp = client.delete(
+                        f"{url}/rest/v1/portfolios",
+                        headers=self._get_headers(use_service_key=True),
+                        params=params,
+                    )
+                    if resp.status_code in [200, 204]:
+                        any_success = True
+                        break
         except Exception:
             pass
         return any_success
@@ -475,10 +606,12 @@ class SupabaseAdapter:
     
     def update_user_tier(self, user_id: str, tier: str, expires_at: Optional[str] = None) -> bool:
         """更新用戶方案（需 admin 權限）"""
+        ok = False
         data = {'tier': tier}
         if expires_at:
             data['expires_at'] = expires_at
-        
+
+        # 1) 盡量維持相容：更新 public.users（若存在）
         result = self._request(
             "PATCH",
             "users",
@@ -486,7 +619,46 @@ class SupabaseAdapter:
             json=data,
             use_service_key=True
         )
-        return result is not None
+        if result is not None:
+            ok = True
+
+        # 2) 寫入 user_subscriptions（後端權限/限流主要依據）
+        url, _, _ = self._get_config()
+        if url:
+            try:
+                payload = {"user_id": user_id, "tier": tier}
+                if expires_at:
+                    payload["expires_at"] = expires_at
+                with httpx.Client(timeout=30.0) as client:
+                    headers = self._get_headers(use_service_key=True)
+                    headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+                    resp = client.post(
+                        f"{url}/rest/v1/user_subscriptions",
+                        headers=headers,
+                        params={"on_conflict": "user_id"},
+                        json=payload,
+                    )
+                    if resp.status_code in (200, 201, 204, 409):
+                        ok = True
+            except Exception:
+                pass
+
+        # 3) 同步回 auth.users metadata，讓前端顯示立即一致
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            metadata["tier"] = tier
+            auth_res = self._auth_admin_request(
+                "PUT",
+                f"admin/users/{user_id}",
+                json={"user_metadata": metadata},
+            )
+            if auth_res is not None:
+                ok = True
+        except Exception:
+            pass
+
+        return ok
     
     # ===== AI 用量追蹤 =====
     

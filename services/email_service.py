@@ -179,7 +179,7 @@ class EmailService:
             try:
                 with httpx.Client(timeout=30.0) as client:
                     # 發送給用戶
-                    client.post(
+                    user_resp = client.post(
                         "https://api.resend.com/emails",
                         headers={"Authorization": f"Bearer {resend_key}"},
                         json={
@@ -191,7 +191,7 @@ class EmailService:
                         }
                     )
                     # 發送給管理員
-                    client.post(
+                    admin_resp = client.post(
                         "https://api.resend.com/emails",
                         headers={"Authorization": f"Bearer {resend_key}"},
                         json={
@@ -202,18 +202,29 @@ class EmailService:
                             "html": admin_email_html,
                         }
                     )
+                if not user_resp.is_success:
+                    return {
+                        "success": False,
+                        "message": f"寄送用戶信件失敗（HTTP {user_resp.status_code}）: {user_resp.text}",
+                        "order_id": order_id,
+                    }
+                if not admin_resp.is_success:
+                    return {
+                        "success": False,
+                        "message": f"寄送管理員信件失敗（HTTP {admin_resp.status_code}）: {admin_resp.text}",
+                        "order_id": order_id,
+                    }
                 return {"success": True, "message": f"已發送升級確認信至 {user_email}", "order_id": order_id}
             except Exception as e:
                 print(f"[Email] 發送失敗: {e}")
                 return {"success": False, "message": f"發送失敗: {e}", "order_id": order_id}
         else:
-            # Fallback: 記錄到 console（實際部署需設定 Resend API Key）
-            print(f"[Email] 升級請求（無 API Key）: {order_id} / {user_name} / {plan_info['name']} {cycle_text}")
+            # 若無 API Key，回傳失敗，避免前端誤以為已寄出
+            print(f"[Email] 升級請求失敗（無 API Key）: {order_id} / {user_name} / {plan_info['name']} {cycle_text}")
             return {
-                "success": True, 
-                "message": f"已記錄升級請求（訂單編號: {order_id}），請直接聯繫 {PAYMENT_INFO['admin_email']} 完成付款。",
+                "success": False,
+                "message": "尚未設定 RESEND_API_KEY，無法寄送升級信件",
                 "order_id": order_id,
-                "payment_info": PAYMENT_INFO,
             }
 
 

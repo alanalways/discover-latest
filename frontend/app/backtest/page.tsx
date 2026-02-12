@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     FlaskConical,
     Play,
@@ -51,7 +51,7 @@ interface BacktestResult {
 }
 
 export default function BacktestPage() {
-    const { isLoggedIn, setShowLoginModal } = useAuth();
+    const { user, isLoggedIn, setShowLoginModal } = useAuth();
     const [symbol, setSymbol] = useState('2330');
     const [strategy, setStrategy] = useState('ma_cross');
     const [period, setPeriod] = useState('1y');
@@ -65,6 +65,21 @@ export default function BacktestPage() {
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<BacktestResult | null>(null);
     const [error, setError] = useState('');
+    const tier = user?.tier || 'free';
+
+    const periodOptions = useMemo(() => (
+        tier === 'premium'
+            ? ['1y', '3y', '5y']
+            : tier === 'pro'
+                ? ['1y', '3y']
+                : ['1y']
+    ), [tier]);
+
+    useEffect(() => {
+        if (!periodOptions.includes(period)) {
+            setPeriod('1y');
+        }
+    }, [period, periodOptions]);
 
     const handleRun = async () => {
         if (!isLoggedIn) {
@@ -132,9 +147,11 @@ export default function BacktestPage() {
                     <div className={styles.field}>
                         <label>回測區間</label>
                         <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-                            <option value="1y">1 年</option>
-                            <option value="3y">3 年</option>
-                            <option value="5y">5 年</option>
+                            {periodOptions.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt === '1y' ? '1 年' : opt === '3y' ? '3 年' : '5 年'}
+                                </option>
+                            ))}
                         </select>
                     </div>
                     {strategy === 'ma_cross' && (

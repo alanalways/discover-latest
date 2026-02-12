@@ -132,8 +132,18 @@ const formatVolume = (vol: number): string => {
 };
 
 const formatMarketCap = (val?: number) => {
-    if (!val) return 'N/A';
-    return (val / 100000000).toFixed(2) + ' 億';
+    const num = Number(val);
+    if (!Number.isFinite(num) || num <= 0) return 'N/A';
+    return (num / 100000000).toFixed(2) + ' 億';
+};
+
+const formatPercentValue = (val: number | string | null | undefined): string => {
+    if (val === null || val === undefined || val === '') return 'N/A';
+    const num = Number(val);
+    if (Number.isFinite(num)) return `${num.toFixed(2)}%`;
+    const text = String(val).trim();
+    if (!text) return 'N/A';
+    return text.includes('%') ? text : `${text}%`;
 };
 
 // ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
@@ -379,27 +389,27 @@ function AnalysisContent() {
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">殖利率</div>
-                                    <div className="text-lg font-bold text-green-400">{info.dividend_yield ? info.dividend_yield + '%' : 'N/A'}</div>
+                                    <div className="text-lg font-bold text-green-400">{formatPercentValue(info.dividend_yield as number | string | undefined)}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/E 本益比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pe_ratio || 'N/A'}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pe_ratio ?? 'N/A'}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/B 股淨比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pb_ratio || 'N/A'}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pb_ratio ?? 'N/A'}</div>
                                 </div>
                             </div>
 
                             <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl space-y-4">
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">52週 最高</div>
-                                    <div className="text-xl font-bold text-red-400">{info.high_52w || 'N/A'}</div>
+                                    <div className="text-xl font-bold text-red-400">{info.high_52w ?? 'N/A'}</div>
                                 </div>
                                 <div className="h-px bg-[var(--border-subtle)] w-full" />
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">52週 最低</div>
-                                    <div className="text-xl font-bold text-green-400">{info.low_52w || 'N/A'}</div>
+                                    <div className="text-xl font-bold text-green-400">{info.low_52w ?? 'N/A'}</div>
                                 </div>
                             </div>
                         </div>
