@@ -89,7 +89,7 @@ if FRONTEND_DIR.exists():
     if next_dir.exists():
         app.mount("/_next", StaticFiles(directory=str(next_dir)), name="next_assets")
 
-    @app.get("/{full_path:path}")
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
     async def serve_spa(full_path: str):
         """
         Next.js static export 路由解析：
