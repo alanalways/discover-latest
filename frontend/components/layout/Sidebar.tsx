@@ -88,7 +88,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     return (
         <aside
             className={`${styles.sidebar} ${isOpen ? styles.mobileOpen : ''}`}
-            style={{ '--sidebar-w': '240px' } as { [key: string]: string }}
         >
             {/* Logo Area */}
             <div className={styles.logo}>

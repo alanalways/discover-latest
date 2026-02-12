@@ -105,7 +105,8 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
     if not supabase_url:
         raise HTTPException(status_code=500, detail="Supabase OAuth 設定缺失")
 
-    default_redirect = os.environ.get("SPACE_URL", "").strip() or "https://alanalways-discover-latest-v2.hf.space/auth/callback"
+    space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
+    default_redirect = f"{space_url}/auth/callback" if space_url else "https://alanalways-discover-latest-v2.hf.space/auth/callback"
     callback_url = (redirect_to or default_redirect).strip()
     params = urlencode({
         "provider": "google",

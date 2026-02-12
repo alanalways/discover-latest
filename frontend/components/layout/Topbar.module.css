@@ -24,6 +24,7 @@
     align-items: center;
     min-width: 0;
     gap: 8px;
+    flex: 0 0 auto;
 }
 
 .menuBtn {

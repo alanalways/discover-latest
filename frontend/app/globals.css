@@ -57,7 +57,7 @@
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Layout */
-  --sidebar-w: 200px;
+  --sidebar-w: 240px;
   --topbar-h: 56px;
   --radius: 12px;
   --radius-lg: 16px;

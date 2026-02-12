@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 interface BacktestResult {
     total_return?: number;
@@ -40,6 +41,7 @@ interface BacktestResult {
 }
 
 export default function BacktestPage() {
+    const { isLoggedIn, setShowLoginModal } = useAuth();
     const [symbol, setSymbol] = useState('2330');
     const [strategy, setStrategy] = useState('ma_cross');
     const [period, setPeriod] = useState('1y');
@@ -51,6 +53,11 @@ export default function BacktestPage() {
     const [error, setError] = useState('');
 
     const handleRun = async () => {
+        if (!isLoggedIn) {
+            setError('請先登入後再執行回測。');
+            setShowLoginModal(true);
+            return;
+        }
         setLoading(true);
         setError('');
         setResult(null);

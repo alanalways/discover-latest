@@ -1,7 +1,7 @@
 """
 Backtest API — 回測模擬器
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Dict
 import asyncio
@@ -30,9 +30,10 @@ class BacktestRequest(BaseModel):
 
 
 @router.post("/backtest/run")
-async def run_backtest(req: BacktestRequest):
+async def run_backtest(req: BacktestRequest, request: Request):
     """執行回測"""
     try:
+        _require_auth(request)
         from services.stock_service import stock_service
         from services.backtest_service import backtest_service
 
@@ -132,3 +133,20 @@ async def get_strategies():
             for k, v in backtest_service.STRATEGIES.items()
         ]
     }
+
+
+def _require_auth(request: Request) -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="請先登入")
+    token = auth_header.split(" ", 1)[1]
+    try:
+        from services.auth_service import auth_service
+        user = auth_service.verify_session(token)
+        if not user:
+            raise HTTPException(status_code=401, detail="Session 已過期")
+        return user.get("id", "")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="驗證失敗")

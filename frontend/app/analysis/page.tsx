@@ -4,6 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
+import { useAuth } from '@/components/auth/AuthProvider';
 import {
     TrendingUp, BarChart3, PieChart as PieChartIcon,
     DollarSign, Users, Activity, Landmark,
@@ -110,6 +111,7 @@ const formatMarketCap = (val?: number) => {
 // ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
 function AnalysisContent() {
     const router = useRouter();
+    const { isLoggedIn, setShowLoginModal } = useAuth();
     const searchParams = useSearchParams();
     const initialSymbol = searchParams.get('symbol') || '2330';
     const [symbol, setSymbol] = useState(initialSymbol);
@@ -206,6 +208,11 @@ function AnalysisContent() {
 
     const handleAiAnalysis = async () => {
         if (!symbol || aiLoading) return;
+        if (!isLoggedIn) {
+            setAiResult('請先登入後再使用 AI 分析。');
+            setShowLoginModal(true);
+            return;
+        }
         setAiLoading(true);
         try {
             const result = await api.getAiAnalysis(symbol) as { analysis?: string };
@@ -214,7 +221,7 @@ function AnalysisContent() {
             console.error(err);
             const status = getErrorStatus(err);
             if (status === 403) {
-                setAiResult('此功能需要升級方案，請前往「會員方案」查看。');
+                setAiResult('請先登入並確認方案權限，再使用 AI 分析。');
             } else if (status === 429) {
                 setAiResult('今日 AI 分析次數已達上限，明天再試吧！');
             } else {
@@ -655,7 +662,7 @@ function AnalysisContent() {
                                     <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 flex items-center gap-3">
                                         ✨ AI 智慧深度分析
                                     </h2>
-                                    <p className="text-indigo-300/80 font-medium">基於 FinMind 技術指標與國發會景氣燈號進行綜合判斷</p>
+                                    <p className="text-indigo-300/80 font-medium">基於 DiscoverLatest AI 進行綜合判斷</p>
                                 </div>
                                 <button
                                     onClick={handleAiAnalysis}

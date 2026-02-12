@@ -1,31 +1,48 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import api from '@/lib/api';
 
 function AuthCallbackContent() {
-    const router = useRouter();
     const searchParams = useSearchParams();
     const [message, setMessage] = useState('正在完成登入...');
 
     useEffect(() => {
         const code = searchParams.get('code');
-        if (!code) {
-            setMessage('登入失敗：缺少授權碼，請重新嘗試。');
+        const queryToken = searchParams.get('access_token');
+        const queryError = searchParams.get('error_description') || searchParams.get('error');
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const hashToken = hashParams.get('access_token');
+        const tokenFromCallback = queryToken || hashToken;
+
+        if (queryError) {
+            setMessage(`登入失敗：${decodeURIComponent(queryError)}`);
             return;
         }
 
         const finishLogin = async () => {
             try {
+                if (tokenFromCallback) {
+                    api.setToken(tokenFromCallback);
+                    await api.getCurrentUser();
+                    setMessage('登入成功，正在跳轉...');
+                    window.location.href = '/';
+                    return;
+                }
+
+                if (!code) {
+                    throw new Error('缺少授權碼，請重新登入');
+                }
+
                 const res = await api.loginWithGoogleCode(code);
                 if (!res.success || !res.access_token) {
                     throw new Error(res.message || 'OAuth 交換失敗');
                 }
                 api.setToken(res.access_token);
                 setMessage('登入成功，正在跳轉...');
-                router.replace('/');
+                window.location.href = '/';
             } catch (err) {
                 console.error('OAuth callback failed:', err);
                 setMessage('登入失敗，請返回首頁重新登入。');
@@ -33,7 +50,7 @@ function AuthCallbackContent() {
         };
 
         void finishLogin();
-    }, [router, searchParams]);
+    }, [searchParams]);
 
     return (
         <div style={{

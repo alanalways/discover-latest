@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import PerformanceChart from '@/components/charts/PerformanceChart';
 import { api } from '@/lib/api';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 const COLORS = ['#ef5350', '#26a69a', '#2962FF', '#FFD600', '#AB47BC'];
 
@@ -24,6 +25,7 @@ interface StockData {
 }
 
 export default function ComparePage() {
+    const { isLoggedIn, setShowLoginModal } = useAuth();
     const [inputs, setInputs] = useState(['2330', '2454']);
     const [stocks, setStocks] = useState<StockData[]>([]);
     const [loading, setLoading] = useState(false);
@@ -48,6 +50,11 @@ export default function ComparePage() {
     };
 
     const handleCompare = async () => {
+        if (!isLoggedIn) {
+            setError('請先登入後再使用股票比較。');
+            setShowLoginModal(true);
+            return;
+        }
         const symbols = inputs.map(s => s.trim()).filter(s => s);
         if (symbols.length === 0) return;
 
