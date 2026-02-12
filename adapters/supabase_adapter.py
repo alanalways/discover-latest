@@ -712,6 +712,49 @@ class SupabaseAdapter:
                 pass
         return {}
 
+    def _extract_pending_from_admin_log_row(self, row: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        details = (
+            self._parse_upgrade_request_details(row.get("details"))
+            or self._parse_upgrade_request_details(row.get("payload"))
+            or self._parse_upgrade_request_details(row.get("meta"))
+            or {}
+        )
+        plan = (
+            details.get("plan")
+            or row.get("plan")
+            or row.get("tier")
+        )
+        billing_cycle = (
+            details.get("billing_cycle")
+            or row.get("billing_cycle")
+            or "monthly"
+        )
+        email = (
+            details.get("email")
+            or row.get("email")
+            or row.get("user_email")
+        )
+        name = (
+            details.get("name")
+            or row.get("name")
+            or row.get("user_name")
+        )
+        created_at = (
+            row.get("created_at")
+            or row.get("updated_at")
+            or details.get("created_at")
+        )
+        return {
+            "id": row.get("id") or row.get("request_id"),
+            "user_id": user_id,
+            "plan": plan,
+            "billing_cycle": billing_cycle,
+            "email": email,
+            "name": name,
+            "created_at": created_at,
+            "status": "pending",
+        }
+
     def get_pending_upgrade_request(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Read latest pending upgrade request for a user.
 
@@ -723,34 +766,51 @@ class SupabaseAdapter:
         if not user_id:
             return None
         try:
-            rows = self._request(
-                "GET",
-                "admin_logs",
-                params={
+            query_variants = [
+                {
                     "target_user_id": f"eq.{user_id}",
                     "action": "eq.upgrade_request_pending",
-                    "select": "id,details,created_at",
+                    "select": "*",
                     "order": "created_at.desc",
                     "limit": "1",
                 },
-                use_service_key=True,
-            )
-            if not rows or not isinstance(rows, list):
-                return None
-            row = rows[0] if rows else None
-            if not isinstance(row, dict):
-                return None
-            details = self._parse_upgrade_request_details(row.get("details"))
-            return {
-                "id": row.get("id"),
-                "user_id": user_id,
-                "plan": details.get("plan"),
-                "billing_cycle": details.get("billing_cycle", "monthly"),
-                "email": details.get("email"),
-                "name": details.get("name"),
-                "created_at": row.get("created_at"),
-                "status": "pending",
-            }
+                {
+                    "user_id": f"eq.{user_id}",
+                    "action": "eq.upgrade_request_pending",
+                    "select": "*",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+                {
+                    "target_user_id": f"eq.{user_id}",
+                    "select": "*",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+                {
+                    "user_id": f"eq.{user_id}",
+                    "select": "*",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+            ]
+            for params in query_variants:
+                rows = self._request(
+                    "GET",
+                    "admin_logs",
+                    params=params,
+                    use_service_key=True,
+                    silent=True,
+                )
+                if not rows or not isinstance(rows, list):
+                    continue
+                row = rows[0] if rows else None
+                if not isinstance(row, dict):
+                    continue
+                pending = self._extract_pending_from_admin_log_row(row, user_id)
+                if pending.get("plan") or pending.get("email") or pending.get("id"):
+                    return pending
+            return None
         except Exception:
             return None
 
@@ -795,12 +855,66 @@ class SupabaseAdapter:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            inserted = self._request(
-                "POST",
-                "admin_logs",
-                json=payload,
-                use_service_key=True,
-            )
+            payload_variants = [
+                payload,
+                {
+                    "action": "upgrade_request_pending",
+                    "target_user_id": user_id,
+                    "details": json.dumps(details, ensure_ascii=False),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "action": "upgrade_request_pending",
+                    "user_id": user_id,
+                    "details": json.dumps(details, ensure_ascii=False),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "action": "upgrade_request_pending",
+                    "target_user_id": user_id,
+                    "payload": json.dumps(details, ensure_ascii=False),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "action": "upgrade_request_pending",
+                    "user_id": user_id,
+                    "payload": json.dumps(details, ensure_ascii=False),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "action": "upgrade_request_pending",
+                    "target_user_id": user_id,
+                    "plan": plan,
+                    "billing_cycle": billing_cycle,
+                    "email": user_email,
+                    "name": user_name,
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                {
+                    "action": "upgrade_request_pending",
+                    "user_id": user_id,
+                    "plan": plan,
+                    "billing_cycle": billing_cycle,
+                    "email": user_email,
+                    "name": user_name,
+                    "status": "pending",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+            ]
+
+            inserted = None
+            for p in payload_variants:
+                inserted = self._request(
+                    "POST",
+                    "admin_logs",
+                    json=p,
+                    use_service_key=True,
+                    silent=True,
+                )
+                if inserted is not None:
+                    break
+
             if inserted is None:
                 return {"success": False, "message": "建立待審核申請失敗"}
 
@@ -828,15 +942,21 @@ class SupabaseAdapter:
             if not url:
                 return False
             with httpx.Client(timeout=15.0) as client:
-                resp = client.delete(
-                    f"{url}/rest/v1/admin_logs",
-                    headers=self._get_headers(use_service_key=True),
-                    params={
-                        "target_user_id": f"eq.{user_id}",
-                        "action": "eq.upgrade_request_pending",
-                    },
-                )
-                return 200 <= resp.status_code < 300
+                query_variants = [
+                    {"target_user_id": f"eq.{user_id}", "action": "eq.upgrade_request_pending"},
+                    {"user_id": f"eq.{user_id}", "action": "eq.upgrade_request_pending"},
+                    {"target_user_id": f"eq.{user_id}"},
+                    {"user_id": f"eq.{user_id}"},
+                ]
+                for params in query_variants:
+                    resp = client.delete(
+                        f"{url}/rest/v1/admin_logs",
+                        headers=self._get_headers(use_service_key=True),
+                        params=params,
+                    )
+                    if 200 <= resp.status_code < 300:
+                        return True
+                return False
         except Exception:
             return False
     
