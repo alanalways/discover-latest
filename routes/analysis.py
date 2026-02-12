@@ -33,7 +33,7 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
 
     try:
         # Feature gate 檢查
-        from services.feature_gate import can_access, get_limit
+        from services.feature_gate import can_access
         from services.rate_limiter import rate_limiter
 
         tier = "free"
@@ -47,17 +47,17 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         from adapters.ndc_adapter import ndc_adapter
         macro_data = ndc_adapter.get_latest_light()
 
-        # 檢查每日額度
+        # 檢查每日額度並記錄用量（已登入用戶）
         if user_id:
-            allowed, info = rate_limiter.check_rate_limit(user_id)
+            allowed, reason = rate_limiter.acquire_request(user_id)
             if not allowed:
-                raise HTTPException(status_code=429, detail="今日 AI 分析次數已達上限")
+                raise HTTPException(status_code=429, detail=reason or "今日 AI 分析次數已達上限")
 
         # 執行分析
         from services.stock_service import stock_service
         from services.gemini_service import gemini_service
 
-        stock_data = stock_service.get_stock_data_for_analysis(req.symbol, req.period)
+        stock_data = await stock_service.get_stock_data_for_analysis(req.symbol, req.period)
         if not stock_data:
             raise HTTPException(status_code=404, detail=f"無法取得 {req.symbol} 資料")
 
@@ -80,8 +80,8 @@ async def smc_analysis(req: SmcRequest):
         from services.stock_service import stock_service
 
         # 取得歷史資料
-        history = stock_service.get_stock_history(req.symbol, period=req.period)
-        if history is None or (hasattr(history, "empty") and history.empty):
+        history = await stock_service.get_stock_history(req.symbol, period=req.period)
+        if not history:
             raise HTTPException(status_code=404, detail=f"無歷史資料: {req.symbol}")
 
         smc = SmcService()

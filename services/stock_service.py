@@ -104,6 +104,25 @@ class StockService:
             "history": history,
             "updated_at": datetime.now().isoformat()
         }
+
+    async def get_stock_history(
+        self,
+        symbol: str,
+        period: str = "1y",
+        market: str = None,
+    ) -> List[Dict]:
+        """公開方法：取得歷史資料（供 routes 使用）"""
+        if market is None:
+            market = await self._detect_market(symbol)
+        return await self._get_stock_history(symbol, market, period)
+
+    async def get_stock_data_for_analysis(
+        self,
+        symbol: str,
+        period: str = "1y",
+    ) -> Dict[str, Any]:
+        """公開方法：提供 AI 分析使用的股票資料"""
+        return await self.get_stock_data(symbol=symbol, period=period)
     
     async def _detect_market(self, symbol: str) -> str:
         """自動偵測市場"""

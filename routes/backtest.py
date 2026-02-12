@@ -81,17 +81,27 @@ async def run_backtest(req: BacktestRequest):
 
         # 4. 整理回傳格式
         metrics = result.get("metrics", {})
+        total_return_pct = float(metrics.get("total_return_pct", 0))
+        max_drawdown_pct = float(metrics.get("max_drawdown", 0))
+        win_rate_pct = float(metrics.get("win_rate", 0))
         return {
             "symbol": req.symbol,
             "strategy": req.strategy,
             "period": req.period,
             "initial_capital": req.initial_capital,
+            # 向下相容：保留舊版前端可讀的扁平欄位（小數比率）
+            "total_return": total_return_pct / 100.0,
+            "max_drawdown": max_drawdown_pct / 100.0,
+            "win_rate": win_rate_pct / 100.0,
+            "total_trades": metrics.get("total_trades", 0),
+            "sharpe_ratio": metrics.get("sharpe_ratio", 0),
+            "profit_factor": metrics.get("profit_factor", 0),
             "metrics": {
                 "total_return": metrics.get("total_return", 0),
-                "total_return_pct": metrics.get("total_return_pct", 0),
+                "total_return_pct": total_return_pct,
                 "max_drawdown": metrics.get("max_drawdown", 0),
                 "max_drawdown_pct": metrics.get("max_drawdown_pct", 0),
-                "win_rate": metrics.get("win_rate", 0),
+                "win_rate": win_rate_pct,
                 "total_trades": metrics.get("total_trades", 0),
                 "sharpe_ratio": metrics.get("sharpe_ratio", 0),
                 "final_value": metrics.get("final_value", req.initial_capital),

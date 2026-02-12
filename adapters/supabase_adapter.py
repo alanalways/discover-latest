@@ -196,6 +196,119 @@ class SupabaseAdapter:
             pass
         return {"tier": "free", "expires_at": None}
 
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """取得用戶列表（管理後台）"""
+        result = self._request(
+            "GET",
+            "users",
+            params={
+                "select": "id,email,name,tier,created_at",
+                "order": "created_at.desc",
+            },
+            use_service_key=True,
+        )
+        if not result or not isinstance(result, list):
+            return []
+        return result
+
+    # ===== 自選清單 (watchlist/watchlists) =====
+
+    def get_user_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
+        """取得自選清單（相容 watchlist/watchlists 表名）"""
+        url, _, _ = self._get_config()
+        if not url:
+            return []
+
+        tables = ["watchlist", "watchlists"]
+        for table in tables:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.get(
+                        f"{url}/rest/v1/{table}",
+                        headers=self._get_headers(use_service_key=True),
+                        params={
+                            "user_id": f"eq.{user_id}",
+                            "select": "symbol,name,added_at",
+                            "order": "added_at.desc",
+                        },
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json() if resp.text else []
+                        return data if isinstance(data, list) else []
+                    if resp.status_code == 404:
+                        continue
+            except Exception:
+                continue
+        return []
+
+    def add_to_watchlist(self, user_id: str, symbol: str) -> bool:
+        """新增自選股票（相容 watchlist/watchlists 表名）"""
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            return False
+
+        tables = ["watchlist", "watchlists"]
+        for table in tables:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.post(
+                        f"{url}/rest/v1/{table}",
+                        headers=self._get_headers(use_service_key=True),
+                        json={"user_id": user_id, "symbol": symbol},
+                    )
+                    if resp.status_code in [200, 201, 204, 409]:
+                        return True
+                    if resp.status_code == 404:
+                        continue
+            except Exception:
+                continue
+        return False
+
+    def remove_from_watchlist(self, user_id: str, symbol: str) -> bool:
+        """移除自選股票（相容 watchlist/watchlists 表名）"""
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+
+        symbol = (symbol or "").strip().upper()
+        if not symbol:
+            return False
+
+        tables = ["watchlist", "watchlists"]
+        for table in tables:
+            try:
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.delete(
+                        f"{url}/rest/v1/{table}",
+                        headers=self._get_headers(use_service_key=True),
+                        params={"user_id": f"eq.{user_id}", "symbol": f"eq.{symbol}"},
+                    )
+                    if resp.status_code in [200, 204]:
+                        return True
+                    if resp.status_code == 404:
+                        continue
+            except Exception:
+                continue
+        return False
+
+    def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> bool:
+        """相容舊介面：direction=above|below"""
+        condition = "gte" if direction == "above" else "lte"
+        result = self.create_user_alert(user_id, symbol, target_price, condition)
+        return bool(result and result.get("success"))
+
+    def delete_alert(self, alert_id: str, user_id: str) -> bool:
+        """相容舊介面"""
+        return self.delete_user_alert(alert_id, user_id)
+
+    def get_user_portfolio(self, user_id: str) -> List[Dict[str, Any]]:
+        """相容舊介面"""
+        return self.load_user_portfolio(user_id)
+
     # ===== 投資組合 (portfolios) =====
 
     def load_user_portfolio(self, user_id: str) -> List[Dict[str, Any]]:

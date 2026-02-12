@@ -16,13 +16,30 @@ import api from '@/lib/api';
 
 interface BacktestResult {
     total_return?: number;
+    total_return_pct?: number;
     max_drawdown?: number;
     win_rate?: number;
     total_trades?: number;
     sharpe_ratio?: number;
     profit_factor?: number;
+    metrics?: {
+        total_return?: number;
+        total_return_pct?: number;
+        max_drawdown?: number;
+        win_rate?: number;
+        total_trades?: number;
+        sharpe_ratio?: number;
+        profit_factor?: number;
+    };
     equity_curve?: { date: string; equity: number }[];
-    trades?: { entry_date: string; exit_date: string; return_pct: number }[];
+    trades?: {
+        date?: string;
+        action?: string;
+        pnl_pct?: number;
+        entry_date?: string;
+        exit_date?: string;
+        return_pct?: number;
+    }[];
 }
 
 export default function BacktestPage() {
@@ -57,6 +74,13 @@ export default function BacktestPage() {
             setLoading(false);
         }
     };
+
+    const metrics = result?.metrics || result;
+    const totalReturnPct = metrics?.total_return_pct ?? 0;
+    const maxDrawdownPct = metrics?.max_drawdown ?? 0;
+    const winRatePct = metrics?.win_rate ?? 0;
+    const totalTrades = metrics?.total_trades ?? 0;
+    const sharpeRatio = metrics?.sharpe_ratio ?? 0;
 
     return (
         <div className={styles.container}>
@@ -128,13 +152,13 @@ export default function BacktestPage() {
                     <div className={styles.metricsGrid}>
                         <ResultMetric
                             label="總報酬率"
-                            value={`${(result.total_return ?? 0) >= 0 ? '+' : ''}${((result.total_return ?? 0) * 100).toFixed(2)}%`}
-                            isPositive={(result.total_return ?? 0) >= 0}
+                            value={`${totalReturnPct >= 0 ? '+' : ''}${totalReturnPct.toFixed(2)}%`}
+                            isPositive={totalReturnPct >= 0}
                         />
-                        <ResultMetric label="最大回撤" value={`${((result.max_drawdown ?? 0) * 100).toFixed(2)}%`} isPositive={false} />
-                        <ResultMetric label="勝率" value={`${((result.win_rate ?? 0) * 100).toFixed(1)}%`} isPositive={(result.win_rate ?? 0) >= 0.5} />
-                        <ResultMetric label="交易次數" value={String(result.total_trades ?? 0)} />
-                        <ResultMetric label="Sharpe Ratio" value={(result.sharpe_ratio ?? 0).toFixed(2)} isPositive={(result.sharpe_ratio ?? 0) > 0} />
+                        <ResultMetric label="最大回撤" value={`${maxDrawdownPct.toFixed(2)}%`} isPositive={false} />
+                        <ResultMetric label="勝率" value={`${winRatePct.toFixed(1)}%`} isPositive={winRatePct >= 50} />
+                        <ResultMetric label="交易次數" value={String(totalTrades)} />
+                        <ResultMetric label="Sharpe Ratio" value={sharpeRatio.toFixed(2)} isPositive={sharpeRatio > 0} />
                     </div>
 
                     {/* 交易紀錄 */}
@@ -143,14 +167,15 @@ export default function BacktestPage() {
                             <h4>交易紀錄（前 10 筆）</h4>
                             <div className={styles.tradesTable}>
                                 <div className={styles.tradeHeader}>
-                                    <span>進場</span><span>出場</span><span>報酬</span>
+                                    <span>日期</span><span>動作</span><span>報酬</span>
                                 </div>
                                 {result.trades.slice(0, 10).map((t, i) => (
                                     <div key={i} className={styles.tradeRow}>
-                                        <span>{t.entry_date}</span>
-                                        <span>{t.exit_date}</span>
-                                        <span className={t.return_pct >= 0 ? styles.up : styles.down}>
-                                            {t.return_pct >= 0 ? '+' : ''}{(t.return_pct * 100).toFixed(2)}%
+                                        <span>{t.date || `${t.entry_date || '-'} → ${t.exit_date || '-'}`}</span>
+                                        <span>{t.action || '交易'}</span>
+                                        <span className={(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)) >= 0 ? styles.up : styles.down}>
+                                            {(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)) >= 0 ? '+' : ''}
+                                            {(t.pnl_pct ?? ((t.return_pct ?? 0) * 100)).toFixed(2)}%
                                         </span>
                                     </div>
                                 ))}
