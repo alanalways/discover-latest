@@ -1,27 +1,27 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Gem, Crown, Zap, Star } from 'lucide-react';
-import styles from './page.module.css';
-import api, { ApiError } from '@/lib/api';
+import { useEffect, useState } from 'react';
+import { Check, Crown, Gem, Star, Zap } from 'lucide-react';
+
 import { useAuth } from '@/components/auth/AuthProvider';
+import api, { ApiError } from '@/lib/api';
+import styles from './page.module.css';
 
 const USDT_TWD_RATE = Number(process.env.NEXT_PUBLIC_USDT_TWD_RATE || 32);
 
 const PLANS = [
     {
         id: 'free',
-        name: '免費版',
+        name: 'Free',
         priceNtd: 0,
-        period: '永久免費',
+        period: '/月',
         icon: <Star size={24} />,
         color: 'var(--text-2)',
         features: [
             '每日 2 次 AI 分析',
-            '基礎 K 線圖 + 技術分析',
-            '台美股即時行情',
-            '1 年回測區間',
-            '5 檔自選清單 + 1 組價格警報',
+            '基本技術分析與儀表板',
+            '自選清單最多 5 檔',
+            '價格提醒最多 1 組',
         ],
         cta: '目前方案',
         disabled: true,
@@ -36,12 +36,8 @@ const PLANS = [
         popular: true,
         features: [
             '每日 20 次 AI 分析',
-            'SMC/ICT 技術標記',
-            '1 年回測 + 進階策略',
-            '30 檔自選清單 + 10 組警報',
-            '籌碼面分析（三大法人）',
-            'AI 追問對話功能',
-            'PDF 報告匯出',
+            '更完整技術指標與策略說明',
+            '更高自選與提醒上限',
         ],
         cta: '升級 Pro',
         disabled: false,
@@ -55,13 +51,8 @@ const PLANS = [
         color: 'var(--primary)',
         features: [
             '每日 200 次 AI 分析',
-            '完整 SMC/ICT + 訂單流',
-            '5 年回測 + 所有策略',
-            '100 檔自選清單 + 50 組警報',
-            'Dexter AI 深度研究',
-            '價格預測（ARIMA/Prophet）',
-            '投組管理 + 再平衡建議',
-            '優先客服支援',
+            '最高資料與功能上限',
+            '優先使用高階分析能力',
         ],
         cta: '升級 Premium',
         disabled: false,
@@ -70,25 +61,58 @@ const PLANS = [
 
 export default function PricingPage() {
     const { isLoggedIn, setShowLoginModal } = useAuth();
+
     const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
     const [currency, setCurrency] = useState<'NTD' | 'USDT'>('NTD');
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+    const [hasPendingUpgrade, setHasPendingUpgrade] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const loadStatus = async () => {
+            if (!isLoggedIn) {
+                if (!cancelled) setHasPendingUpgrade(false);
+                return;
+            }
+            try {
+                const res = await api.getUpgradeStatus();
+                if (!cancelled) {
+                    setHasPendingUpgrade(!!res.has_pending);
+                }
+            } catch {
+                if (!cancelled) setHasPendingUpgrade(false);
+            }
+        };
+
+        void loadStatus();
+        return () => {
+            cancelled = true;
+        };
+    }, [isLoggedIn]);
 
     const handleUpgrade = async (planId: string) => {
         if (planId === 'free') return;
+        if (hasPendingUpgrade) {
+            setError('你已有待審核升級申請，審核完成前不可重複送出。');
+            setSuccess('');
+            return;
+        }
         if (!isLoggedIn) {
-            setError('請先登入後再申請升級。');
+            setError('請先登入再送出升級申請。');
             setSuccess('');
             setShowLoginModal(true);
             return;
         }
+
         try {
             setError('');
             setSuccess('');
             setLoadingPlan(planId);
             const res = await api.requestUpgrade(planId as 'pro' | 'premium', 'monthly');
-            setSuccess(res.message || '升級申請已送出，請查收信箱付款資訊。');
+            setHasPendingUpgrade(!!res.has_pending);
+            setSuccess(res.message || '升級申請已送出，請等待人工審核。');
         } catch (err: unknown) {
             if (err instanceof ApiError) {
                 setError(err.message || '升級申請失敗，請稍後再試。');
@@ -105,8 +129,9 @@ export default function PricingPage() {
     return (
         <div className={styles.container}>
             <div className={styles.header}>
-                <h2 className={styles.title}>會員方案</h2>
-                <p className={styles.subtitle}>選擇適合你的方案，解鎖完整 AI 投資分析功能</p>
+                <h2 className={styles.title}>方案與價格</h2>
+                <p className={styles.subtitle}>按下升級後會先送審，待你人工確認後才會正式升級。</p>
+
                 <div className={styles.currencyToggle}>
                     <button
                         type="button"
@@ -123,17 +148,18 @@ export default function PricingPage() {
                         USDT
                     </button>
                 </div>
+
+                {hasPendingUpgrade && (
+                    <p className={styles.feedbackSuccess}>你目前有待審核升級申請，升級按鈕已暫時鎖定。</p>
+                )}
                 {success && <p className={styles.feedbackSuccess}>{success}</p>}
                 {error && <p className={styles.feedbackError}>{error}</p>}
             </div>
 
             <div className={styles.planGrid}>
                 {PLANS.map((plan) => (
-                    <div
-                        key={plan.id}
-                        className={`${styles.planCard} ${plan.popular ? styles.popular : ''}`}
-                    >
-                        {plan.popular && <div className={styles.popularBadge}>最受歡迎</div>}
+                    <div key={plan.id} className={`${styles.planCard} ${plan.popular ? styles.popular : ''}`}>
+                        {plan.popular && <div className={styles.popularBadge}>熱門推薦</div>}
                         <div className={styles.planIcon} style={{ color: plan.color }}>
                             {plan.icon}
                         </div>
@@ -155,6 +181,7 @@ export default function PricingPage() {
                                     : `約 NT$ ${plan.priceNtd.toLocaleString()}`}
                             </p>
                         )}
+
                         <ul className={styles.featureList}>
                             {plan.features.map((f, i) => (
                                 <li key={i}>
@@ -163,12 +190,17 @@ export default function PricingPage() {
                                 </li>
                             ))}
                         </ul>
+
                         <button
                             className={`${styles.ctaBtn} ${plan.popular ? styles.ctaPrimary : ''}`}
-                            disabled={plan.disabled || !!loadingPlan}
+                            disabled={plan.disabled || !!loadingPlan || (hasPendingUpgrade && plan.id !== 'free')}
                             onClick={() => handleUpgrade(plan.id)}
                         >
-                            {loadingPlan === plan.id ? '處理中...' : plan.cta}
+                            {loadingPlan === plan.id
+                                ? '處理中...'
+                                : hasPendingUpgrade && plan.id !== 'free'
+                                    ? '審核中'
+                                    : plan.cta}
                         </button>
                     </div>
                 ))}
@@ -176,9 +208,11 @@ export default function PricingPage() {
 
             <div className={styles.faq}>
                 <p className={styles.faqNote}>
-                    <Zap size={14} /> 點擊升級後系統會寄付款資訊到你的信箱，回傳匯款截圖後 1-5 個工作天人工審核開通
+                    <Zap size={14} />
+                    送出升級申請後，你會在管理員人工審核與調整方案後完成升級。
                 </p>
             </div>
         </div>
     );
 }
+

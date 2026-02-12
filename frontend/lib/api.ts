@@ -183,6 +183,10 @@ export class ApiClient {
         });
     }
 
+    async getUpgradeStatus() {
+        return this.fetch<UpgradeStatusResponse>('/api/billing/upgrade-status');
+    }
+
     // ── Watchlist ──
     async getWatchlist() {
         return this.fetch('/api/watchlist');
@@ -346,6 +350,22 @@ interface UpgradeResponse {
     order_id?: string;
     plan?: 'pro' | 'premium';
     billing_cycle?: 'monthly' | 'yearly';
+    has_pending?: boolean;
+    pending?: PendingUpgradeInfo | null;
+}
+
+interface PendingUpgradeInfo {
+    id?: string;
+    plan?: 'pro' | 'premium';
+    billing_cycle?: 'monthly' | 'yearly';
+    created_at?: string;
+    status?: 'pending';
+}
+
+interface UpgradeStatusResponse {
+    success: boolean;
+    has_pending: boolean;
+    pending?: PendingUpgradeInfo | null;
 }
 
 // 全域單例

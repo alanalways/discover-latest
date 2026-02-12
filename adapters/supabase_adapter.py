@@ -3,9 +3,11 @@ DiscoverLatest 洞察運算 - Supabase Adapter (REST API 版本)
 使用 httpx 直接調用 Supabase REST API，避免 realtime 依賴的 websockets 版本衝突
 """
 import os
+import json
+import time
 import httpx
 from typing import Optional, Dict, Any, List
-from datetime import date
+from datetime import date, datetime, timezone
 
 
 class SupabaseAdapter:
@@ -663,7 +665,153 @@ class SupabaseAdapter:
         except Exception:
             pass
 
+        if ok:
+            try:
+                self.clear_pending_upgrade_request(user_id)
+            except Exception:
+                pass
+
         return ok
+
+    def _parse_upgrade_request_details(self, details: Any) -> Dict[str, Any]:
+        if isinstance(details, dict):
+            return details
+        if isinstance(details, str) and details.strip():
+            try:
+                parsed = json.loads(details)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        return {}
+
+    def get_pending_upgrade_request(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Read latest pending upgrade request for a user.
+
+        Storage fallback is `admin_logs` with:
+        - action = upgrade_request_pending
+        - target_user_id = user id
+        - details = json payload
+        """
+        if not user_id:
+            return None
+        try:
+            rows = self._request(
+                "GET",
+                "admin_logs",
+                params={
+                    "target_user_id": f"eq.{user_id}",
+                    "action": "eq.upgrade_request_pending",
+                    "select": "id,details,created_at",
+                    "order": "created_at.desc",
+                    "limit": "1",
+                },
+                use_service_key=True,
+            )
+            if not rows or not isinstance(rows, list):
+                return None
+            row = rows[0] if rows else None
+            if not isinstance(row, dict):
+                return None
+            details = self._parse_upgrade_request_details(row.get("details"))
+            return {
+                "id": row.get("id"),
+                "user_id": user_id,
+                "plan": details.get("plan"),
+                "billing_cycle": details.get("billing_cycle", "monthly"),
+                "email": details.get("email"),
+                "name": details.get("name"),
+                "created_at": row.get("created_at"),
+                "status": "pending",
+            }
+        except Exception:
+            return None
+
+    def create_pending_upgrade_request(
+        self,
+        *,
+        user_id: str,
+        user_email: str,
+        user_name: str,
+        plan: str,
+        billing_cycle: str = "monthly",
+    ) -> Dict[str, Any]:
+        """Create a pending upgrade request.
+
+        Returns:
+            {"success": bool, "request_id": str, "pending": dict, "message": str}
+        """
+        if not user_id:
+            return {"success": False, "message": "missing_user_id"}
+
+        existing = self.get_pending_upgrade_request(user_id)
+        if existing:
+            return {
+                "success": False,
+                "reason": "pending_exists",
+                "pending": existing,
+                "message": "已有待審核升級申請",
+            }
+
+        details = {
+            "email": user_email,
+            "name": user_name,
+            "plan": plan,
+            "billing_cycle": billing_cycle,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        payload = {
+            "admin_id": "system",
+            "action": "upgrade_request_pending",
+            "target_user_id": user_id,
+            "details": json.dumps(details, ensure_ascii=False),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            inserted = self._request(
+                "POST",
+                "admin_logs",
+                json=payload,
+                use_service_key=True,
+            )
+            if inserted is None:
+                return {"success": False, "message": "建立待審核申請失敗"}
+
+            row = inserted[0] if isinstance(inserted, list) and inserted else {}
+            request_id = str((row or {}).get("id") or f"UPG-{int(time.time())}")
+            pending = self.get_pending_upgrade_request(user_id) or {
+                "id": request_id,
+                "user_id": user_id,
+                "plan": plan,
+                "billing_cycle": billing_cycle,
+                "email": user_email,
+                "name": user_name,
+                "status": "pending",
+            }
+            return {"success": True, "request_id": request_id, "pending": pending}
+        except Exception as e:
+            return {"success": False, "message": f"建立待審核申請失敗: {e}"}
+
+    def clear_pending_upgrade_request(self, user_id: str) -> bool:
+        """Clear pending upgrade request after manual approval."""
+        if not user_id:
+            return False
+        try:
+            url, _, _ = self._get_config()
+            if not url:
+                return False
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.delete(
+                    f"{url}/rest/v1/admin_logs",
+                    headers=self._get_headers(use_service_key=True),
+                    params={
+                        "target_user_id": f"eq.{user_id}",
+                        "action": "eq.upgrade_request_pending",
+                    },
+                )
+                return 200 <= resp.status_code < 300
+        except Exception:
+            return False
     
     # ===== AI 用量追蹤 =====
     

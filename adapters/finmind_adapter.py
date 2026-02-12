@@ -88,14 +88,15 @@ class FinMindAdapter:
     BASE_URL = "https://api.finmindtrade.com/api/v4"
 
     def __init__(self):
-        self._tokens: List[Optional[str]] = [None, None, None]  # 支援最多 3 組 Token
+        self._tokens: List[Optional[str]] = [None, None, None, None]  # 支援最多 4 組 Token
         self._active_token_idx = 0
         self._available = True
         self._last_check: Optional[datetime] = None
-        self._token_cooldown_until: List[float] = [0.0, 0.0, 0.0]
+        self._token_cooldown_until: List[float] = [0.0, 0.0, 0.0, 0.0]
         self._dataset_cooldown_until: Dict[str, float] = {}
         # 多組 Rate Limiter（每組 600/hr，留 50 buffer）
         self.rate_limiters = [
+            _FinMindRateLimiter(max_requests=550, window_seconds=3600),
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
@@ -108,7 +109,7 @@ class FinMindAdapter:
 
     def _load_tokens(self):
         """載入環境變數中的 Token"""
-        env_keys = ["FINMIND_TOKEN", "FINMIND_TOKEN_2", "FINMIND_TOKEN_3"]
+        env_keys = ["FINMIND_TOKEN", "FINMIND_TOKEN_2", "FINMIND_TOKEN_3", "FINMIND_TOKEN_4"]
         for i, key in enumerate(env_keys):
             if not self._tokens[i]:
                 self._tokens[i] = os.environ.get(key, "")

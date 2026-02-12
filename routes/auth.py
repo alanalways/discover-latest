@@ -130,10 +130,16 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
     space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
     default_redirect = f"{space_url}/auth/callback" if space_url else "https://alanalways-discover-latest-v2.hf.space/auth/callback"
     callback_url = (redirect_to or default_redirect).strip()
-    params = urlencode({
+    oauth_prompt = (os.environ.get("GOOGLE_OAUTH_PROMPT", "select_account") or "").strip()
+    oauth_scopes = (os.environ.get("GOOGLE_OAUTH_SCOPES", "email profile") or "").strip()
+    params_dict = {
         "provider": "google",
         "redirect_to": callback_url,
-    })
+        "scopes": oauth_scopes,
+    }
+    if oauth_prompt:
+        params_dict["prompt"] = oauth_prompt
+    params = urlencode(params_dict)
     supabase_host = urlparse(supabase_url).netloc
     print(f"[Auth] Google start supabase={supabase_host} redirect_to={callback_url}")
     return RedirectResponse(url=f"{supabase_url}/auth/v1/authorize?{params}")
