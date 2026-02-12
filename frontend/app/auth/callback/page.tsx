@@ -5,9 +5,24 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import api from '@/lib/api';
 
+interface AuthDiagnoseData {
+    supabase_project_ref?: string;
+    supabase_host?: string;
+    callback_default?: string;
+    space_url?: string;
+    checks?: {
+        supabase_url_present?: boolean;
+        supabase_host_valid?: boolean;
+        space_url_present?: boolean;
+        anon_key_present?: boolean;
+        google_client_id_present_in_vault?: boolean;
+    };
+}
+
 function AuthCallbackContent() {
     const searchParams = useSearchParams();
     const [message, setMessage] = useState('正在完成登入...');
+    const [diagnose, setDiagnose] = useState<AuthDiagnoseData | null>(null);
 
     useEffect(() => {
         const code = searchParams.get('code');
@@ -17,10 +32,22 @@ function AuthCallbackContent() {
         const hashToken = hashParams.get('access_token');
         const tokenFromCallback = queryToken || hashToken;
 
+        const loadDiagnose = async () => {
+            try {
+                const res = await fetch('/api/auth/diagnose', { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                setDiagnose(data as AuthDiagnoseData);
+            } catch {
+                // ignore
+            }
+        };
+
         if (queryError) {
             const decoded = decodeURIComponent(queryError);
             if (decoded.includes('Unable to exchange external code')) {
                 setMessage('登入失敗：Google OAuth 交換失敗（請檢查 Supabase 的 Google Client ID/Secret 與授權設定）');
+                void loadDiagnose();
             } else {
                 setMessage(`登入失敗：${decoded}`);
             }
@@ -72,6 +99,31 @@ function AuthCallbackContent() {
                 fontSize: 14,
             }}>
                 {message}
+                {diagnose && (
+                    <div style={{
+                        marginTop: 14,
+                        paddingTop: 12,
+                        borderTop: '1px solid var(--border)',
+                        fontSize: 12,
+                        lineHeight: 1.6,
+                        color: 'var(--text-2)',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-all',
+                    }}>
+                        {`診斷資訊：
+Supabase Project Ref: ${diagnose.supabase_project_ref || '（空）'}
+Supabase Host: ${diagnose.supabase_host || '（空）'}
+Callback URL: ${diagnose.callback_default || '（空）'}
+SPACE_URL: ${diagnose.space_url || '（空）'}
+
+檢查：
+- SUPABASE_URL: ${diagnose.checks?.supabase_url_present ? 'OK' : '缺少'}
+- SUPABASE Host 格式: ${diagnose.checks?.supabase_host_valid ? 'OK' : '異常'}
+- SPACE_URL: ${diagnose.checks?.space_url_present ? 'OK' : '缺少'}
+- SUPABASE_ANON_KEY: ${diagnose.checks?.anon_key_present ? 'OK' : '缺少'}
+- Vault GOOGLE_CLIENT_ID: ${diagnose.checks?.google_client_id_present_in_vault ? 'OK' : '缺少'}`}
+                    </div>
+                )}
             </div>
         </div>
     );

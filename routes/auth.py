@@ -2,7 +2,8 @@
 Auth API — Google OAuth + 使用者驗證
 """
 import os
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -112,7 +113,61 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
         "provider": "google",
         "redirect_to": callback_url,
     })
+    supabase_host = urlparse(supabase_url).netloc
+    print(f"[Auth] Google start supabase={supabase_host} redirect_to={callback_url}")
     return RedirectResponse(url=f"{supabase_url}/auth/v1/authorize?{params}")
+
+
+@router.get("/auth/diagnose")
+async def auth_diagnose():
+    """OAuth 設定診斷（不回傳敏感資訊）"""
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
+    space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
+    anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()
+
+    parsed = urlparse(supabase_url) if supabase_url else None
+    supabase_host = parsed.netloc if parsed else ""
+    project_ref = supabase_host.split(".")[0] if supabase_host else ""
+    callback_default = f"{space_url}/auth/callback" if space_url else "https://alanalways-discover-latest-v2.hf.space/auth/callback"
+    authorize_preview = ""
+    if supabase_url:
+        authorize_preview = f"{supabase_url}/auth/v1/authorize?provider=google&redirect_to={callback_default}"
+
+    google_client_id = ""
+    google_client_id_present = False
+    try:
+        from adapters.supabase_adapter import supabase_adapter
+        google_client_id = (supabase_adapter.get_vault_secret("GOOGLE_CLIENT_ID") or "").strip()
+        google_client_id_present = bool(google_client_id)
+    except Exception:
+        pass
+
+    masked_client_id = ""
+    if google_client_id:
+        if len(google_client_id) <= 20:
+            masked_client_id = google_client_id
+        else:
+            masked_client_id = f"{google_client_id[:10]}...{google_client_id[-10:]}"
+
+    checks = {
+        "supabase_url_present": bool(supabase_url),
+        "supabase_host_valid": bool(supabase_host.endswith(".supabase.co")),
+        "space_url_present": bool(space_url),
+        "anon_key_present": bool(anon_key),
+        "google_client_id_present_in_vault": google_client_id_present,
+    }
+
+    return {
+        "now_utc": datetime.now(timezone.utc).isoformat(),
+        "supabase_url": supabase_url,
+        "supabase_host": supabase_host,
+        "supabase_project_ref": project_ref,
+        "space_url": space_url,
+        "callback_default": callback_default,
+        "authorize_url_preview": authorize_preview,
+        "google_client_id_masked": masked_client_id,
+        "checks": checks,
+    }
 
 
 @router.get("/auth/limits")
