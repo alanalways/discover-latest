@@ -52,7 +52,7 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed }: Top
     };
 
     return (
-        <header className="h-[var(--topbar-h)] fixed top-0 right-0 z-40 bg-[var(--bg-elevated)] backdrop-blur-md border-b border-[var(--border-subtle)] flex items-center justify-between px-6 transition-all duration-300" style={{ left: 'var(--sidebar-w)' }}>
+        <header className="h-[var(--topbar-h)] fixed top-0 left-0 md:left-[var(--sidebar-w)] right-0 z-40 bg-[var(--bg-elevated)] backdrop-blur-md border-b border-[var(--border-subtle)] flex items-center justify-between px-6 transition-all duration-300">
             <div className="flex items-center gap-4">
                 <button
                     onClick={onMenuClick}

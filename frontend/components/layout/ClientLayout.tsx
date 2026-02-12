@@ -33,7 +33,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return (
         <AuthProvider>
             <ThemeProvider>
-                <div className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]">
+                <div
+                    className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]"
+                    style={{
+                        '--sidebar-w': collapsed ? '64px' : '240px',
+                    } as React.CSSProperties}
+                >
                     {/* Sidebar */}
                     <Sidebar
                         isOpen={sidebarOpen}
@@ -50,11 +55,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                     )}
 
                     <div
-                        className="flex-1 flex flex-col transition-all duration-300 relative w-full"
-                        style={{
-                            '--sidebar-w': collapsed ? '64px' : '240px',
-                            marginLeft: `var(--sidebar-w)`,
-                        } as React.CSSProperties}
+                        className="flex-1 flex flex-col transition-all duration-300 relative w-full md:ml-[var(--sidebar-w)]"
                     >
                         <Topbar
                             onMenuClick={() => setSidebarOpen(true)}

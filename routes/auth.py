@@ -30,10 +30,15 @@ async def google_auth(req: GoogleAuthRequest):
         from services.rate_limiter import rate_limiter
 
         user = None
+        access_token = None
         if req.token:
             user = auth_service.verify_google_token(req.token)
+            if user:
+                access_token = user.pop("access_token", req.token)
         elif req.code:
-            user = auth_service.exchange_code(req.code)
+            user = auth_service.exchange_code_for_session(req.code)
+            if user:
+                access_token = user.pop("access_token", None)
 
         if not user:
             raise HTTPException(status_code=401, detail="驗證失敗")
@@ -49,7 +54,7 @@ async def google_auth(req: GoogleAuthRequest):
             except Exception:
                 pass
 
-        return AuthResponse(success=True, user=user)
+        return {"success": True, "user": user, "access_token": access_token}
 
     except HTTPException:
         raise

@@ -39,6 +39,61 @@ class AuthService:
         space_url = os.environ.get("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
         return space_url
 
+    def verify_google_token(self, id_token: str) -> Optional[Dict]:
+        """驗證 Google ID Token，透過 Supabase Auth signInWithIdToken"""
+        if not id_token:
+            return None
+        try:
+            url = os.environ.get("SUPABASE_URL", "")
+            anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
+            if not url or not anon_key:
+                print(f"[Auth] verify_google_token: 缺少 Supabase 設定")
+                return None
+
+            import httpx
+            with httpx.Client(timeout=15.0) as client:
+                # 使用 Supabase Auth 的 signInWithIdToken 端點
+                resp = client.post(
+                    f"{url}/auth/v1/token?grant_type=id_token",
+                    headers={
+                        "apikey": anon_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "provider": "google",
+                        "id_token": id_token,
+                    },
+                )
+                print(f"[Auth] verify_google_token: status={resp.status_code}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    user = data.get("user")
+                    if user:
+                        # 附上 access_token 讓前端可以後續驗證
+                        user["access_token"] = data.get("access_token", "")
+                        return user
+                else:
+                    detail = resp.text[:300]
+                    print(f"[Auth] verify_google_token 失敗: {detail}")
+
+                    # Fallback: 如果是 mock token（開發/測試用途），回傳訪客
+                    if id_token.startswith("mock_"):
+                        print("[Auth] 偵測到 mock token，回傳訪客資料")
+                        return {
+                            "id": "guest-" + hashlib.md5(id_token.encode()).hexdigest()[:8],
+                            "email": "guest@discoverlatest.app",
+                            "user_metadata": {
+                                "full_name": "訪客",
+                                "avatar_url": "",
+                                "tier": "free",
+                            },
+                            "app_metadata": {"role": "user"},
+                            "access_token": id_token,
+                        }
+        except Exception as e:
+            print(f"[Auth] verify_google_token 錯誤: {type(e).__name__}: {e}")
+        return None
+
     def exchange_code_for_session(self, code: str) -> Optional[Dict]:
         """PKCE flow: 用 authorization code 交換 access_token，然後取得用戶資料"""
         if not code:
