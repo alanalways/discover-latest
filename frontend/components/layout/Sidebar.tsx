@@ -14,6 +14,7 @@ import {
     Gem,
     X,
     ArrowLeftRight,
+    Shield,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
@@ -31,13 +32,14 @@ const BOTTOM_ITEMS = [
     { icon: HelpCircle, label: '幫助中心', href: '/help' },
 ];
 
+const ADMIN_EMAIL = 'alanalways0817@gmail.com';
+
 interface SidebarProps {
     isOpen?: boolean;
     onClose?: () => void;
-    collapsed?: boolean;
 }
 
-export default function Sidebar({ isOpen, onClose, collapsed = false }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
     const { user } = useAuth();
 
@@ -52,22 +54,23 @@ export default function Sidebar({ isOpen, onClose, collapsed = false }: SidebarP
     const credits = tierCredits[tier] || tierCredits.free;
     const creditPct = Math.round((credits.used / credits.total) * 100);
 
+    // 判斷是否為管理員
+    const isAdmin = user?.email === ADMIN_EMAIL;
+
     return (
         <aside
-            className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} transition-all duration-300 md:shadow-none shadow-2xl`}
-            style={{ '--sidebar-w': collapsed ? '64px' : '240px' } as React.CSSProperties}
+            className={`${styles.sidebar} ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'} transition-all duration-300 md:shadow-none shadow-2xl`}
+            style={{ '--sidebar-w': '240px' } as React.CSSProperties}
         >
             {/* Logo Area */}
             <div className={styles.logo}>
                 <div className={styles.logoIcon}>
                     <Gem size={20} />
                 </div>
-                {!collapsed && (
-                    <div className={styles.logoText}>
-                        <span className={styles.logoTitle}>DiscoverLatest</span>
-                        <span className={styles.logoSubtitle}>AI Intelligence v2.0</span>
-                    </div>
-                )}
+                <div className={styles.logoText}>
+                    <span className={styles.logoTitle}>DiscoverLatest</span>
+                    <span className={styles.logoSubtitle}>AI Intelligence v2.0</span>
+                </div>
 
                 {/* Mobile Close Button */}
                 <button
@@ -87,39 +90,45 @@ export default function Sidebar({ isOpen, onClose, collapsed = false }: SidebarP
                             key={item.href}
                             href={item.href}
                             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-                            title={collapsed ? item.label : undefined}
                         >
                             <item.icon className={styles.navIcon} />
-                            {!collapsed && <span>{item.label}</span>}
+                            <span>{item.label}</span>
                         </Link>
                     );
                 })}
+
+                {/* 管理後台 — 僅 admin 顯示 */}
+                {isAdmin && (
+                    <Link
+                        href="/admin"
+                        className={`${styles.navItem} ${pathname === '/admin' ? styles.navItemActive : ''}`}
+                    >
+                        <Shield className={styles.navIcon} />
+                        <span>管理後台</span>
+                    </Link>
+                )}
             </nav>
 
-            {/* Usage Card — 摺疊時隱藏 */}
-            {!collapsed && (
-                <div className={styles.usageCard}>
-                    <div className={styles.usageHeader}>
-                        <span className={styles.tierBadge}>{tierLabel[tier]}</span>
-                        <Link href="/pricing" className={styles.upgradeLink}>Upgrade</Link>
-                    </div>
-                    <div className={styles.usageCount}>{credits.used}/{credits.total}</div>
-                    <div className={styles.usageLabel}>AI Analysis Credits</div>
-                    <div className={styles.usageBar}>
-                        <div className={styles.usageBarFill} style={{ width: `${creditPct}%` }}></div>
-                    </div>
+            {/* Usage Card */}
+            <div className={styles.usageCard}>
+                <div className={styles.usageHeader}>
+                    <span className={styles.tierBadge}>{tierLabel[tier]}</span>
+                    <Link href="/pricing" className={styles.upgradeLink}>Upgrade</Link>
                 </div>
-            )}
+                <div className={styles.usageCount}>{credits.used}/{credits.total}</div>
+                <div className={styles.usageLabel}>AI Analysis Credits</div>
+                <div className={styles.usageBar}>
+                    <div className={styles.usageBarFill} style={{ width: `${creditPct}%` }}></div>
+                </div>
+            </div>
 
             {/* Upgrade Button */}
-            {!collapsed && (
-                <div className={styles.upgradeSection}>
-                    <Link href="/pricing" className={styles.upgradeBtn}>
-                        <Gem size={14} />
-                        <span>升級至 Pro 版</span>
-                    </Link>
-                </div>
-            )}
+            <div className={styles.upgradeSection}>
+                <Link href="/pricing" className={styles.upgradeBtn}>
+                    <Gem size={14} />
+                    <span>升級至 Pro 版</span>
+                </Link>
+            </div>
 
             {/* Bottom Actions */}
             <nav className={styles.nav}>
@@ -128,21 +137,18 @@ export default function Sidebar({ isOpen, onClose, collapsed = false }: SidebarP
                         key={item.href}
                         href={item.href}
                         className={styles.navItem}
-                        title={collapsed ? item.label : undefined}
                     >
                         <item.icon className={styles.navIcon} />
-                        {!collapsed && <span>{item.label}</span>}
+                        <span>{item.label}</span>
                     </Link>
                 ))}
             </nav>
 
-            {/* Footer — 摺疊時隱藏 */}
-            {!collapsed && (
-                <div className={styles.footer}>
-                    <span>© 2024 DiscoverLatest</span>
-                    <span>v2.1.0 (Beta)</span>
-                </div>
-            )}
+            {/* Footer */}
+            <div className={styles.footer}>
+                <span>© 2024 DiscoverLatest</span>
+                <span>v2.1.0 (Beta)</span>
+            </div>
         </aside>
     );
 }

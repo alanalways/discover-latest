@@ -73,8 +73,12 @@ export default function BacktestPage() {
                     <div className={styles.field}>
                         <label>策略</label>
                         <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
-                            <option value="ma_cross">MA 交叉</option>
-                            <option value="kd_cross">KD 交叉</option>
+                            <option value="ma_cross">均線交叉</option>
+                            <option value="rsi">RSI 策略</option>
+                            <option value="breakout">突破策略</option>
+                            <option value="momentum">動能策略</option>
+                            <option value="monitoring_indicator">景氣燈號策略</option>
+                            <option value="martingale">馬丁格爾策略</option>
                         </select>
                     </div>
                     <div className={styles.field}>

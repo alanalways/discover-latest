@@ -10,38 +10,24 @@ import { usePathname } from 'next/navigation';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
-    const [collapsed, setCollapsed] = useState(false);
     const pathname = usePathname();
 
-    // 計算 sidebar 寬度（數字）
-    const sidebarWidth = collapsed ? 64 : 240;
-
-    // 從 localStorage 讀取 collapsed 狀態
-    useEffect(() => {
-        const saved = localStorage.getItem('sidebar-collapsed');
-        if (saved === 'true') setCollapsed(true);
-    }, []);
+    // 固定 sidebar 寬度 240px（不再支援 collapse）
+    const sidebarWidth = 240;
 
     // 路由改變時關閉 mobile sidebar
     useEffect(() => {
         setSidebarOpen(false);
     }, [pathname]);
 
-    const handleToggleCollapse = () => {
-        const next = !collapsed;
-        setCollapsed(next);
-        localStorage.setItem('sidebar-collapsed', String(next));
-    };
-
     return (
         <AuthProvider>
             <ThemeProvider>
                 <div className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]">
-                    {/* Sidebar */}
+                    {/* Sidebar — 固定展開 */}
                     <Sidebar
                         isOpen={sidebarOpen}
                         onClose={() => setSidebarOpen(false)}
-                        collapsed={collapsed}
                     />
 
                     {/* Mobile Sidebar Overlay */}
@@ -52,15 +38,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                         />
                     )}
 
-                    {/* Main content area — 用 inline style 確保 production 也正確 */}
+                    {/* Main content area */}
                     <div
                         className="flex-1 flex flex-col transition-all duration-300 relative w-full"
                         style={{ marginLeft: sidebarWidth }}
                     >
                         <Topbar
                             onMenuClick={() => setSidebarOpen(true)}
-                            onToggleCollapse={handleToggleCollapse}
-                            collapsed={collapsed}
                             sidebarWidth={sidebarWidth}
                         />
 

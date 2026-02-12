@@ -12,7 +12,6 @@ function AnalysisContent() {
     const searchParams = useSearchParams();
     const initialSymbol = searchParams.get('symbol') || '2330';
     const [symbol, setSymbol] = useState(initialSymbol);
-    const [searchQuery, setSearchQuery] = useState(initialSymbol);
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -28,7 +27,6 @@ function AnalysisContent() {
             setData(result);
         } catch (err: any) {
             console.error(err);
-            // 根據錯誤型別給出更友善的訊息
             if (err?.status === 404) {
                 setError(`找不到股票代號「${sym}」，請確認後重新搜尋。`);
             } else if (err?.status >= 500) {
@@ -40,6 +38,14 @@ function AnalysisContent() {
             setLoading(false);
         }
     };
+
+    // 當 URL 的 symbol 參數變化時自動載入
+    useEffect(() => {
+        const urlSymbol = searchParams.get('symbol');
+        if (urlSymbol && urlSymbol !== symbol) {
+            setSymbol(urlSymbol);
+        }
+    }, [searchParams]);
 
     useEffect(() => {
         if (symbol) {
@@ -64,17 +70,6 @@ function AnalysisContent() {
             }
         } finally {
             setAiLoading(false);
-        }
-    };
-
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        const trimmed = searchQuery.trim();
-        if (trimmed) {
-            setSymbol(trimmed);
-            const url = new URL(window.location.href);
-            url.searchParams.set('symbol', trimmed);
-            window.history.pushState({}, '', url.toString());
         }
     };
 
@@ -103,23 +98,11 @@ function AnalysisContent() {
         <div className="space-y-6">
             <div className="max-w-7xl mx-auto space-y-6">
 
-                {/* 搜尋列 */}
-                <div className="flex flex-col md:flex-row gap-4 items-center">
-                    <form onSubmit={handleSearch} className="w-full flex-1 flex gap-2">
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="輸入股票代號 (如 2330, 8048)..."
-                            className="flex-1 p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border)] text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
-                        />
-                        <button
-                            type="submit"
-                            className="px-8 py-3 bg-[var(--accent)] hover:brightness-110 text-white rounded-lg transition font-bold"
-                        >
-                            搜尋
-                        </button>
-                    </form>
+                {/* 提示：使用 Topbar 搜尋列可快速切換股票 */}
+                <div className="text-sm text-[var(--text-3)] flex items-center gap-2">
+                    <span>📊 目前分析：</span>
+                    <span className="font-bold text-[var(--accent)]">{symbol}</span>
+                    <span className="text-[var(--text-3)]">— 在頂部搜尋列輸入代號即可切換</span>
                 </div>
 
                 {error && <div className="bg-red-500/10 border border-red-500/30 p-4 rounded-lg text-red-300">{error}</div>}

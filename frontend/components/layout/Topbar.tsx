@@ -2,14 +2,12 @@
 
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Search, Moon, Sun, User as UserIcon, LogOut, Menu, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Moon, Sun, User as UserIcon, LogOut, Menu } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useTheme } from '@/components/theme/ThemeProvider';
 
 interface TopbarProps {
     onMenuClick?: () => void;
-    onToggleCollapse?: () => void;
-    collapsed?: boolean;
     sidebarWidth?: number;
 }
 
@@ -26,7 +24,7 @@ const PAGE_TITLES: Record<string, string> = {
     '/help': '幫助中心',
 };
 
-export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sidebarWidth = 240 }: TopbarProps) {
+export default function Topbar({ onMenuClick, sidebarWidth = 240 }: TopbarProps) {
     const pathname = usePathname();
     const router = useRouter();
     const { user, logout, setShowLoginModal } = useAuth();
@@ -46,6 +44,7 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
         e.preventDefault();
         if (searchQuery.trim()) {
             router.push(`/analysis?symbol=${searchQuery.trim()}`);
+            setSearchQuery('');
         }
     };
 
@@ -54,10 +53,10 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
             className="h-[var(--topbar-h)] fixed top-0 right-0 z-40 bg-[var(--bg-elevated)]/80 backdrop-blur-xl border-b border-[var(--border-subtle)] transition-all duration-300"
             style={{ left: sidebarWidth }}
         >
-            {/* 內部用 flex 排版，確保兩端對齊 */}
+            {/* 內部 flex 排版 */}
             <div className="h-full flex items-center justify-between px-4 md:px-6 gap-3">
 
-                {/* ── 左側：Toggle + 頁面標題 ── */}
+                {/* ── 左側：頁面標題 ── */}
                 <div className="flex items-center gap-2 min-w-0 shrink-0">
                     {/* Mobile hamburger */}
                     <button
@@ -66,21 +65,11 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
                     >
                         <Menu size={20} />
                     </button>
-                    {/* 桌面版 Sidebar Toggle */}
-                    <button
-                        onClick={onToggleCollapse}
-                        className="hidden md:flex p-1.5 text-[var(--text-3)] hover:text-[var(--text-1)] hover:bg-[var(--bg-hover)] rounded-lg transition"
-                        title={collapsed ? '展開側邊欄' : '收起側邊欄'}
-                    >
-                        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-                    </button>
-                    {/* 分隔線 */}
-                    <div className="hidden md:block w-px h-5 bg-[var(--border-subtle)]" />
                     {/* 頁面標題 */}
                     <h1 className="text-base md:text-lg font-semibold text-[var(--text-1)] truncate">{pageTitle}</h1>
                 </div>
 
-                {/* ── 中間：搜尋欄（桌面版） ── */}
+                {/* ── 中間：全域搜尋欄（桌面版） ── */}
                 <form onSubmit={handleSearch} className="hidden md:flex flex-1 max-w-md mx-4 group">
                     <div className="relative w-full">
                         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)] group-focus-within:text-[var(--accent)] transition" />
@@ -88,13 +77,13 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
                             type="text"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="搜尋代號 (2330)..."
+                            placeholder="搜尋股票代號 (如 2330)..."
                             className="w-full bg-[var(--bg-card)] border border-[var(--border)] rounded-full py-1.5 pl-9 pr-4 text-sm text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]/30 transition"
                         />
                     </div>
                 </form>
 
-                {/* ── 右側：功能按鈕 ── */}
+                {/* ── 右側：主題切換 + 登入 ── */}
                 <div className="flex items-center gap-2 shrink-0">
                     {/* 主題切換 */}
                     <button
@@ -109,10 +98,10 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
                         <>
                             {/* Tier 標籤 */}
                             <span className={`px-2 py-0.5 rounded text-xs font-bold ${tier === 'premium'
-                                    ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
-                                    : tier === 'pro'
-                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                                        : 'bg-[var(--bg-card)] text-[var(--text-3)] border border-[var(--border)]'
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                : tier === 'pro'
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                    : 'bg-[var(--bg-card)] text-[var(--text-3)] border border-[var(--border)]'
                                 }`}>
                                 {tierLabel}
                             </span>
@@ -135,7 +124,7 @@ export default function Topbar({ onMenuClick, onToggleCollapse, collapsed, sideb
                                     </span>
                                 </button>
 
-                                {/* Dropdown Menu — 使用 CSS 變數統一主題 */}
+                                {/* Dropdown Menu */}
                                 {showUserMenu && (
                                     <div className="absolute right-0 top-11 w-48 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in slide-in-from-top-2">
                                         <div className="px-4 py-2.5 border-b border-[var(--border-subtle)] mb-1">
