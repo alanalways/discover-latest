@@ -8,6 +8,33 @@ interface FetchOptions extends RequestInit {
     skipAuth?: boolean;
 }
 
+interface MarketItem {
+    name: string;
+    symbol: string;
+    value: string;
+    change: string;
+    change_pct: string;
+    color: string;
+}
+
+interface Top20Stock {
+    symbol: string;
+    name: string;
+    change_pct: number;
+    volume: number;
+    close?: number;
+}
+
+interface MarketOverviewResponse {
+    indices?: MarketItem[];
+    etfs?: MarketItem[];
+}
+
+interface Top20Response {
+    tw?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+    us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+}
+
 export class ApiClient {
     private token: string | null = null;
 
@@ -55,12 +82,12 @@ export class ApiClient {
     }
 
     // ── Market ──
-    async getMarketOverview() {
-        return this.fetch('/api/market/overview', { skipAuth: true });
+    async getMarketOverview(): Promise<MarketOverviewResponse> {
+        return this.fetch<MarketOverviewResponse>('/api/market/overview', { skipAuth: true });
     }
 
-    async getMarketTop20() {
-        return this.fetch('/api/market/top20', { skipAuth: true });
+    async getMarketTop20(): Promise<Top20Response> {
+        return this.fetch<Top20Response>('/api/market/top20', { skipAuth: true });
     }
 
     async getMarketHours() {
