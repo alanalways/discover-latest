@@ -111,7 +111,6 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
     params = urlencode({
         "provider": "google",
         "redirect_to": callback_url,
-        "response_type": "code",
     })
     return RedirectResponse(url=f"{supabase_url}/auth/v1/authorize?{params}")
 

@@ -18,7 +18,12 @@ function AuthCallbackContent() {
         const tokenFromCallback = queryToken || hashToken;
 
         if (queryError) {
-            setMessage(`登入失敗：${decodeURIComponent(queryError)}`);
+            const decoded = decodeURIComponent(queryError);
+            if (decoded.includes('Unable to exchange external code')) {
+                setMessage('登入失敗：Google OAuth 交換失敗（請檢查 Supabase 的 Google Client ID/Secret 與授權設定）');
+            } else {
+                setMessage(`登入失敗：${decoded}`);
+            }
             return;
         }
 
