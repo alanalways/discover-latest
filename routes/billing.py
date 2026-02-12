@@ -57,7 +57,10 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
         if pending_create.get("reason") == "pending_exists":
             raise HTTPException(
                 status_code=409,
-                detail="你已有待審核的升級申請，審核完成前不可重複送出",
+                detail={
+                    "message": "你已有待審核的升級申請，審核完成前不可重複送出",
+                    "code": "pending_exists",
+                },
             )
         raise HTTPException(status_code=500, detail=pending_create.get("message", "建立升級申請失敗"))
 
@@ -79,7 +82,14 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
                 supabase_adapter.clear_pending_upgrade_request(user_id)
             except Exception:
                 pass
-            raise HTTPException(status_code=500, detail=email_result.get("message", "通知信寄送失敗"))
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "message": email_result.get("message", "通知信寄送失敗"),
+                    "code": email_result.get("code", "notification_failed"),
+                    "provider": email_result.get("provider"),
+                },
+            )
 
         return {
             "success": True,

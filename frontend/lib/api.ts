@@ -109,7 +109,27 @@ export class ApiClient {
 
         if (!res.ok) {
             const error = await res.json().catch(() => ({ detail: res.statusText }));
-            throw new ApiError(res.status, error.detail || '請求失敗');
+            const detail = (error as { detail?: unknown }).detail;
+            let message = '請求失敗';
+            let code: string | undefined;
+
+            if (typeof detail === 'string') {
+                message = detail;
+            } else if (detail && typeof detail === 'object') {
+                const obj = detail as { message?: unknown; code?: unknown };
+                if (typeof obj.message === 'string' && obj.message.trim()) {
+                    message = obj.message;
+                } else {
+                    message = JSON.stringify(detail);
+                }
+                if (typeof obj.code === 'string' && obj.code.trim()) {
+                    code = obj.code;
+                }
+            } else if (typeof res.statusText === 'string' && res.statusText.trim()) {
+                message = res.statusText;
+            }
+
+            throw new ApiError(res.status, message, code);
         }
 
         return res.json();
@@ -263,7 +283,7 @@ export class ApiClient {
 
 // ── Error Class ──
 export class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(public status: number, message: string, public code?: string) {
         super(message);
         this.name = 'ApiError';
     }

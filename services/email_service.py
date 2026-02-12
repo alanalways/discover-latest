@@ -158,7 +158,7 @@ class EmailService:
     ) -> Dict[str, Any]:
         webhook_url = self._gas_webhook_url()
         if not webhook_url:
-            return {"success": False, "message": "未設定 GAS_WEBHOOK_URL"}
+            return {"success": False, "message": "未設定 GAS_WEBHOOK_URL", "code": "gas_not_configured", "provider": "gas"}
 
         plan_info = PRICING[plan]
         price_twd = plan_info["yearly"] if billing_cycle == "yearly" else plan_info["monthly"]
@@ -189,13 +189,21 @@ class EmailService:
                 return {
                     "success": False,
                     "message": f"GAS webhook 失敗（HTTP {resp.status_code}）: {resp.text}",
+                    "code": "gas_http_error",
+                    "provider": "gas",
                 }
             return {
                 "success": True,
                 "message": "已通知管理員，請等待人工審核（約 1-5 個工作天）",
+                "provider": "gas",
             }
         except Exception as e:
-            return {"success": False, "message": f"GAS webhook 呼叫失敗: {e}"}
+            return {
+                "success": False,
+                "message": f"GAS webhook 呼叫失敗: {e}",
+                "code": "gas_exception",
+                "provider": "gas",
+            }
 
     def _send_via_smtp(
         self,
@@ -209,11 +217,21 @@ class EmailService:
         smtp_user = self._smtp_user()
         smtp_pass = self._smtp_pass()
         if not smtp_user or not smtp_pass:
-            return {"success": False, "message": "未設定 SMTP_USER/SMTP_PASS"}
+            return {
+                "success": False,
+                "message": "未設定 SMTP_USER/SMTP_PASS",
+                "code": "smtp_not_configured",
+                "provider": "smtp",
+            }
 
         admin_email = (PAYMENT_INFO.get("admin_email") or "").strip()
         if not admin_email:
-            return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定"}
+            return {
+                "success": False,
+                "message": "缺少 UPGRADE_ADMIN_EMAIL 設定",
+                "code": "admin_email_missing",
+                "provider": "smtp",
+            }
 
         subject = f"[Upgrade Request] {PRICING[plan]['name']} / {user_email} / {request_id}"
         html = self._build_admin_email_html(
@@ -244,9 +262,43 @@ class EmailService:
             return {
                 "success": True,
                 "message": "已通知管理員，請等待人工審核（約 1-5 個工作天）",
+                "provider": "smtp",
+            }
+        except smtplib.SMTPAuthenticationError:
+            return {
+                "success": False,
+                "message": "SMTP 驗證失敗：請檢查 SMTP_USER 與 Gmail App Password（SMTP_PASS），並確認已開啟兩步驟驗證。",
+                "code": "smtp_auth_failed",
+                "provider": "smtp",
+            }
+        except smtplib.SMTPRecipientsRefused:
+            return {
+                "success": False,
+                "message": "收件人被拒絕：請檢查 UPGRADE_ADMIN_EMAIL 是否正確。",
+                "code": "smtp_recipients_refused",
+                "provider": "smtp",
+            }
+        except smtplib.SMTPConnectError:
+            return {
+                "success": False,
+                "message": "SMTP 連線失敗：請檢查 SMTP_HOST/SMTP_PORT 設定。",
+                "code": "smtp_connect_failed",
+                "provider": "smtp",
+            }
+        except TimeoutError:
+            return {
+                "success": False,
+                "message": "SMTP 連線逾時：請稍後重試。",
+                "code": "smtp_timeout",
+                "provider": "smtp",
             }
         except Exception as e:
-            return {"success": False, "message": f"SMTP 寄信失敗: {e}"}
+            return {
+                "success": False,
+                "message": f"SMTP 寄信失敗：{e}",
+                "code": "smtp_unknown_error",
+                "provider": "smtp",
+            }
 
     def send_upgrade_request(
         self,
@@ -258,12 +310,12 @@ class EmailService:
         request_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         if plan not in PRICING:
-            return {"success": False, "message": f"未知方案: {plan}"}
+            return {"success": False, "message": f"未知方案: {plan}", "code": "invalid_plan"}
 
         rid = request_id or f"DL-{int(time.time())}"
         admin_email = (PAYMENT_INFO.get("admin_email") or "").strip()
         if not admin_email:
-            return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定", "order_id": rid}
+            return {"success": False, "message": "缺少 UPGRADE_ADMIN_EMAIL 設定", "order_id": rid, "code": "admin_email_missing"}
 
         # 1) 優先走 SMTP（Gmail App Password，不需付費）
         smtp_result = self._send_via_smtp(
@@ -278,6 +330,7 @@ class EmailService:
                 "success": True,
                 "message": smtp_result.get("message", "已通知管理員，請等待人工審核"),
                 "order_id": rid,
+                "provider": smtp_result.get("provider", "smtp"),
             }
 
         # 2) 次選走 GAS webhook
@@ -293,6 +346,7 @@ class EmailService:
                 "success": True,
                 "message": gas_result.get("message", "已通知管理員，請等待人工審核"),
                 "order_id": rid,
+                "provider": gas_result.get("provider", "gas"),
             }
 
         # 3) 最後 fallback：Resend
@@ -306,6 +360,7 @@ class EmailService:
                     "且缺少 RESEND_API_KEY"
                 ),
                 "order_id": rid,
+                "code": "notification_all_failed",
             }
 
         subject = f"[Upgrade Request] {PRICING[plan]['name']} / {user_email} / {rid}"
@@ -338,14 +393,23 @@ class EmailService:
                     "success": False,
                     "message": f"寄送升級通知失敗（HTTP {resp.status_code}）: {resp.text}",
                     "order_id": rid,
+                    "code": "resend_http_error",
+                    "provider": "resend",
                 }
             return {
                 "success": True,
                 "message": "已通知管理員，請等待人工審核（約 1-5 個工作天）",
                 "order_id": rid,
+                "provider": "resend",
             }
         except Exception as e:
-            return {"success": False, "message": f"寄信失敗: {e}", "order_id": rid}
+            return {
+                "success": False,
+                "message": f"寄信失敗: {e}",
+                "order_id": rid,
+                "code": "resend_exception",
+                "provider": "resend",
+            }
 
 
 email_service = EmailService()

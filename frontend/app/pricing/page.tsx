@@ -68,6 +68,26 @@ export default function PricingPage() {
     const [success, setSuccess] = useState('');
     const [hasPendingUpgrade, setHasPendingUpgrade] = useState(false);
 
+    const mapUpgradeError = (err: ApiError): string => {
+        const code = (err.code || '').toLowerCase();
+        if (code === 'smtp_auth_failed') {
+            return '寄信驗證失敗：請確認 SMTP_USER 與 Gmail App Password（SMTP_PASS）是否正確。';
+        }
+        if (code === 'smtp_not_configured') {
+            return '寄信未設定：請在 Hugging Face Secrets 設定 SMTP_USER、SMTP_PASS。';
+        }
+        if (code === 'smtp_connect_failed' || code === 'smtp_timeout') {
+            return '寄信連線失敗：請檢查 SMTP_HOST/SMTP_PORT，稍後再試。';
+        }
+        if (code === 'smtp_recipients_refused' || code === 'admin_email_missing') {
+            return '寄信收件人設定有誤：請檢查 UPGRADE_ADMIN_EMAIL。';
+        }
+        if (code === 'pending_exists') {
+            return '你已有待審核升級申請，審核完成前不可重複送出。';
+        }
+        return err.message || '升級申請失敗，請稍後再試。';
+    };
+
     useEffect(() => {
         let cancelled = false;
 
@@ -115,7 +135,7 @@ export default function PricingPage() {
             setSuccess(res.message || '升級申請已送出，請等待人工審核。');
         } catch (err: unknown) {
             if (err instanceof ApiError) {
-                setError(err.message || '升級申請失敗，請稍後再試。');
+                setError(mapUpgradeError(err));
             } else if (err instanceof Error) {
                 setError(err.message);
             } else {
@@ -215,4 +235,3 @@ export default function PricingPage() {
         </div>
     );
 }
-
