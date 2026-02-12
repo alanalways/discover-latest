@@ -93,11 +93,13 @@ async def get_current_user(request: Request):
     try:
         from services.auth_service import auth_service
         from services.rate_limiter import rate_limiter
+        from adapters.supabase_adapter import supabase_adapter
         user = auth_service.verify_session(token)
         if not user:
             raise HTTPException(status_code=401, detail="Session 已過期")
         user_id = user.get("id", "")
         if user_id:
+            supabase_adapter.ensure_public_user_record(user_id)
             tier = rate_limiter.check_and_downgrade(user_id)
             _inject_tier(user, tier)
         return {"user": user}
@@ -215,6 +217,7 @@ async def get_auth_limits(request: Request):
         from services.auth_service import auth_service
         from services.rate_limiter import rate_limiter
         from services.feature_gate import get_limit
+        from adapters.supabase_adapter import supabase_adapter
 
         user = auth_service.verify_session(token)
         if not user:
@@ -224,6 +227,7 @@ async def get_auth_limits(request: Request):
         if not user_id:
             raise HTTPException(status_code=401, detail="使用者資訊無效")
 
+        supabase_adapter.ensure_public_user_record(user_id)
         info = rate_limiter.get_user_limits_info(user_id)
         tier = info.get("tier", "free")
         return {

@@ -364,8 +364,11 @@ def _fetch_top20_data() -> Dict:
             "3231", "2356", "3045", "4904", "3661", "2345", "5274", "2327", "3443", "8069",
             "3037", "0050", "0056", "00878", "00919", "0052", "006208", "00929", "00939", "00940",
         ]
-        # 補齊更多台股代號，避免名單不足
-        candidate_symbols.extend([s for s in tw_name_map.keys() if s.isdigit() and s not in candidate_symbols][:30])
+        # Enrich candidate pool with extra TW symbols, but avoid invalid 6-digit/7xx IDs.
+        candidate_symbols.extend([
+            s for s in tw_name_map.keys()
+            if s.isdigit() and 4 <= len(s) <= 5 and s not in candidate_symbols
+        ][:30])
         tw_pool = list(dict.fromkeys(candidate_symbols))
         tw_batch_size = 28 if tw_open else 16
         tw_symbols = _rotate_pool(tw_pool, tw_batch_size, "tw")

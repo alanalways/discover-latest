@@ -39,19 +39,51 @@ async def market_top20():
         tw = data.get("tw", [])
         us = data.get("us", [])
 
-        def sort_data(stocks):
+        def _to_num(value, pct: bool = False) -> float:
+            if value is None:
+                return 0.0
+            if isinstance(value, (int, float)):
+                return float(value)
+            try:
+                text = str(value).strip().replace(",", "")
+                if pct:
+                    text = text.replace("%", "")
+                return float(text) if text else 0.0
+            except Exception:
+                return 0.0
+
+        def _sanitize(stocks, market: str):
+            cleaned = []
+            for row in stocks or []:
+                if not isinstance(row, dict):
+                    continue
+                symbol = str(row.get("symbol") or "").strip().upper()
+                if not symbol:
+                    continue
+                if market == "tw":
+                    if not (symbol.isdigit() and 4 <= len(symbol) <= 5):
+                        continue
+                cleaned.append(row)
+            return cleaned
+
+        def sort_data(stocks, market: str):
+            items = _sanitize(stocks, market)
             return {
-                "gainers": sorted(stocks, key=lambda x: x.get("change_pct", 0), reverse=True)[:20],
-                "losers": sorted(stocks, key=lambda x: x.get("change_pct", 0))[:20],
-                "volume": sorted(stocks, key=lambda x: x.get("volume", 0), reverse=True)[:20],
+                "gainers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
+                "losers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True))[:20],
+                "volume": sorted(items, key=lambda x: _to_num(x.get("volume")), reverse=True)[:20],
             }
 
         return {
-            "tw": sort_data(tw),
-            "us": sort_data(us),
+            "tw": sort_data(tw, "tw"),
+            "us": sort_data(us, "us"),
         }
     except Exception as e:
-        return {"tw": {}, "us": {}, "error": str(e)}
+        return {
+            "tw": {"gainers": [], "losers": [], "volume": []},
+            "us": {"gainers": [], "losers": [], "volume": []},
+            "error": str(e),
+        }
 
 
 @router.get("/market/hours")

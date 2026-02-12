@@ -1,10 +1,11 @@
-"""
-Stock Service - 股票資料服務層
-整合各資料來源，提供統一的資料存取介面
+﻿"""
+Stock Service - ?∠巨鞈???撅?
+?游?????皞???蝯曹?????????
 """
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import asyncio
+import math
 
 from adapters import (
     supabase, fx_adapter,
@@ -13,22 +14,23 @@ from adapters import (
 
 
 class StockService:
-    """股票資料服務"""
+    """?∠巨鞈???"""
     
-    # 市場代號
+    # 撣隞??
     MARKETS = {
-        "TWSE": {"name": "台灣證券交易所", "currency": "TWD"},
-        "TPEX": {"name": "櫃買中心", "currency": "TWD"},
-        "US": {"name": "美國股市", "currency": "USD"},
+        "TWSE": {"name": "?啁霅鈭斗??", "currency": "TWD"},
+        "TPEX": {"name": "瑹眺銝剖?", "currency": "TWD"},
+        "US": {"name": "蝢??∪?", "currency": "USD"},
     }
 
     @staticmethod
     def _to_float(value: Any) -> Optional[float]:
-        """將資料源中的數值欄位轉為 float（容錯字串/逗號/空值）"""
+        """撠???銝剔??詨潭?雿???float嚗捆?臬?銝???/蝛箏潘?"""
         if value is None:
             return None
         if isinstance(value, (int, float)):
-            return float(value)
+            v = float(value)
+            return v if math.isfinite(v) else None
         if isinstance(value, str):
             text = value.strip().replace(",", "")
             if not text or text in {"-", "N/A", "nan", "None"}:
@@ -38,13 +40,14 @@ class StockService:
                 if not text:
                     return None
             try:
-                return float(text)
+                v = float(text)
+                return v if math.isfinite(v) else None
             except Exception:
                 return None
         return None
 
     def _pick_latest_numeric(self, rows: List[Dict[str, Any]], keys: List[str]) -> Optional[float]:
-        """從時間序列尾端回找第一個有效數值"""
+        """敺????偏蝡臬??曄洵銝?????"""
         if not rows:
             return None
         for row in reversed(rows):
@@ -60,10 +63,16 @@ class StockService:
             normalized.append({
                 "date": r.get("date"),
                 "PER": self._to_float(
-                    r.get("PER") or r.get("per") or r.get("pe_ratio") or r.get("PriceEarningRatio") or r.get("本益比")
+                    r.get("PER")
+                    or r.get("per")
+                    or r.get("pe_ratio")
+                    or r.get("PriceEarningRatio")
                 ),
                 "PBR": self._to_float(
-                    r.get("PBR") or r.get("pbr") or r.get("pb_ratio") or r.get("PriceBookRatio") or r.get("股價淨值比")
+                    r.get("PBR")
+                    or r.get("pbr")
+                    or r.get("pb_ratio")
+                    or r.get("PriceBookRatio")
                 ),
                 "dividend_yield": self._to_float(
                     r.get("dividend_yield")
@@ -74,8 +83,6 @@ class StockService:
                     or r.get("Yield")
                     or r.get("cash_dividend_yield")
                     or r.get("CashDividendYield")
-                    or r.get("殖利率")
-                    or r.get("殖利率(%)")
                 ),
             })
         return normalized
@@ -163,23 +170,23 @@ class StockService:
         period: str = "1y"
     ) -> Dict[str, Any]:
         """
-        取得完整股票資料（基本資訊 + 歷史資料）
+        ??摰?∠巨鞈?嚗?祈?閮?+ 甇瑕鞈?嚗?
         
         Args:
-            symbol: 股票代號
-            market: 市場（TWSE/TPEX/US），若 None 則自動判斷
-            period: 歷史資料期間
+            symbol: ?∠巨隞??
+            market: 撣嚗WSE/TPEX/US嚗???None ????
+            period: 甇瑕鞈???
         """
         if market is None:
             market = await self._detect_market(symbol)
         
-        # 建立並行任務
+        # 撱箇?銝西?隞餃?
         tasks = [
             self._get_stock_info(symbol, market),
             self._get_stock_history(symbol, market, period),
         ]
 
-        # 台股額外取得：本益比/股淨比、市值、法人籌碼
+        # ?啗憿???嚗??/?⊥楊瘥??潦?鈭箇?蝣?
         if market in ["TWSE", "TPEX"]:
             start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
             tasks.append(finmind_adapter.get_tw_per_pbr(symbol, start_date=start_1y))  # Task 2
@@ -190,23 +197,23 @@ class StockService:
         info = results[0]
         history = results[1]
         
-        # 處理台股額外資料
+        # ???啗憿?鞈?
         per_pbr = []
         market_value_data = []
         if len(results) > 2:
             per_pbr = results[2]
             market_value_data = results[3]
 
-        # 計算 52 週高低點 (若 history 足夠)
+        # 閮? 52 ?梢?雿? (??history 頞喳?)
         high_52w = None
         low_52w = None
         if history and len(history) > 0:
-            # 確保 history 有 sort
-            # 轉換為 Lightweight Charts 格式 (增加 time 欄位)
+            # 蝣箔? history ??sort
+            # 頧???Lightweight Charts ?澆? (憓? time 甈?)
             for h in history:
                 h["time"] = h.get("date")  # Alias date -> time
             
-            # 取最近 250 筆計算 52w
+            # ??餈?250 蝑?蝞?52w
             recent_250 = history[-250:]
             try:
                 high_52w = max(d.get("high", 0) for d in recent_250)
@@ -214,12 +221,12 @@ class StockService:
             except:
                 pass
         
-        # 整合最新數值到 info
+        # ?游???唳?澆 info
         if info:
             if high_52w: info["high_52w"] = high_52w
             if low_52w: info["low_52w"] = low_52w
 
-            # 用歷史資料補齊最新價與漲跌幅（比較頁/分析頁需要）
+            # ?冽風?脰???朣??啣?撞頝?嚗?頛?/????閬?
             try:
                 if history and len(history) >= 1:
                     last_close = self._to_float(history[-1].get("close"))
@@ -233,7 +240,7 @@ class StockService:
             except Exception:
                 pass
             
-            # 整合 PER/PBR
+            # ?游? PER/PBR
             if per_pbr:
                 normalized_per = self._normalize_per_pbr_rows(per_pbr)
                 pe_val = self._pick_latest_numeric(normalized_per, ["PER"])
@@ -246,7 +253,7 @@ class StockService:
                 if dy_val is not None:
                     info["dividend_yield"] = dy_val
              
-            # 整合市值
+            # ?游?撣?
             if market_value_data:
                 mv_val = self._pick_latest_numeric(
                     market_value_data,
@@ -255,7 +262,7 @@ class StockService:
                 if mv_val is not None:
                     info["market_cap"] = mv_val
 
-            # 台股殖利率補值：若 PER 資料無殖利率，改用股利資料 + 近期股價估算
+            # ?啗畾???潘???PER 鞈??⊥??拍?嚗?刻?抵???+ 餈??∪隡啁?
             if market in ["TWSE", "TPEX"] and self._to_float(info.get("dividend_yield")) is None:
                 try:
                     start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
@@ -277,7 +284,7 @@ class StockService:
                 except Exception:
                     pass
 
-            # US：若 USStockInfo 有估值欄位，補到統一欄位
+            # US嚗 USStockInfo ?摯?潭?雿?鋆蝯曹?甈?
             if market == "US":
                 if not info.get("market_cap"):
                     mv_val = self._pick_latest_numeric(
@@ -316,7 +323,7 @@ class StockService:
         period: str = "1y",
         market: str = None,
     ) -> List[Dict]:
-        """公開方法：取得歷史資料（供 routes 使用）"""
+        """?祇??寞?嚗?敺風?脰???靘?routes 雿輻嚗?"""
         if market is None:
             market = await self._detect_market(symbol)
         return await self._get_stock_history(symbol, market, period)
@@ -326,14 +333,14 @@ class StockService:
         symbol: str,
         period: str = "1y",
     ) -> Dict[str, Any]:
-        """公開方法：提供 AI 分析使用的股票資料"""
+        """?祇??寞?嚗?靘?AI ??雿輻?蟡刻???"""
         return await self.get_stock_data(symbol=symbol, period=period)
     
     async def _detect_market(self, symbol: str) -> str:
-        """自動偵測市場"""
-        # 台股代號通常是 4-6 位數字
+        """?芸??菜葫撣"""
+        # ?啗隞???虜??4-6 雿摮?
         if symbol.isdigit() and 4 <= len(symbol) <= 6:
-            # 先嘗試查詢是否在資料庫有記錄
+            # ??閰行閰Ｘ?血鞈?摨急?閮?
             try:
                 result = await supabase.get_client().from_("symbol_index").select("market").eq("symbol", symbol).limit(1).execute()
                 if result.data:
@@ -341,13 +348,13 @@ class StockService:
             except:
                 pass
             
-            # 預設台股
+            # ?身?啗
             return "TWSE"
         
         return "US"
     
     async def _get_stock_info(self, symbol: str, market: str) -> Optional[Dict]:
-        """取得股票基本資訊（僅使用 FinMind，失敗時回傳最小資訊）"""
+        """???∠巨?箸鞈?嚗?雿輻 FinMind嚗仃????撠?閮?"""
         if market in ["TWSE", "TPEX"]:
             try:
                 fm_list = await finmind_adapter.get_tw_stock_info(symbol)
@@ -362,7 +369,7 @@ class StockService:
                             "type": info.get("type", "stock"),
                     }
             except Exception as e:
-                print(f"[StockInfo] FinMind 失敗 ({symbol}): {e}")
+                print(f"[StockInfo] FinMind 憭望? ({symbol}): {e}")
             return {
                 "symbol": symbol,
                 "name": symbol,
@@ -371,7 +378,7 @@ class StockService:
                 "type": "stock",
             }
 
-        # 美股：走 FinMind USStockInfo，同步包裝成 async
+        # 蝢嚗粥 FinMind USStockInfo嚗?甇亙?鋆? async
         try:
             normalized_symbol = str(symbol or "").strip().upper()
             us_info = await asyncio.to_thread(finmind_adapter.get_us_stock_info_sync, normalized_symbol)
@@ -388,23 +395,30 @@ class StockService:
                     or info.get("MarketCapitalization")
                     or info.get("Market_Capitalization")
                     or info.get("marketCap")
+                    or info.get("MarketCap")
+                    or info.get("market_capital")
+                    or info.get("MarketCapUSD")
+                    or info.get("capitalization")
                 )
                 pe_ratio = self._to_float(
                     info.get("pe_ratio")
                     or info.get("PER")
                     or info.get("price_earning_ratio")
                     or info.get("PriceEarningRatio")
+                    or info.get("trailingPE")
                 )
                 pb_ratio = self._to_float(
                     info.get("pb_ratio")
                     or info.get("PBR")
                     or info.get("price_book_ratio")
                     or info.get("PriceBookRatio")
+                    or info.get("priceToBook")
                 )
                 dividend_yield = self._to_float(
                     info.get("dividend_yield")
                     or info.get("DividendYield")
                     or info.get("yield")
+                    or info.get("dividendYield")
                 )
                 return {
                     "symbol": info.get("stock_id") or normalized_symbol,
@@ -418,7 +432,7 @@ class StockService:
                     "dividend_yield": dividend_yield,
                 }
         except Exception as e:
-            print(f"[StockInfo] FinMind US 失敗 ({symbol}): {e}")
+            print(f"[StockInfo] FinMind US 憭望? ({symbol}): {e}")
         return {
             "symbol": symbol,
             "name": symbol,
@@ -433,12 +447,12 @@ class StockService:
         market: str,
         period: str = "1y"
     ) -> List[Dict]:
-        """取得歷史資料（優先 FinMind → DB → TWSE/TPEX/Yahoo）"""
+        """??甇瑕鞈?嚗??FinMind ??DB ??TWSE/TPEX/Yahoo嚗?"""
         end_date = datetime.now()
         period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "3y": 1095, "5y": 1825, "max": 3650}
         start_date = end_date - timedelta(days=period_days.get(period, 365))
 
-        # 台美股優先使用 FinMind
+        # ?啁??∪?蝙??FinMind
         if market in ["TWSE", "TPEX", "US"]:
             try:
                 if market in ["TWSE", "TPEX"]:
@@ -460,11 +474,11 @@ class StockService:
                     print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
                     return fm_data
                 else:
-                    print(f"[DataSource] FinMind 回傳空資料: {symbol}")
+                    print(f"[DataSource] FinMind ?蝛箄??? {symbol}")
             except Exception as e:
                 print(f"[DataSource] FinMind failed ({symbol}): {e}")
 
-        # Fallback: 嘗試從資料庫取得
+        # Fallback: ?岫敺??澈??
         try:
             result = await supabase.get_client().from_("stock_daily").select("*").eq("symbol", symbol).gte("date", start_date.strftime("%Y-%m-%d")).order("date", desc=False).execute()
             
@@ -474,17 +488,17 @@ class StockService:
         except:
             pass
         
-        # 不再使用其他外部來源（維持 FinMind-only）
+        # 銝?雿輻?嗡?憭靘?嚗雁??FinMind-only嚗?
         return []
     
     async def search_symbols(self, query: str, limit: int = 20) -> List[Dict]:
-        """搜尋股票代號（台股先 FinMind，再 DB，再 Yahoo）"""
+        """???∠巨隞??嚗?∪? FinMind嚗? DB嚗? Yahoo嚗?"""
         query_stripped = (query or "").strip()
         if not query_stripped:
             return []
         results = []
 
-        # 台股：先嘗試 FinMind 搜尋
+        # ?啗嚗??岫 FinMind ??
         try:
             fm_results = await finmind_adapter.search_tw_stocks(query_stripped, limit)
             if fm_results:
@@ -498,9 +512,9 @@ class StockService:
                 if len(results) >= limit:
                     return results[:limit]
         except Exception as e:
-            print(f"[StockService] FinMind 搜尋失敗: {e}")
+            print(f"[StockService] FinMind ??憭望?: {e}")
 
-        # 從資料庫補充
+        # 敺??澈鋆?
         try:
             db_result = await supabase.get_client().from_("symbol_index").select("*").or_(f"symbol.ilike.%{query_stripped}%,name.ilike.%{query_stripped}%").limit(limit - len(results)).execute()
             if db_result.data:
@@ -509,74 +523,124 @@ class StockService:
                     if d.get("symbol") not in existing:
                         results.append(d)
         except Exception as e:
-            print(f"[StockService] DB 搜尋失敗: {e}")
+            print(f"[StockService] DB ??憭望?: {e}")
 
         return results[:limit]
 
     async def get_stock_fundamentals(self, symbol: str, market: str = None) -> Dict:
-        """取得基本面資料（PER/PBR/月營收/損益表）- 台股限定"""
-        if market is None:
-            market = await self._detect_market(symbol)
-        if market not in ["TWSE", "TPEX"]:
-            stock_data = await self.get_stock_data(symbol=symbol, market=market, period="1y")
-            info = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
-            if not isinstance(info, dict):
-                info = {}
-            today = datetime.now().strftime("%Y-%m-%d")
-            per = self._to_float(info.get("pe_ratio"))
-            pbr = self._to_float(info.get("pb_ratio"))
-            dy = self._to_float(info.get("dividend_yield"))
-            per_pbr = []
-            if per is not None or pbr is not None or dy is not None:
-                per_pbr.append({
-                    "date": today,
-                    "PER": per,
-                    "PBR": pbr,
-                    "dividend_yield": dy,
-                })
+        """???箸?Ｚ???PER/PBR/??????銵剁?- ?啗??"""
+        try:
+            if market is None:
+                market = await self._detect_market(symbol)
+
+            if market not in ["TWSE", "TPEX"]:
+                # US: 欄位名稱在不同 FinMind 帳號可能不同，做關鍵字容錯
+                def pick_by_keywords(source: Dict[str, Any], keyword_groups: List[List[str]]) -> Optional[float]:
+                    if not isinstance(source, dict):
+                        return None
+                    for key, raw in source.items():
+                        key_text = str(key or "").strip().lower()
+                        if not key_text:
+                            continue
+                        for group in keyword_groups:
+                            if all(token in key_text for token in group):
+                                val = self._to_float(raw)
+                                if val is not None:
+                                    return val
+                    return None
+
+                try:
+                    stock_data = await self.get_stock_data(symbol=symbol, market=market, period="1y")
+                except Exception as e:
+                    print(f"[Fundamentals] US data failed ({symbol}): {type(e).__name__}: {e}")
+                    stock_data = {}
+
+                info = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
+                if not isinstance(info, dict):
+                    info = {}
+
+                try:
+                    raw_info = await self._get_stock_info(symbol, "US")
+                    if not isinstance(raw_info, dict):
+                        raw_info = {}
+                except Exception:
+                    raw_info = {}
+
+                merged = dict(raw_info)
+                merged.update(info)
+
+                today = datetime.now().strftime("%Y-%m-%d")
+                per = self._to_float(merged.get("pe_ratio"))
+                if per is None:
+                    per = pick_by_keywords(merged, [["pe"], ["price", "earning"], ["trailing", "pe"]])
+
+                pbr = self._to_float(merged.get("pb_ratio"))
+                if pbr is None:
+                    pbr = pick_by_keywords(merged, [["pb"], ["price", "book"]])
+
+                dy = self._to_float(merged.get("dividend_yield"))
+                if dy is None:
+                    dy = pick_by_keywords(merged, [["dividend", "yield"], ["yield"]])
+
+                per_pbr = []
+                if per is not None or pbr is not None or dy is not None:
+                    per_pbr.append({
+                        "date": today,
+                        "PER": per,
+                        "PBR": pbr,
+                        "dividend_yield": dy,
+                    })
+                return {
+                    "revenue": [],
+                    "per_pbr": per_pbr,
+                    "financials": [],
+                    "dividend": [],
+                }
+
+            start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
+            result = {}
+            try:
+                per_data = await finmind_adapter.get_tw_per_pbr(symbol, start_1y)
+                normalized = self._normalize_per_pbr_rows(per_data or [])
+                result["per_pbr"] = normalized[-30:] if normalized else []
+            except Exception as e:
+                print(f"[Fundamentals] PER/PBR 憭望? ({symbol}): {e}")
+                result["per_pbr"] = []
+            try:
+                rev_data = await finmind_adapter.get_tw_revenue(symbol, start_3y)
+                result["revenue"] = self._normalize_revenue_rows(rev_data or [])
+            except Exception as e:
+                print(f"[Fundamentals] ???嗅仃??({symbol}): {e}")
+                result["revenue"] = []
+            try:
+                fin_data = await finmind_adapter.get_tw_financial_statements(symbol, start_3y)
+                result["financials"] = fin_data if fin_data else []
+            except Exception as e:
+                print(f"[Fundamentals] ??銵典仃??({symbol}): {e}")
+                result["financials"] = []
+            try:
+                div_data = await finmind_adapter.get_tw_dividend(symbol, start_3y)
+                result["dividend"] = div_data if div_data else []
+            except Exception as e:
+                print(f"[Fundamentals] ?∪憭望? ({symbol}): {e}")
+                result["dividend"] = []
+            return result
+        except Exception as e:
+            print(f"[Fundamentals] unexpected error ({symbol}): {type(e).__name__}: {e}")
             return {
                 "revenue": [],
-                "per_pbr": per_pbr,
+                "per_pbr": [],
                 "financials": [],
                 "dividend": [],
             }
-        from datetime import datetime, timedelta
-        start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
-        start_3y = (datetime.now() - timedelta(days=1095)).strftime("%Y-%m-%d")
-        result = {}
-        try:
-            per_data = await finmind_adapter.get_tw_per_pbr(symbol, start_1y)
-            normalized = self._normalize_per_pbr_rows(per_data or [])
-            result["per_pbr"] = normalized[-30:] if normalized else []
-        except Exception as e:
-            print(f"[Fundamentals] PER/PBR 失敗 ({symbol}): {e}")
-            result["per_pbr"] = []
-        try:
-            rev_data = await finmind_adapter.get_tw_revenue(symbol, start_3y)
-            result["revenue"] = self._normalize_revenue_rows(rev_data or [])
-        except Exception as e:
-            print(f"[Fundamentals] 月營收失敗 ({symbol}): {e}")
-            result["revenue"] = []
-        try:
-            fin_data = await finmind_adapter.get_tw_financial_statements(symbol, start_3y)
-            result["financials"] = fin_data if fin_data else []
-        except Exception as e:
-            print(f"[Fundamentals] 損益表失敗 ({symbol}): {e}")
-            result["financials"] = []
-        try:
-            div_data = await finmind_adapter.get_tw_dividend(symbol, start_3y)
-            result["dividend"] = div_data if div_data else []
-        except Exception as e:
-            print(f"[Fundamentals] 股利失敗 ({symbol}): {e}")
-            result["dividend"] = []
-        return result
 
     async def get_stock_chips(self, symbol: str, market: str = None) -> Dict:
-        """取得籌碼面資料（三大法人 + 融資融券）- 台股限定"""
+        """??蝐Ⅳ?Ｚ???銝之瘜犖 + ???嚗? ?啗??"""
         if market is None:
             market = await self._detect_market(symbol)
         if market not in ["TWSE", "TPEX"]:
-            # US 無相同籌碼資料集：以成交量動能提供替代資訊
+            # US ?∠??蝣潸???嚗誑?漱???賣?靘隞??閮?
             history = await self._get_stock_history(symbol, market, period="3mo")
             institutional = []
             margin = []
@@ -604,33 +668,32 @@ class StockService:
                 "institutional": institutional[-20:],
                 "margin": margin[-20:],
             }
-        from datetime import datetime, timedelta
         start_3m = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
         result = {}
         try:
             inst_data = await finmind_adapter.get_tw_institutional(symbol, start_3m)
             result["institutional"] = self._normalize_institutional_rows(inst_data or [])
         except Exception as e:
-            print(f"[Chips] 法人買賣超失敗 ({symbol}): {e}")
+            print(f"[Chips] 瘜犖鞎瑁都頞仃??({symbol}): {e}")
             result["institutional"] = []
         try:
             margin_data = await finmind_adapter.get_tw_margin(symbol, start_3m)
             result["margin"] = self._normalize_margin_rows(margin_data or [])
         except Exception as e:
-            print(f"[Chips] 融資融券失敗 ({symbol}): {e}")
+            print(f"[Chips] ???憭望? ({symbol}): {e}")
             result["margin"] = []
         return result
     
     async def get_market_indices(self) -> Dict[str, List[Dict]]:
-        """取得市場指數（FinMind proxy）"""
+        """??撣?嚗inMind proxy嚗?"""
         proxies = {
             "TW": [
-                {"symbol": "TAIEX", "name": "加權指數", "proxy": "0050", "market": "TW"},
+                {"symbol": "TAIEX", "name": "???", "proxy": "0050", "market": "TW"},
             ],
             "US": [
-                {"symbol": "DJI", "name": "道瓊工業", "proxy": "DIA", "market": "US"},
+                {"symbol": "DJI", "name": "??撌交平", "proxy": "DIA", "market": "US"},
                 {"symbol": "SPX", "name": "S&P 500", "proxy": "SPY", "market": "US"},
-                {"symbol": "IXIC", "name": "納斯達克", "proxy": "QQQ", "market": "US"},
+                {"symbol": "IXIC", "name": "蝝??", "proxy": "QQQ", "market": "US"},
             ],
         }
         results = {"TW": [], "US": []}
@@ -666,12 +729,12 @@ class StockService:
         return results
     
     async def get_popular_etfs(self) -> List[Dict]:
-        """取得熱門 ETF（FinMind only）"""
+        """Get popular ETFs from FinMind."""
         etfs = [
-            {"symbol": "0050", "name": "台灣50", "market": "TWSE"},
-            {"symbol": "0056", "name": "高股息", "market": "TWSE"},
+            {"symbol": "0050", "name": "元大台灣50", "market": "TWSE"},
+            {"symbol": "0056", "name": "元大高股息", "market": "TWSE"},
             {"symbol": "00878", "name": "國泰永續高股息", "market": "TWSE"},
-            {"symbol": "00929", "name": "復華台灣科技優息", "market": "TWSE"},
+            {"symbol": "00929", "name": "群益台灣精選高息", "market": "TWSE"},
             {"symbol": "SPY", "name": "S&P 500 ETF", "market": "US"},
             {"symbol": "QQQ", "name": "Nasdaq 100 ETF", "market": "US"},
         ]
@@ -711,11 +774,11 @@ class StockService:
         market: str = "TWSE"
     ) -> Dict[str, int]:
         """
-        批次更新股票資料到 Supabase
+        ?寞活?湔?∠巨鞈???Supabase
         
         Args:
-            symbols: 股票代號列表，None 則更新全部
-            market: 市場
+            symbols: ?∠巨隞???”嚗one ??啣??
+            market: 撣
         
         Returns:
             {"success": n, "failed": m}
@@ -737,7 +800,7 @@ class StockService:
         
         for symbol in symbols:
             try:
-                # 取得最新資料（FinMind）
+                # ????啗???FinMind嚗?
                 if market in ("TWSE", "TPEX"):
                     rows = await asyncio.to_thread(finmind_adapter.get_tw_stock_price_sync, symbol, start_date, end_date)
                 else:
@@ -752,27 +815,27 @@ class StockService:
                         "close": latest.get("close"),
                         "volume": latest.get("volume"),
                     }
-                    # 寫入資料庫
+                    # 撖怠鞈?摨?
                     await supabase.upsert_stock_data(symbol, quote)
                     success += 1
                 else:
                     failed += 1
                     
             except Exception as e:
-                print(f"[StockService] 更新 {symbol} 失敗: {e}")
+                print(f"[StockService] ?湔 {symbol} 憭望?: {e}")
                 failed += 1
             
-            # 控制請求頻率
+            # ?批隢??餌?
             await asyncio.sleep(0.1)
         
         return {"success": success, "failed": failed}
     
     async def update_symbol_index(self, market: str = "TWSE") -> int:
         """
-        更新代號索引表
+        ?湔隞??蝝Ｗ?銵?
         
         Returns:
-            新增/更新的代號數量
+            ?啣?/?湔?誨???
         """
         stocks = await asyncio.to_thread(finmind_adapter.get_tw_stock_info_all_sync)
         if market == "TWSE":
@@ -794,15 +857,16 @@ class StockService:
                 }).execute()
                 count += 1
             except Exception as e:
-                print(f"[StockService] 更新代號索引 {stock['symbol']} 失敗: {e}")
+                print(f"[StockService] ?湔隞??蝝Ｗ? {stock['symbol']} 憭望?: {e}")
         
         return count
     
     async def get_fx_rate(self, from_currency: str = "USD", to_currency: str = "TWD") -> float:
-        """取得匯率"""
+        """???舐?"""
         rate = await fx_adapter.get_rate(from_currency, to_currency)
         return rate or 0.0
 
 
-# 單例
+# ?桐?
 stock_service = StockService()
+

@@ -142,6 +142,18 @@ export default function BacktestPage() {
             setShowLoginModal(true);
             return;
         }
+        if (!Number.isFinite(capital) || capital <= 0) {
+            setError('Initial capital must be greater than 0');
+            return;
+        }
+        if (!Number.isFinite(dcaAmount) || dcaAmount < 0) {
+            setError('DCA amount cannot be negative');
+            return;
+        }
+        if (!Number.isFinite(dcaDay)) {
+            setError('Invalid DCA day');
+            return;
+        }
         setLoading(true);
         setError('');
         setResult(null);

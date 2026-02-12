@@ -125,12 +125,22 @@ const formatNumber = (val: number | string | null | undefined, decimals = 2): st
     return num.toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
-const formatVolume = (vol: number): string => {
-    if (!vol) return '—';
-    if (vol >= 1_000_000_000) return `${(vol / 1_000_000_000).toFixed(1)}B`;
-    if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
-    if (vol >= 1_000) return `${(vol / 1_000).toFixed(1)}K`;
-    return String(vol);
+const toFiniteNumber = (val: unknown): number => {
+    const text = String(val ?? '').replace(/,/g, '').trim();
+    if (!text || text === '+-' || text === '-+' || text === '--' || text === '++') return 0;
+    const num = Number(text);
+    return Number.isFinite(num) ? num : 0;
+};
+
+const formatVolume = (vol: number | string | null | undefined): string => {
+    const num = toFiniteNumber(vol);
+    if (!num) return '0';
+    const sign = num < 0 ? '-' : '';
+    const abs = Math.abs(num);
+    if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${sign}${(abs / 1_000).toFixed(1)}K`;
+    return `${sign}${Math.round(abs)}`;
 };
 
 const formatMarketCap = (val?: number | string) => {
@@ -161,6 +171,7 @@ function AnalysisContent() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [aiResult, setAiResult] = useState('');
+    const [typedAiResult, setTypedAiResult] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
 
     // 基本面 + 籌碼面
@@ -177,6 +188,23 @@ function AnalysisContent() {
 
     // Tab 控制
     const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals' | 'chips'>('chart');
+
+    useEffect(() => {
+        if (!aiResult) {
+            setTypedAiResult('');
+            return;
+        }
+        let idx = 0;
+        setTypedAiResult('');
+        const timer = window.setInterval(() => {
+            idx += 1;
+            setTypedAiResult(aiResult.slice(0, idx));
+            if (idx >= aiResult.length) {
+                window.clearInterval(timer);
+            }
+        }, 12);
+        return () => window.clearInterval(timer);
+    }, [aiResult]);
 
     const periodOptions = useMemo<Array<'1y' | '3y' | '5y'>>(() => {
         const tier = user?.tier || 'free';
@@ -487,6 +515,9 @@ function AnalysisContent() {
                                         <div className="h-full flex items-center justify-center text-[var(--text-3)]">無 K 線資料</div>
                                     )}
                                 </div>
+                                <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 px-4 py-3 text-xs text-[var(--text-3)]">
+                                    說明：紅字代表買超/增加，綠字代表賣超/減少。K/M/B 分別代表千/百萬/十億。若資料來源回傳異常符號（例如 +-），系統會自動視為 0。
+                                </div>
                             </div>
                         )}
 
@@ -645,9 +676,9 @@ function AnalysisContent() {
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
                                                     {latestInst.slice().reverse().map((r: InstitutionalRow, i: number) => {
-                                                        const foreign = ((r.Foreign_Investor_buy || 0) - (r.Foreign_Investor_sell || 0)) || ((r.buy || 0) - (r.sell || 0));
-                                                        const trust = (r.Investment_Trust_buy || 0) - (r.Investment_Trust_sell || 0);
-                                                        const dealer = (r.Dealer_self_buy || 0) - (r.Dealer_self_sell || 0);
+                                                        const foreign = ((toFiniteNumber(r.Foreign_Investor_buy) - toFiniteNumber(r.Foreign_Investor_sell)) || (toFiniteNumber(r.buy) - toFiniteNumber(r.sell)));
+                                                        const trust = toFiniteNumber(r.Investment_Trust_buy) - toFiniteNumber(r.Investment_Trust_sell);
+                                                        const dealer = toFiniteNumber(r.Dealer_self_buy) - toFiniteNumber(r.Dealer_self_sell);
                                                         const total = foreign + trust + dealer;
                                                         return (
                                                             <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
@@ -697,10 +728,10 @@ function AnalysisContent() {
                                                 </thead>
                                                 <tbody className="divide-y divide-[var(--border-subtle)]">
                                                     {latestMargin.slice().reverse().map((r: MarginRow, i: number) => {
-                                                        const marginBuyBal = r.MarginPurchaseLimit || r.margin_balance || 0;
-                                                        const marginChg = r.MarginPurchaseChange || r.margin_change || 0;
-                                                        const shortBal = r.ShortSaleLimit || r.short_balance || 0;
-                                                        const shortChg = r.ShortSaleChange || r.short_change || 0;
+                                                        const marginBuyBal = toFiniteNumber(r.MarginPurchaseLimit ?? r.margin_balance ?? 0);
+                                                        const marginChg = toFiniteNumber(r.MarginPurchaseChange ?? r.margin_change ?? 0);
+                                                        const shortBal = toFiniteNumber(r.ShortSaleLimit ?? r.short_balance ?? 0);
+                                                        const shortChg = toFiniteNumber(r.ShortSaleChange ?? r.short_change ?? 0);
                                                         return (
                                                             <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                                 <td className="py-2 px-3 text-[var(--text-2)]">{r.date}</td>
@@ -755,7 +786,7 @@ function AnalysisContent() {
 
                             {aiResult && (
                                 <div className="mt-8 p-6 bg-black/40 rounded-xl border border-indigo-500/20 leading-relaxed text-[var(--text-2)] whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-4 duration-500">
-                                    {aiResult}
+                                    {typedAiResult}
                                 </div>
                             )}
                         </div>

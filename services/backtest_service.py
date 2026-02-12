@@ -53,6 +53,9 @@ class BacktestService:
         if not history or len(history) < 30:
             return {"error": "歷史資料不足"}
         
+        if initial_capital is None or float(initial_capital) <= 0:
+            return {"error": "initial_capital must be greater than 0"}
+
         if params is None:
             params = self._get_default_params(strategy)
 
@@ -909,7 +912,7 @@ class BacktestService:
             # 最大回撤
             if total_equity > peak_equity:
                 peak_equity = total_equity
-            dd = (peak_equity - total_equity) / peak_equity * 100
+            dd = ((peak_equity - total_equity) / peak_equity * 100) if peak_equity > 0 else 0.0
             max_drawdown = max(max_drawdown, dd)
             
             # 資金耗盡檢查
@@ -1071,7 +1074,7 @@ class BacktestService:
         # 績效計算
         final_capital = capital
         total_return = final_capital - initial_capital
-        total_return_pct = (final_capital / initial_capital - 1) * 100
+        total_return_pct = (final_capital / initial_capital - 1) * 100 if initial_capital > 0 else 0
         
         sell_trades = [t for t in trades if "賣出" in t.get("action", "") or t.get("action") == "期末結算"]
         win_trades = [t for t in sell_trades if t.get("pnl", 0) > 0]

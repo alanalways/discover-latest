@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import {
@@ -49,6 +49,8 @@ interface MarketHours {
   time: string;
 }
 
+const DASHBOARD_CACHE_KEY = 'dl:dashboard-cache:v1';
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -69,6 +71,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
 export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
+  const hydratedFromCacheRef = useRef(false);
   const [indices, setIndices] = useState<MarketItem[]>([]);
   const [etfs, setEtfs] = useState<MarketItem[]>([]);
   const [top20Tw, setTop20Tw] = useState<{ gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] }>({ gainers: [], losers: [], volume: [] });
@@ -81,12 +84,38 @@ export default function Dashboard() {
   const [error, setError] = useState('');
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
+    if (!hydratedFromCacheRef.current) {
+      setLoading(true);
+    }
     setError('');
 
     const emptyTop20 = { gainers: [], losers: [], volume: [] };
     const top20Fallback: Top20Response = { tw: emptyTop20, us: emptyTop20 };
     const marketFallback: MarketOverviewResponse = { indices: [], etfs: [] };
+
+    const normalizeTop20Bucket = (
+      raw: unknown
+    ): { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] } => {
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const obj = raw as Partial<{ gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] }>;
+        if (Array.isArray(obj.gainers) && Array.isArray(obj.losers) && Array.isArray(obj.volume)) {
+          return {
+            gainers: obj.gainers,
+            losers: obj.losers,
+            volume: obj.volume,
+          };
+        }
+      }
+      if (Array.isArray(raw)) {
+        const rows = raw as Top20Stock[];
+        return {
+          gainers: [...rows].sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0)).slice(0, 20),
+          losers: [...rows].sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0)).slice(0, 20),
+          volume: [...rows].sort((a, b) => (b.volume || 0) - (a.volume || 0)).slice(0, 20),
+        };
+      }
+      return emptyTop20;
+    };
 
     try {
       // 非阻塞：Top20 與 market overview 同時啟動，但 UI 先渲染 overview
@@ -117,8 +146,26 @@ export default function Dashboard() {
       setLoading(false);
 
       const top20Res = await top20Promise;
-      setTop20Tw(top20Res.tw || emptyTop20);
-      setTop20Us(top20Res.us || emptyTop20);
+      const normalizedTw = normalizeTop20Bucket((top20Res as Top20Response | Record<string, unknown>)?.tw);
+      const normalizedUs = normalizeTop20Bucket((top20Res as Top20Response | Record<string, unknown>)?.us);
+      setTop20Tw(normalizedTw);
+      setTop20Us(normalizedUs);
+      hydratedFromCacheRef.current = true;
+      try {
+        sessionStorage.setItem(
+          DASHBOARD_CACHE_KEY,
+          JSON.stringify({
+            indices: marketRes.indices || [],
+            etfs: marketRes.etfs || [],
+            hours: hoursRes || null,
+            top20Tw: normalizedTw,
+            top20Us: normalizedUs,
+            lastUpdate: new Date().toLocaleTimeString('zh-TW'),
+          })
+        );
+      } catch {
+        // Ignore cache write errors.
+      }
     } catch (err: unknown) {
       console.error('Dashboard fetch error:', err);
       setError('載入失敗，請稍後重試');
@@ -126,6 +173,31 @@ export default function Dashboard() {
       setTop20Us(emptyTop20);
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+      if (!raw) return;
+      const cached = JSON.parse(raw) as {
+        indices?: MarketItem[];
+        etfs?: MarketItem[];
+        hours?: { tw: MarketHours; us: MarketHours } | null;
+        top20Tw?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+        top20Us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+        lastUpdate?: string;
+      };
+      if (Array.isArray(cached.indices)) setIndices(cached.indices);
+      if (Array.isArray(cached.etfs)) setEtfs(cached.etfs);
+      if (cached.hours) setHours(cached.hours);
+      if (cached.top20Tw) setTop20Tw(cached.top20Tw);
+      if (cached.top20Us) setTop20Us(cached.top20Us);
+      if (cached.lastUpdate) setLastUpdate(cached.lastUpdate);
+      hydratedFromCacheRef.current = true;
+      setLoading(false);
+    } catch {
+      // Ignore invalid cache payload.
     }
   }, []);
 

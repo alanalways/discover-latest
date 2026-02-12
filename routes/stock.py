@@ -22,7 +22,8 @@ async def get_stock_overview(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Stock] overview failed for {symbol}: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="取得股票資料失敗")
 
 @router.get("/stock/{symbol}/history")
 async def get_stock_history(
@@ -58,7 +59,13 @@ async def get_stock_fundamentals(symbol: str):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Stock] fundamentals fallback for {symbol}: {type(e).__name__}: {e}")
+        return {
+            "revenue": [],
+            "per_pbr": [],
+            "financials": [],
+            "dividend": [],
+        }
 
 @router.get("/stock/{symbol}/chips")
 async def get_stock_chips(symbol: str):

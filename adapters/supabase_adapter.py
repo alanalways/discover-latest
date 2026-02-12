@@ -1,6 +1,6 @@
-"""
-DiscoverLatest 洞察運算 - Supabase Adapter (REST API 版本)
-使用 httpx 直接調用 Supabase REST API，避免 realtime 依賴的 websockets 版本衝突
+﻿"""
+DiscoverLatest ?????? - Supabase Adapter (REST API ???)
+??? httpx ?????? Supabase REST API?????realtime ?????websockets ??????
 """
 import os
 import json
@@ -11,7 +11,7 @@ from datetime import date, datetime, timezone
 
 
 class SupabaseAdapter:
-    """Supabase 資料庫操作封裝（使用 REST API）"""
+    """Supabase adapter implemented via REST API."""
     
     def __init__(self):
         self._url: Optional[str] = None
@@ -19,9 +19,11 @@ class SupabaseAdapter:
         self._service_key: Optional[str] = None
         self._client: Optional[httpx.Client] = None
         self._error_log_throttle: Dict[str, float] = {}
+        self._pending_upgrade_mem: Dict[str, Dict[str, Any]] = {}
+        self._ai_usage_mem: Dict[str, Dict[str, Any]] = {}
     
     def _get_config(self):
-        """取得 Supabase 配置"""
+        """??? Supabase ???"""
         if not self._url:
             self._url = os.environ.get('SUPABASE_URL')
             self._anon_key = os.environ.get('SUPABASE_ANON_KEY')
@@ -29,7 +31,7 @@ class SupabaseAdapter:
         return self._url, self._anon_key, self._service_key
     
     def _get_headers(self, use_service_key: bool = False) -> Dict[str, str]:
-        """取得 API 請求標頭"""
+        """??? API ??????"""
         url, anon_key, service_key = self._get_config()
         key = service_key if use_service_key and service_key else anon_key
         
@@ -41,7 +43,7 @@ class SupabaseAdapter:
         }
     
     def _get_rest_url(self) -> str:
-        """取得 REST API URL"""
+        """??? REST API URL"""
         url, _, _ = self._get_config()
         return f"{url}/rest/v1" if url else ""
     
@@ -52,7 +54,7 @@ class SupabaseAdapter:
         json: Any = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Optional[Any]:
-        """Auth Admin API（需 SUPABASE_SERVICE_ROLE_KEY）"""
+        """Auth Admin API??? SUPABASE_SERVICE_ROLE_KEY??"""
         url, _, service_key = self._get_config()
         if not url or not service_key:
             return None
@@ -73,11 +75,11 @@ class SupabaseAdapter:
                     return None
                 return resp.json() if resp.text else {}
         except Exception as e:
-            print(f"[Supabase Auth Admin] {method} {path} 失敗: {type(e).__name__}")
+            print(f"[Supabase Auth Admin] {method} {path} ???: {type(e).__name__}")
             return None
     
     def _rpc(self, name: str, params: Dict) -> Optional[Any]:
-        """呼叫 PostgREST RPC"""
+        """??? PostgREST RPC"""
         url, _, _ = self._get_config()
         if not url:
             return None
@@ -92,7 +94,7 @@ class SupabaseAdapter:
                     return None
                 return resp.json() if resp.text else None
         except Exception as e:
-            print(f"[Supabase RPC] {name} 失敗: {type(e).__name__}")
+            print(f"[Supabase RPC] {name} ???: {type(e).__name__}")
             return None
     
     def _request(
@@ -104,7 +106,7 @@ class SupabaseAdapter:
         use_service_key: bool = False,
         silent: bool = False,
     ) -> Optional[Any]:
-        """發送 REST API 請求"""
+        """????REST API ???"""
         try:
             url = f"{self._get_rest_url()}/{endpoint}"
             headers = self._get_headers(use_service_key)
@@ -133,31 +135,31 @@ class SupabaseAdapter:
                     body = ""
                 self._log_request_error(
                     key=f"{method}:{endpoint}:{status}",
-                    message=f"[Supabase API] {method} {endpoint} 失敗: HTTP {status} {body}",
+                    message=f"[Supabase API] {method} {endpoint} ???: HTTP {status} {body}",
                 )
             return None
         except Exception as e:
             if not silent:
                 self._log_request_error(
                     key=f"{method}:{endpoint}:{type(e).__name__}",
-                    message=f"[Supabase API] {method} {endpoint} 失敗: {type(e).__name__}: {e}",
+                    message=f"[Supabase API] {method} {endpoint} ???: {type(e).__name__}: {e}",
                 )
             return None
 
     def _log_request_error(self, key: str, message: str, min_interval_sec: float = 180.0) -> None:
-        """避免相同錯誤在短時間內洗版。"""
+        """??????????????????????"""
         now = time.time()
         last = self._error_log_throttle.get(key, 0.0)
         if now - last >= min_interval_sec:
             print(message)
             self._error_log_throttle[key] = now
     
-    # ===== Vault 操作 =====
+    # ===== Vault ??? =====
     
     def get_vault_secret(self, secret_name: str) -> Optional[str]:
         """
-        從 Vault 取得 secret（僅後端可用）
-        注意：永遠不要把取得的 secret 回傳給前端或記錄到 log
+        ??Vault ??? secret???????????
+        ?????????????????secret ??????????????log
         """
         result = self._request(
             "GET", 
@@ -170,7 +172,7 @@ class SupabaseAdapter:
         return None
     
     def get_gemini_keys(self) -> List[str]:
-        """取得 Gemini Key Pool"""
+        """??? Gemini Key Pool"""
         result = self._request(
             "GET",
             "gemini_keys",
@@ -181,10 +183,10 @@ class SupabaseAdapter:
             return [row['key_value'] for row in result]
         return []
     
-    # ===== 用戶操作 =====
+    # ===== ?????? =====
     
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """取得用戶資料（public.users）"""
+        """???????????ublic.users??"""
         result = self._request(
             "GET",
             "users",
@@ -195,7 +197,7 @@ class SupabaseAdapter:
         return None
 
     def ensure_public_user_record(self, user_id: str) -> bool:
-        """確保 public.users 存在對應 user（避免 ai_usage FK 失敗）。"""
+        """??? public.users ?????? user?????ai_usage FK ???????"""
         if not user_id:
             return False
         try:
@@ -227,7 +229,7 @@ class SupabaseAdapter:
                 {"id": user_id},
             ]
             for payload in payload_variants:
-                # 一般 insert
+                # ????insert
                 inserted = self._request(
                     "POST",
                     "users",
@@ -261,19 +263,19 @@ class SupabaseAdapter:
             return False
 
     def auth_admin_get_user_by_id(self, uid: str) -> Optional[Dict[str, Any]]:
-        """Auth Admin API：依 UID 取得 auth.users 用戶"""
+        """Auth Admin API??? UID ??? auth.users ???"""
         if not uid:
             return None
         data = self._auth_admin_request("GET", f"admin/users/{uid}")
         if data and isinstance(data, dict) and data.get("id"):
             return data
-        # 部分 API 回傳包在 user 鍵內
+        # ??? API ?????? user ???
         if data and isinstance(data, dict) and data.get("user"):
             return data["user"]
         return None
 
     def auth_admin_list_users(self, page: int = 1, per_page: int = 200) -> List[Dict[str, Any]]:
-        """Auth Admin API：列出 auth.users（分頁）"""
+        """Auth Admin API?????auth.users??????"""
         if page < 1:
             page = 1
         if per_page < 1:
@@ -294,7 +296,7 @@ class SupabaseAdapter:
         return []
 
     def rpc_get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
-        """RPC get_user_by_email(email)：查 auth.users，回傳 id, email, created_at"""
+        """RPC get_user_by_email(email)??? auth.users?????id, email, created_at"""
         if not email:
             return None
         result = self._rpc("get_user_by_email", {"email": email})
@@ -305,7 +307,7 @@ class SupabaseAdapter:
         return None
 
     def get_user_subscription(self, user_id: str) -> Dict[str, Any]:
-        """取得用戶訂閱（user_subscriptions 表），無表或無資料則回傳預設"""
+        """???????????ser_subscriptions ?????????????????????"""
         try:
             result = self._request(
                 "GET",
@@ -320,7 +322,7 @@ class SupabaseAdapter:
         return {"tier": "free", "expires_at": None}
 
     def get_all_users(self) -> List[Dict[str, Any]]:
-        """取得用戶列表（管理後台）"""
+        """??????????????????"""
         public_users = self._request(
             "GET",
             "users",
@@ -345,9 +347,9 @@ class SupabaseAdapter:
                     "created_at": row.get("created_at"),
                 }
 
-        # 補齊 auth.users（避免 public.users 為空時管理後台看不到使用者）
+        # ??? auth.users?????public.users ?????????????????????
         auth_users: List[Dict[str, Any]] = []
-        for page in range(1, 11):  # 最多抓 2000 筆
+        for page in range(1, 11):  # ????? 2000 ??
             rows = self.auth_admin_list_users(page=page, per_page=200)
             if not rows:
                 break
@@ -382,11 +384,11 @@ class SupabaseAdapter:
         users.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
         return users
 
-    # ===== 自選清單 (watchlist/watchlists) =====
+    # ===== ?????? (watchlist/watchlists) =====
 
     @staticmethod
     def _extract_watch_symbol(row: Dict[str, Any]) -> str:
-        """相容不同 schema 的 symbol 欄位命名"""
+        """?????? schema ??symbol ??????"""
         for key in ("symbol", "stock_id", "ticker", "code"):
             value = row.get(key)
             if isinstance(value, str) and value.strip():
@@ -396,12 +398,12 @@ class SupabaseAdapter:
         return ""
 
     def get_user_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
-        """取得自選清單（相容 watchlist/watchlists 表名）"""
+        """??????????????watchlist/watchlists ?????"""
         url, _, _ = self._get_config()
         if not url:
             return []
 
-        # 先嘗試專用 watchlist 表（欄位可能不一致，逐步降級）
+        # ????????watchlist ???????????????????????
         table_select_candidates = [
             ("watchlist", {"select": "symbol,name,added_at", "order": "added_at.desc"}),
             ("watchlist", {"select": "stock_id,name,added_at", "order": "added_at.desc"}),
@@ -447,7 +449,7 @@ class SupabaseAdapter:
             except Exception:
                 continue
 
-        # 補充來源：portfolios 中 shares=0 視為 watchlist
+        # ????????ortfolios ??shares=0 ??? watchlist
         portfolio_queries = [
             {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "symbol,shares,updated_at", "order": "updated_at.desc"},
             {"user_id": f"eq.{user_id}", "shares": "eq.0", "select": "symbol,shares,created_at", "order": "created_at.desc"},
@@ -483,7 +485,7 @@ class SupabaseAdapter:
                             shares_num = float(shares_val) if shares_val is not None else 0.0
                         except Exception:
                             shares_num = 0.0
-                        # 若該 query 未帶 shares=eq.0，仍僅把 shares<=0 視為 watchlist
+                        # ??? query ??? shares=eq.0?????? shares<=0 ??? watchlist
                         if "shares" in q and q.get("shares") != "eq.0" and shares_num > 0:
                             continue
                         if symbol not in merged:
@@ -500,7 +502,7 @@ class SupabaseAdapter:
         return items
 
     def add_to_watchlist(self, user_id: str, symbol: str) -> bool:
-        """新增自選股票（相容 watchlist/watchlists 表名）"""
+        """??????????????watchlist/watchlists ?????"""
         url, _, _ = self._get_config()
         if not url:
             return False
@@ -535,7 +537,7 @@ class SupabaseAdapter:
                 except Exception:
                     continue
 
-        # 補寫 portfolios（shares=0 作為自選），避免讀寫來源不一致
+        # ??? portfolios??hares=0 ????????????????????????
         try:
             portfolio_variants = [
                 ({"user_id": user_id, "symbol": symbol, "shares": 0, "avg_price": 0}, "user_id,symbol"),
@@ -559,7 +561,7 @@ class SupabaseAdapter:
         return any_success
 
     def remove_from_watchlist(self, user_id: str, symbol: str) -> bool:
-        """移除自選股票（相容 watchlist/watchlists 表名）"""
+        """??????????????watchlist/watchlists ?????"""
         url, _, _ = self._get_config()
         if not url:
             return False
@@ -591,7 +593,7 @@ class SupabaseAdapter:
                 except Exception:
                     continue
 
-        # 同步刪除 portfolios 中 shares=0 的列
+        # ?????? portfolios ??shares=0 ???
         try:
             with httpx.Client(timeout=30.0) as client:
                 delete_variants = [
@@ -612,23 +614,23 @@ class SupabaseAdapter:
         return any_success
 
     def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> bool:
-        """相容舊介面：direction=above|below"""
+        """?????????direction=above|below"""
         condition = "gte" if direction == "above" else "lte"
         result = self.create_user_alert(user_id, symbol, target_price, condition)
         return bool(result and result.get("success"))
 
     def delete_alert(self, alert_id: str, user_id: str) -> bool:
-        """相容舊介面"""
+        """????????"""
         return self.delete_user_alert(alert_id, user_id)
 
     def get_user_portfolio(self, user_id: str) -> List[Dict[str, Any]]:
-        """相容舊介面"""
+        """????????"""
         return self.load_user_portfolio(user_id)
 
-    # ===== 投資組合 (portfolios) =====
+    # ===== ?????? (portfolios) =====
 
     def load_user_portfolio(self, user_id: str) -> List[Dict[str, Any]]:
-        """載入用戶投資組合（portfolios 表：user_id, symbol, shares, avg_price）"""
+        """??????????????ortfolios ???user_id, symbol, shares, avg_price??"""
         try:
             result = self._request(
                 "GET",
@@ -655,14 +657,14 @@ class SupabaseAdapter:
             return []
 
     def save_user_portfolio(self, user_id: str, holdings: List[Dict[str, Any]]) -> bool:
-        """將投資組合寫入 portfolios 表（先刪後插）"""
+        """???????????portfolios ???????????"""
         url, _, _ = self._get_config()
         if not url:
             return False
         try:
             headers = self._get_headers(use_service_key=True)
             with httpx.Client(timeout=30.0) as client:
-                # 先刪除該用戶所有
+                # ?????????????
                 client.request(
                     "DELETE",
                     f"{url}/rest/v1/portfolios",
@@ -691,11 +693,11 @@ class SupabaseAdapter:
                 )
                 return resp.is_success
         except Exception as e:
-            print(f"[DB] 寫入 portfolios 失敗: {type(e).__name__}")
+            print(f"[DB] ??? portfolios ???: {type(e).__name__}")
             return False
     
     def get_user_tier(self, user_id: str) -> str:
-        """取得用戶方案等級"""
+        """????????????"""
         sub = self.get_user_subscription(user_id)
         if sub and sub.get("tier"):
             return str(sub.get("tier")).strip().lower()
@@ -705,13 +707,13 @@ class SupabaseAdapter:
         return 'free'
     
     def update_user_tier(self, user_id: str, tier: str, expires_at: Optional[str] = None) -> bool:
-        """更新用戶方案（需 admin 權限）"""
+        """???????????? admin ?????"""
         ok = False
         data = {'tier': tier}
         if expires_at:
             data['expires_at'] = expires_at
 
-        # 1) 盡量維持相容：更新 public.users（若存在）
+        # 1) ??????????????public.users????????
         result = self._request(
             "PATCH",
             "users",
@@ -722,7 +724,7 @@ class SupabaseAdapter:
         if result is not None:
             ok = True
 
-        # 2) 寫入 user_subscriptions（後端權限/限流主要依據）
+        # 2) ??? user_subscriptions???????????????????
         url, _, _ = self._get_config()
         if url:
             try:
@@ -743,7 +745,7 @@ class SupabaseAdapter:
             except Exception:
                 pass
 
-        # 3) 同步回 auth.users metadata，讓前端顯示立即一致
+        # 3) ?????auth.users metadata????????????????
         try:
             auth_user = self.auth_admin_get_user_by_id(user_id) or {}
             metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
@@ -921,6 +923,10 @@ class SupabaseAdapter:
         if metadata_pending:
             return metadata_pending
 
+        mem_pending = self._pending_upgrade_mem.get(user_id)
+        if isinstance(mem_pending, dict):
+            return mem_pending
+
         try:
             query_variants = [
                 {
@@ -993,7 +999,7 @@ class SupabaseAdapter:
                 "success": False,
                 "reason": "pending_exists",
                 "pending": existing,
-                "message": "已有待審核升級申請",
+                "message": "pending_request_already_exists",
             }
 
         details = {
@@ -1094,7 +1100,23 @@ class SupabaseAdapter:
                     break
 
             if inserted is None:
-                return {"success": False, "message": "建立待審核申請失敗"}
+                pending = {
+                    "id": request_id,
+                    "user_id": user_id,
+                    "plan": plan,
+                    "billing_cycle": billing_cycle,
+                    "email": user_email,
+                    "name": user_name,
+                    "created_at": details.get("created_at"),
+                    "status": "pending",
+                }
+                self._pending_upgrade_mem[user_id] = pending
+                return {
+                    "success": True,
+                    "request_id": request_id,
+                    "pending": pending,
+                    "message": "pending_saved_in_memory",
+                }
 
             row = inserted[0] if isinstance(inserted, list) and inserted else {}
             request_id = str((row or {}).get("id") or request_id)
@@ -1109,12 +1131,31 @@ class SupabaseAdapter:
             }
             return {"success": True, "request_id": request_id, "pending": pending}
         except Exception as e:
-            return {"success": False, "message": f"建立待審核申請失敗: {e}"}
+            # Hard fallback: never block upgrade request creation because of schema drift.
+            pending = {
+                "id": request_id,
+                "user_id": user_id,
+                "plan": plan,
+                "billing_cycle": billing_cycle,
+                "email": user_email,
+                "name": user_name,
+                "created_at": details.get("created_at"),
+                "status": "pending",
+            }
+            self._pending_upgrade_mem[user_id] = pending
+            print(f"[Billing] create_pending_upgrade_request fallback to memory: {type(e).__name__}: {e}")
+            return {
+                "success": True,
+                "request_id": request_id,
+                "pending": pending,
+                "message": "pending_saved_in_memory_after_exception",
+            }
 
     def clear_pending_upgrade_request(self, user_id: str) -> bool:
         """Clear pending upgrade request after manual approval."""
         if not user_id:
             return False
+        self._pending_upgrade_mem.pop(user_id, None)
         metadata_ok = self._clear_pending_upgrade_request_metadata(user_id)
         try:
             url, _, _ = self._get_config()
@@ -1139,14 +1180,86 @@ class SupabaseAdapter:
         except Exception:
             return metadata_ok
     
-    # ===== AI 用量追蹤 =====
+    # ===== AI ?????? =====
+
+    def _get_ai_usage_fallback_from_metadata(self, user_id: str, today: str) -> int:
+        """Fallback daily usage counter stored in auth.users.user_metadata."""
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            raw = metadata.get("ai_usage_fallback")
+            if not isinstance(raw, dict):
+                return 0
+            if str(raw.get("date") or "") != today:
+                return 0
+            try:
+                return int(raw.get("count") or 0)
+            except Exception:
+                return 0
+        except Exception:
+            return 0
+
+    def _get_ai_usage_fallback_from_memory(self, user_id: str, today: str) -> int:
+        """In-process fallback counter when DB/Auth metadata are unavailable."""
+        try:
+            row = self._ai_usage_mem.get(user_id) if user_id else None
+            if not isinstance(row, dict):
+                return 0
+            if str(row.get("date") or "") != today:
+                return 0
+            return int(row.get("count") or 0)
+        except Exception:
+            return 0
+
+    def _increment_ai_usage_fallback_memory(self, user_id: str, today: str) -> bool:
+        """Increment in-process fallback counter."""
+        if not user_id:
+            return False
+        try:
+            current = self._ai_usage_mem.get(user_id)
+            current_count = 0
+            if isinstance(current, dict) and str(current.get("date") or "") == today:
+                try:
+                    current_count = int(current.get("count") or 0)
+                except Exception:
+                    current_count = 0
+            self._ai_usage_mem[user_id] = {"date": today, "count": current_count + 1}
+            return True
+        except Exception:
+            return False
+
+    def _increment_ai_usage_fallback_metadata(self, user_id: str, today: str) -> bool:
+        """Increment fallback daily usage counter in auth metadata."""
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            current = metadata.get("ai_usage_fallback")
+            current_count = 0
+            if isinstance(current, dict) and str(current.get("date") or "") == today:
+                try:
+                    current_count = int(current.get("count") or 0)
+                except Exception:
+                    current_count = 0
+            metadata["ai_usage_fallback"] = {
+                "date": today,
+                "count": current_count + 1,
+            }
+            res = self._auth_admin_request(
+                "PUT",
+                f"admin/users/{user_id}",
+                json={"user_metadata": metadata},
+            )
+            return res is not None
+        except Exception:
+            return False
     
     def get_ai_usage_today(self, user_id: str) -> int:
-        """取得用戶今日 AI 使用次數（相容 count / usage_count / logs）"""
+        """????????? AI ???????????count / usage_count / logs??"""
         today = date.today().isoformat()
         if not user_id:
             return 0
 
+        db_total: Optional[int] = None
         rows = self._request(
             "GET",
             "ai_usage",
@@ -1158,7 +1271,7 @@ class SupabaseAdapter:
             use_service_key=True,
         )
         if not isinstance(rows, list):
-            # 兼容沒有 date 欄位的舊表
+            # fallback: row may not have date column in some projects
             rows = self._request(
                 "GET",
                 "ai_usage",
@@ -1190,45 +1303,30 @@ class SupabaseAdapter:
                 except Exception:
                     continue
             if has_numeric:
-                return total
-            return len(rows)
+                db_total = total
+            else:
+                db_total = len(rows)
 
-        logs = self._request(
-            "GET",
-            "ai_usage_logs",
-            params={
-                "user_id": f"eq.{user_id}",
-                "date": f"eq.{today}",
-                "select": "*",
-            },
-            use_service_key=True,
-            silent=True,
-        )
-        if not isinstance(logs, list):
-            logs = self._request(
-                "GET",
-                "ai_usage_logs",
-                params={
-                    "user_id": f"eq.{user_id}",
-                    "select": "*",
-                },
-                use_service_key=True,
-                silent=True,
-            )
-        return len(logs) if isinstance(logs, list) else 0
+        # Fallbacks: schema/FK mismatch or admin API restriction.
+        meta_total = self._get_ai_usage_fallback_from_metadata(user_id, today)
+        mem_total = self._get_ai_usage_fallback_from_memory(user_id, today)
+        if db_total is None:
+            return max(meta_total, mem_total)
+        return max(db_total, meta_total, mem_total)
     
     def increment_ai_usage(self, user_id: str) -> bool:
-        """增加用戶 AI 使用次數（優先 RPC，含 409 競態容錯）"""
+        """?????? AI ???????????RPC??? 409 ????????"""
         today = date.today().isoformat()
         url, _, _ = self._get_config()
         if not url or not user_id:
             return False
 
         try:
+            self.ensure_public_user_record(user_id)
             with httpx.Client(timeout=30.0) as client:
                 headers = self._get_headers(use_service_key=True)
 
-                # 1) 優先 RPC
+                # 1) ??? RPC
                 try:
                     rpc_resp = client.post(
                         f"{url}/rest/v1/rpc/increment_ai_usage",
@@ -1238,7 +1336,7 @@ class SupabaseAdapter:
                     if rpc_resp.is_success:
                         return True
                     rpc_body = (rpc_resp.text or "")[:300]
-                    print(f"[DB] increment_ai_usage RPC 失敗: status={rpc_resp.status_code}, body={rpc_body}")
+                    print(f"[DB] increment_ai_usage RPC ???: status={rpc_resp.status_code}, body={rpc_body}")
                     if rpc_resp.status_code == 409 and (
                         "violates foreign key constraint" in rpc_body
                         or "is not present in table" in rpc_body
@@ -1252,9 +1350,9 @@ class SupabaseAdapter:
                             if retry_rpc.is_success:
                                 return True
                 except Exception as e:
-                    print(f"[DB] 增加 AI 用量 RPC 失敗: {type(e).__name__}: {e}")
+                    print(f"[DB] ??? AI ??? RPC ???: {type(e).__name__}: {e}")
 
-                # 2) Fallback：直接更新 ai_usage
+                # 2) Fallback????????ai_usage
                 def fetch_row() -> Optional[Dict[str, Any]]:
                     resp = client.get(
                         f"{url}/rest/v1/ai_usage",
@@ -1267,7 +1365,7 @@ class SupabaseAdapter:
                         },
                     )
                     if not resp.is_success:
-                        # 兼容沒有 date 欄位
+                        # ?????? date ???
                         resp = client.get(
                             f"{url}/rest/v1/ai_usage",
                             headers=headers,
@@ -1312,7 +1410,7 @@ class SupabaseAdapter:
                         if patch_resp.is_success:
                             return True
                         if patch_resp.status_code == 409:
-                            # 競態重試一次
+                            # conflict retry: reload row and patch again
                             row_retry = fetch_row()
                             if row_retry:
                                 col_retry = None
@@ -1339,7 +1437,7 @@ class SupabaseAdapter:
                                     if retry_resp.is_success:
                                         return True
                     else:
-                        # 無可遞增欄位：嘗試當作 row-per-use 表新增一筆
+                        # no row yet: create one
                         insert_row_resp = client.post(
                             f"{url}/rest/v1/ai_usage",
                             headers=headers,
@@ -1348,7 +1446,7 @@ class SupabaseAdapter:
                         if insert_row_resp.is_success:
                             return True
 
-                # 3) 無 row：upsert 建立
+                # 3) ??row??psert ???
                 upsert_headers = dict(headers)
                 upsert_headers["Prefer"] = "resolution=merge-duplicates,return=representation"
                 for payload in (
@@ -1372,27 +1470,22 @@ class SupabaseAdapter:
                         if ins_resp.is_success or ins_resp.status_code == 409:
                             return True
 
-                # 4) 最後 fallback：寫 ai_usage_logs（若有該表）
-                for payload in (
-                    {"user_id": user_id, "date": today},
-                    {"user_id": user_id, "date": today, "count": 1},
-                ):
-                    log_resp = client.post(
-                        f"{url}/rest/v1/ai_usage_logs",
-                        headers=headers,
-                        json=payload,
-                    )
-                    if log_resp.is_success:
-                        return True
+                # Do not fallback to ai_usage_logs; table may not exist in all projects.
         except Exception as e:
-            print(f"[DB] 增加 AI 用量 fallback 失敗: {type(e).__name__}: {e}")
+            print(f"[DB] ??? AI ??? fallback ???: {type(e).__name__}: {e}")
 
+        # Final fallback: keep counting in auth metadata so limits/left sidebar stay consistent.
+        if self._increment_ai_usage_fallback_metadata(user_id, today):
+            self._increment_ai_usage_fallback_memory(user_id, today)
+            return True
+        if self._increment_ai_usage_fallback_memory(user_id, today):
+            return True
         return False
     
-    # ===== 股票資料 =====
+    # ===== ?????? =====
     
     def get_stock_daily(self, symbol: str, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """取得股票日線資料"""
+        """????????????"""
         result = self._request(
             "GET",
             "stock_daily",
@@ -1406,7 +1499,7 @@ class SupabaseAdapter:
         return result or []
     
     def upsert_stock_daily(self, records: List[Dict[str, Any]]) -> bool:
-        """批次更新股票日線資料"""
+        """???????????????"""
         url, _, _ = self._get_config()
         try:
             with httpx.Client(timeout=60.0) as client:
@@ -1420,13 +1513,13 @@ class SupabaseAdapter:
                 )
                 return response.is_success
         except Exception as e:
-            print(f"[DB] 更新股票資料失敗: {type(e).__name__}")
+            print(f"[DB] ????????????: {type(e).__name__}")
             return False
 
-    # ===== 價格警報 (price_alerts) =====
+    # ===== ?????? (price_alerts) =====
     
     def get_user_alerts(self, user_id: str) -> List[Dict[str, Any]]:
-        """取得用戶設定的警報"""
+        """??????????????"""
         url, _, _ = self._get_config()
         if not url:
             return []
@@ -1441,11 +1534,11 @@ class SupabaseAdapter:
                     return resp.json()
                 return []
         except Exception as e:
-            print(f"[DB] 取得警報失敗: {e}")
+            print(f"[DB] ?????????: {e}")
             return []
 
     def create_user_alert(self, user_id: str, symbol: str, target_price: float, condition: str) -> Dict[str, Any]:
-        """建立新警報 (condition: 'gte' (>=) or 'lte' (<=))"""
+        """????????(condition: 'gte' (>=) or 'lte' (<=))"""
         url, _, _ = self._get_config()
         if not url:
             return {"success": False, "error": "Missing config"}
@@ -1467,11 +1560,11 @@ class SupabaseAdapter:
                     return {"success": True, "data": resp.json() if resp.text else {}}
                 return {"success": False, "error": resp.text}
         except Exception as e:
-            print(f"[DB] 建立警報失敗: {e}")
+            print(f"[DB] ?????????: {e}")
             return {"success": False, "error": str(e)}
 
     def delete_user_alert(self, alert_id: str, user_id: str) -> bool:
-        """刪除警報 (需檢查 user_id 確保權限)"""
+        """?????? (????? user_id ??????)"""
         url, _, _ = self._get_config()
         if not url:
             return False
@@ -1484,13 +1577,13 @@ class SupabaseAdapter:
                 )
                 return resp.status_code in [200, 204]
         except Exception as e:
-            print(f"[DB] 刪除警報失敗: {e}")
+            print(f"[DB] ?????????: {e}")
             return False
     
-    # ===== 代號索引 =====
+    # ===== ?????? =====
     
     def search_symbols(self, query: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """搜尋股票代號（支援中英文混搜）"""
+        """???????????????????????"""
         result = self._request(
             "GET",
             "symbol_index",
@@ -1502,19 +1595,19 @@ class SupabaseAdapter:
         )
         return result or []
     
-    # ===== 相容性別名 =====
+    # ===== ????????=====
     
     def get_client(self):
-        """回傳自身（相容現有代碼）"""
+        """??????????????????"""
         return self
     
     def table(self, name: str):
-        """模擬 table 操作（相容現有代碼）"""
+        """??? table ???????????????"""
         return TableQuery(self, name)
 
 
 class TableQuery:
-    """模擬 Supabase Table Query Builder"""
+    """??? Supabase Table Query Builder"""
     
     def __init__(self, adapter: SupabaseAdapter, table_name: str):
         self._adapter = adapter
@@ -1568,7 +1661,7 @@ class TableQuery:
 
 
 class QueryResult:
-    """模擬 Supabase Query Result"""
+    """??? Supabase Query Result"""
     def __init__(self, data):
         if isinstance(data, list):
             self.data = data[0] if len(data) == 1 else data if data else None
@@ -1577,7 +1670,7 @@ class QueryResult:
 
 
 class UpsertQuery:
-    """模擬 Upsert Query"""
+    """??? Upsert Query"""
     def __init__(self, adapter: SupabaseAdapter, table: str, data: Any):
         self._adapter = adapter
         self._table = table
@@ -1601,7 +1694,7 @@ class UpsertQuery:
 
 
 class UpdateQuery:
-    """模擬 Update Query"""
+    """??? Update Query"""
     def __init__(self, adapter: SupabaseAdapter, table: str, data: Dict, params: Dict):
         self._adapter = adapter
         self._table = table
@@ -1627,7 +1720,8 @@ class UpdateQuery:
             return QueryResult(None)
 
 
-# 全域實例
+# ??????
 supabase_adapter = SupabaseAdapter()
-# 相容別名
+# ??????
 supabase = supabase_adapter
+

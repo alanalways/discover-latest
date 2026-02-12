@@ -105,6 +105,7 @@ class RateLimiter:
         limits = TIER_LIMITS.get(tier, TIER_LIMITS['free'])
         
         # 檢查每日限制
+        supabase_adapter.ensure_public_user_record(user_id)
         today_usage = supabase_adapter.get_ai_usage_today(user_id)
         if today_usage >= limits['daily_limit']:
             return False, f"今日 AI 使用次數已達上限（{limits['daily_limit']} 次）"
@@ -125,6 +126,7 @@ class RateLimiter:
     def record_request(self, user_id: str) -> bool:
         """記錄一次 AI 請求"""
         # 記錄到資料庫
+        supabase_adapter.ensure_public_user_record(user_id)
         supabase_adapter.increment_ai_usage(user_id)
         
         # 記錄到記憶體（每分鐘限制用）
