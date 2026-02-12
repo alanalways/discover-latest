@@ -18,12 +18,18 @@ class BacktestRequest(BaseModel):
     ma_slow: int = 20
     initial_capital: float = 1000000
     position_size: float = 1.0
+    # DCA 底層
+    dca_enabled: bool = True
+    dca_amount: float = 10000
+    dca_frequency: str = "monthly"  # daily / weekly / monthly
+    dca_day: int = 5  # monthly: 1-28, weekly: 1(一)~7(日)
     # RSI 策略參數
     rsi_period: int = 14
     rsi_buy: int = 30
     rsi_sell: int = 70
     # 突破策略參數
     breakout_period: int = 20
+    breakout_threshold: float = 0.02
     # 動能策略參數
     momentum_period: int = 20
     momentum_threshold: float = 0.05
@@ -63,13 +69,38 @@ async def run_backtest(req: BacktestRequest, request: Request):
             # 保留舊鍵名，避免既有流程中斷
             "ma_fast": req.ma_fast,
             "ma_slow": req.ma_slow,
+            # rsi strategy
+            "period": req.rsi_period,
+            "oversold": req.rsi_buy,
+            "overbought": req.rsi_sell,
             "rsi_period": req.rsi_period,
             "rsi_buy": req.rsi_buy,
             "rsi_sell": req.rsi_sell,
+            # breakout strategy
             "breakout_period": req.breakout_period,
+            "breakout_threshold": req.breakout_threshold,
+            # momentum strategy
             "momentum_period": req.momentum_period,
             "momentum_threshold": req.momentum_threshold,
         }
+
+        if req.strategy == "breakout":
+            params["period"] = req.breakout_period
+            params["threshold"] = req.breakout_threshold
+        elif req.strategy == "momentum":
+            params["period"] = req.momentum_period
+            params["threshold"] = req.momentum_threshold
+        elif req.strategy == "rsi":
+            params["period"] = req.rsi_period
+            params["oversold"] = req.rsi_buy
+            params["overbought"] = req.rsi_sell
+
+        # 保留舊鍵名
+        params.update({
+            "breakout_period": req.breakout_period,
+            "momentum_period": req.momentum_period,
+            "momentum_threshold": req.momentum_threshold,
+        })
 
         # 3. 執行回測（同步方法，用 to_thread 避免阻塞）
         result = await asyncio.to_thread(
@@ -79,6 +110,10 @@ async def run_backtest(req: BacktestRequest, request: Request):
             params=params,
             initial_capital=req.initial_capital,
             position_size=req.position_size,
+            dca_enabled=req.dca_enabled,
+            dca_amount=req.dca_amount,
+            dca_frequency=req.dca_frequency,
+            dca_day=req.dca_day,
         )
 
         if not result:
@@ -109,9 +144,10 @@ async def run_backtest(req: BacktestRequest, request: Request):
                 "win_rate": win_rate_pct,
                 "total_trades": metrics.get("total_trades", 0),
                 "sharpe_ratio": metrics.get("sharpe_ratio", 0),
-                "final_value": metrics.get("final_value", req.initial_capital),
+                "final_value": metrics.get("final_capital", req.initial_capital),
                 "profit_factor": metrics.get("profit_factor", 0),
             },
+            "dca": result.get("dca", {}),
             "trades": result.get("trades", [])[:50],  # 最多 50 筆
             "equity_curve": result.get("equity_curve", []),
         }

@@ -151,6 +151,16 @@ export class ApiClient {
         });
     }
 
+    async requestUpgrade(plan: 'pro' | 'premium', billingCycle: 'monthly' | 'yearly' = 'monthly') {
+        return this.fetch<UpgradeResponse>('/api/billing/upgrade-request', {
+            method: 'POST',
+            body: JSON.stringify({
+                plan,
+                billing_cycle: billingCycle,
+            }),
+        });
+    }
+
     // ── Watchlist ──
     async getWatchlist() {
         return this.fetch('/api/watchlist');
@@ -241,6 +251,18 @@ interface BacktestParams {
     short_period?: number;
     long_period?: number;
     initial_capital?: number;
+    position_size?: number;
+    dca_enabled?: boolean;
+    dca_amount?: number;
+    dca_frequency?: 'daily' | 'weekly' | 'monthly';
+    dca_day?: number;
+    rsi_period?: number;
+    rsi_buy?: number;
+    rsi_sell?: number;
+    breakout_period?: number;
+    breakout_threshold?: number;
+    momentum_period?: number;
+    momentum_threshold?: number;
 }
 
 interface AuthResponse {
@@ -287,6 +309,14 @@ interface AuthLimits {
     alerts: {
         max: number;
     };
+}
+
+interface UpgradeResponse {
+    success: boolean;
+    message: string;
+    order_id?: string;
+    plan?: 'pro' | 'premium';
+    billing_cycle?: 'monthly' | 'yearly';
 }
 
 // 全域單例

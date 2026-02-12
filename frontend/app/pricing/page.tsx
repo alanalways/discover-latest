@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { Check, Gem, Crown, Zap, Star } from 'lucide-react';
 import styles from './page.module.css';
+import api, { ApiError } from '@/lib/api';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 const PLANS = [
     {
@@ -64,11 +67,45 @@ const PLANS = [
 ];
 
 export default function PricingPage() {
+    const { isLoggedIn, setShowLoginModal } = useAuth();
+    const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+
+    const handleUpgrade = async (planId: string) => {
+        if (planId === 'free') return;
+        if (!isLoggedIn) {
+            setError('請先登入後再申請升級。');
+            setSuccess('');
+            setShowLoginModal(true);
+            return;
+        }
+        try {
+            setError('');
+            setSuccess('');
+            setLoadingPlan(planId);
+            const res = await api.requestUpgrade(planId as 'pro' | 'premium', 'monthly');
+            setSuccess(res.message || '升級申請已送出，請查收信箱付款資訊。');
+        } catch (err: unknown) {
+            if (err instanceof ApiError) {
+                setError(err.message || '升級申請失敗，請稍後再試。');
+            } else if (err instanceof Error) {
+                setError(err.message);
+            } else {
+                setError('升級申請失敗，請稍後再試。');
+            }
+        } finally {
+            setLoadingPlan(null);
+        }
+    };
+
     return (
         <div className={styles.container}>
             <div className={styles.header}>
                 <h2 className={styles.title}>會員方案</h2>
                 <p className={styles.subtitle}>選擇適合你的方案，解鎖完整 AI 投資分析功能</p>
+                {success && <p className={styles.feedbackSuccess}>{success}</p>}
+                {error && <p className={styles.feedbackError}>{error}</p>}
             </div>
 
             <div className={styles.planGrid}>
@@ -96,9 +133,10 @@ export default function PricingPage() {
                         </ul>
                         <button
                             className={`${styles.ctaBtn} ${plan.popular ? styles.ctaPrimary : ''}`}
-                            disabled={plan.disabled}
+                            disabled={plan.disabled || !!loadingPlan}
+                            onClick={() => handleUpgrade(plan.id)}
                         >
-                            {plan.cta}
+                            {loadingPlan === plan.id ? '處理中...' : plan.cta}
                         </button>
                     </div>
                 ))}

@@ -19,21 +19,21 @@ PAYMENT_INFO = {
         "currency": "USDT",
         "address": "0x45301a91b31fA3aeaa2e17253cf91b706D38Ecdf",
     },
-    "admin_email": "cmshj3026@gmail.com",
+    "admin_email": "cmshj30326@gmail.com",
 }
 
 # 方案價格
 PRICING = {
     "pro": {
         "name": "Pro",
-        "monthly": 99,
-        "yearly": 980,
+        "monthly": 299,
+        "yearly": 2990,
         "daily_limit": 20,
     },
     "premium": {
         "name": "Premium",
-        "monthly": 599,
-        "yearly": 5900,
+        "monthly": 799,
+        "yearly": 7990,
         "daily_limit": 200,
     },
 }

@@ -20,6 +20,7 @@ interface BacktestResult {
     total_trades?: number;
     sharpe_ratio?: number;
     profit_factor?: number;
+    final_capital?: number;
     metrics?: {
         total_return?: number;
         total_return_pct?: number;
@@ -28,6 +29,15 @@ interface BacktestResult {
         total_trades?: number;
         sharpe_ratio?: number;
         profit_factor?: number;
+        final_capital?: number;
+    };
+    dca?: {
+        enabled?: boolean;
+        amount?: number;
+        frequency?: string | null;
+        day?: number | null;
+        total_contribution?: number;
+        total_invested_capital?: number;
     };
     equity_curve?: { date: string; equity: number }[];
     trades?: {
@@ -48,6 +58,10 @@ export default function BacktestPage() {
     const [maFast, setMaFast] = useState(5);
     const [maSlow, setMaSlow] = useState(20);
     const [capital, setCapital] = useState(1000000);
+    const [dcaEnabled, setDcaEnabled] = useState(true);
+    const [dcaAmount, setDcaAmount] = useState(10000);
+    const [dcaFrequency, setDcaFrequency] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+    const [dcaDay, setDcaDay] = useState(5);
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<BacktestResult | null>(null);
     const [error, setError] = useState('');
@@ -71,6 +85,10 @@ export default function BacktestPage() {
                 short_period: maFast,
                 long_period: maSlow,
                 initial_capital: capital,
+                dca_enabled: dcaEnabled,
+                dca_amount: dcaAmount,
+                dca_frequency: dcaFrequency,
+                dca_day: dcaDay,
             });
             setResult(res as BacktestResult);
         } catch (err: unknown) {
@@ -135,6 +153,39 @@ export default function BacktestPage() {
                         <label>初始資金</label>
                         <input type="number" value={capital} onChange={(e) => setCapital(+e.target.value)} />
                     </div>
+                    <div className={styles.field}>
+                        <label>DCA 底層</label>
+                        <select value={dcaEnabled ? 'on' : 'off'} onChange={(e) => setDcaEnabled(e.target.value === 'on')}>
+                            <option value="on">啟用（建議）</option>
+                            <option value="off">停用</option>
+                        </select>
+                    </div>
+                    {dcaEnabled && (
+                        <>
+                            <div className={styles.field}>
+                                <label>每次定期投入金額</label>
+                                <input type="number" min={0} value={dcaAmount} onChange={(e) => setDcaAmount(+e.target.value)} />
+                            </div>
+                            <div className={styles.field}>
+                                <label>投入頻率</label>
+                                <select value={dcaFrequency} onChange={(e) => setDcaFrequency(e.target.value as 'daily' | 'weekly' | 'monthly')}>
+                                    <option value="monthly">每月</option>
+                                    <option value="weekly">每週</option>
+                                    <option value="daily">每日</option>
+                                </select>
+                            </div>
+                            <div className={styles.field}>
+                                <label>{dcaFrequency === 'weekly' ? '每週第幾天（1-7）' : '每月第幾天（1-28）'}</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={dcaFrequency === 'weekly' ? 7 : 28}
+                                    value={dcaDay}
+                                    onChange={(e) => setDcaDay(+e.target.value)}
+                                />
+                            </div>
+                        </>
+                    )}
                     <button className={styles.runBtn} onClick={handleRun} disabled={loading}>
                         {loading ? <Loader2 size={16} className={styles.spinning} /> : <Play size={16} />}
                         {loading ? '回測中...' : '開始回測'}
@@ -165,7 +216,31 @@ export default function BacktestPage() {
                         <ResultMetric label="勝率" value={`${winRatePct.toFixed(1)}%`} isPositive={winRatePct >= 50} />
                         <ResultMetric label="交易次數" value={String(totalTrades)} />
                         <ResultMetric label="Sharpe Ratio" value={sharpeRatio.toFixed(2)} isPositive={sharpeRatio > 0} />
+                        <ResultMetric label="期末資產" value={`${(metrics?.final_capital ?? capital).toLocaleString()}`} />
                     </div>
+
+                    {result.dca?.enabled && (
+                        <div className={styles.tradesCard}>
+                            <h4>DCA 底層摘要</h4>
+                            <div className={styles.tradesTable}>
+                                <div className={styles.tradeRow}>
+                                    <span>投入頻率</span>
+                                    <span>{result.dca.frequency || '-'}</span>
+                                    <span>{result.dca.day ? `日/週期: ${result.dca.day}` : '-'}</span>
+                                </div>
+                                <div className={styles.tradeRow}>
+                                    <span>每次投入</span>
+                                    <span>{(result.dca.amount ?? 0).toLocaleString()}</span>
+                                    <span>NTD</span>
+                                </div>
+                                <div className={styles.tradeRow}>
+                                    <span>累積投入</span>
+                                    <span>{(result.dca.total_contribution ?? 0).toLocaleString()}</span>
+                                    <span>NTD</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* 交易紀錄 */}
                     {result.trades && result.trades.length > 0 && (

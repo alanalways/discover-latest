@@ -25,6 +25,21 @@
     font-size: 15px;
 }
 
+.feedbackSuccess,
+.feedbackError {
+    margin-top: 12px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.feedbackSuccess {
+    color: var(--success);
+}
+
+.feedbackError {
+    color: var(--danger);
+}
+
 .planGrid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);

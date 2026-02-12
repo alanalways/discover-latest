@@ -83,6 +83,7 @@ from routes.analysis import router as analysis_router
 from routes.backtest import router as backtest_router
 from routes.watchlist import router as watchlist_router
 from routes.admin import router as admin_router
+from routes.billing import router as billing_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -91,6 +92,7 @@ app.include_router(analysis_router, prefix="/api", tags=["Analysis"])
 app.include_router(backtest_router, prefix="/api", tags=["Backtest"])
 app.include_router(watchlist_router, prefix="/api", tags=["Watchlist"])
 app.include_router(admin_router,    prefix="/api", tags=["Admin"])
+app.include_router(billing_router,  prefix="/api", tags=["Billing"])
 
 
 # ── Health Check ──

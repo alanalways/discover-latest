@@ -32,7 +32,11 @@ class BacktestService:
         strategy: str = "ma_cross",
         params: Dict = None,
         initial_capital: float = 1000000,
-        position_size: float = 1.0
+        position_size: float = 1.0,
+        dca_enabled: bool = True,
+        dca_amount: float = 10000,
+        dca_frequency: str = "monthly",
+        dca_day: int = 5,
     ) -> Dict[str, Any]:
         """
         執行回測
@@ -52,6 +56,15 @@ class BacktestService:
         
         if params is None:
             params = self._get_default_params(strategy)
+
+        position_size = max(0.0, min(1.0, float(position_size or 0)))
+        dca_amount = max(0.0, float(dca_amount or 0))
+        dca_frequency = (dca_frequency or "monthly").lower()
+        if dca_frequency not in {"daily", "weekly", "monthly"}:
+            dca_frequency = "monthly"
+        dca_day = int(dca_day or 1)
+        dca_day = max(1, min(28, dca_day))
+        dca_enabled = bool(dca_enabled and dca_amount > 0)
         
         # 執行策略
         if strategy == "ma_cross":
@@ -70,24 +83,206 @@ class BacktestService:
         else:
             return {"error": f"不支援的策略: {strategy}"}
         
-        # 模擬交易
-        trades = self._simulate_trades(history, signals, initial_capital, position_size)
-        
-        # 建立每日權益曲線
-        equity_curve = self._build_equity_curve(history, trades, initial_capital)
-        
-        # 計算績效指標
-        metrics = self._calculate_metrics(trades, history, initial_capital, equity_curve)
+        total_contribution = 0.0
+        if dca_enabled:
+            sim = self._simulate_trades_with_dca(
+                history=history,
+                signals=signals,
+                initial_capital=initial_capital,
+                position_size=position_size,
+                dca_amount=dca_amount,
+                dca_frequency=dca_frequency,
+                dca_day=dca_day,
+            )
+            trades = sim.get("trades", [])
+            equity_curve = sim.get("equity_curve", [])
+            total_contribution = float(sim.get("total_contribution", 0.0))
+            total_invested = initial_capital + total_contribution
+            metrics = self._calculate_metrics(
+                trades,
+                history,
+                total_invested,
+                equity_curve,
+                final_equity=sim.get("final_equity"),
+            )
+        else:
+            # 模擬交易
+            trades = self._simulate_trades(history, signals, initial_capital, position_size)
+            # 建立每日權益曲線
+            equity_curve = self._build_equity_curve(history, trades, initial_capital)
+            # 計算績效指標
+            metrics = self._calculate_metrics(trades, history, initial_capital, equity_curve)
         
         return {
             "strategy": strategy,
             "strategy_name": self.STRATEGIES.get(strategy, strategy),
             "params": params,
             "initial_capital": initial_capital,
+            "dca": {
+                "enabled": dca_enabled,
+                "amount": dca_amount if dca_enabled else 0,
+                "frequency": dca_frequency if dca_enabled else None,
+                "day": dca_day if dca_enabled else None,
+                "total_contribution": round(total_contribution, 2),
+                "total_invested_capital": round(initial_capital + total_contribution, 2),
+            },
             "trades": trades,
             "metrics": metrics,
             "equity_curve": equity_curve,
         }
+
+    def _simulate_trades_with_dca(
+        self,
+        history: List[Dict],
+        signals: List[Dict],
+        initial_capital: float,
+        position_size: float,
+        dca_amount: float,
+        dca_frequency: str,
+        dca_day: int,
+    ) -> Dict[str, Any]:
+        """模擬交易（DCA 為底層 + 策略訊號加乘）"""
+        trades: List[Dict[str, Any]] = []
+        equity_curve: List[float] = []
+        signal_map: Dict[str, List[Dict[str, Any]]] = {}
+        for signal in signals:
+            signal_map.setdefault(signal.get("date", ""), []).append(signal)
+
+        capital = float(initial_capital)
+        shares = 0
+        avg_cost = 0.0
+        total_contribution = 0.0
+        executed_periods = set()
+
+        for bar in history:
+            date_str = bar.get("date", "")
+            close_price = float(bar.get("close", 0) or 0)
+            dt = self._parse_date(date_str)
+
+            # 1) DCA：先注資，再用當期固定金額買入
+            if dt and close_price > 0:
+                period_key = self._get_dca_period_key(dt, dca_frequency)
+                if (
+                    period_key
+                    and period_key not in executed_periods
+                    and self._is_dca_trigger(dt, dca_frequency, dca_day)
+                ):
+                    executed_periods.add(period_key)
+                    capital += dca_amount
+                    total_contribution += dca_amount
+
+                    buy_shares = int(dca_amount / (close_price * (1 + self.commission_rate)))
+                    if buy_shares > 0:
+                        cost = buy_shares * close_price * (1 + self.commission_rate)
+                        capital -= cost
+                        prev_total_cost = avg_cost * shares
+                        shares += buy_shares
+                        avg_cost = (prev_total_cost + cost) / shares if shares > 0 else 0
+                        trades.append({
+                            "date": date_str,
+                            "action": "定期定額買入",
+                            "price": close_price,
+                            "shares": buy_shares,
+                            "cost": round(cost, 2),
+                            "capital_after": round(capital, 2),
+                            "reason": f"DCA {dca_frequency} 固定投入",
+                        })
+
+            # 2) 策略訊號：在 DCA 基礎上做加碼/減碼
+            for signal in signal_map.get(date_str, []):
+                signal_type = signal.get("signal", "")
+                price = float(signal.get("price", 0) or close_price)
+                if price <= 0:
+                    continue
+
+                if signal_type == "buy":
+                    strategy_budget = capital * position_size
+                    buy_shares = int(strategy_budget / (price * (1 + self.commission_rate)))
+                    if buy_shares <= 0:
+                        continue
+                    cost = buy_shares * price * (1 + self.commission_rate)
+                    capital -= cost
+                    prev_total_cost = avg_cost * shares
+                    shares += buy_shares
+                    avg_cost = (prev_total_cost + cost) / shares if shares > 0 else 0
+                    trades.append({
+                        "date": date_str,
+                        "action": "策略加碼買入",
+                        "price": price,
+                        "shares": buy_shares,
+                        "cost": round(cost, 2),
+                        "capital_after": round(capital, 2),
+                        "reason": signal.get("reason", "策略買入訊號"),
+                    })
+
+                elif signal_type in {"sell", "reduce"} and shares > 0:
+                    reduce_ratio = 1.0
+                    if signal_type == "reduce":
+                        reduce_ratio = abs(float(signal.get("delta_pct", -0.25)))
+                        reduce_ratio = max(0.05, min(1.0, reduce_ratio))
+                    sell_shares = min(shares, max(1, int(shares * reduce_ratio)))
+                    proceeds = sell_shares * price * (1 - self.commission_rate - self.tax_rate)
+                    cost_basis = avg_cost * sell_shares
+                    pnl = proceeds - cost_basis
+                    pnl_pct = ((price - avg_cost) / avg_cost * 100) if avg_cost > 0 else 0.0
+                    capital += proceeds
+                    shares -= sell_shares
+                    if shares <= 0:
+                        shares = 0
+                        avg_cost = 0.0
+                    trades.append({
+                        "date": date_str,
+                        "action": "策略賣出" if signal_type == "sell" else "策略減碼",
+                        "price": price,
+                        "shares": sell_shares,
+                        "proceeds": round(proceeds, 2),
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                        "capital_after": round(capital, 2),
+                        "reason": signal.get("reason", "策略賣出訊號"),
+                    })
+
+            mark_price = close_price if close_price > 0 else 0
+            equity_curve.append(round(capital + shares * mark_price, 2))
+
+        final_price = float(history[-1].get("close", 0) or 0) if history else 0
+        final_equity = capital + shares * final_price
+        return {
+            "trades": trades,
+            "equity_curve": equity_curve,
+            "total_contribution": total_contribution,
+            "final_equity": final_equity,
+            "outstanding_shares": shares,
+        }
+
+    def _parse_date(self, date_str: str) -> Optional[datetime]:
+        """解析日期字串"""
+        if not date_str:
+            return None
+        try:
+            return datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
+        except Exception:
+            return None
+
+    def _is_dca_trigger(self, dt: datetime, frequency: str, day: int) -> bool:
+        """判斷該日是否為 DCA 觸發日"""
+        if frequency == "daily":
+            return True
+        if frequency == "weekly":
+            # 1~7 對應週一~週日
+            target_weekday = max(1, min(7, day)) - 1
+            return dt.weekday() == target_weekday
+        # monthly
+        return dt.day >= day
+
+    def _get_dca_period_key(self, dt: datetime, frequency: str) -> str:
+        """建立 DCA 期間 key，避免同期間重複投入"""
+        if frequency == "daily":
+            return dt.strftime("%Y-%m-%d")
+        if frequency == "weekly":
+            iso_year, iso_week, _ = dt.isocalendar()
+            return f"{iso_year}-W{iso_week:02d}"
+        return dt.strftime("%Y-%m")
     
     def _get_default_params(self, strategy: str) -> Dict:
         """取得策略預設參數"""
@@ -533,29 +728,35 @@ class BacktestService:
         history: List[Dict],
         initial_capital: float,
         equity_curve: List[float] = None,
+        final_equity: Optional[float] = None,
     ) -> Dict[str, Any]:
         """計算績效指標（含 Sharpe Ratio）"""
+        computed_final = float(final_equity) if final_equity is not None else float(initial_capital)
         if not trades:
+            total_return = computed_final - initial_capital
+            total_return_pct = (computed_final / initial_capital - 1) * 100 if initial_capital > 0 else 0
             return {
-                "total_return": 0, "total_return_pct": 0, "win_rate": 0,
+                "total_return": round(total_return, 2),
+                "total_return_pct": round(total_return_pct, 2),
+                "win_rate": 0,
                 "total_trades": 0, "max_drawdown": 0, "sharpe_ratio": 0,
-                "profit_factor": 0, "final_capital": initial_capital,
+                "profit_factor": 0, "final_capital": round(computed_final, 2),
                 "winning_trades": 0, "losing_trades": 0,
                 "avg_win": 0, "avg_loss": 0,
             }
 
-        final_capital = trades[-1].get("capital_after", initial_capital)
+        final_capital = computed_final if final_equity is not None else trades[-1].get("capital_after", initial_capital)
         total_return = final_capital - initial_capital
-        total_return_pct = (final_capital / initial_capital - 1) * 100
+        total_return_pct = (final_capital / initial_capital - 1) * 100 if initial_capital > 0 else 0
 
         sell_trades = [t for t in trades if t.get("action") == "賣出" or "賣出" in t.get("action", "")]
         winning_trades = [t for t in sell_trades if t.get("pnl", 0) > 0]
         win_rate = len(winning_trades) / len(sell_trades) * 100 if sell_trades else 0
 
         # 最大回撤
-        eq = equity_curve or [initial_capital]
+        eq = equity_curve or [initial_capital, final_capital]
         max_drawdown = 0.0
-        peak = eq[0]
+        peak = eq[0] if eq else initial_capital
         for v in eq:
             if v > peak:
                 peak = v
