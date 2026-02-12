@@ -48,8 +48,9 @@ class StockService:
 
         # 台股額外取得：本益比/股淨比、市值、法人籌碼
         if market in ["TWSE", "TPEX"]:
-            tasks.append(finmind_adapter.get_tw_per_pbr(symbol, start_date=None))  # Task 2
-            tasks.append(finmind_adapter.get_tw_market_value(symbol, start_date=None)) # Task 3
+            start_1y = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+            tasks.append(finmind_adapter.get_tw_per_pbr(symbol, start_date=start_1y))  # Task 2
+            tasks.append(finmind_adapter.get_tw_market_value(symbol, start_date=start_1y)) # Task 3
         
         results = await asyncio.gather(*tasks)
         

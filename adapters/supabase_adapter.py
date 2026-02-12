@@ -219,26 +219,71 @@ class SupabaseAdapter:
         if not url:
             return []
 
-        tables = ["watchlist", "watchlists"]
-        for table in tables:
+        # 先嘗試專用 watchlist 表（欄位可能不一致，逐步降級）
+        table_select_candidates = [
+            ("watchlist", {"select": "symbol,name,added_at", "order": "added_at.desc"}),
+            ("watchlist", {"select": "symbol,added_at", "order": "added_at.desc"}),
+            ("watchlist", {"select": "symbol,name"}),
+            ("watchlist", {"select": "symbol"}),
+            ("watchlists", {"select": "symbol,name,added_at", "order": "added_at.desc"}),
+            ("watchlists", {"select": "symbol,added_at", "order": "added_at.desc"}),
+            ("watchlists", {"select": "symbol,name"}),
+            ("watchlists", {"select": "symbol"}),
+        ]
+        for table, extra_params in table_select_candidates:
             try:
                 with httpx.Client(timeout=30.0) as client:
                     resp = client.get(
                         f"{url}/rest/v1/{table}",
                         headers=self._get_headers(use_service_key=True),
-                        params={
-                            "user_id": f"eq.{user_id}",
-                            "select": "symbol,name,added_at",
-                            "order": "added_at.desc",
-                        },
+                        params={"user_id": f"eq.{user_id}", **extra_params},
                     )
                     if resp.status_code == 200:
                         data = resp.json() if resp.text else []
-                        return data if isinstance(data, list) else []
-                    if resp.status_code == 404:
+                        rows = data if isinstance(data, list) else []
+                        normalized = []
+                        for row in rows:
+                            symbol = (row.get("symbol") or "").strip().upper()
+                            if not symbol:
+                                continue
+                            normalized.append({
+                                "symbol": symbol,
+                                "name": row.get("name"),
+                                "added_at": row.get("added_at"),
+                            })
+                        return normalized
+                    if resp.status_code in (400, 404):
                         continue
             except Exception:
                 continue
+
+        # fallback：若專用表不存在，使用 portfolios 作為自選來源（shares=0 視為 watchlist）
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.get(
+                    f"{url}/rest/v1/portfolios",
+                    headers=self._get_headers(use_service_key=True),
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "shares": "eq.0",
+                        "select": "symbol,updated_at",
+                        "order": "updated_at.desc",
+                    },
+                )
+                if resp.status_code == 200:
+                    data = resp.json() if resp.text else []
+                    rows = data if isinstance(data, list) else []
+                    return [
+                        {
+                            "symbol": (row.get("symbol") or "").strip().upper(),
+                            "name": None,
+                            "added_at": row.get("updated_at"),
+                        }
+                        for row in rows
+                        if (row.get("symbol") or "").strip()
+                    ]
+        except Exception:
+            pass
         return []
 
     def add_to_watchlist(self, user_id: str, symbol: str) -> bool:
@@ -252,6 +297,7 @@ class SupabaseAdapter:
             return False
 
         tables = ["watchlist", "watchlists"]
+        all_404 = True
         for table in tables:
             try:
                 with httpx.Client(timeout=30.0) as client:
@@ -264,9 +310,27 @@ class SupabaseAdapter:
                         return True
                     if resp.status_code == 404:
                         continue
+                    all_404 = False
             except Exception:
                 continue
-        return False
+
+        if not all_404:
+            return False
+
+        # fallback：專用表不存在時，寫入 portfolios（shares=0 作為自選）
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+                resp = client.post(
+                    f"{url}/rest/v1/portfolios",
+                    headers=headers,
+                    params={"on_conflict": "user_id,symbol"},
+                    json={"user_id": user_id, "symbol": symbol, "shares": 0, "avg_price": 0},
+                )
+                return resp.status_code in [200, 201, 204, 409]
+        except Exception:
+            return False
 
     def remove_from_watchlist(self, user_id: str, symbol: str) -> bool:
         """移除自選股票（相容 watchlist/watchlists 表名）"""
@@ -279,6 +343,7 @@ class SupabaseAdapter:
             return False
 
         tables = ["watchlist", "watchlists"]
+        all_404 = True
         for table in tables:
             try:
                 with httpx.Client(timeout=30.0) as client:
@@ -291,9 +356,28 @@ class SupabaseAdapter:
                         return True
                     if resp.status_code == 404:
                         continue
+                    all_404 = False
             except Exception:
                 continue
-        return False
+
+        if not all_404:
+            return False
+
+        # fallback：專用表不存在時，移除 portfolios 中 shares=0 的列
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.delete(
+                    f"{url}/rest/v1/portfolios",
+                    headers=self._get_headers(use_service_key=True),
+                    params={
+                        "user_id": f"eq.{user_id}",
+                        "symbol": f"eq.{symbol}",
+                        "shares": "eq.0",
+                    },
+                )
+                return resp.status_code in [200, 204]
+        except Exception:
+            return False
 
     def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> bool:
         """相容舊介面：direction=above|below"""

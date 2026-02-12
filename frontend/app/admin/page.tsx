@@ -16,7 +16,7 @@ import {
 import styles from './page.module.css';
 
 const apiClient = new ApiClient();
-const ADMIN_EMAIL = 'alanalways0817@gmail.com';
+const DEFAULT_ADMIN_EMAIL = 'cmshj30326@gmail.com';
 
 interface UserItem {
     id: string;
@@ -39,7 +39,11 @@ export default function AdminPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [error, setError] = useState('');
 
-    const isAdmin = user?.email === ADMIN_EMAIL;
+    const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMIN_EMAIL)
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter(Boolean);
+    const isAdmin = !!user?.email && adminEmails.includes(user.email.toLowerCase());
 
     useEffect(() => {
         if (!isAdmin) return;

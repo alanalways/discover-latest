@@ -37,8 +37,15 @@ async def add_to_watchlist(req: WatchlistAddRequest, request: Request):
     user_id = _require_auth(request)
     try:
         from adapters.supabase_adapter import supabase_adapter
-        result = supabase_adapter.add_to_watchlist(user_id, req.symbol)
+        symbol = (req.symbol or "").strip().upper()
+        if not symbol:
+            raise HTTPException(status_code=400, detail="symbol 不可為空")
+        result = supabase_adapter.add_to_watchlist(user_id, symbol)
+        if not result:
+            raise HTTPException(status_code=500, detail="自選清單寫入失敗（請確認 watchlist/watchlists 或 portfolios 設定）")
         return {"success": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -49,8 +56,15 @@ async def remove_from_watchlist(symbol: str, request: Request):
     user_id = _require_auth(request)
     try:
         from adapters.supabase_adapter import supabase_adapter
-        result = supabase_adapter.remove_from_watchlist(user_id, symbol)
+        target = (symbol or "").strip().upper()
+        if not target:
+            raise HTTPException(status_code=400, detail="symbol 不可為空")
+        result = supabase_adapter.remove_from_watchlist(user_id, target)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"找不到 {target} 或移除失敗")
         return {"success": result}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -142,5 +156,7 @@ def _require_auth(request: Request) -> str:
         if not user:
             raise HTTPException(status_code=401, detail="Session 已過期")
         return user.get("id", "")
+    except HTTPException:
+        raise
     except Exception:
         raise HTTPException(status_code=401, detail="驗證失敗")

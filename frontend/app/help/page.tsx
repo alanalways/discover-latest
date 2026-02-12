@@ -104,9 +104,9 @@ export default function HelpPage() {
                 </h3>
                 <div className={styles.contactCard}>
                     <p>如有任何問題或建議，歡迎來信：</p>
-                    <a href="mailto:alanalways0817@gmail.com" className={styles.emailLink}>
+                    <a href="mailto:cmshj30326@gmail.com" className={styles.emailLink}>
                         <Mail size={14} />
-                        alanalways0817@gmail.com
+                        cmshj30326@gmail.com
                     </a>
                 </div>
             </section>

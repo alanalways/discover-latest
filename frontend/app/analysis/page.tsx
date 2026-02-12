@@ -246,6 +246,7 @@ function AnalysisContent() {
             const result = await api.getAiAnalysis(symbol) as AiAnalysisPayload;
             const text = extractAiText(result);
             setAiResult(text || 'AI 分析未回傳有效結果。');
+            window.dispatchEvent(new Event('dl:usage-refresh'));
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);

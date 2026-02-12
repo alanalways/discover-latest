@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -34,7 +34,7 @@ const BOTTOM_ITEMS = [
     { icon: HelpCircle, label: '幫助中心', href: '/help' },
 ];
 
-const ADMIN_EMAIL = 'alanalways0817@gmail.com';
+const DEFAULT_ADMIN_EMAIL = 'cmshj30326@gmail.com';
 
 interface SidebarProps {
     isOpen?: boolean;
@@ -54,36 +54,53 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const currentYear = new Date().getFullYear();
     const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'v2.2.0';
 
+    const adminEmails = useMemo(() => {
+        const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMIN_EMAIL;
+        return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+    }, []);
+
     // 判斷是否為管理員
-    const isAdmin = user?.email === ADMIN_EMAIL;
+    const isAdmin = !!user?.email && adminEmails.includes(user.email.toLowerCase());
     const handleNavClick = () => {
         onClose?.();
     };
 
+    const loadLimits = useCallback(async () => {
+        if (!user) {
+            setDailyLimit(2);
+            setDailyUsed(0);
+            return;
+        }
+        try {
+            const limits = await api.getAuthLimits();
+            setDailyLimit(limits.ai.daily_limit);
+            setDailyUsed(limits.ai.daily_used);
+        } catch {
+            setDailyLimit(tier === 'premium' ? 200 : tier === 'pro' ? 20 : 2);
+        }
+    }, [tier, user]);
+
     useEffect(() => {
         let mounted = true;
-        const loadLimits = async () => {
-            if (!user) {
-                if (!mounted) return;
-                setDailyLimit(2);
-                setDailyUsed(0);
-                return;
-            }
-            try {
-                const limits = await api.getAuthLimits();
-                if (!mounted) return;
-                setDailyLimit(limits.ai.daily_limit);
-                setDailyUsed(limits.ai.daily_used);
-            } catch {
-                if (!mounted) return;
-                setDailyLimit(tier === 'premium' ? 200 : tier === 'pro' ? 20 : 2);
-            }
+        const guardedLoad = async () => {
+            await loadLimits();
+            if (!mounted) return;
         };
-        void loadLimits();
+        const onUsageRefresh = () => { void guardedLoad(); };
+        const onFocus = () => { void guardedLoad(); };
+
+        void guardedLoad();
+        window.addEventListener('dl:usage-refresh', onUsageRefresh);
+        window.addEventListener('focus', onFocus);
+        const timer = window.setInterval(() => { void guardedLoad(); }, 30000);
+
         return () => {
             mounted = false;
+            window.removeEventListener('dl:usage-refresh', onUsageRefresh);
+            window.removeEventListener('focus', onFocus);
+            window.clearInterval(timer);
         };
-    }, [tier, user]);
+    }, [loadLimits]);
 
     return (
         <aside

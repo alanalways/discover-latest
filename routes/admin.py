@@ -1,13 +1,14 @@
 """
 Admin API — 管理後台
 """
+import os
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter()
 
-_ADMIN_EMAIL = "alanalways0817@gmail.com"
+_DEFAULT_ADMIN_EMAIL = "cmshj30326@gmail.com"
 
 
 class TierUpdateRequest(BaseModel):
@@ -72,7 +73,10 @@ def _require_admin(request: Request):
         user = auth_service.verify_session(token)
         if not user:
             raise HTTPException(status_code=401, detail="Session 已過期")
-        if user.get("email") != _ADMIN_EMAIL:
+        raw_admins = os.environ.get("ADMIN_EMAILS", _DEFAULT_ADMIN_EMAIL)
+        admin_emails = {e.strip().lower() for e in raw_admins.split(",") if e.strip()}
+        user_email = (user.get("email") or "").strip().lower()
+        if user_email not in admin_emails:
             raise HTTPException(status_code=403, detail="需要管理員權限")
     except HTTPException:
         raise

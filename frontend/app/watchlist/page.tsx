@@ -50,7 +50,10 @@ export default function WatchlistPage() {
         if (!sym) return;
         setAdding(true);
         try {
-            await api.addToWatchlist(sym);
+            const res = await api.addToWatchlist(sym) as { success?: boolean };
+            if (!res?.success) {
+                throw new Error('加入自選失敗，請確認資料表設定');
+            }
             setAddSymbol('');
             await fetchList();
         } catch (err: unknown) {
@@ -63,7 +66,10 @@ export default function WatchlistPage() {
 
     const handleRemove = async (symbol: string) => {
         try {
-            await api.removeFromWatchlist(symbol);
+            const res = await api.removeFromWatchlist(symbol) as { success?: boolean };
+            if (!res?.success) {
+                throw new Error('移除失敗');
+            }
             setList((prev) => prev.filter((item) => item.symbol !== symbol));
             setAlerts((prev) => prev.filter((alert) => alert.symbol !== symbol));
         } catch (err: unknown) {
