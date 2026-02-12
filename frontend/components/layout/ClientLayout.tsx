@@ -13,6 +13,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const [collapsed, setCollapsed] = useState(false);
     const pathname = usePathname();
 
+    // 計算 sidebar 寬度（數字）
+    const sidebarWidth = collapsed ? 64 : 240;
+
     // 從 localStorage 讀取 collapsed 狀態
     useEffect(() => {
         const saved = localStorage.getItem('sidebar-collapsed');
@@ -33,12 +36,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return (
         <AuthProvider>
             <ThemeProvider>
-                <div
-                    className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]"
-                    style={{
-                        '--sidebar-w': collapsed ? '64px' : '240px',
-                    } as React.CSSProperties}
-                >
+                <div className="flex min-h-screen bg-[var(--bg-void)] text-[var(--text-1)]">
                     {/* Sidebar */}
                     <Sidebar
                         isOpen={sidebarOpen}
@@ -54,13 +52,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                         />
                     )}
 
+                    {/* Main content area — 用 inline style 確保 production 也正確 */}
                     <div
-                        className="flex-1 flex flex-col transition-all duration-300 relative w-full md:ml-[var(--sidebar-w)]"
+                        className="flex-1 flex flex-col transition-all duration-300 relative w-full"
+                        style={{ marginLeft: sidebarWidth }}
                     >
                         <Topbar
                             onMenuClick={() => setSidebarOpen(true)}
                             onToggleCollapse={handleToggleCollapse}
                             collapsed={collapsed}
+                            sidebarWidth={sidebarWidth}
                         />
 
                         <main className="flex-1 p-4 md:p-8 mt-[var(--topbar-h)] overflow-x-hidden">
