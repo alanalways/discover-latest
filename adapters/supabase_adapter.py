@@ -296,6 +296,8 @@ class SupabaseAdapter:
             value = row.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip().upper()
+            if isinstance(value, (int, float)):
+                return str(int(value)).strip().upper()
         return ""
 
     def get_user_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
@@ -599,9 +601,12 @@ class SupabaseAdapter:
     
     def get_user_tier(self, user_id: str) -> str:
         """取得用戶方案等級"""
+        sub = self.get_user_subscription(user_id)
+        if sub and sub.get("tier"):
+            return str(sub.get("tier")).strip().lower()
         user = self.get_user_by_id(user_id)
-        if user:
-            return user.get('tier', 'free')
+        if user and user.get("tier"):
+            return str(user.get("tier")).strip().lower()
         return 'free'
     
     def update_user_tier(self, user_id: str, tier: str, expires_at: Optional[str] = None) -> bool:

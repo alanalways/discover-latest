@@ -21,6 +21,123 @@ class StockService:
         "TPEX": {"name": "櫃買中心", "currency": "TWD"},
         "US": {"name": "美國股市", "currency": "USD"},
     }
+
+    @staticmethod
+    def _to_float(value: Any) -> Optional[float]:
+        """將資料源中的數值欄位轉為 float（容錯字串/逗號/空值）"""
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            text = value.strip().replace(",", "")
+            if not text or text in {"-", "N/A", "nan", "None"}:
+                return None
+            try:
+                return float(text)
+            except Exception:
+                return None
+        return None
+
+    def _pick_latest_numeric(self, rows: List[Dict[str, Any]], keys: List[str]) -> Optional[float]:
+        """從時間序列尾端回找第一個有效數值"""
+        if not rows:
+            return None
+        for row in reversed(rows):
+            for key in keys:
+                val = self._to_float(row.get(key))
+                if val is not None:
+                    return val
+        return None
+
+    def _normalize_per_pbr_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for r in rows or []:
+            normalized.append({
+                "date": r.get("date"),
+                "PER": self._to_float(r.get("PER") or r.get("per") or r.get("pe_ratio") or r.get("PriceEarningRatio")),
+                "PBR": self._to_float(r.get("PBR") or r.get("pbr") or r.get("pb_ratio") or r.get("PriceBookRatio")),
+                "dividend_yield": self._to_float(
+                    r.get("dividend_yield") or r.get("DividendYield") or r.get("yield") or r.get("cash_dividend_yield")
+                ),
+            })
+        return normalized
+
+    def _normalize_revenue_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for r in rows or []:
+            date_text = (
+                r.get("date")
+                or r.get("revenue_date")
+                or r.get("RevenueMonth")
+                or r.get("month")
+            )
+            revenue = self._to_float(r.get("revenue") or r.get("Revenue") or r.get("month_revenue"))
+            mom = self._to_float(r.get("revenue_month_over_month") or r.get("month_growth_rate") or r.get("mom"))
+            yoy = self._to_float(r.get("revenue_year_over_year") or r.get("year_growth_rate") or r.get("yoy"))
+            normalized.append({
+                "date": str(date_text or ""),
+                "revenue_date": str(date_text or ""),
+                "revenue": revenue or 0.0,
+                "revenue_month_over_month": mom,
+                "revenue_year_over_year": yoy,
+            })
+
+        normalized.sort(key=lambda x: x.get("date") or "")
+        month_map: Dict[str, float] = {}
+        for i, row in enumerate(normalized):
+            date_text = row.get("date") or ""
+            revenue = self._to_float(row.get("revenue")) or 0.0
+
+            if row.get("revenue_month_over_month") is None and i > 0:
+                prev_rev = self._to_float(normalized[i - 1].get("revenue")) or 0.0
+                if prev_rev > 0:
+                    row["revenue_month_over_month"] = round((revenue - prev_rev) / prev_rev * 100, 2)
+
+            if row.get("revenue_year_over_year") is None and len(date_text) >= 7:
+                month_key = date_text[:7]
+                year = date_text[:4]
+                month = date_text[5:7]
+                if year.isdigit() and month.isdigit():
+                    prev_year_key = f"{int(year) - 1:04d}-{month}"
+                    prev_year_rev = month_map.get(prev_year_key)
+                    if prev_year_rev and prev_year_rev > 0:
+                        row["revenue_year_over_year"] = round((revenue - prev_year_rev) / prev_year_rev * 100, 2)
+                month_map[month_key] = revenue
+
+        return normalized
+
+    def _normalize_institutional_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for r in rows or []:
+            normalized.append({
+                "date": r.get("date"),
+                "Foreign_Investor_buy": self._to_float(r.get("Foreign_Investor_buy") or r.get("foreign_investor_buy")) or 0.0,
+                "Foreign_Investor_sell": self._to_float(r.get("Foreign_Investor_sell") or r.get("foreign_investor_sell")) or 0.0,
+                "Investment_Trust_buy": self._to_float(r.get("Investment_Trust_buy") or r.get("investment_trust_buy")) or 0.0,
+                "Investment_Trust_sell": self._to_float(r.get("Investment_Trust_sell") or r.get("investment_trust_sell")) or 0.0,
+                "Dealer_self_buy": self._to_float(r.get("Dealer_self_buy") or r.get("dealer_self_buy")) or 0.0,
+                "Dealer_self_sell": self._to_float(r.get("Dealer_self_sell") or r.get("dealer_self_sell")) or 0.0,
+                "buy": self._to_float(r.get("buy")) or 0.0,
+                "sell": self._to_float(r.get("sell")) or 0.0,
+            })
+        return normalized
+
+    def _normalize_margin_rows(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for r in rows or []:
+            normalized.append({
+                "date": r.get("date"),
+                "MarginPurchaseLimit": self._to_float(r.get("MarginPurchaseLimit") or r.get("margin_purchase_limit") or r.get("margin_balance")) or 0.0,
+                "MarginPurchaseChange": self._to_float(r.get("MarginPurchaseChange") or r.get("margin_purchase_change") or r.get("margin_change")) or 0.0,
+                "ShortSaleLimit": self._to_float(r.get("ShortSaleLimit") or r.get("short_sale_limit") or r.get("short_balance")) or 0.0,
+                "ShortSaleChange": self._to_float(r.get("ShortSaleChange") or r.get("short_sale_change") or r.get("short_change")) or 0.0,
+                "margin_balance": self._to_float(r.get("margin_balance")) or 0.0,
+                "margin_change": self._to_float(r.get("margin_change")) or 0.0,
+                "short_balance": self._to_float(r.get("short_balance")) or 0.0,
+                "short_change": self._to_float(r.get("short_change")) or 0.0,
+            })
+        return normalized
     
     async def get_stock_data(
         self, 
@@ -87,32 +204,25 @@ class StockService:
             
             # 整合 PER/PBR
             if per_pbr:
-                latest_per = per_pbr[-1]
-                info["pe_ratio"] = (
-                    latest_per.get("PER")
-                    or latest_per.get("per")
-                    or latest_per.get("pe_ratio")
-                )
-                info["pb_ratio"] = (
-                    latest_per.get("PBR")
-                    or latest_per.get("pbr")
-                    or latest_per.get("pb_ratio")
-                )
-                info["dividend_yield"] = (
-                    latest_per.get("dividend_yield")
-                    or latest_per.get("DividendYield")
-                    or latest_per.get("yield")
-                )
+                normalized_per = self._normalize_per_pbr_rows(per_pbr)
+                pe_val = self._pick_latest_numeric(normalized_per, ["PER"])
+                pb_val = self._pick_latest_numeric(normalized_per, ["PBR"])
+                dy_val = self._pick_latest_numeric(normalized_per, ["dividend_yield"])
+                if pe_val is not None:
+                    info["pe_ratio"] = pe_val
+                if pb_val is not None:
+                    info["pb_ratio"] = pb_val
+                if dy_val is not None:
+                    info["dividend_yield"] = dy_val
              
             # 整合市值
             if market_value_data:
-                latest_mv = market_value_data[-1]
-                info["market_cap"] = (
-                    latest_mv.get("Market_Value")
-                    or latest_mv.get("market_value")
-                    or latest_mv.get("market_cap")
-                    or latest_mv.get("marketValue")
+                mv_val = self._pick_latest_numeric(
+                    market_value_data,
+                    ["Market_Value", "market_value", "market_cap", "marketValue", "marketCapitalization"],
                 )
+                if mv_val is not None:
+                    info["market_cap"] = mv_val
 
         return {
             "symbol": symbol,
@@ -291,13 +401,14 @@ class StockService:
         result = {}
         try:
             per_data = await finmind_adapter.get_tw_per_pbr(symbol, start_1y)
-            result["per_pbr"] = per_data[-30:] if per_data else []
+            normalized = self._normalize_per_pbr_rows(per_data or [])
+            result["per_pbr"] = normalized[-30:] if normalized else []
         except Exception as e:
             print(f"[Fundamentals] PER/PBR 失敗 ({symbol}): {e}")
             result["per_pbr"] = []
         try:
             rev_data = await finmind_adapter.get_tw_revenue(symbol, start_3y)
-            result["revenue"] = rev_data if rev_data else []
+            result["revenue"] = self._normalize_revenue_rows(rev_data or [])
         except Exception as e:
             print(f"[Fundamentals] 月營收失敗 ({symbol}): {e}")
             result["revenue"] = []
@@ -326,13 +437,13 @@ class StockService:
         result = {}
         try:
             inst_data = await finmind_adapter.get_tw_institutional(symbol, start_3m)
-            result["institutional"] = inst_data if inst_data else []
+            result["institutional"] = self._normalize_institutional_rows(inst_data or [])
         except Exception as e:
             print(f"[Chips] 法人買賣超失敗 ({symbol}): {e}")
             result["institutional"] = []
         try:
             margin_data = await finmind_adapter.get_tw_margin(symbol, start_3m)
-            result["margin"] = margin_data if margin_data else []
+            result["margin"] = self._normalize_margin_rows(margin_data or [])
         except Exception as e:
             print(f"[Chips] 融資融券失敗 ({symbol}): {e}")
             result["margin"] = []

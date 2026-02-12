@@ -137,7 +137,7 @@ async def _fetch_market_data() -> Dict[str, list]:
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
-        start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
         for _, meta in _INDEX_TICKERS.items():
             try:
@@ -278,10 +278,13 @@ def _fetch_top20_data() -> Dict:
                     "volume": volume,
                 })
 
-        # 快照失敗時，退回有限符號逐筆抓取（避免整頁空白）
-        if not tw_data:
+        # 快照不足時，補抓有限符號（避免只剩極少筆）
+        if len(tw_data) < 20:
+            existing_symbols = {item.get("symbol") for item in tw_data}
             backup_symbols = [s for s in tw_name_map.keys() if s.isdigit()][:40]
             for sym in backup_symbols:
+                if sym in existing_symbols:
+                    continue
                 try:
                     fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
                     if not fm_data or len(fm_data) < 2:
@@ -301,6 +304,9 @@ def _fetch_top20_data() -> Dict:
                         "change_pct": pct,
                         "volume": volume,
                     })
+                    existing_symbols.add(sym)
+                    if len(tw_data) >= 60:
+                        break
                 except Exception:
                     continue
     except Exception as e:

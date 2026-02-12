@@ -35,6 +35,22 @@ class RateLimiter:
     def __init__(self):
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _parse_expires_at(raw: Optional[str]) -> Optional[datetime]:
+        """解析 expires_at（支援 ISO datetime / YYYY-MM-DD）"""
+        if not raw or not isinstance(raw, str):
+            return None
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            if len(text) == 10:
+                # date-only: 視為當天結束
+                return datetime.fromisoformat(f"{text}T23:59:59+00:00")
+            return datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
     def check_and_downgrade(self, user_id: str) -> str:
         """
         檢查用戶是否過期，過期則降級為 free
@@ -43,23 +59,37 @@ class RateLimiter:
         Returns:
             用戶目前的 tier
         """
-        user = supabase_adapter.get_user_by_id(user_id)
-        if not user:
-            return 'free'
-        
-        tier = user.get('tier', 'free')
-        expires_at = user.get('expires_at')
+        # 1) 主要來源：user_subscriptions（管理後台升級會寫這裡）
+        sub = supabase_adapter.get_user_subscription(user_id) or {}
+        tier = (sub.get("tier") or "").strip().lower()
+        expires_at = sub.get("expires_at")
+
+        # 2) 次要來源：public.users（相容舊結構）
+        user = supabase_adapter.get_user_by_id(user_id) or {}
+        user_tier = (user.get("tier") or "").strip().lower()
+        if tier not in TIER_LIMITS and user_tier in TIER_LIMITS:
+            tier = user_tier
+        if not expires_at:
+            expires_at = user.get("expires_at")
+
+        # 3) 最後來源：auth.users.user_metadata.tier（避免 UI 與限流不同步）
+        if tier not in TIER_LIMITS:
+            auth_user = supabase_adapter.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            metadata_tier = (metadata.get("tier") or "").strip().lower()
+            if metadata_tier in TIER_LIMITS:
+                tier = metadata_tier
+
+        if tier not in TIER_LIMITS:
+            tier = "free"
         
         # 若有到期日且已過期，自動降級
         if expires_at and tier != 'free':
-            try:
-                expiry_date = datetime.fromisoformat(expires_at.replace('Z', '+00:00'))
-                if expiry_date < datetime.now(expiry_date.tzinfo):
-                    # 到期自動降級
-                    supabase_adapter.update_user_tier(user_id, 'free', None)
-                    return 'free'
-            except Exception:
-                pass
+            expiry_date = self._parse_expires_at(expires_at)
+            if expiry_date and expiry_date < datetime.now(expiry_date.tzinfo):
+                # 到期自動降級
+                supabase_adapter.update_user_tier(user_id, 'free', None)
+                return 'free'
         
         return tier
     

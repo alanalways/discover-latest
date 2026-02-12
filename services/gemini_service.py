@@ -122,7 +122,7 @@ class GeminiService:
         with self._generate_lock:
             return self._generate_analysis_locked(
                 api_key, symbol, stock_info, smc_summary,
-                prediction_summary, macro_data, user_question,
+                prediction_summary, macro_data, user_question, tier,
             )
 
     def _generate_analysis_locked(

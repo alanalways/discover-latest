@@ -58,6 +58,7 @@ interface AuthContextType {
     isLoggedIn: boolean;
     login: (token: string) => Promise<void>;
     logout: () => void;
+    refreshUser: () => Promise<void>;
     showLoginModal: boolean;
     setShowLoginModal: (show: boolean) => void;
 }
@@ -68,6 +69,7 @@ const AuthContext = createContext<AuthContextType>({
     isLoggedIn: false,
     login: async () => { },
     logout: () => { },
+    refreshUser: async () => { },
     showLoginModal: false,
     setShowLoginModal: () => { },
 });
@@ -104,6 +106,14 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         }
     }, [logout]);
 
+    const refreshUser = useCallback(async () => {
+        const currentToken = api.getToken();
+        if (!currentToken) return;
+        setToken(currentToken);
+        api.setToken(currentToken);
+        await fetchUser();
+    }, [fetchUser]);
+
     // 初始化檢查 Token
     useEffect(() => {
         const storedToken = typeof window !== 'undefined' ? localStorage.getItem('dl_token') : null;
@@ -112,6 +122,12 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         api.setToken(storedToken);
         void fetchUser();
     }, [fetchUser]);
+
+    useEffect(() => {
+        const onRefresh = () => { void refreshUser(); };
+        window.addEventListener('dl:auth-refresh', onRefresh);
+        return () => window.removeEventListener('dl:auth-refresh', onRefresh);
+    }, [refreshUser]);
 
     const login = async (googleToken: string) => {
         try {
@@ -152,6 +168,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             isLoggedIn: !!user,
             login,
             logout,
+            refreshUser,
             showLoginModal,
             setShowLoginModal
         }}>

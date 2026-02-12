@@ -11,6 +11,7 @@ import {
 import styles from './page.module.css';
 import api from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
+import PerformanceChart from '@/components/charts/PerformanceChart';
 
 interface BacktestResult {
     total_return?: number;
@@ -39,7 +40,7 @@ interface BacktestResult {
         total_contribution?: number;
         total_invested_capital?: number;
     };
-    equity_curve?: { date: string; equity: number }[];
+    equity_curve?: Array<{ date?: string; equity?: number } | number>;
     trades?: {
         date?: string;
         action?: string;
@@ -49,6 +50,57 @@ interface BacktestResult {
         return_pct?: number;
     }[];
 }
+
+const STRATEGY_GUIDES: Record<string, {
+    title: string;
+    entry: string;
+    exit: string;
+    pros: string;
+    cons: string;
+}> = {
+    ma_cross: {
+        title: '均線交叉策略',
+        entry: '短期均線上穿長期均線時，視為趨勢轉強，策略會發出買入訊號。',
+        exit: '短期均線下穿長期均線時，視為趨勢轉弱，策略會發出賣出訊號。',
+        pros: '規則清楚，適合追蹤中期趨勢，搭配 DCA 可降低單點進場風險。',
+        cons: '盤整行情容易來回打臉，訊號偏慢，可能錯過極短線轉折。',
+    },
+    rsi: {
+        title: 'RSI 策略',
+        entry: 'RSI 落入超賣區（預設 30 以下）時分批進場。',
+        exit: 'RSI 進入超買區（預設 70 以上）時分批出場。',
+        pros: '對震盪市場較友善，能抓到短中期反彈區間。',
+        cons: '強趨勢時可能過早逆勢操作，需搭配風控。',
+    },
+    breakout: {
+        title: '突破策略',
+        entry: '價格有效突破區間高點（含閾值）時追價買入。',
+        exit: '價格跌破區間低點（含閾值）時停損/出場。',
+        pros: '能跟上主升段，對趨勢行情表現通常較好。',
+        cons: '假突破時回撤可能較大，停損紀律很重要。',
+    },
+    momentum: {
+        title: '動能策略',
+        entry: '近 N 日動能高於門檻，代表市場資金持續推升。',
+        exit: '動能轉負且跌破門檻時離場，避免趨勢反轉擴大虧損。',
+        pros: '容易吃到強勢股波段，規則簡單。',
+        cons: '高波動標的容易追高，需控制倉位。',
+    },
+    monitoring_indicator: {
+        title: '景氣燈號策略（FinMind 代理）',
+        entry: '當代理景氣分數偏低時提高目標持倉，偏向逢低布局。',
+        exit: '當代理景氣分數偏高時降低持倉，偏向分段減碼。',
+        pros: '偏中長線資產配置思維，能避免單一訊號過度交易。',
+        cons: '屬於慢訊號，對短線交易者不夠靈敏。',
+    },
+    martingale: {
+        title: '馬丁格爾策略',
+        entry: '虧損後依倍率加碼，期待均值回歸時快速回補。',
+        exit: '達到停利/停損或層數上限後出場。',
+        pros: '若行情回歸速度快，短期績效可能亮眼。',
+        cons: '風險最高，連續不利走勢會快速放大資金壓力。',
+    },
+};
 
 export default function BacktestPage() {
     const { user, isLoggedIn, setShowLoginModal } = useAuth();
@@ -120,6 +172,25 @@ export default function BacktestPage() {
     const winRatePct = metrics?.win_rate ?? 0;
     const totalTrades = metrics?.total_trades ?? 0;
     const sharpeRatio = metrics?.sharpe_ratio ?? 0;
+    const strategyGuide = STRATEGY_GUIDES[strategy] || STRATEGY_GUIDES.ma_cross;
+
+    const equitySeries = useMemo(() => {
+        if (!result?.equity_curve || result.equity_curve.length === 0) return [];
+        const points = result.equity_curve
+            .map((point, idx) => {
+                const fallbackDate = new Date(2000, 0, 1 + idx).toISOString().slice(0, 10);
+                if (typeof point === 'number') {
+                    return { time: fallbackDate, value: point };
+                }
+                const value = Number(point?.equity);
+                const time = (point?.date || fallbackDate).toString();
+                if (!Number.isFinite(value)) return null;
+                return { time, value };
+            })
+            .filter((p): p is { time: string; value: number } => !!p);
+        if (points.length === 0) return [];
+        return [{ name: '資金曲線', color: '#8B5CF6', data: points }];
+    }, [result?.equity_curve]);
 
     return (
         <div className={styles.container}>
@@ -210,6 +281,14 @@ export default function BacktestPage() {
                 </div>
             </div>
 
+            <div className={styles.strategyGuideCard}>
+                <h4>{strategyGuide.title}</h4>
+                <p><strong>進場邏輯：</strong>{strategyGuide.entry}</p>
+                <p><strong>出場邏輯：</strong>{strategyGuide.exit}</p>
+                <p><strong>優點：</strong>{strategyGuide.pros}</p>
+                <p><strong>缺點：</strong>{strategyGuide.cons}</p>
+            </div>
+
             {/* 錯誤 */}
             {error && (
                 <div className={styles.errorCard}>
@@ -255,6 +334,15 @@ export default function BacktestPage() {
                                     <span>{(result.dca.total_contribution ?? 0).toLocaleString()}</span>
                                     <span>NTD</span>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {equitySeries.length > 0 && (
+                        <div className={styles.tradesCard}>
+                            <h4>資金成長曲線</h4>
+                            <div className={styles.equityChartWrap}>
+                                <PerformanceChart series={equitySeries} />
                             </div>
                         </div>
                     )}

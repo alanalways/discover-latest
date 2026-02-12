@@ -38,16 +38,16 @@ interface StockHistoryRow {
 interface RevenueRow {
     date?: string;
     revenue_date?: string;
-    revenue?: number;
-    revenue_month_over_month?: number;
-    revenue_year_over_year?: number;
+    revenue?: number | string;
+    revenue_month_over_month?: number | string;
+    revenue_year_over_year?: number | string;
 }
 
 interface PerPbrRow {
     date?: string;
-    PER?: number;
-    PBR?: number;
-    dividend_yield?: number;
+    PER?: number | string;
+    PBR?: number | string;
+    dividend_yield?: number | string;
 }
 
 interface DividendRow {
@@ -118,9 +118,11 @@ function extractAiText(payload: AiAnalysisPayload | null | undefined): string {
 }
 
 // ── 格式化工具函數 ──
-const formatNumber = (val: number | null | undefined, decimals = 2): string => {
-    if (val === null || val === undefined) return 'N/A';
-    return val.toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+const formatNumber = (val: number | string | null | undefined, decimals = 2): string => {
+    if (val === null || val === undefined || val === '') return 'N/A';
+    const num = Number(String(val).replace(/,/g, '').trim());
+    if (!Number.isFinite(num)) return 'N/A';
+    return num.toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
 const formatVolume = (vol: number): string => {
@@ -131,8 +133,8 @@ const formatVolume = (vol: number): string => {
     return String(vol);
 };
 
-const formatMarketCap = (val?: number) => {
-    const num = Number(val);
+const formatMarketCap = (val?: number | string) => {
+    const num = Number(String(val ?? '').replace(/,/g, '').trim());
     if (!Number.isFinite(num) || num <= 0) return 'N/A';
     return (num / 100000000).toFixed(2) + ' 億';
 };
@@ -393,11 +395,11 @@ function AnalysisContent() {
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/E 本益比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pe_ratio ?? 'N/A'}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(info.pe_ratio as number | string | undefined)}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/B 股淨比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{info.pb_ratio ?? 'N/A'}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(info.pb_ratio as number | string | undefined)}</div>
                                 </div>
                             </div>
 
@@ -481,13 +483,17 @@ function AnalysisContent() {
                                                         <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                             <td className="py-2 px-3 text-[var(--text-2)]">{r.date || r.revenue_date}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
-                                                                {formatNumber((r.revenue || 0) / 1000, 0)}K
+                                                                {formatNumber((Number(String(r.revenue ?? 0).replace(/,/g, '')) || 0) / 1000, 0)}K
                                                             </td>
-                                                            <td className={`py-2 px-3 text-right font-mono ${(r.revenue_month_over_month || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                                                {r.revenue_month_over_month ? `${r.revenue_month_over_month > 0 ? '+' : ''}${formatNumber(r.revenue_month_over_month)}%` : 'N/A'}
+                                                            <td className={`py-2 px-3 text-right font-mono ${(Number(String(r.revenue_month_over_month ?? 0).replace(/,/g, '')) || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {r.revenue_month_over_month !== null && r.revenue_month_over_month !== undefined && r.revenue_month_over_month !== ''
+                                                                    ? `${(Number(String(r.revenue_month_over_month).replace(/,/g, '')) || 0) > 0 ? '+' : ''}${formatNumber(r.revenue_month_over_month)}%`
+                                                                    : 'N/A'}
                                                             </td>
-                                                            <td className={`py-2 px-3 text-right font-mono ${(r.revenue_year_over_year || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                                                {r.revenue_year_over_year ? `${r.revenue_year_over_year > 0 ? '+' : ''}${formatNumber(r.revenue_year_over_year)}%` : 'N/A'}
+                                                            <td className={`py-2 px-3 text-right font-mono ${(Number(String(r.revenue_year_over_year ?? 0).replace(/,/g, '')) || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {r.revenue_year_over_year !== null && r.revenue_year_over_year !== undefined && r.revenue_year_over_year !== ''
+                                                                    ? `${(Number(String(r.revenue_year_over_year).replace(/,/g, '')) || 0) > 0 ? '+' : ''}${formatNumber(r.revenue_year_over_year)}%`
+                                                                    : 'N/A'}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -525,7 +531,9 @@ function AnalysisContent() {
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PER)}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PBR)}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-green-400">
-                                                                {r.dividend_yield ? `${formatNumber(r.dividend_yield)}%` : 'N/A'}
+                                                                {r.dividend_yield !== null && r.dividend_yield !== undefined && r.dividend_yield !== ''
+                                                                    ? `${formatNumber(r.dividend_yield)}%`
+                                                                    : 'N/A'}
                                                             </td>
                                                         </tr>
                                                     ))}

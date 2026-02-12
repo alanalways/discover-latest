@@ -32,7 +32,7 @@ interface Stats {
 }
 
 export default function AdminPage() {
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [stats, setStats] = useState<Stats | null>(null);
     const [users, setUsers] = useState<UserItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -75,6 +75,11 @@ export default function AdminPage() {
             });
             // 更新本地狀態
             setUsers(prev => prev.map(u => u.id === userId ? { ...u, tier: newTier } : u));
+            if (user?.id === userId) {
+                await refreshUser();
+                window.dispatchEvent(new Event('dl:usage-refresh'));
+            }
+            await loadData();
         } catch (err) {
             console.error('更新失敗:', err);
         }

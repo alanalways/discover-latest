@@ -44,11 +44,12 @@ interface SidebarProps {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
     const { user } = useAuth();
+    const [effectiveTier, setEffectiveTier] = useState<'free' | 'pro' | 'premium'>('free');
     const [dailyLimit, setDailyLimit] = useState(2);
     const [dailyUsed, setDailyUsed] = useState(0);
 
     // 動態 tier 資訊
-    const tier = user?.tier || 'free';
+    const tier = effectiveTier;
     const tierLabel: Record<string, string> = { free: 'Free', pro: 'Pro', premium: 'Premium' };
     const creditPct = Math.min(100, Math.round((dailyUsed / Math.max(1, dailyLimit)) * 100));
     const currentYear = new Date().getFullYear();
@@ -67,18 +68,23 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
     const loadLimits = useCallback(async () => {
         if (!user) {
+            setEffectiveTier('free');
             setDailyLimit(2);
             setDailyUsed(0);
             return;
         }
         try {
             const limits = await api.getAuthLimits();
+            const serverTier = (limits.tier || user.tier || 'free') as 'free' | 'pro' | 'premium';
+            setEffectiveTier(serverTier);
             setDailyLimit(limits.ai.daily_limit);
             setDailyUsed(limits.ai.daily_used);
         } catch {
-            setDailyLimit(tier === 'premium' ? 200 : tier === 'pro' ? 20 : 2);
+            const fallbackTier = (user.tier || 'free') as 'free' | 'pro' | 'premium';
+            setEffectiveTier(fallbackTier);
+            setDailyLimit(fallbackTier === 'premium' ? 200 : fallbackTier === 'pro' ? 20 : 2);
         }
-    }, [tier, user]);
+    }, [user]);
 
     useEffect(() => {
         let mounted = true;

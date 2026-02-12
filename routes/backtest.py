@@ -137,6 +137,33 @@ async def run_backtest(req: BacktestRequest, request: Request):
         total_return_pct = float(metrics.get("total_return_pct", 0))
         max_drawdown_pct = float(metrics.get("max_drawdown", 0))
         win_rate_pct = float(metrics.get("win_rate", 0))
+        equity_curve_raw = result.get("equity_curve", []) or []
+        equity_curve = []
+        if isinstance(equity_curve_raw, list) and equity_curve_raw:
+            if isinstance(equity_curve_raw[0], dict):
+                for point in equity_curve_raw:
+                    if not isinstance(point, dict):
+                        continue
+                    date_text = point.get("date")
+                    equity_val = point.get("equity")
+                    if date_text is None or equity_val is None:
+                        continue
+                    try:
+                        equity_curve.append({"date": str(date_text), "equity": float(equity_val)})
+                    except Exception:
+                        continue
+            else:
+                for idx, val in enumerate(equity_curve_raw):
+                    try:
+                        equity_val = float(val)
+                    except Exception:
+                        continue
+                    date_text = ""
+                    if idx < len(history):
+                        date_text = str(history[idx].get("date", ""))
+                    if not date_text:
+                        date_text = f"{idx + 1}"
+                    equity_curve.append({"date": date_text, "equity": equity_val})
         return {
             "symbol": req.symbol,
             "strategy": req.strategy,
@@ -162,7 +189,7 @@ async def run_backtest(req: BacktestRequest, request: Request):
             },
             "dca": result.get("dca", {}),
             "trades": result.get("trades", [])[:50],  # 最多 50 筆
-            "equity_curve": result.get("equity_curve", []),
+            "equity_curve": equity_curve,
         }
 
     except HTTPException:
