@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -187,6 +188,13 @@ async def get_portfolio_health(
 
     analysis_day = _parse_analysis_date(as_of_date)
     holdings = _parse_positions_payload(positions)
+    raw_positions_supplied = bool(str(positions or "").strip())
+
+    if raw_positions_supplied and not holdings:
+        raise HTTPException(
+            status_code=400,
+            detail="持股格式無效：請輸入台股代碼（如 2330）或美股代碼（如 NVDA），且股數需大於 0。",
+        )
 
     if not holdings:
         return {
@@ -374,7 +382,7 @@ def _parse_positions_payload(raw: str | None) -> list[dict[str, Any]]:
         shares = _safe_float(item.get("shares"))
         avg_cost = _safe_float(item.get("avg_cost"))
         buy_day = _parse_buy_date(item.get("buy_date"))
-        if not symbol or shares <= 0:
+        if not symbol or shares <= 0 or not _is_valid_portfolio_symbol(symbol):
             continue
         rows.append(
             {
@@ -420,6 +428,19 @@ def _is_us_symbol(symbol: str) -> bool:
         return False
     # Typical US ticker: 1-5 uppercase letters.
     return s.isalpha() and 1 <= len(s) <= 5
+
+
+def _is_valid_portfolio_symbol(symbol: str) -> bool:
+    s = str(symbol or "").strip().upper()
+    if not s:
+        return False
+    # TW stocks/ETF commonly use 4-6 digits.
+    if re.fullmatch(r"\d{4,6}", s):
+        return True
+    # US symbols: allow letters/digits with optional dot or hyphen (e.g., BRK.B).
+    if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", s):
+        return True
+    return False
 
 
 async def _calc_proxy_return(
