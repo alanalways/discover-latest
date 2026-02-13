@@ -323,11 +323,30 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
         risk_tone = "區間震盪"
         action_hint = "建議以分批進出與紀律風控為主，避免追高殺低。"
 
+    tw_focus = 0
+    us_focus = 0
+    global_focus = 0
+    for row in items[:12]:
+        region = str(row.get("region") or "").strip().lower()
+        title_lc = str(row.get("title") or "").lower()
+        if region in {"tw", "taiwan"} or any(tok in title_lc for tok in ("台股", "台積電", "聯發科", "鴻海")):
+            tw_focus += 1
+        elif region in {"us", "usa", "united states"} or any(tok in title_lc for tok in ("nasdaq", "s&p", "dow", "nvidia", "apple", "tesla")):
+            us_focus += 1
+        else:
+            global_focus += 1
+
+    market_link = "台股與美股均受同一組總體與科技主線牽動。"
+    if tw_focus > us_focus and tw_focus >= 2:
+        market_link = "台股權值與半導體主線較強，美股偏向跟隨利率與科技龍頭訊號。"
+    elif us_focus > tw_focus and us_focus >= 2:
+        market_link = "美股科技與利率敏感族群主導，台股多受美股風險偏好外溢影響。"
+
     one_minute = (
         f"一分鐘看市場：目前新聞重點集中在「{'、'.join(top_themes)}」，"
         f"顯示資金主線仍圍繞總體數據與權值科技。"
         f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
-        f"台股可關注半導體與大型權值，美股留意科技龍頭與利率敏感族群。"
+        f"{market_link}"
         f"{action_hint}"
     )
 
@@ -335,6 +354,10 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     for theme in top_themes[:3]:
         impact, why = theme_meta.get(theme, ("中", "留意該主題對資金輪動的連鎖效應。"))
         brief_lines.append(f"{theme}（影響{impact}）：{why}")
+    for row in items[:2]:
+        title = str(row.get("title") or "").strip()
+        if title:
+            brief_lines.append(f"新聞連結市場：{title[:60]}。")
 
     if len(brief_lines) < 3:
         brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])
@@ -381,7 +404,9 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         "brief": norm_brief[:5],
         "items": norm_items,
         "table": norm_table[:8],
-        "session_tag": session_tag,
+        # Hide upstream/session internals from UI to avoid provider leakage.
+        "provider": "",
+        "session_tag": "",
     }
 
 
