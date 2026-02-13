@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
+import os
 from zoneinfo import ZoneInfo
 import time
 
@@ -17,8 +19,40 @@ _TOP20_CACHE: dict = {
     "data": None,
 }
 _TOP20_FETCH_LOCK = asyncio.Lock()
+_TOP20_CACHE_FILE = os.path.join(os.getcwd(), ".cache", "top20_cache.json")
+_TOP20_DISK_LOADED = False
 _TOP20_TTL_OPEN_SEC = 45
 _TOP20_TTL_CLOSED_SEC = 1800
+
+
+def _load_top20_cache_from_disk() -> None:
+    global _TOP20_DISK_LOADED
+    if _TOP20_DISK_LOADED:
+        return
+    _TOP20_DISK_LOADED = True
+    try:
+        if not os.path.exists(_TOP20_CACHE_FILE):
+            return
+        with open(_TOP20_CACHE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            return
+        data = payload.get("data")
+        ts = float(payload.get("ts") or 0.0)
+        if isinstance(data, dict) and ts > 0:
+            _TOP20_CACHE["data"] = data
+            _TOP20_CACHE["ts"] = ts
+    except Exception:
+        return
+
+
+def _save_top20_cache_to_disk(data: dict, ts: float) -> None:
+    try:
+        os.makedirs(os.path.dirname(_TOP20_CACHE_FILE), exist_ok=True)
+        with open(_TOP20_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"ts": ts, "data": data}, f, ensure_ascii=False)
+    except Exception:
+        return
 
 
 @router.get("/market/overview")
@@ -47,6 +81,8 @@ async def market_overview():
 @router.get("/market/top20")
 async def market_top20():
     """Return top20 by gainers/losers/volume for TW and US."""
+    _load_top20_cache_from_disk()
+
     def to_num(value, pct: bool = False) -> float:
         if value is None:
             return 0.0
@@ -168,6 +204,7 @@ async def market_top20():
             payload = {"tw": sort_data(tw, "tw"), "us": sort_data(us, "us")}
             _TOP20_CACHE["data"] = payload
             _TOP20_CACHE["ts"] = time.time()
+            _save_top20_cache_to_disk(payload, _TOP20_CACHE["ts"])
             return payload
     except Exception as e:
         try:
