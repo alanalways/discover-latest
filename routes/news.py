@@ -413,12 +413,10 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").strip()
-        # Some upstream rows include provider names in next line; keep only the headline line.
+        # Some upstream rows include provider names in next line; keep only headline line.
         title = title.splitlines()[0].strip() if title else ""
-        # Remove upstream provider traces accidentally embedded in title text.
-        title = re.sub(r"\s*[-|]?\s*(tavily|tavly)\s*$", "", title, flags=re.IGNORECASE).strip()
-        # Remove accidental trailing domain markers after separator.
-        title = re.sub(r"\s*[-|]\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", title, flags=re.IGNORECASE).strip()
+        # Hard-strip provider traces from anywhere in title.
+        title = _strip_provider_terms(title)
         url = str(item.get("url") or item.get("link") or "").strip()
         source = _strip_provider_terms(str(item.get("source") or "").strip())
         impact_reason = _strip_provider_terms(str(item.get("impact_reason") or "").strip())
@@ -558,11 +556,13 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
         if t:
             headline_focus.append(t[:36])
 
+    # Force a market-linked one-minute brief so users can quickly connect news -> market impact.
     one_minute = (
-        f"一分鐘看市場（依據最新 {min(len(items), 12)} 則新聞）：目前重點集中在「{'、'.join(top_themes)}」，"
-        f"顯示資金主線仍圍繞總體數據、利率預期與權值科技。"
-        f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
+        f"一分鐘看市場（最新 {min(len(items), 12)} 則）：主軸集中在「{'、'.join(top_themes)}」，"
+        f"短線風格偏向{risk_tone}。"
         f"{market_link}"
+        f"台股可先看權值與半導體，"
+        f"美股可先看大型科技與利率敏感族群。"
         f"{action_hint}"
         f"{(' 焦點事件：' + ' / '.join(headline_focus[:2]) + '。') if headline_focus else ''}"
     )
@@ -574,8 +574,12 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     for row in items[:3]:
         title = str(row.get("title") or "").strip()
         region = str(row.get("region") or "").strip() or "Global"
+        reason = _strip_provider_terms(str(row.get("impact_reason") or "")).strip()
         if title:
-            brief_lines.append(f"新聞連結市場（{region}）：{title[:60]}。")
+            if reason:
+                brief_lines.append(f"新聞連結市場（{region}）：{title[:50]} -> {reason[:42]}。")
+            else:
+                brief_lines.append(f"新聞連結市場（{region}）：{title[:60]}。")
 
     if len(brief_lines) < 3:
         brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])
