@@ -1,8 +1,11 @@
-"""Watchlist API: watchlist, alerts, portfolio, and portfolio health."""
+"""Watchlist, alerts, portfolio, and portfolio health APIs."""
 
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -23,44 +26,54 @@ class AlertAddRequest(BaseModel):
 
 @router.get("/watchlist")
 async def get_watchlist(request: Request):
-    """Get current user's watchlist."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
 
     try:
-        watchlist = supabase_adapter.get_user_watchlist(user_id)
-        return {"watchlist": watchlist or []}
+        rows = supabase_adapter.get_user_watchlist(user_id)
+        return {"watchlist": rows or []}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"讀取自選清單失敗: {e}")
 
 
 @router.post("/watchlist/add")
 async def add_to_watchlist(req: WatchlistAddRequest, request: Request):
-    """Add a symbol to watchlist."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
+    from services.feature_gate import get_limit
+    from services.rate_limiter import rate_limiter
 
     symbol = (req.symbol or "").strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol 不可為空")
 
     try:
-        result = supabase_adapter.add_to_watchlist(user_id, symbol)
-        if not result:
-            raise HTTPException(
-                status_code=500,
-                detail="自選清單寫入失敗（請確認 watchlist/watchlists 或 portfolios 設定）",
-            )
+        tier = rate_limiter.check_and_downgrade(user_id)
+        watchlist = supabase_adapter.get_user_watchlist(user_id) or []
+        existing = {
+            str((row or {}).get("symbol") or "").strip().upper()
+            for row in watchlist
+            if isinstance(row, dict)
+        }
+        if symbol in existing:
+            return {"success": True, "symbol": symbol, "already_exists": True}
+
+        max_watchlist = int(get_limit(tier, "watchlist_max") or 0)
+        if max_watchlist > 0 and len(existing) >= max_watchlist:
+            raise HTTPException(status_code=403, detail=f"自選清單上限為 {max_watchlist} 檔")
+
+        ok = bool(supabase_adapter.add_to_watchlist(user_id, symbol))
+        if not ok:
+            raise HTTPException(status_code=500, detail="新增自選清單失敗")
         return {"success": True, "symbol": symbol}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"加入自選失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"新增自選清單失敗: {e}")
 
 
 @router.delete("/watchlist/{symbol}")
 async def remove_from_watchlist(symbol: str, request: Request):
-    """Remove a symbol from watchlist."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
 
@@ -69,32 +82,30 @@ async def remove_from_watchlist(symbol: str, request: Request):
         raise HTTPException(status_code=400, detail="symbol 不可為空")
 
     try:
-        result = supabase_adapter.remove_from_watchlist(user_id, target)
-        if not result:
-            raise HTTPException(status_code=404, detail=f"找不到 {target} 或刪除失敗")
+        ok = bool(supabase_adapter.remove_from_watchlist(user_id, target))
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"找不到自選標的 {target}")
         return {"success": True, "symbol": target}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"刪除自選失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"移除自選清單失敗: {e}")
 
 
 @router.get("/alerts")
 async def get_alerts(request: Request):
-    """Get current user's alerts."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
 
     try:
-        alerts = supabase_adapter.get_user_alerts(user_id)
-        return {"alerts": alerts or []}
+        rows = supabase_adapter.get_user_alerts(user_id)
+        return {"alerts": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取警報失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"讀取提醒失敗: {e}")
 
 
 @router.post("/alerts/add")
 async def add_alert(req: AlertAddRequest, request: Request):
-    """Add a price alert."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
     from services.feature_gate import can_access, get_limit
@@ -102,7 +113,7 @@ async def add_alert(req: AlertAddRequest, request: Request):
 
     tier = rate_limiter.check_and_downgrade(user_id)
     if not can_access(tier, "price_alert"):
-        raise HTTPException(status_code=403, detail="你的方案尚未開放價格警報")
+        raise HTTPException(status_code=403, detail="目前方案不支援價格提醒")
 
     symbol = (req.symbol or "").strip().upper()
     if not symbol:
@@ -114,7 +125,7 @@ async def add_alert(req: AlertAddRequest, request: Request):
         alerts = supabase_adapter.get_user_alerts(user_id) or []
         max_alerts = int(get_limit(tier, "price_alert_max") or 0)
         if max_alerts > 0 and len(alerts) >= max_alerts:
-            raise HTTPException(status_code=403, detail=f"價格警報上限為 {max_alerts}")
+            raise HTTPException(status_code=403, detail=f"價格提醒上限為 {max_alerts} 筆")
 
         direction = (req.direction or "above").lower()
         if direction in ("gte", "above"):
@@ -122,65 +133,64 @@ async def add_alert(req: AlertAddRequest, request: Request):
         elif direction in ("lte", "below"):
             normalized_direction = "below"
         else:
-            raise HTTPException(status_code=400, detail="direction 僅支援 above/below/gte/lte")
+            raise HTTPException(status_code=400, detail="direction 必須為 above/below/gte/lte")
 
-        result = supabase_adapter.add_alert(
-            user_id=user_id,
-            symbol=symbol,
-            target_price=req.target_price,
-            direction=normalized_direction,
+        ok = bool(
+            supabase_adapter.add_alert(
+                user_id=user_id,
+                symbol=symbol,
+                target_price=req.target_price,
+                direction=normalized_direction,
+            )
         )
-        return {"success": bool(result)}
+        return {"success": ok}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"新增警報失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"新增提醒失敗: {e}")
 
 
 @router.delete("/alerts/{alert_id}")
 async def delete_alert(alert_id: str, request: Request):
-    """Delete an alert."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
 
     try:
-        result = supabase_adapter.delete_alert(alert_id, user_id)
-        return {"success": bool(result)}
+        ok = bool(supabase_adapter.delete_alert(alert_id, user_id))
+        return {"success": ok}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"刪除警報失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"刪除提醒失敗: {e}")
 
 
 @router.get("/portfolio")
 async def get_portfolio(request: Request):
-    """Get user portfolio."""
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
 
     try:
-        portfolio = supabase_adapter.get_user_portfolio(user_id)
-        return {"portfolio": portfolio or []}
+        rows = supabase_adapter.get_user_portfolio(user_id)
+        return {"portfolio": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取投資組合失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"讀取持股失敗: {e}")
 
 
 @router.get("/portfolio/health")
 async def get_portfolio_health(
     request: Request,
     benchmark: str = Query("0050", description="Benchmark symbol"),
+    as_of_date: str | None = Query(default=None, description="Analysis date YYYY-MM-DD"),
+    positions: str | None = Query(default=None, description="JSON array positions"),
+    include_ai: int = Query(default=0, description="1 to include AI assessment"),
 ):
-    """
-    Portfolio health check.
-
-    Returns:
-    - per-holding market value, pnl, weight
-    - total summary and simple diversification score
-    - benchmark 1Y return
-    """
     user_id = _require_auth(request)
     from adapters.supabase_adapter import supabase_adapter
     from services.stock_service import stock_service
 
-    holdings = supabase_adapter.get_user_portfolio(user_id) or []
+    analysis_day = _parse_analysis_date(as_of_date)
+    holdings = _parse_positions_payload(positions)
+    if not holdings:
+        holdings = supabase_adapter.get_user_portfolio(user_id) or []
+
     if not holdings:
         return {
             "portfolio": [],
@@ -193,27 +203,31 @@ async def get_portfolio_health(
                 "max_weight_pct": 0.0,
                 "risk_level": "low",
             },
-            "suggestions": ["目前沒有持股，先建立 3-5 檔不同產業配置可提升分散度。"],
+            "suggestions": ["目前尚無持股，請先新增持股後再進行健檢。"],
             "benchmark": {"symbol": benchmark.upper(), "return_1y_pct": 0.0},
+            "analysis_date": analysis_day.isoformat(),
+            "ai_assessment": "尚無持股資料，暫時無法產生 AI 健檢。",
         }
 
     async def enrich(holding: dict[str, Any]) -> dict[str, Any]:
         symbol = str(holding.get("symbol") or "").strip().upper()
-        shares = float(holding.get("shares") or 0.0)
-        avg_cost = float(holding.get("avg_cost") or 0.0)
-        current_price = float(holding.get("current_price") or 0.0)
+        shares = _safe_float(holding.get("shares"))
+        avg_cost = _safe_float(holding.get("avg_cost"))
+        buy_day = _parse_buy_date(holding.get("buy_date"))
+        holding_days = (analysis_day - buy_day).days if buy_day else None
 
+        current_price = _safe_float(holding.get("current_price"))
         try:
-            stock = await stock_service.get_stock_data(symbol=symbol, period="1y")
+            stock = await stock_service.get_stock_data(symbol=symbol, period=_period_for_analysis_date(analysis_day))
             info = stock.get("info", {}) if isinstance(stock, dict) else {}
             history = stock.get("history", []) if isinstance(stock, dict) else []
-            last_close = float(history[-1].get("close", 0) or 0) if history else 0.0
-            if last_close > 0:
-                current_price = last_close
-            else:
-                info_price = info.get("price")
-                if info_price is not None:
-                    current_price = float(info_price or 0.0)
+            dated_close = _pick_close_at_or_before(history, analysis_day)
+            if dated_close > 0:
+                current_price = dated_close
+            elif history:
+                current_price = _safe_float(history[-1].get("close"), default=current_price)
+            if current_price <= 0:
+                current_price = _safe_float((info or {}).get("price"), default=current_price)
         except Exception:
             pass
 
@@ -221,10 +235,13 @@ async def get_portfolio_health(
         cost_value = shares * avg_cost
         pnl = market_value - cost_value
         pnl_pct = (pnl / cost_value * 100) if cost_value > 0 else 0.0
+
         return {
             "symbol": symbol,
             "shares": shares,
             "avg_cost": avg_cost,
+            "buy_date": buy_day.isoformat() if buy_day else None,
+            "holding_days": holding_days,
             "current_price": current_price,
             "market_value": market_value,
             "cost_value": cost_value,
@@ -232,18 +249,18 @@ async def get_portfolio_health(
             "pnl_pct": pnl_pct,
         }
 
-    enriched = await asyncio.gather(*[enrich(h) for h in holdings])
-    total_market_value = sum(max(0.0, float(h.get("market_value") or 0.0)) for h in enriched)
-    total_cost = sum(max(0.0, float(h.get("cost_value") or 0.0)) for h in enriched)
+    enriched = await asyncio.gather(*[enrich(h) for h in holdings if isinstance(h, dict)])
+    total_market_value = sum(max(0.0, _safe_float(h.get("market_value"))) for h in enriched)
+    total_cost = sum(max(0.0, _safe_float(h.get("cost_value"))) for h in enriched)
     total_pnl = total_market_value - total_cost
     total_pnl_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
 
     for row in enriched:
-        mv = float(row.get("market_value") or 0.0)
+        mv = _safe_float(row.get("market_value"))
         row["weight_pct"] = (mv / total_market_value * 100) if total_market_value > 0 else 0.0
 
-    sorted_by_weight = sorted(enriched, key=lambda x: float(x.get("weight_pct") or 0.0), reverse=True)
-    max_weight_pct = float(sorted_by_weight[0].get("weight_pct") or 0.0) if sorted_by_weight else 0.0
+    sorted_by_weight = sorted(enriched, key=lambda x: _safe_float(x.get("weight_pct")), reverse=True)
+    max_weight_pct = _safe_float(sorted_by_weight[0].get("weight_pct")) if sorted_by_weight else 0.0
     diversification_score = int(max(0, min(100, round(100 - max_weight_pct))))
 
     if max_weight_pct >= 55:
@@ -255,29 +272,46 @@ async def get_portfolio_health(
 
     suggestions: list[str] = []
     if max_weight_pct >= 55:
-        suggestions.append("單一持股集中度偏高，建議增加 3-5 檔不同產業分散風險。")
+        suggestions.append("單一持股比重偏高，建議分批降權重、提升分散度。")
     elif max_weight_pct >= 35:
-        suggestions.append("持股集中度中等，可再增加非同產業標的降低波動。")
+        suggestions.append("持股集中度偏高，建議補齊不同產業與市場配置。")
     else:
-        suggestions.append("持股分散度良好，建議維持紀律再平衡。")
+        suggestions.append("分散度健康，建議維持紀律並定期再平衡。")
 
     if total_pnl_pct < -12:
-        suggestions.append("目前整體報酬偏弱，建議重新檢視停損與倉位管理。")
+        suggestions.append("整體回撤偏大，建議檢查停損規則與部位上限。")
     elif total_pnl_pct > 18:
-        suggestions.append("目前整體報酬偏強，留意獲利了結與風險回撤。")
+        suggestions.append("整體報酬偏強，可設定分批停利與移動停利。")
 
     benchmark_symbol = (benchmark or "0050").strip().upper()
     benchmark_return = 0.0
     try:
-        bm = await stock_service.get_stock_data(symbol=benchmark_symbol, period="1y")
-        history = bm.get("history", []) if isinstance(bm, dict) else []
-        if len(history) >= 2:
-            first = float(history[0].get("close", 0) or 0.0)
-            last = float(history[-1].get("close", 0) or 0.0)
-            if first > 0:
-                benchmark_return = (last / first - 1) * 100
+        bm = await stock_service.get_stock_data(symbol=benchmark_symbol, period=_period_for_analysis_date(analysis_day))
+        bm_history = bm.get("history", []) if isinstance(bm, dict) else []
+        first = _pick_close_at_or_before(bm_history, analysis_day - timedelta(days=365))
+        last = _pick_close_at_or_before(bm_history, analysis_day)
+        if first > 0:
+            benchmark_return = (last / first - 1) * 100
     except Exception:
         benchmark_return = 0.0
+
+    ai_assessment = ""
+    if include_ai == 1:
+        ai_assessment = await _build_portfolio_ai_assessment(
+            analysis_day=analysis_day,
+            summary={
+                "total_market_value": round(total_market_value, 2),
+                "total_cost": round(total_cost, 2),
+                "total_pnl_pct": round(total_pnl_pct, 2),
+                "diversification_score": diversification_score,
+                "max_weight_pct": round(max_weight_pct, 2),
+                "risk_level": risk_level,
+            },
+            holdings=sorted_by_weight,
+            suggestions=suggestions,
+            benchmark_symbol=benchmark_symbol,
+            benchmark_return=round(benchmark_return, 2),
+        )
 
     return {
         "portfolio": sorted_by_weight,
@@ -295,13 +329,160 @@ async def get_portfolio_health(
             "symbol": benchmark_symbol,
             "return_1y_pct": round(benchmark_return, 2),
         },
+        "analysis_date": analysis_day.isoformat(),
+        "ai_assessment": ai_assessment,
     }
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value or default)
+    except Exception:
+        return float(default)
+
+
+def _parse_analysis_date(raw: str | None) -> date:
+    if not raw:
+        return datetime.now(timezone.utc).date()
+    try:
+        return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"as_of_date 格式錯誤（YYYY-MM-DD）: {e}")
+
+
+def _parse_buy_date(raw: Any) -> date | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.strptime(text, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _parse_positions_payload(raw: str | None) -> list[dict[str, Any]]:
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"positions JSON 格式錯誤: {e}")
+
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=400, detail="positions 必須是陣列")
+
+    rows: list[dict[str, Any]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        symbol = str(item.get("symbol") or "").strip().upper()
+        shares = _safe_float(item.get("shares"))
+        avg_cost = _safe_float(item.get("avg_cost"))
+        buy_day = _parse_buy_date(item.get("buy_date"))
+        if not symbol or shares <= 0:
+            continue
+        rows.append(
+            {
+                "symbol": symbol,
+                "shares": shares,
+                "avg_cost": avg_cost,
+                "buy_date": buy_day.isoformat() if buy_day else None,
+            }
+        )
+    return rows
+
+
+def _period_for_analysis_date(analysis_day: date) -> str:
+    days = max(1, (datetime.now(timezone.utc).date() - analysis_day).days + 10)
+    if days <= 365:
+        return "1y"
+    if days <= 1095:
+        return "3y"
+    return "5y"
+
+
+def _pick_close_at_or_before(history: list[dict[str, Any]], target_day: date) -> float:
+    if not history:
+        return 0.0
+    target = target_day.isoformat()
+    best_day = ""
+    best_close = 0.0
+    for row in history:
+        day = str(row.get("date") or row.get("time") or "").strip()[:10]
+        if len(day) != 10:
+            continue
+        if day <= target and day >= best_day:
+            best_day = day
+            best_close = _safe_float(row.get("close"))
+    if best_close > 0:
+        return best_close
+    return _safe_float(history[-1].get("close"))
+
+
+def _pick_gemini_key() -> str:
+    multi = (os.environ.get("GEMINI_API_KEYS") or "").strip()
+    if multi:
+        keys = [k.strip() for k in multi.split(",") if k.strip()]
+        if keys:
+            return keys[0]
+    return (os.environ.get("GEMINI_API_KEY") or "").strip()
+
+
+async def _build_portfolio_ai_assessment(
+    analysis_day: date,
+    summary: dict[str, Any],
+    holdings: list[dict[str, Any]],
+    suggestions: list[str],
+    benchmark_symbol: str,
+    benchmark_return: float,
+) -> str:
+    key = _pick_gemini_key()
+    if not key:
+        return "未設定 AI 金鑰，暫時無法產生健檢結論。"
+
+    top = []
+    for row in holdings[:5]:
+        top.append(
+            {
+                "symbol": row.get("symbol"),
+                "weight_pct": round(_safe_float(row.get("weight_pct")), 2),
+                "pnl_pct": round(_safe_float(row.get("pnl_pct")), 2),
+                "holding_days": row.get("holding_days"),
+            }
+        )
+
+    prompt = (
+        "請用繁體中文輸出一段 120-220 字的投資組合健檢，不要使用 markdown。"
+        "內容需包含：目前狀態判斷、主要風險、接下來 1-2 個可執行調整。"
+        "避免保證報酬語句。"
+        f"\n分析日期: {analysis_day.isoformat()}"
+        f"\n摘要: {json.dumps(summary, ensure_ascii=False)}"
+        f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
+        f"\n系統建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
+        f"\n基準: {benchmark_symbol} 近一年報酬 {benchmark_return:.2f}%"
+    )
+
+    try:
+        from google import genai
+        from config.models import MODEL_FINAL
+
+        def _run() -> str:
+            client = genai.Client(api_key=key)
+            resp = client.models.generate_content(model=MODEL_FINAL, contents=prompt)
+            return str(getattr(resp, "text", "") or "").strip()
+
+        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=18)
+        if text:
+            return text
+    except Exception:
+        pass
+    return "AI 健檢暫時不可用，建議先依分散配置與風險控制原則調整持股。"
 
 
 def _require_auth(request: Request) -> str:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="請先登入")
+        raise HTTPException(status_code=401, detail="未提供授權")
 
     token = auth_header.split(" ", 1)[1]
     try:
@@ -317,4 +498,4 @@ def _require_auth(request: Request) -> str:
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=401, detail="登入狀態失效")
+        raise HTTPException(status_code=401, detail="授權驗證失敗")

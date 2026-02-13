@@ -13,9 +13,13 @@ const FREE_AUTH_LIMITS_FALLBACK = {
     },
     watchlist: {
         max: 5,
+        used: 0,
+        remaining: 5,
     },
     alerts: {
         max: 1,
+        used: 0,
+        remaining: 1,
     },
 };
 
@@ -70,6 +74,8 @@ interface PortfolioHealthResponse {
         symbol: string;
         shares: number;
         avg_cost: number;
+        buy_date?: string;
+        holding_days?: number;
         current_price: number;
         market_value: number;
         cost_value: number;
@@ -91,6 +97,8 @@ interface PortfolioHealthResponse {
         symbol: string;
         return_1y_pct: number;
     };
+    analysis_date?: string;
+    ai_assessment?: string;
 }
 
 interface AiAnalysisResultPayload {
@@ -294,8 +302,29 @@ export class ApiClient {
         return this.fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
     }
 
-    async getPortfolioHealth(benchmark = '0050') {
-        return this.fetch<PortfolioHealthResponse>(`/api/portfolio/health?benchmark=${encodeURIComponent(benchmark)}`);
+    async getPortfolioHealth(
+        benchmark = '0050',
+        options?: {
+            asOfDate?: string;
+            positions?: Array<{
+                symbol: string;
+                shares: number;
+                avg_cost?: number;
+                buy_date?: string;
+            }>;
+            includeAi?: boolean;
+        },
+    ) {
+        const params = new URLSearchParams();
+        params.set('benchmark', benchmark);
+        if (options?.asOfDate) params.set('as_of_date', options.asOfDate);
+        if (typeof options?.includeAi === 'boolean') {
+            params.set('include_ai', options.includeAi ? '1' : '0');
+        }
+        if (Array.isArray(options?.positions) && options.positions.length > 0) {
+            params.set('positions', JSON.stringify(options.positions));
+        }
+        return this.fetch<PortfolioHealthResponse>(`/api/portfolio/health?${params.toString()}`);
     }
 
     async getNewsBrief() {
@@ -456,9 +485,13 @@ interface AuthLimits {
     };
     watchlist: {
         max: number;
+        used: number;
+        remaining: number;
     };
     alerts: {
         max: number;
+        used: number;
+        remaining: number;
     };
 }
 

@@ -17,6 +17,147 @@
   font-size: 13px;
 }
 
+.section {
+  background: #18243a;
+  border: 1px solid #283a58;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 220px 220px 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field span {
+  color: #9fb0cb;
+  font-size: 12px;
+}
+
+.field input {
+  border: 1px solid #2b3e5f;
+  background: #101a2b;
+  color: #e4ecff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #a7b6ce;
+  font-size: 13px;
+}
+
+.manualBlock {
+  margin-top: 12px;
+}
+
+.manualHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manualHead h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.addBtn {
+  border: 1px solid #3b5793;
+  border-radius: 8px;
+  background: #2a3d68;
+  color: #ecf2ff;
+  padding: 7px 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.manualTable {
+  margin-top: 10px;
+  border: 1px solid #2b3e5f;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.manualRowHead,
+.manualRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 64px;
+  gap: 8px;
+  padding: 10px;
+  align-items: center;
+}
+
+.manualRowHead {
+  background: #1f2c45;
+  color: #a0b0ca;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.manualRow {
+  border-top: 1px solid #273854;
+}
+
+.manualRow input {
+  border: 1px solid #2b3e5f;
+  background: #101a2b;
+  color: #e4ecff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.iconBtn {
+  border: 1px solid #3a4f74;
+  background: #16233a;
+  color: #c3d2ea;
+  border-radius: 8px;
+  height: 34px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.iconBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.runBtn {
+  margin-top: 12px;
+  border: 1px solid #5667e8;
+  background: linear-gradient(90deg, #5f75f8, #7d53e9);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.runBtn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(6, minmax(130px, 1fr));
@@ -40,34 +181,6 @@
   font-size: 20px;
 }
 
-.section {
-  background: #18243a;
-  border: 1px solid #283a58;
-  border-radius: 12px;
-  padding: 12px;
-}
-
-.section h3 {
-  margin: 0 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.section ul {
-  margin: 0;
-  padding-left: 18px;
-}
-
-.section li {
-  margin: 6px 0;
-}
-
-.benchmark {
-  margin-top: 10px;
-  color: #9fb0cb;
-}
-
 .table {
   border: 1px solid #2b3e5f;
   border-radius: 8px;
@@ -77,7 +190,7 @@
 .head,
 .row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
   gap: 8px;
   padding: 10px 12px;
   font-size: 13px;
@@ -119,17 +232,37 @@
 .empty {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.empty h3 {
+  margin: 0;
+}
+
+.empty p {
+  margin: 4px 0 0;
+  color: #9eb0cd;
 }
 
 .loginBtn {
-  margin-top: 8px;
+  margin-left: auto;
   border: 1px solid #3b5793;
   border-radius: 8px;
   background: #2a3d68;
   color: #ecf2ff;
   padding: 8px 12px;
   cursor: pointer;
+}
+
+.aiText {
+  line-height: 1.7;
+  color: #d7e2f8;
+}
+
+.subtle {
+  margin-top: 8px;
+  color: #9fb0cb;
+  font-size: 12px;
 }
 
 .spin {
@@ -146,10 +279,31 @@
   .cards {
     grid-template-columns: repeat(3, minmax(130px, 1fr));
   }
+  .formGrid {
+    grid-template-columns: repeat(2, minmax(160px, 1fr));
+  }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 800px) {
   .cards {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .manualRowHead,
+  .manualRow {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .head,
+  .row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .loginBtn {
+    margin-left: 0;
   }
 }
