@@ -560,7 +560,21 @@ function buildNewsImpactLine(item: NewsItem): string {
     .replace(/\b(tavily|tavly)\b/gi, '')
     .trim()
     .replace(/\s+/g, ' ');
-  if (tags && reason) return `${tags}｜${reason.slice(0, 68)}`;
-  if (reason) return reason.slice(0, 80);
-  return tags || '與台美股連動重點整理中';
+  const title = cleanNewsTitle(item.title || '').toLowerCase();
+
+  let inferred = '';
+  if (reason) {
+    inferred = reason.slice(0, 72);
+  } else if (/(fomc|fed|cpi|inflation|yield|rate)/.test(title)) {
+    inferred = '總體與利率預期變化，可能影響台美股估值。';
+  } else if (/(nvidia|ai|semiconductor|chip|tsmc|台積電)/.test(title)) {
+    inferred = '科技與半導體主線變化，影響台美權值與供應鏈。';
+  } else if (/(oil|crude|war|sanction|geopolit)/.test(title)) {
+    inferred = '地緣與原物料風險升溫，市場波動可能擴大。';
+  } else {
+    inferred = '新聞與台美股盤勢連動重點整理中。';
+  }
+
+  if (tags) return `${tags}｜${inferred}`;
+  return inferred;
 }
