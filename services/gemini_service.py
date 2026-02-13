@@ -6,6 +6,8 @@ Stage 2: 使用 MODEL_FINAL 產生最終分析輸出
 v3: 遷移至 google.genai SDK（取代已棄用的 google.generativeai）
 """
 import os
+import json
+import re
 import threading
 import traceback
 import time
@@ -21,6 +23,8 @@ GEMINI_TIMEOUT_STAGE2 = 45  # Final generation stage
 _key_pool: List[str] = []
 _key_index: int = 0
 _key_lock = threading.Lock()
+_metrics_cache: Dict[str, Dict[str, Any]] = {}
+_metrics_cache_lock = threading.Lock()
 
 
 def _load_key_pool() -> List[str]:
@@ -87,6 +91,147 @@ class GeminiService:
     def is_available(self) -> bool:
         """AI 功能是否可用"""
         return bool(self._get_api_key())
+
+    @staticmethod
+    def _safe_float(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            v = float(value)
+            return v if v == v and v not in (float("inf"), float("-inf")) else None
+        text = str(value).strip().replace(",", "")
+        if not text:
+            return None
+        if text.endswith("%"):
+            text = text[:-1].strip()
+        unit_map = {
+            "K": 1e3,
+            "M": 1e6,
+            "B": 1e9,
+            "T": 1e12,
+            "萬": 1e4,
+            "億": 1e8,
+            "兆": 1e12,
+        }
+        last = text[-1:] if text else ""
+        multiplier = unit_map.get(last.upper()) or unit_map.get(last)
+        if multiplier:
+            text = text[:-1].strip()
+            if not text:
+                return None
+            try:
+                v = float(text) * multiplier
+                return v if v == v and v not in (float("inf"), float("-inf")) else None
+            except Exception:
+                return None
+        try:
+            v = float(text)
+            return v if v == v and v not in (float("inf"), float("-inf")) else None
+        except Exception:
+            return None
+
+    @staticmethod
+    def _extract_json_object(text: str) -> Dict[str, Any]:
+        if not text:
+            return {}
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\\s*", "", cleaned)
+            cleaned = re.sub(r"\\s*```$", "", cleaned)
+        try:
+            parsed = json.loads(cleaned)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            pass
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            snippet = cleaned[start : end + 1]
+            try:
+                parsed = json.loads(snippet)
+                return parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def ground_company_metrics(self, symbol: str, market: str = "TW", company_name: str = "") -> Dict[str, Any]:
+        """Use grounding to backfill market cap / PE / PB / dividend yield (daily cache)."""
+        normalized_symbol = str(symbol or "").strip().upper()
+        cache_key = f"{time.strftime('%Y-%m-%d')}:{normalized_symbol}"
+        with _metrics_cache_lock:
+            cached = _metrics_cache.get(cache_key)
+            if isinstance(cached, dict):
+                return cached
+
+        api_key = self._get_api_key()
+        if not api_key:
+            return {"success": False, "metrics": {}, "sources": [], "error": "no_api_key"}
+
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception:
+            return {"success": False, "metrics": {}, "sources": [], "error": "google_genai_missing"}
+
+        prompt = (
+            "Use Google Search grounding and return JSON only. "
+            "Schema: "
+            '{"market_cap": number|null, "pe_ratio": number|null, "pb_ratio": number|null, '
+            '"dividend_yield": number|null, "as_of": string|null}. '
+            "market_cap must be absolute number (no K/M/B). "
+            "dividend_yield must be percentage number (e.g. 1.23 means 1.23%). "
+            f"symbol={normalized_symbol}, market={market}, company={company_name or normalized_symbol}."
+        )
+
+        sources: List[Dict[str, str]] = []
+        text_out = ""
+
+        def _run():
+            client = genai.Client(api_key=api_key)
+            return client.models.generate_content(
+                model=MODEL_GROUNDING,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                ),
+            )
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                response = executor.submit(_run).result(timeout=16)
+            if response and getattr(response, "text", None):
+                text_out = response.text
+
+            candidates = getattr(response, "candidates", None) or []
+            if candidates:
+                gm = getattr(candidates[0], "grounding_metadata", None)
+                chunks = getattr(gm, "grounding_chunks", None) if gm else None
+                if chunks:
+                    for chunk in chunks:
+                        web = getattr(chunk, "web", None)
+                        if not web:
+                            continue
+                        sources.append(
+                            {
+                                "title": str(getattr(web, "title", "") or ""),
+                                "uri": str(getattr(web, "uri", "") or ""),
+                            }
+                        )
+        except Exception as e:
+            return {"success": False, "metrics": {}, "sources": [], "error": type(e).__name__}
+
+        parsed = self._extract_json_object(text_out)
+        metrics = {
+            "market_cap": self._safe_float(parsed.get("market_cap")),
+            "pe_ratio": self._safe_float(parsed.get("pe_ratio")),
+            "pb_ratio": self._safe_float(parsed.get("pb_ratio")),
+            "dividend_yield": self._safe_float(parsed.get("dividend_yield")),
+            "as_of": parsed.get("as_of"),
+        }
+        result = {"success": True, "metrics": metrics, "sources": sources[:8]}
+        with _metrics_cache_lock:
+            _metrics_cache[cache_key] = result
+        return result
 
     def _create_client(self, api_key: str):
         """建立 google.genai Client"""

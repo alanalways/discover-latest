@@ -39,6 +39,27 @@ class StockService:
                 text = text[:-1].strip()
                 if not text:
                     return None
+            # Unit suffix support: K/M/B/T and Chinese units (萬/億/兆)
+            unit_map = {
+                "K": 1e3,
+                "M": 1e6,
+                "B": 1e9,
+                "T": 1e12,
+                "萬": 1e4,
+                "億": 1e8,
+                "兆": 1e12,
+            }
+            last = text[-1:]
+            multiplier = unit_map.get(last.upper()) or unit_map.get(last)
+            if multiplier:
+                text = text[:-1].strip()
+                if not text:
+                    return None
+                try:
+                    v = float(text) * multiplier
+                    return v if math.isfinite(v) else None
+                except Exception:
+                    return None
             try:
                 v = float(text)
                 return v if math.isfinite(v) else None
@@ -162,6 +183,53 @@ class StockService:
                 "short_change": self._to_float(r.get("short_change")) or 0.0,
             })
         return normalized
+
+    async def _backfill_metrics_with_grounding(self, symbol: str, market: str, info: Dict[str, Any]) -> None:
+        """Backfill key valuation fields via grounding when FinMind fields are missing."""
+        if not isinstance(info, dict):
+            return
+        need_market_cap = self._to_float(info.get("market_cap")) is None
+        need_pe = self._to_float(info.get("pe_ratio")) is None
+        need_pb = self._to_float(info.get("pb_ratio")) is None
+        need_dy = self._to_float(info.get("dividend_yield")) is None
+        if not (need_market_cap or need_pe or need_pb or need_dy):
+            return
+
+        try:
+            from services.gemini_service import gemini_service
+            if not gemini_service.is_available():
+                return
+            grounded = await asyncio.wait_for(
+                asyncio.to_thread(
+                    gemini_service.ground_company_metrics,
+                    symbol,
+                    market,
+                    info.get("name") or symbol,
+                ),
+                timeout=18,
+            )
+            metrics = grounded.get("metrics") if isinstance(grounded, dict) else None
+            if not isinstance(metrics, dict):
+                return
+
+            if need_market_cap:
+                mv = self._to_float(metrics.get("market_cap"))
+                if mv is not None and mv > 0:
+                    info["market_cap"] = mv
+            if need_pe:
+                pe = self._to_float(metrics.get("pe_ratio"))
+                if pe is not None and pe > 0:
+                    info["pe_ratio"] = pe
+            if need_pb:
+                pb = self._to_float(metrics.get("pb_ratio"))
+                if pb is not None and pb > 0:
+                    info["pb_ratio"] = pb
+            if need_dy:
+                dy = self._to_float(metrics.get("dividend_yield"))
+                if dy is not None and dy >= 0:
+                    info["dividend_yield"] = dy
+        except Exception:
+            return
     
     async def get_stock_data(
         self, 
@@ -332,6 +400,9 @@ class StockService:
                 if shares_outstanding and latest_price and shares_outstanding > 0 and latest_price > 0:
                     info["market_cap"] = round(shares_outstanding * latest_price, 2)
 
+            # Final rescue for missing key valuation fields (daily-cached grounding).
+            await self._backfill_metrics_with_grounding(symbol, market, info)
+
         return {
             "symbol": symbol,
             "market": market,
@@ -395,6 +466,20 @@ class StockService:
                             or info.get("issued_shares")
                             or info.get("number_of_shares")
                             or info.get("shares_outstanding")
+                            or (info.get("raw") or {}).get("shares")
+                            or (info.get("raw") or {}).get("issued_shares")
+                            or (info.get("raw") or {}).get("shares_outstanding")
+                            or (info.get("raw") or {}).get("number_of_shares")
+                            or (info.get("raw") or {}).get("capital_stock")
+                            or (info.get("raw") or {}).get("company_capital")
+                        ),
+                        "market_cap": self._to_float(
+                            info.get("market_cap")
+                            or info.get("market_value")
+                            or (info.get("raw") or {}).get("market_cap")
+                            or (info.get("raw") or {}).get("market_value")
+                            or (info.get("raw") or {}).get("Market_Value")
+                            or (info.get("raw") or {}).get("marketCapitalization")
                         ),
                     }
             except Exception as e:
@@ -618,6 +703,30 @@ class StockService:
                 if dy is None:
                     dy = pick_by_keywords(merged, [["dividend", "yield"], ["yield"]])
 
+                # Grounding backfill for key valuation fields if FinMind/merged info is missing.
+                if per is None or pbr is None or dy is None:
+                    try:
+                        from services.gemini_service import gemini_service
+                        if gemini_service.is_available():
+                            grounded = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    gemini_service.ground_company_metrics,
+                                    symbol,
+                                    market,
+                                    merged.get("name") or symbol,
+                                ),
+                                timeout=18,
+                            )
+                            metrics = grounded.get("metrics") if isinstance(grounded, dict) else {}
+                            if per is None:
+                                per = self._to_float(metrics.get("pe_ratio"))
+                            if pbr is None:
+                                pbr = self._to_float(metrics.get("pb_ratio"))
+                            if dy is None:
+                                dy = self._to_float(metrics.get("dividend_yield"))
+                    except Exception:
+                        pass
+
                 per_pbr = []
                 if per is not None or pbr is not None or dy is not None:
                     per_pbr.append({
@@ -661,6 +770,25 @@ class StockService:
             except Exception as e:
                 print(f"[Fundamentals] ?∪憭望? ({symbol}): {e}")
                 result["dividend"] = []
+
+            # If FinMind valuation rows are empty, fallback from merged stock info (with grounding backfill).
+            if not result.get("per_pbr"):
+                try:
+                    overview = await self.get_stock_data(symbol=symbol, market=market, period="1y")
+                    info = overview.get("info") if isinstance(overview, dict) else {}
+                    if isinstance(info, dict):
+                        per = self._to_float(info.get("pe_ratio"))
+                        pbr = self._to_float(info.get("pb_ratio"))
+                        dy = self._to_float(info.get("dividend_yield"))
+                        if per is not None or pbr is not None or dy is not None:
+                            result["per_pbr"] = [{
+                                "date": datetime.now().strftime("%Y-%m-%d"),
+                                "PER": per,
+                                "PBR": pbr,
+                                "dividend_yield": dy,
+                            }]
+                except Exception:
+                    pass
             return result
         except Exception as e:
             print(f"[Fundamentals] unexpected error ({symbol}): {type(e).__name__}: {e}")
