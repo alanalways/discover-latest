@@ -101,7 +101,6 @@ interface PortfolioHealthResponse {
     };
     suggestions: string[];
     benchmark: {
-        symbol: string;
         label?: string;
         return_1y_pct: number;
     };

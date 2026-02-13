@@ -41,7 +41,6 @@ type PortfolioHealth = {
   };
   suggestions: string[];
   benchmark: {
-    symbol: string;
     label?: string;
     return_1y_pct: number;
   };
@@ -78,13 +77,10 @@ function riskLabel(level: 'low' | 'medium' | 'high' | undefined): string {
   return '低風險';
 }
 
-function benchmarkLabel(benchmark: { symbol?: string; label?: string } | undefined): string {
+function benchmarkLabel(benchmark: { label?: string } | undefined): string {
   if (!benchmark) return '台美大盤';
   if (benchmark.label && benchmark.label.trim()) return benchmark.label.trim();
-  const symbol = String(benchmark.symbol || '').toUpperCase();
-  if (symbol === '0050') return '台股大盤';
-  if (symbol === 'SPY') return '美股大盤';
-  return '台美大盤加權';
+  return '台美大盤（自動）';
 }
 
 export default function PortfolioHealthPage() {

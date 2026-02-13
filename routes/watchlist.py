@@ -200,7 +200,7 @@ async def get_portfolio_health(
                 "risk_level": "low",
             },
             "suggestions": ["目前沒有持股資料，請先輸入股票代碼與股數再執行健檢。"],
-            "benchmark": {"symbol": "台美大盤（自動）", "return_1y_pct": 0.0},
+            "benchmark": {"label": "台美大盤（自動）", "return_1y_pct": 0.0},
             "analysis_date": analysis_day.isoformat(),
             "ai_assessment": "目前沒有持股資料，尚無法產生 AI 健檢判讀。",
         }
@@ -319,7 +319,7 @@ async def get_portfolio_health(
         },
         "suggestions": suggestions,
         "benchmark": {
-            "symbol": benchmark_symbol,
+            "label": "台美大盤（自動）",
             "return_1y_pct": round(benchmark_return, 2),
         },
         "analysis_date": analysis_day.isoformat(),
