@@ -840,7 +840,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         client = genai.Client(api_key=key)
         resp = await asyncio.wait_for(
             asyncio.to_thread(client.models.generate_content, model=MODEL_FINAL, contents=prompt),
-            timeout=9,
+            timeout=7,
         )
         parsed = _extract_json_object(getattr(resp, "text", "") or "")
         if not parsed:
@@ -848,6 +848,9 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         if not parsed.get("items"):
             parsed["items"] = items[:12]
         return _normalize_payload(parsed, provider=provider, session_tag=session_tag)
+    except asyncio.TimeoutError:
+        # Keep API latency stable: timeout should not spam logs or block response.
+        return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
     except Exception as e:
         print(f"[News] summarize fallback: {type(e).__name__}")
         return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
