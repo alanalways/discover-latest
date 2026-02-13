@@ -77,12 +77,6 @@ function riskLabel(level: 'low' | 'medium' | 'high' | undefined): string {
   return '低風險';
 }
 
-function benchmarkLabel(benchmark: { label?: string } | undefined): string {
-  if (!benchmark) return '台美大盤';
-  if (benchmark.label && benchmark.label.trim()) return benchmark.label.trim();
-  return '台美大盤（自動）';
-}
-
 export default function PortfolioHealthPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
 
@@ -312,7 +306,7 @@ export default function PortfolioHealthPage() {
           </h3>
           <p className={styles.aiText}>{data.ai_assessment}</p>
           <p className={styles.subtle}>
-            分析日期：{data.analysis_date || asOfDate} ｜ 市場對照：{benchmarkLabel(data.benchmark)} 近一年報酬 {data.benchmark.return_1y_pct.toFixed(2)}%
+            分析日期：{data.analysis_date || asOfDate} ｜ 系統已自動對照台美股大盤趨勢
           </p>
         </div>
       )}

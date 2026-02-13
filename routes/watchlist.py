@@ -282,7 +282,7 @@ async def get_portfolio_health(
     elif total_pnl_pct > 18:
         suggestions.append("整體獲利不錯，可考慮分批鎖利並保留趨勢單。")
 
-    benchmark_symbol, benchmark_return = await _resolve_auto_benchmark(
+    benchmark_label, benchmark_return = await _resolve_auto_benchmark(
         enriched=enriched,
         analysis_day=analysis_day,
         stock_service=stock_service,
@@ -302,7 +302,7 @@ async def get_portfolio_health(
             },
             holdings=sorted_by_weight,
             suggestions=suggestions,
-            benchmark_symbol=benchmark_symbol,
+            benchmark_label=benchmark_label,
             benchmark_return=round(benchmark_return, 2),
         )
 
@@ -319,7 +319,7 @@ async def get_portfolio_health(
         },
         "suggestions": suggestions,
         "benchmark": {
-            "label": "台美大盤（自動）",
+            "label": benchmark_label,
             "return_1y_pct": round(benchmark_return, 2),
         },
         "analysis_date": analysis_day.isoformat(),
@@ -447,7 +447,7 @@ async def _resolve_auto_benchmark(
 ) -> tuple[str, float]:
     total_mv = sum(max(0.0, _safe_float(row.get("market_value"))) for row in enriched)
     if total_mv <= 0:
-        return ("台美大盤（自動）", 0.0)
+        return ("台美股大盤趨勢（自動）", 0.0)
 
     us_mv = 0.0
     tw_mv = 0.0
@@ -465,13 +465,8 @@ async def _resolve_auto_benchmark(
     tw_return = await _calc_proxy_return(stock_service, "0050", analysis_day)
     us_return = await _calc_proxy_return(stock_service, "SPY", analysis_day)
 
-    if tw_weight >= 0.7:
-        return ("台股大盤（0050 代理）", round(tw_return, 2))
-    if us_weight >= 0.7:
-        return ("美股大盤（SPY 代理）", round(us_return, 2))
-
     mixed = tw_return * tw_weight + us_return * us_weight
-    return ("台美混合大盤（0050+SPY 代理）", round(mixed, 2))
+    return ("台美股大盤趨勢（自動）", round(mixed, 2))
 
 
 def _pick_gemini_key() -> str:
@@ -488,7 +483,7 @@ async def _build_portfolio_ai_assessment(
     summary: dict[str, Any],
     holdings: list[dict[str, Any]],
     suggestions: list[str],
-    benchmark_symbol: str,
+    benchmark_label: str,
     benchmark_return: float,
 ) -> str:
     key = _pick_gemini_key()
@@ -518,7 +513,7 @@ async def _build_portfolio_ai_assessment(
         f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
         f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
         f"\n系統建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
-        f"\n比較基準: {benchmark_symbol}，近一年報酬 {benchmark_return:.2f}%"
+        f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%"
     )
 
     try:
