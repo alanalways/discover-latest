@@ -538,6 +538,16 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
     from google import genai
     from config.models import MODEL_FINAL
 
+    compact_items = items[:10]
+    digest_lines = []
+    for row in compact_items:
+        title = str(row.get("title") or "").strip()
+        region = str(row.get("region") or "").strip() or "Global"
+        reason = str(row.get("impact_reason") or "").strip()
+        if title:
+            digest_lines.append(f"- [{region}] {title} | {reason[:100]}")
+    digest_text = "\n".join(digest_lines[:10])
+
     prompt = (
         "你是財經新聞總編，請把輸入新聞整理成繁體中文，且只輸出 JSON。"
         "JSON schema:\n"
@@ -548,19 +558,20 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         '"items":[{"title":"","url":"","source":"","published_at":"","region":"","impact":"","impact_reason":""}]'
         '}\n'
         "規則：\n"
-        "1) one_minute_brief 要 120-180 字，像 1 分鐘新聞口播稿，必須明確說出『新聞重點如何連結台股/美股行情』。\n"
-        "2) brief 要 3-5 點，每點都要包含：事件 -> 影響市場/族群 -> 可能交易意義。\n"
-        "3) table 要 3-5 列，impact 請寫 高/中/低，why 要具體描述傳導路徑。\n"
-        "4) items 最多保留 12 筆，盡量覆蓋台股與美股；title/source/url 必填。\n"
-        "5) 不要出現資料供應商名稱評論，不要輸出 markdown。\n"
-        f"\nInputNewsJson:\n{json.dumps({'items': items}, ensure_ascii=False)}"
+        "1) one_minute_brief 120-180 字，需明確說明『新聞重點如何連結台股/美股』。\n"
+        "2) brief 產出 3-5 點，每點格式為：事件 -> 影響市場/族群 -> 可能交易意義。\n"
+        "3) table 產出 3-5 列，impact 只能是 高/中/低，why 要可執行。\n"
+        "4) items 最多 10 筆，保留原標題與連結，不要改寫來源名稱。\n"
+        "5) 不要輸出 markdown，不要提到資料供應商名稱。\n"
+        f"\nInputDigest:\n{digest_text}\n"
+        f"\nInputNewsJson:\n{json.dumps({'items': compact_items}, ensure_ascii=False)}"
     )
 
     try:
         client = genai.Client(api_key=key)
         resp = await asyncio.wait_for(
             asyncio.to_thread(client.models.generate_content, model=MODEL_FINAL, contents=prompt),
-            timeout=28,
+            timeout=18,
         )
         parsed = _extract_json_object(getattr(resp, "text", "") or "")
         if not parsed:
@@ -569,7 +580,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
             parsed["items"] = items[:12]
         return _normalize_payload(parsed, provider=provider, session_tag=session_tag)
     except Exception as e:
-        print(f"[News] summarize failed: {type(e).__name__}: {e}")
+        print(f"[News] summarize fallback: {type(e).__name__}")
         fallback_payload = _build_rule_based_summary(items)
         return _normalize_payload(fallback_payload, provider=provider, session_tag=session_tag)
 
@@ -577,13 +588,13 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
 async def _fetch_news_uncached() -> dict[str, Any]:
     try:
         items, session_tag = await _collect_news_with_tavily()
-        return await _summarize_news_items(items, provider="tavily", session_tag=session_tag)
+        return await _summarize_news_items(items, provider="system", session_tag=session_tag)
     except Exception as e:
         print(f"[News] tavily path failed: {type(e).__name__}: {e}")
 
     try:
         items = await _collect_news_with_grounding()
-        return await _summarize_news_items(items, provider="grounding", session_tag="fallback")
+        return await _summarize_news_items(items, provider="system", session_tag="fallback")
     except Exception as e:
         print(f"[News] grounding path failed: {type(e).__name__}: {e}")
 
