@@ -236,6 +236,110 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
     return rows
 
 
+def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build a deterministic fallback summary from fetched headlines."""
+    if not items:
+        return {
+            "one_minute_brief": _FALLBACK_ONE_MINUTE,
+            "brief": _FALLBACK_BRIEF,
+            "table": [],
+            "items": [],
+        }
+
+    keyword_theme_map: dict[str, tuple[str, str, str]] = {
+        "fomc": ("利率政策", "高", "聯準會政策預期直接影響股債估值與風險偏好。"),
+        "fed": ("利率政策", "高", "聯準會政策預期直接影響股債估值與風險偏好。"),
+        "rate": ("利率政策", "高", "利率變動會改變資金成本與估值中樞。"),
+        "yield": ("利率政策", "高", "公債殖利率上行通常壓抑高估值成長股。"),
+        "cpi": ("通膨數據", "高", "通膨數據會影響後續利率路徑與市場定價。"),
+        "inflation": ("通膨數據", "高", "通膨數據會影響後續利率路徑與市場定價。"),
+        "earnings": ("企業財報", "中", "財報與財測牽動板塊輪動與個股評價。"),
+        "guidance": ("企業財報", "中", "財測修正會放大短線波動。"),
+        "ai": ("AI 供應鏈", "中", "AI 訂單與資本支出變化會影響半導體與伺服器鏈。"),
+        "nvidia": ("AI 供應鏈", "中", "AI 龍頭訊號常帶動整體科技情緒。"),
+        "semiconductor": ("AI 供應鏈", "中", "半導體景氣與庫存週期影響台美科技權值。"),
+        "chip": ("AI 供應鏈", "中", "晶片供需變化會反映到權值股獲利預期。"),
+        "oil": ("能源與原物料", "中", "油價變動會影響通膨與運輸、製造成本。"),
+        "crude": ("能源與原物料", "中", "油價變動會影響通膨與運輸、製造成本。"),
+        "war": ("地緣政治", "高", "衝突或制裁會改變供應鏈與避險需求。"),
+        "sanction": ("地緣政治", "高", "制裁升級可能造成供應鏈中斷與風險溢價上升。"),
+        "conflict": ("地緣政治", "高", "地緣風險上升通常壓抑風險資產。"),
+        "usd": ("匯率與美元", "中", "美元走勢會影響外資流向與新興市場評價。"),
+        "dollar": ("匯率與美元", "中", "美元走勢會影響外資流向與新興市場評價。"),
+        "fx": ("匯率與美元", "中", "匯率波動會改變跨國企業獲利換算。"),
+        "futures": ("期貨與波動", "中", "期貨盤勢可提前反映現貨開盤方向。"),
+        "vix": ("期貨與波動", "中", "波動率上升代表避險需求增加。"),
+        "volatility": ("期貨與波動", "中", "波動擴大時，追價風險提高。"),
+    }
+    negative_words = ("drop", "lower", "fear", "selloff", "down", "fall", "slump", "risk-off")
+    positive_words = ("rise", "higher", "gain", "rally", "up", "beat", "surge", "risk-on")
+
+    theme_count: dict[str, int] = {}
+    theme_meta: dict[str, tuple[str, str]] = {}
+    pos = 0
+    neg = 0
+
+    for row in items[:12]:
+        text = f"{row.get('title', '')} {row.get('impact_reason', '')}".lower()
+        matched = False
+        for kw, (theme, impact, why) in keyword_theme_map.items():
+            if kw in text:
+                matched = True
+                theme_count[theme] = theme_count.get(theme, 0) + 1
+                theme_meta[theme] = (impact, why)
+        if not matched:
+            theme_count["市場情緒"] = theme_count.get("市場情緒", 0) + 1
+            theme_meta["市場情緒"] = ("中", "整體新聞流向反映短線風險偏好變化。")
+
+        if any(w in text for w in positive_words):
+            pos += 1
+        if any(w in text for w in negative_words):
+            neg += 1
+
+    ranked = sorted(theme_count.items(), key=lambda x: x[1], reverse=True)
+    top_themes = [name for name, _ in ranked[:3]]
+    if not top_themes:
+        top_themes = ["市場情緒", "企業財報", "利率政策"]
+
+    if neg > pos:
+        risk_tone = "偏防禦"
+        action_hint = "建議控制槓桿與部位集中度，等待波動收斂再擴張風險。"
+    elif pos > neg:
+        risk_tone = "偏風險承擔"
+        action_hint = "可聚焦強勢主軸分批布局，但仍需設定停損與部位上限。"
+    else:
+        risk_tone = "區間震盪"
+        action_hint = "建議以分批進出與紀律風控為主，避免追高殺低。"
+
+    one_minute = (
+        f"一分鐘看市場：目前新聞重點集中在「{'、'.join(top_themes)}」，"
+        f"顯示資金主線仍圍繞總體數據與權值科技。"
+        f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
+        f"台股可關注半導體與大型權值，美股留意科技龍頭與利率敏感族群。"
+        f"{action_hint}"
+    )
+
+    brief_lines: list[str] = []
+    for theme in top_themes[:3]:
+        impact, why = theme_meta.get(theme, ("中", "留意該主題對資金輪動的連鎖效應。"))
+        brief_lines.append(f"{theme}（影響{impact}）：{why}")
+
+    if len(brief_lines) < 3:
+        brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])
+
+    table = []
+    for theme in top_themes[:4]:
+        impact, why = theme_meta.get(theme, ("中", "觀察後續消息是否擴散到主要權值股。"))
+        table.append({"theme": theme, "impact": impact, "why": why})
+
+    return {
+        "one_minute_brief": one_minute,
+        "brief": brief_lines[:5],
+        "table": table[:8],
+        "items": items[:12],
+    }
+
+
 def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", session_tag: str = "") -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     brief = payload.get("brief") if isinstance(payload, dict) else None
@@ -367,7 +471,7 @@ async def _collect_news_with_tavily() -> tuple[list[dict[str, Any]], str]:
                         {
                             "title": title,
                             "url": url,
-                            "source": str(row.get("source") or "Tavily").strip(),
+                            "source": str(row.get("source") or "News").strip(),
                             "published_at": "",
                             "region": "TW" if topic.startswith("T") else ("US" if topic.startswith("U") else "Global"),
                             "impact": "high" if topic in ("G1", "T1", "U1") else "medium",
@@ -435,7 +539,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
     from config.models import MODEL_FINAL
 
     prompt = (
-        "你是財經新聞編輯，請把輸入新聞整理成繁體中文，且只輸出 JSON。"
+        "你是財經新聞總編，請把輸入新聞整理成繁體中文，且只輸出 JSON。"
         "JSON schema:\n"
         '{'
         '"one_minute_brief":"",'
@@ -444,10 +548,11 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         '"items":[{"title":"","url":"","source":"","published_at":"","region":"","impact":"","impact_reason":""}]'
         '}\n'
         "規則：\n"
-        "1) one_minute_brief 要 120-180 字，像 1 分鐘新聞口播稿。\n"
-        "2) brief 要 3-5 點，聚焦可交易影響。\n"
-        "3) table 要 3-5 列，impact 請寫 高/中/低。\n"
-        "4) items 最多保留 12 筆，盡量覆蓋台股與美股。\n"
+        "1) one_minute_brief 要 120-180 字，像 1 分鐘新聞口播稿，必須明確說出『新聞重點如何連結台股/美股行情』。\n"
+        "2) brief 要 3-5 點，每點都要包含：事件 -> 影響市場/族群 -> 可能交易意義。\n"
+        "3) table 要 3-5 列，impact 請寫 高/中/低，why 要具體描述傳導路徑。\n"
+        "4) items 最多保留 12 筆，盡量覆蓋台股與美股；title/source/url 必填。\n"
+        "5) 不要出現資料供應商名稱評論，不要輸出 markdown。\n"
         f"\nInputNewsJson:\n{json.dumps({'items': items}, ensure_ascii=False)}"
     )
 
@@ -465,16 +570,8 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         return _normalize_payload(parsed, provider=provider, session_tag=session_tag)
     except Exception as e:
         print(f"[News] summarize failed: {type(e).__name__}: {e}")
-        return _normalize_payload(
-            {
-                "one_minute_brief": _FALLBACK_ONE_MINUTE,
-                "brief": _FALLBACK_BRIEF,
-                "items": items,
-                "table": [],
-            },
-            provider=provider,
-            session_tag=session_tag,
-        )
+        fallback_payload = _build_rule_based_summary(items)
+        return _normalize_payload(fallback_payload, provider=provider, session_tag=session_tag)
 
 
 async def _fetch_news_uncached() -> dict[str, Any]:
