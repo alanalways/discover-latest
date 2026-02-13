@@ -496,6 +496,27 @@ def _extract_json_object(text: str) -> dict[str, Any]:
 def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
+    def _build_market_link_reason(title_text: str, region_text: str, reason_text: str, impact_text: str) -> str:
+        title_lc = str(title_text or "").lower()
+        reason_clean = _strip_provider_terms(str(reason_text or "")).strip()
+        has_zh_reason = bool(re.search(r"[\u4e00-\u9fff]", reason_clean))
+        if has_zh_reason and len(reason_clean) >= 8:
+            return reason_clean[:96]
+
+        region_tag = str(region_text or "").strip() or "Global"
+        if re.search(r"(fomc|fed|cpi|inflation|yield|rate|treasury|利率|通膨)", title_lc):
+            return f"{region_tag} 總體與利率預期變化，可能重估台美股估值與資金風格。"
+        if re.search(r"(ai|nvidia|semiconductor|chip|tsmc|台積電|聯發科)", title_lc):
+            return f"{region_tag} 科技與半導體主線變動，可能帶動台美權值與供應鏈輪動。"
+        if re.search(r"(earnings|guidance|財報|法說|業績)", title_lc):
+            return f"{region_tag} 企業財報與展望更新，可能影響同族群評價與短線波動。"
+        if re.search(r"(oil|crude|war|sanction|geopolit|地緣|制裁)", title_lc):
+            return f"{region_tag} 地緣與原物料風險升溫，短線波動可能放大，建議先控風險。"
+        impact_label = str(impact_text or "").strip()
+        if impact_label:
+            return f"{region_tag} 市場連結（影響{impact_label}）：此事件可能影響短線情緒與資金配置。"
+        return f"{region_tag} 市場連結：此事件可能影響短線情緒與資金配置。"
+
     rows: list[dict[str, Any]] = []
     seen = set()
     for item in items:
@@ -536,16 +557,15 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         if impact.lower() in {"tavily", "tavly", "news", "unknown"}:
             impact = ""
 
+        linked_reason = _build_market_link_reason(title, region, impact_reason, impact)
         rows.append(
             {
                 "title": title,
                 "url": url,
-                # UI policy: hide provider/source labels in dashboard cards.
-                "source": "",
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
                 "region": region,
                 "impact": impact,
-                "impact_reason": impact_reason,
+                "impact_reason": linked_reason,
             }
         )
         if len(rows) >= max_items:
