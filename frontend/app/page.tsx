@@ -42,6 +42,7 @@ interface MarketOverviewResponse {
 interface Top20Response {
   tw?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] } | Top20Stock[];
   us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] } | Top20Stock[];
+  meta?: Top20Meta;
 }
 
 interface MarketHours {
@@ -71,6 +72,15 @@ interface NewsBrief {
 }
 
 type Top20Bucket = { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+type Top20Meta = {
+  generated_at?: string;
+  tw_open?: boolean;
+  us_open?: boolean;
+  tw_using_previous_session?: boolean;
+  us_using_previous_session?: boolean;
+  tw_loading_today?: boolean;
+  us_loading_today?: boolean;
+};
 
 type DashboardCachePayload = {
   indices?: MarketItem[];
@@ -78,6 +88,7 @@ type DashboardCachePayload = {
   hours?: { tw: MarketHours; us: MarketHours } | null;
   top20Tw?: Top20Bucket;
   top20Us?: Top20Bucket;
+  top20Meta?: Top20Meta;
   news?: NewsBrief;
   lastUpdate?: string;
 };
@@ -199,6 +210,7 @@ export default function Dashboard() {
   const [etfs, setEtfs] = useState<MarketItem[]>(FALLBACK_ETFS);
   const [top20Tw, setTop20Tw] = useState<Top20Bucket>(FALLBACK_TOP20_TW);
   const [top20Us, setTop20Us] = useState<Top20Bucket>(FALLBACK_TOP20_US);
+  const [top20Meta, setTop20Meta] = useState<Top20Meta>({});
   const [hours, setHours] = useState<{ tw: MarketHours; us: MarketHours } | null>(null);
   const [news, setNews] = useState<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
   const [loading, setLoading] = useState(false);
@@ -213,6 +225,7 @@ export default function Dashboard() {
     if (payload.hours) setHours(payload.hours);
     if (payload.top20Tw) setTop20Tw(normalizeTop20Bucket(payload.top20Tw, FALLBACK_TOP20_TW));
     if (payload.top20Us) setTop20Us(normalizeTop20Bucket(payload.top20Us, FALLBACK_TOP20_US));
+    if (payload.top20Meta) setTop20Meta(payload.top20Meta);
     if (payload.news) setNews(payload.news);
     if (payload.lastUpdate) setLastUpdate(payload.lastUpdate);
     hydratedFromCacheRef.current = true;
@@ -267,9 +280,11 @@ export default function Dashboard() {
       const newsRes = await newsPromise;
       const tw = normalizeTop20Bucket((top20Res as Top20Response)?.tw, FALLBACK_TOP20_TW);
       const us = normalizeTop20Bucket((top20Res as Top20Response)?.us, FALLBACK_TOP20_US);
+      const meta = ((top20Res as Top20Response)?.meta || {}) as Top20Meta;
       setNews(newsRes || newsFallback);
       setTop20Tw(tw);
       setTop20Us(us);
+      setTop20Meta(meta);
 
       const payload: DashboardCachePayload = {
         indices: safeIndices,
@@ -277,6 +292,7 @@ export default function Dashboard() {
         hours: hoursRes || null,
         top20Tw: tw,
         top20Us: us,
+        top20Meta: meta,
         news: newsRes || newsFallback,
         lastUpdate: updatedAt,
       };
@@ -334,6 +350,15 @@ export default function Dashboard() {
   }, [fetchData, user?.tier]);
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
+  const activeMarketKey = activeMarket === 'tw' ? 'tw' : 'us';
+  const loadingToday = activeMarketKey === 'tw' ? top20Meta.tw_loading_today : top20Meta.us_loading_today;
+  const usingPrevious = activeMarketKey === 'tw' ? top20Meta.tw_using_previous_session : top20Meta.us_using_previous_session;
+  const visibleNewsItems = (news.items || []).filter((item) => !isNoiseNewsItem(item)).slice(0, 4);
+  const top20Hint = loadingToday
+    ? '今日資料載入中，先顯示前一交易時段資料'
+    : usingPrevious
+      ? '目前顯示最近有效交易資料'
+      : '';
 
   return (
     <div className={styles.container}>
@@ -370,17 +395,17 @@ export default function Dashboard() {
             <Activity size={18} /> 財經新聞焦點
           </h3>
           <span className={styles.newsMeta}>
-            系統依交易時段自動更新（約 10 分鐘），焦點為台美股連動重點
+            系統依交易時段自動更新並快取，焦點為台美股連動重點
           </span>
         </div>
         <div className={styles.newsGrid}>
           <div className={styles.newsBriefCard}>
             <p className={styles.newsOneMinute}>
-              {news.one_minute_brief || FALLBACK_NEWS_BRIEF[0]}
+              {sanitizeNewsText(news.one_minute_brief || FALLBACK_NEWS_BRIEF[0])}
             </p>
             {(news.brief && news.brief.length ? news.brief : FALLBACK_NEWS_BRIEF).slice(0, 3).map((line, idx) => (
               <p key={`${line}-${idx}`} className={styles.newsBullet}>
-                {line}
+                {sanitizeNewsText(line)}
               </p>
             ))}
             {Array.isArray(news.table) && news.table.length > 0 && (
@@ -396,9 +421,9 @@ export default function Dashboard() {
                   <tbody>
                     {news.table.slice(0, 4).map((row, idx) => (
                       <tr key={`${row.theme || 'theme'}-${idx}`}>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{row.theme || '-'}</td>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{row.impact || '-'}</td>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top', opacity: 0.9 }}>{row.why || '-'}</td>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.theme || '-')}</td>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.impact || '-')}</td>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top', opacity: 0.9 }}>{sanitizeNewsText(row.why || '-')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -407,7 +432,7 @@ export default function Dashboard() {
             )}
           </div>
           <div className={styles.newsListCard}>
-            {(news.items || []).slice(0, 4).map((item) => (
+            {visibleNewsItems.map((item) => (
               <a
                 key={`${item.url}-${item.title}`}
                 href={item.url}
@@ -421,7 +446,7 @@ export default function Dashboard() {
                 </span>
               </a>
             ))}
-            {(!news.items || news.items.length === 0) && (
+            {visibleNewsItems.length === 0 && (
               <div className={styles.newsEmpty}>暫無可顯示新聞，系統將於下次更新自動補齊。</div>
             )}
           </div>
@@ -499,6 +524,7 @@ export default function Dashboard() {
               成交量
             </button>
           </div>
+          {top20Hint && <div className={styles.newsMeta}>{top20Hint}</div>}
         </div>
 
         <div className={styles.top20Table}>
@@ -527,7 +553,11 @@ export default function Dashboard() {
               <span className={`${styles.colValue} ${activeTab === 'volume' ? '' : (stock.change_pct || 0) >= 0 ? styles.up : styles.down}`}>
                 {activeTab === 'volume'
                   ? formatVolume(stock.volume)
-                  : `${(stock.change_pct || 0) >= 0 ? '+' : ''}${(stock.change_pct || 0).toFixed(2)}%`}
+                  : (
+                    ((stock.change_pct || 0) === 0 && (stock.volume || 0) === 0)
+                      ? '--'
+                      : `${(stock.change_pct || 0) >= 0 ? '+' : ''}${(stock.change_pct || 0).toFixed(2)}%`
+                  )}
               </span>
             </div>
           ))}
@@ -560,6 +590,21 @@ function cleanNewsTitle(title: string): string {
     .trim();
 }
 
+function sanitizeNewsText(text: string): string {
+  return String(text || '')
+    .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isNoiseNewsItem(item: NewsItem): boolean {
+  const title = sanitizeNewsText(item?.title || '').toLowerCase();
+  const reason = sanitizeNewsText(item?.impact_reason || '').toLowerCase();
+  if (!title && !reason) return true;
+  if (title === 'tavily' || title === 'tavly') return true;
+  return false;
+}
+
 function cleanNewsTag(tag?: string): string {
   const text = String(tag || '')
     .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
@@ -569,8 +614,7 @@ function cleanNewsTag(tag?: string): string {
 }
 
 function buildNewsImpactLine(item: NewsItem): string {
-  const reason = (item.impact_reason || '')
-    .replace(/\b(tavily|tavly)\b/gi, '')
+  const reason = sanitizeNewsText(item.impact_reason || '')
     .replace(/https?:\/\/\S+/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -592,6 +636,6 @@ function buildNewsImpactLine(item: NewsItem): string {
     inferred = '新聞與台美股盤勢連動重點整理中。';
   }
 
-  const impact = String(item.impact || '').trim();
+  const impact = sanitizeNewsText(item.impact || '');
   return impact ? `市場連結（${impact}）：${inferred}` : `市場連結：${inferred}`;
 }

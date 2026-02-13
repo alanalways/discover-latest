@@ -138,13 +138,13 @@ def _sanitize_payload_inplace(payload: dict[str, Any]) -> dict[str, Any]:
             title = _strip_provider_terms(str(row.get("title") or "")).splitlines()[0].strip()
             if not title:
                 continue
-            source = _strip_provider_terms(str(row.get("source") or "")).strip()
             impact_reason = _strip_provider_terms(str(row.get("impact_reason") or "")).strip()
             clean_items.append(
                 {
                     **row,
                     "title": title,
-                    "source": "" if ("tavily" in source.lower() or "tavly" in source.lower()) else source,
+                    # UI policy: source provider labels are hidden in dashboard news card.
+                    "source": "",
                     "impact_reason": impact_reason,
                     "region": _strip_provider_terms(str(row.get("region") or "")).strip(),
                     "impact": _strip_provider_terms(str(row.get("impact") or "")).strip(),
@@ -765,6 +765,8 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         one_minute = rule_one_minute or ("；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE)
     if ("台股" not in one_minute and "美股" not in one_minute) and norm_brief:
         one_minute = f"{one_minute} 台股可留意權值與半導體，美股可觀察科技龍頭與利率敏感族群。"
+    if "市場連結" not in one_minute:
+        one_minute = f"{one_minute} 市場連結：優先關注利率、權值股與 AI 主線的連動變化。"
 
     payload_out = {
         "updated_at": now.isoformat(),
@@ -973,7 +975,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         '"items":[{"title":"","url":"","source":"","published_at":"","region":"","impact":"","impact_reason":""}]'
         '}\n'
         "規則：\n"
-        "1) one_minute_brief 120-180 字，需明確說明『新聞重點如何連結台股/美股』。\n"
+        "1) one_minute_brief 120-180 字，需明確說明『新聞重點如何連結台股/美股』，且要能讓使用者一分鐘內看懂。\n"
         "2) brief 產出 3-5 點，每點格式為：事件 -> 影響市場/族群 -> 可能交易意義。\n"
         "3) table 產出 3-5 列，impact 只能是 高/中/低，why 要可執行。\n"
         "4) items 最多 10 筆，保留原標題與連結，不要改寫來源名稱。\n"

@@ -209,7 +209,7 @@ async def get_portfolio_health(
                 "risk_level": "low",
             },
             "suggestions": ["目前沒有持股資料，請先輸入股票代碼與股數再執行健檢。"],
-            "benchmark": {"label": "台美大盤（自動）", "return_1y_pct": 0.0},
+            "benchmark": {"label": "台美大盤趨勢（自動加權）", "return_1y_pct": 0.0},
             "analysis_date": analysis_day.isoformat(),
             "ai_assessment": "目前沒有持股資料，尚無法產生 AI 健檢判讀。",
         }
@@ -343,7 +343,7 @@ async def get_portfolio_health(
         },
         "suggestions": suggestions,
         "benchmark": {
-            "label": benchmark_label,
+            "label": "台美大盤趨勢（自動加權）",
             "return_1y_pct": round(benchmark_return, 2),
         },
         "analysis_date": analysis_day.isoformat(),
@@ -484,7 +484,7 @@ async def _resolve_auto_benchmark(
 ) -> tuple[str, float]:
     total_mv = sum(max(0.0, _safe_float(row.get("market_value"))) for row in enriched)
     if total_mv <= 0:
-        return ("台美股大盤趨勢（自動）", 0.0)
+        return ("台美大盤趨勢（自動加權）", 0.0)
 
     us_mv = 0.0
     tw_mv = 0.0
@@ -499,11 +499,12 @@ async def _resolve_auto_benchmark(
     us_weight = us_mv / total_mv if total_mv > 0 else 0.0
     tw_weight = tw_mv / total_mv if total_mv > 0 else 0.0
 
+    # Internal proxy only. UI/output should not expose benchmark codes.
     tw_return = await _calc_proxy_return(stock_service, "0050", analysis_day)
     us_return = await _calc_proxy_return(stock_service, "SPY", analysis_day)
 
     mixed = tw_return * tw_weight + us_return * us_weight
-    return ("台美股大盤趨勢（自動）", round(mixed, 2))
+    return ("台美大盤趨勢（自動加權）", round(mixed, 2))
 
 
 def _pick_gemini_key() -> str:
@@ -513,7 +514,6 @@ def _pick_gemini_key() -> str:
         if keys:
             return keys[0]
     return (os.environ.get("GEMINI_API_KEY") or "").strip()
-
 
 async def _build_portfolio_ai_assessment(
     analysis_day: date,
@@ -526,7 +526,7 @@ async def _build_portfolio_ai_assessment(
 ) -> str:
     key = _pick_gemini_key()
     if not key:
-        return "尚未設定 AI 金鑰，暫時無法提供 AI 健檢摘要。"
+        return "目前尚未設定 AI 金鑰，請先完成金鑰設定後再執行投資健檢。"
 
     top = []
     for row in holdings[:5]:
@@ -545,34 +545,24 @@ async def _build_portfolio_ai_assessment(
     tier = user_tier if user_tier in {"free", "pro", "premium"} else "free"
 
     if tier == "free":
-        tier_rules = (
-            "你在 FREE 模式，內容要精簡、保守。"
-            "輸出 140-200 字，最多 3 個重點，最後只給 1 條動作建議。"
-        )
+        tier_rules = "你是 FREE 版投資顧問：輸出 3 點內、保守且可執行的建議。"
     elif tier == "pro":
-        tier_rules = (
-            "你在 PRO 模式，內容需包含可執行建議。"
-            "輸出 200-320 字，必須包含短中長線三段，並給 2 條具體動作（持有/加碼/減碼）。"
-        )
+        tier_rules = "你是 PRO 版投資顧問：輸出短中線策略、風控與分批計畫。"
     else:
-        tier_rules = (
-            "你在 PREMIUM 模式，內容需最完整。"
-            "輸出 260-420 字，必須包含短中長線、倉位調整節奏、風險情境（多空兩種）、"
-            "並給 3 條具體動作（持有/加碼/減碼與替代資產配置）。"
-        )
+        tier_rules = "你是 PREMIUM 版投資顧問：輸出短中長線方案、風險情境與再平衡步驟。"
 
     prompt = (
-        "你是專業投資顧問，請用繁體中文輸出投資組合健檢摘要，禁止 markdown，直接純文字。"
+        "你是投資組合健檢分析師，請使用繁體中文輸出純文字。"
+        "請避免 markdown。"
         f"{tier_rules}"
-        "內容需回應："
-        "目前持股是否適合續抱、哪些條件下可再買、哪些條件下應減碼或停損。"
-        "請明確標示短線/中線/長線判讀，並給出可執行條件。"
+        "請根據持股資料判斷目前持倉狀態，並給出可執行建議。"
         "不得輸出『基準代號』字樣，不得提及 0050、SPY 等比較代號。"
+        "只需使用『台股/美股大盤趨勢』作為背景參考。"
         f"\n方案等級: {tier.upper()}"
         f"\n分析日期: {analysis_day.isoformat()}"
         f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
-        f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
-        f"\n系統建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
+        f"\n主要持股: {json.dumps(top, ensure_ascii=False)}"
+        f"\n系統初步建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
         f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%（僅趨勢參考）"
     )
 
@@ -591,8 +581,7 @@ async def _build_portfolio_ai_assessment(
     except Exception:
         pass
 
-    return "AI 健檢暫時不可用。建議先檢查最大持股權重與總回撤，再依分散化原則調整部位。"
-
+    return "AI 健檢暫時無法使用，請先參考系統建議並稍後再試。"
 
 def _require_auth(request: Request) -> str:
     user = _require_auth_user(request)
@@ -619,3 +608,4 @@ def _require_auth_user(request: Request) -> dict[str, Any]:
         raise
     except Exception:
         raise HTTPException(status_code=401, detail="授權驗證失敗")
+

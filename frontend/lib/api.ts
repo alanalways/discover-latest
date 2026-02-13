@@ -55,6 +55,15 @@ interface MarketOverviewResponse {
 interface Top20Response {
     tw?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
     us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
+    meta?: {
+        generated_at?: string;
+        tw_open?: boolean;
+        us_open?: boolean;
+        tw_using_previous_session?: boolean;
+        us_using_previous_session?: boolean;
+        tw_loading_today?: boolean;
+        us_loading_today?: boolean;
+    };
 }
 
 interface NewsItem {
