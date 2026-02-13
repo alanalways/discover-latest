@@ -111,6 +111,14 @@ export default function PortfolioHealthPage() {
   const runHealthCheck = async () => {
     if (!isLoggedIn) return;
 
+    const invalidSymbols = positions
+      .map((p) => String(p.symbol || '').trim().toUpperCase())
+      .filter((sym) => sym && !isValidSymbol(sym));
+    if (invalidSymbols.length > 0) {
+      setError(`以下代碼格式無效，請分開輸入台股或美股代碼：${invalidSymbols.join(', ')}`);
+      return;
+    }
+
     if (validManualCount === 0) {
       setError('請至少輸入一筆有效持股（股票代碼 + 股數）。');
       return;
