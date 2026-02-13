@@ -56,8 +56,6 @@ async def get_stock_fundamentals(symbol: str):
     try:
         data = await stock_service.get_stock_fundamentals(symbol)
         return data
-    except HTTPException:
-        raise
     except Exception as e:
         print(f"[Stock] fundamentals fallback for {symbol}: {type(e).__name__}: {e}")
         return {

@@ -251,6 +251,11 @@ class FinMindAdapter:
                     return None
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response else None
+                if status == 400 and dataset == "TaiwanStockMarketValue":
+                    # This dataset is unstable for some accounts and often returns persistent 400.
+                    # Cool it down to avoid repeated noisy retries on every request path.
+                    self._mark_dataset_cooldown(dataset, 3600, "HTTP 400（資料集暫不可用）")
+                    return None
                 if status in (402, 429):
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
@@ -545,6 +550,9 @@ class FinMindAdapter:
                     return None
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response else None
+                if status == 400 and dataset == "TaiwanStockMarketValue":
+                    self._mark_dataset_cooldown(dataset, 3600, "HTTP 400（資料集暫不可用）")
+                    return None
                 if status in (402, 429):
                     cooldown = 900 if status == 402 else 120
                     self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")

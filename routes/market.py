@@ -61,13 +61,27 @@ async def market_top20():
                 if not symbol:
                     continue
                 if market == "tw":
-                    if not (symbol.isdigit() and 4 <= len(symbol) <= 5):
+                    # TW Top20 only keeps standard stock/ETF code length=4.
+                    # This avoids warrant-like symbols (e.g. 711xxx) that often return empty data.
+                    if not (symbol.isdigit() and len(symbol) == 4):
                         continue
                 cleaned.append(row)
             return cleaned
 
         def sort_data(stocks, market: str):
             items = _sanitize(stocks, market)
+            if not items and market == "tw":
+                items = [
+                    {"symbol": "2330", "name": "台積電", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                    {"symbol": "2454", "name": "聯發科", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                    {"symbol": "2317", "name": "鴻海", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                ]
+            if not items and market == "us":
+                items = [
+                    {"symbol": "AAPL", "name": "Apple", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                    {"symbol": "MSFT", "name": "Microsoft", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                    {"symbol": "NVDA", "name": "NVIDIA", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
+                ]
             return {
                 "gainers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
                 "losers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True))[:20],

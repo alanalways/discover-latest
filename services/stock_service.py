@@ -309,6 +309,21 @@ class StockService:
                     if dy_val is not None:
                         info["dividend_yield"] = dy_val
 
+            # Final fallback: derive market cap by shares_outstanding * latest price.
+            if not info.get("market_cap"):
+                shares_outstanding = self._to_float(
+                    info.get("shares_outstanding")
+                    or info.get("sharesOutstanding")
+                    or info.get("shares")
+                    or info.get("issued_shares")
+                    or info.get("number_of_shares")
+                )
+                latest_price = self._to_float(info.get("price"))
+                if latest_price is None and history:
+                    latest_price = self._to_float(history[-1].get("close"))
+                if shares_outstanding and latest_price and shares_outstanding > 0 and latest_price > 0:
+                    info["market_cap"] = round(shares_outstanding * latest_price, 2)
+
         return {
             "symbol": symbol,
             "market": market,
@@ -366,7 +381,13 @@ class StockService:
                         "name": info.get("name"),
                         "industry": info.get("industry"),
                         "market": market,
-                            "type": info.get("type", "stock"),
+                        "type": info.get("type", "stock"),
+                        "shares_outstanding": self._to_float(
+                            info.get("shares")
+                            or info.get("issued_shares")
+                            or info.get("number_of_shares")
+                            or info.get("shares_outstanding")
+                        ),
                     }
             except Exception as e:
                 print(f"[StockInfo] FinMind 憭望? ({symbol}): {e}")
@@ -376,6 +397,7 @@ class StockService:
                 "industry": "",
                 "market": market,
                 "type": "stock",
+                "shares_outstanding": None,
             }
 
         # 蝢嚗粥 FinMind USStockInfo嚗?甇亙?鋆? async
@@ -430,6 +452,12 @@ class StockService:
                     "pe_ratio": pe_ratio,
                     "pb_ratio": pb_ratio,
                     "dividend_yield": dividend_yield,
+                    "shares_outstanding": self._to_float(
+                        info.get("sharesOutstanding")
+                        or info.get("shares_outstanding")
+                        or info.get("shares")
+                        or info.get("totalShares")
+                    ),
                 }
         except Exception as e:
             print(f"[StockInfo] FinMind US 憭望? ({symbol}): {e}")
