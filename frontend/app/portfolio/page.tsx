@@ -82,7 +82,6 @@ export default function PortfolioHealthPage() {
   const [error, setError] = useState('');
   const [data, setData] = useState<PortfolioHealth | null>(null);
 
-  const [benchmark, setBenchmark] = useState('0050');
   const [asOfDate, setAsOfDate] = useState(today());
   const [useManual, setUseManual] = useState(true);
   const [positions, setPositions] = useState<PositionRow[]>([newRow()]);
@@ -120,7 +119,7 @@ export default function PortfolioHealthPage() {
             .filter((p) => p.symbol && Number.isFinite(p.shares) && p.shares > 0)
         : undefined;
 
-      const res = (await api.getPortfolioHealth(benchmark || '0050', {
+      const res = (await api.getPortfolioHealth({
         asOfDate: asOfDate || undefined,
         positions: payload,
         includeAi: true,
@@ -173,10 +172,6 @@ export default function PortfolioHealthPage() {
 
       <div className={styles.section}>
         <div className={styles.formGrid}>
-          <label className={styles.field}>
-            <span>比較基準</span>
-            <input value={benchmark} onChange={(e) => setBenchmark(e.target.value)} placeholder="0050 / SPY" />
-          </label>
           <label className={styles.field}>
             <span>分析日期</span>
             <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
@@ -293,7 +288,7 @@ export default function PortfolioHealthPage() {
           </h3>
           <p className={styles.aiText}>{data.ai_assessment}</p>
           <p className={styles.subtle}>
-            分析日期：{data.analysis_date || asOfDate} ｜ 基準：{data.benchmark.symbol} 近一年報酬 {data.benchmark.return_1y_pct.toFixed(2)}%
+            分析日期：{data.analysis_date || asOfDate} ｜ 市場對照：{data.benchmark.symbol} 近一年報酬 {data.benchmark.return_1y_pct.toFixed(2)}%
           </p>
         </div>
       )}

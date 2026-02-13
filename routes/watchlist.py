@@ -177,7 +177,6 @@ async def get_portfolio(request: Request):
 @router.get("/portfolio/health")
 async def get_portfolio_health(
     request: Request,
-    benchmark: str = Query("0050", description="Benchmark symbol"),
     as_of_date: str | None = Query(default=None, description="Analysis date YYYY-MM-DD"),
     positions: str | None = Query(default=None, description="JSON array positions"),
     include_ai: int = Query(default=0, description="1 to include AI assessment"),
@@ -204,7 +203,7 @@ async def get_portfolio_health(
                 "risk_level": "low",
             },
             "suggestions": ["目前沒有持股資料，請先輸入股票代碼與股數再執行健檢。"],
-            "benchmark": {"symbol": benchmark.upper(), "return_1y_pct": 0.0},
+            "benchmark": {"symbol": "台美大盤（自動）", "return_1y_pct": 0.0},
             "analysis_date": analysis_day.isoformat(),
             "ai_assessment": "目前沒有持股資料，尚無法產生 AI 健檢判讀。",
         }
@@ -286,20 +285,11 @@ async def get_portfolio_health(
     elif total_pnl_pct > 18:
         suggestions.append("整體獲利不錯，可考慮分批鎖利並保留趨勢單。")
 
-    benchmark_symbol = (benchmark or "0050").strip().upper()
-    benchmark_return = 0.0
-    try:
-        bm = await stock_service.get_stock_data(
-            symbol=benchmark_symbol,
-            period=_period_for_analysis_date(analysis_day),
-        )
-        bm_history = bm.get("history", []) if isinstance(bm, dict) else []
-        first = _pick_close_at_or_before(bm_history, analysis_day - timedelta(days=365))
-        last = _pick_close_at_or_before(bm_history, analysis_day)
-        if first > 0:
-            benchmark_return = (last / first - 1) * 100
-    except Exception:
-        benchmark_return = 0.0
+    benchmark_symbol, benchmark_return = await _resolve_auto_benchmark(
+        enriched=enriched,
+        analysis_day=analysis_day,
+        stock_service=stock_service,
+    )
 
     ai_assessment = ""
     if include_ai == 1:
@@ -423,6 +413,68 @@ def _pick_close_at_or_before(history: list[dict[str, Any]], target_day: date) ->
     if best_close > 0:
         return best_close
     return _safe_float(history[-1].get("close"))
+
+
+def _is_us_symbol(symbol: str) -> bool:
+    s = str(symbol or "").strip().upper()
+    if not s:
+        return False
+    # Typical US ticker: 1-5 uppercase letters.
+    return s.isalpha() and 1 <= len(s) <= 5
+
+
+async def _calc_proxy_return(
+    stock_service: Any,
+    symbol: str,
+    analysis_day: date,
+) -> float:
+    try:
+        bm = await stock_service.get_stock_data(
+            symbol=symbol,
+            period=_period_for_analysis_date(analysis_day),
+        )
+        history = bm.get("history", []) if isinstance(bm, dict) else []
+        first = _pick_close_at_or_before(history, analysis_day - timedelta(days=365))
+        last = _pick_close_at_or_before(history, analysis_day)
+        if first > 0:
+            return (last / first - 1) * 100
+    except Exception:
+        pass
+    return 0.0
+
+
+async def _resolve_auto_benchmark(
+    enriched: list[dict[str, Any]],
+    analysis_day: date,
+    stock_service: Any,
+) -> tuple[str, float]:
+    total_mv = sum(max(0.0, _safe_float(row.get("market_value"))) for row in enriched)
+    if total_mv <= 0:
+        return ("台美大盤（自動）", 0.0)
+
+    us_mv = 0.0
+    tw_mv = 0.0
+    for row in enriched:
+        mv = max(0.0, _safe_float(row.get("market_value")))
+        symbol = str(row.get("symbol") or "").strip().upper()
+        if _is_us_symbol(symbol):
+            us_mv += mv
+        else:
+            tw_mv += mv
+
+    us_weight = us_mv / total_mv if total_mv > 0 else 0.0
+    tw_weight = tw_mv / total_mv if total_mv > 0 else 0.0
+
+    tw_return = await _calc_proxy_return(stock_service, "0050", analysis_day)
+    us_return = await _calc_proxy_return(stock_service, "SPY", analysis_day)
+
+    if tw_weight >= 0.7:
+        return ("台股大盤（0050 代理）", round(tw_return, 2))
+    if us_weight >= 0.7:
+        return ("美股大盤（SPY 代理）", round(us_return, 2))
+
+    mixed = tw_return * tw_weight + us_return * us_weight
+    return ("台美混合大盤（0050+SPY 代理）", round(mixed, 2))
 
 
 def _pick_gemini_key() -> str:

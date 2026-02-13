@@ -318,7 +318,6 @@ export class ApiClient {
     }
 
     async getPortfolioHealth(
-        benchmark = '0050',
         options?: {
             asOfDate?: string;
             positions?: Array<{
@@ -331,7 +330,6 @@ export class ApiClient {
         },
     ) {
         const params = new URLSearchParams();
-        params.set('benchmark', benchmark);
         if (options?.asOfDate) params.set('as_of_date', options.asOfDate);
         if (typeof options?.includeAi === 'boolean') {
             params.set('include_ai', options.includeAi ? '1' : '0');
