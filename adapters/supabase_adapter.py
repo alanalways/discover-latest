@@ -224,15 +224,26 @@ class SupabaseAdapter:
             # Best-effort: if record exists by `id` but missing `user_id`, backfill it.
             if col == "id" and (row.get("user_id") is None or row.get("user_id") == ""):
                 row_id = row.get("id")
-                if row_id:
-                    self._request(
-                        "PATCH",
-                        "users",
-                        params={"id": f"eq.{row_id}"},
-                        json={"user_id": user_id},
-                        use_service_key=True,
-                        silent=True,
-                    )
+                if not row_id:
+                    return False
+                patched = self._request(
+                    "PATCH",
+                    "users",
+                    params={"id": f"eq.{row_id}"},
+                    json={"user_id": user_id},
+                    use_service_key=True,
+                    silent=True,
+                )
+                if patched is None:
+                    return False
+                verify_rows = self._request(
+                    "GET",
+                    "users",
+                    params={"user_id": f"eq.{user_id}", "select": "id,user_id", "limit": "1"},
+                    use_service_key=True,
+                    silent=True,
+                )
+                return isinstance(verify_rows, list) and len(verify_rows) > 0
             return True
 
         try:
