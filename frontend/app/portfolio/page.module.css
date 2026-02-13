@@ -96,7 +96,7 @@
 .manualRowHead,
 .manualRow {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 64px;
+  grid-template-columns: 1fr 1fr 140px 1fr 1fr 64px;
   gap: 8px;
   padding: 10px;
   align-items: center;
@@ -114,6 +114,15 @@
 }
 
 .manualRow input {
+  border: 1px solid #2b3e5f;
+  background: #101a2b;
+  color: #e4ecff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  outline: none;
+}
+
+.manualRow select {
   border: 1px solid #2b3e5f;
   background: #101a2b;
   color: #e4ecff;

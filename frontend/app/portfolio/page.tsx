@@ -55,6 +55,7 @@ type PositionRow = {
   shares: string;
   avgCost: string;
   buyDate: string;
+  unit: 'shares' | 'lot';
 };
 
 const nf = (v: number) => Number(v || 0).toLocaleString('zh-TW');
@@ -67,6 +68,7 @@ function newRow(): PositionRow {
     shares: '',
     avgCost: '',
     buyDate: '',
+    unit: 'shares',
   };
 }
 
@@ -88,6 +90,17 @@ function benchmarkLabel(benchmark: { symbol?: string; label?: string } | undefin
 export default function PortfolioHealthPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
 
+  const isTwSymbol = (symbol: string): boolean => /^[0-9]{4,6}$/.test(symbol.trim());
+
+  const normalizeShares = (symbol: string, sharesRaw: string, unit: 'shares' | 'lot'): number => {
+    const base = Number(sharesRaw);
+    if (!Number.isFinite(base) || base <= 0) return 0;
+    if (unit === 'lot' && isTwSymbol(symbol)) return base * 1000;
+    return base;
+  };
+
+  const isValidSymbol = (symbol: string): boolean => /^[A-Z0-9.\-]{1,10}$/.test(symbol);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [data, setData] = useState<PortfolioHealth | null>(null);
@@ -99,8 +112,8 @@ export default function PortfolioHealthPage() {
     () =>
       positions.filter((p) => {
         const symbol = p.symbol.trim().toUpperCase();
-        const shares = Number(p.shares);
-        return Boolean(symbol) && Number.isFinite(shares) && shares > 0;
+        const shares = normalizeShares(symbol, p.shares, p.unit);
+        return Boolean(symbol) && isValidSymbol(symbol) && Number.isFinite(shares) && shares > 0;
       }).length,
     [positions],
   );
@@ -120,11 +133,17 @@ export default function PortfolioHealthPage() {
       const payload = positions
         .map((p) => ({
           symbol: p.symbol.trim().toUpperCase(),
-          shares: Number(p.shares),
+          shares: normalizeShares(p.symbol.trim().toUpperCase(), p.shares, p.unit),
           avg_cost: Number(p.avgCost || 0),
           buy_date: p.buyDate || undefined,
         }))
-        .filter((p) => p.symbol && Number.isFinite(p.shares) && p.shares > 0);
+        .filter((p) => p.symbol && isValidSymbol(p.symbol) && Number.isFinite(p.shares) && p.shares > 0);
+
+      if (payload.length === 0) {
+        setError('請確認代碼格式（例如 2330 或 NVDA）與股數/張數皆為有效數值。');
+        setLoading(false);
+        return;
+      }
 
       const res = (await api.getPortfolioHealth({
         asOfDate: asOfDate || undefined,
@@ -196,6 +215,7 @@ export default function PortfolioHealthPage() {
             <div className={styles.manualRowHead}>
               <span>股票代碼</span>
               <span>股數</span>
+              <span>單位</span>
               <span>平均成本</span>
               <span>買入日期</span>
               <span>操作</span>
@@ -204,14 +224,21 @@ export default function PortfolioHealthPage() {
               <div key={row.id} className={styles.manualRow}>
                 <input
                   value={row.symbol}
-                  placeholder="2330 / NVDA"
+                  placeholder="2330 或 NVDA"
                   onChange={(e) => updateRow(row.id, { symbol: e.target.value.toUpperCase() })}
                 />
                 <input
                   value={row.shares}
-                  placeholder="100"
+                  placeholder={isTwSymbol(row.symbol) && row.unit === 'lot' ? '1' : '100'}
                   onChange={(e) => updateRow(row.id, { shares: e.target.value })}
                 />
+                <select
+                  value={row.unit}
+                  onChange={(e) => updateRow(row.id, { unit: e.target.value as 'shares' | 'lot' })}
+                >
+                  <option value="shares">股</option>
+                  <option value="lot">張（台股）</option>
+                </select>
                 <input
                   value={row.avgCost}
                   placeholder="600"
