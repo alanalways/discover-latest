@@ -916,7 +916,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
     # and keep output tightly linked to latest Tavily/Grounding items.
     rule_payload = _build_rule_based_summary(items)
     key = _pick_gemini_key()
-    use_gemini_summary = str(os.environ.get("NEWS_USE_GEMINI_SUMMARY", "0")).strip().lower() in {
+    use_gemini_summary = str(os.environ.get("NEWS_USE_GEMINI_SUMMARY", "1")).strip().lower() in {
         "1",
         "true",
         "yes",
