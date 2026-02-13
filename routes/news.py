@@ -21,6 +21,7 @@ import json
 import os
 import re
 import threading
+import time
 from typing import Any
 from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
@@ -42,6 +43,8 @@ _TAVILY_LOCK = threading.Lock()
 _TAVILY_USAGE_LOCK = threading.Lock()
 _TAVILY_DAILY_USAGE: dict[str, int] = {}
 _EVENT_CALENDAR_CACHE: list[dict[str, Any]] | None = None
+_MARKET_SPECIAL_CACHE: dict[str, Any] = {"ts": 0.0, "value": False}
+_MARKET_SPECIAL_LOCK = threading.Lock()
 
 _RSS_SOURCES = [
     "https://news.google.com/rss/search?q=finance+stock+market+when:1d&hl=en-US&gl=US&ceid=US:en",
@@ -319,7 +322,7 @@ def _build_query_plan(now_tw: datetime) -> tuple[str, list[dict[str, Any]]]:
       [{"topic":"G1","depth":"basic|advanced","max_results":3,"cost":1|2}, ...]
     """
     session_tag, topics = _scheduled_topic_keys(now_tw)
-    special = _is_special_window(now_tw)
+    special = _is_special_window(now_tw) or _is_market_behavior_special(now_tw)
 
     plan: list[dict[str, Any]] = []
     for t in topics:
@@ -339,6 +342,55 @@ def _build_query_plan(now_tw: datetime) -> tuple[str, list[dict[str, Any]]]:
                 plan.append({"topic": t, "depth": "advanced", "max_results": 4, "cost": 2})
 
     return (f"{session_tag}{':special' if special else ''}", plan)
+
+
+def _pct_from_last_two(rows: list[dict[str, Any]]) -> float:
+    if not isinstance(rows, list) or len(rows) < 2:
+        return 0.0
+    try:
+        last_close = float((rows[-1] or {}).get("close") or 0.0)
+        prev_close = float((rows[-2] or {}).get("close") or 0.0)
+        if prev_close <= 0:
+            return 0.0
+        return (last_close - prev_close) / prev_close * 100.0
+    except Exception:
+        return 0.0
+
+
+def _is_market_behavior_special(now_tw: datetime) -> bool:
+    """
+    Auto-special trigger by abnormal market move.
+    Checks TW proxy (0050) + US proxies (SPY/QQQ), cached for 10 minutes.
+    """
+    threshold = float((os.environ.get("NEWS_SPECIAL_MOVE_PCT") or "2.0").strip() or 2.0)
+    cache_ttl = _to_int_env("NEWS_SPECIAL_MARKET_CACHE_SEC", 600)
+    now_ts = time.time()
+
+    with _MARKET_SPECIAL_LOCK:
+        if now_ts - float(_MARKET_SPECIAL_CACHE.get("ts") or 0.0) < cache_ttl:
+            return bool(_MARKET_SPECIAL_CACHE.get("value"))
+
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+
+        end = now_tw.strftime("%Y-%m-%d")
+        start = (now_tw - timedelta(days=7)).strftime("%Y-%m-%d")
+
+        tw_rows = finmind_adapter.get_tw_stock_price_sync("0050", start, end) or []
+        us_spy_rows = finmind_adapter.get_us_stock_price_sync("SPY", start, end) or []
+        us_qqq_rows = finmind_adapter.get_us_stock_price_sync("QQQ", start, end) or []
+
+        tw_pct = abs(_pct_from_last_two(tw_rows))
+        us_spy_pct = abs(_pct_from_last_two(us_spy_rows))
+        us_qqq_pct = abs(_pct_from_last_two(us_qqq_rows))
+        is_special = max(tw_pct, us_spy_pct, us_qqq_pct) >= threshold
+    except Exception:
+        is_special = False
+
+    with _MARKET_SPECIAL_LOCK:
+        _MARKET_SPECIAL_CACHE["ts"] = now_ts
+        _MARKET_SPECIAL_CACHE["value"] = is_special
+    return is_special
 
 
 def _pick_gemini_key() -> str:
