@@ -676,7 +676,7 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     # Force a market-linked one-minute brief so users can quickly connect news -> market impact.
     one_minute = (
         f"一分鐘看市場（最新 {min(len(items), 12)} 則）：主軸集中在「{'、'.join(top_themes)}」，"
-        f"短線風格偏向{risk_tone}。"
+        f"短線風格{risk_tone}。"
         f"{market_link}"
         f"台股可先看權值與半導體，"
         f"美股可先看大型科技與利率敏感族群。"
