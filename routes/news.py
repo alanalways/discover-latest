@@ -69,6 +69,66 @@ _TOPIC_QUERY_MAP = {
 }
 
 
+def _strip_provider_terms(text: str) -> str:
+    cleaned = str(text or "")
+    cleaned = re.sub(r"\b(tavily|tavly)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*[-|]?\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _sanitize_payload_inplace(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return payload
+
+    one_minute = _strip_provider_terms(str(payload.get("one_minute_brief") or "").strip())
+    if one_minute:
+        payload["one_minute_brief"] = one_minute
+
+    brief = payload.get("brief")
+    if isinstance(brief, list):
+        payload["brief"] = [_strip_provider_terms(str(line)) for line in brief if _strip_provider_terms(str(line))]
+
+    items = payload.get("items")
+    if isinstance(items, list):
+        clean_items: list[dict[str, Any]] = []
+        for row in items:
+            if not isinstance(row, dict):
+                continue
+            title = _strip_provider_terms(str(row.get("title") or "")).splitlines()[0].strip()
+            if not title:
+                continue
+            source = _strip_provider_terms(str(row.get("source") or "")).strip()
+            impact_reason = _strip_provider_terms(str(row.get("impact_reason") or "")).strip()
+            clean_items.append(
+                {
+                    **row,
+                    "title": title,
+                    "source": "" if ("tavily" in source.lower() or "tavly" in source.lower()) else source,
+                    "impact_reason": impact_reason,
+                    "region": _strip_provider_terms(str(row.get("region") or "")).strip(),
+                    "impact": _strip_provider_terms(str(row.get("impact") or "")).strip(),
+                }
+            )
+        payload["items"] = clean_items
+
+    table = payload.get("table")
+    if isinstance(table, list):
+        payload["table"] = [
+            {
+                "theme": _strip_provider_terms(str((row or {}).get("theme") or "")).strip(),
+                "impact": _strip_provider_terms(str((row or {}).get("impact") or "")).strip(),
+                "why": _strip_provider_terms(str((row or {}).get("why") or "")).strip(),
+            }
+            for row in table
+            if isinstance(row, dict)
+        ]
+
+    payload["provider"] = ""
+    payload["session_tag"] = ""
+    return payload
+
+
 def _load_news_cache_from_disk() -> None:
     global _NEWS_DISK_LOADED
     if _NEWS_DISK_LOADED:
@@ -84,6 +144,7 @@ def _load_news_cache_from_disk() -> None:
         ts = float(payload.get("ts") or 0.0)
         data = payload.get("data")
         if ts > 0 and isinstance(data, dict):
+            _sanitize_payload_inplace(data)
             _NEWS_CACHE["ts"] = ts
             _NEWS_CACHE["data"] = data
     except Exception:
@@ -359,8 +420,8 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         # Remove accidental trailing domain markers after separator.
         title = re.sub(r"\s*[-|]\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", title, flags=re.IGNORECASE).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
-        source = str(item.get("source") or "").strip()
-        impact_reason = str(item.get("impact_reason") or "").strip()
+        source = _strip_provider_terms(str(item.get("source") or "").strip())
+        impact_reason = _strip_provider_terms(str(item.get("impact_reason") or "").strip())
         if not title or not url:
             continue
         source_lc = source.lower()
@@ -377,7 +438,7 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         # Remove provider traces from reason as well.
         impact_reason = re.sub(r"\b(tavily|tavly)\b", "", impact_reason, flags=re.IGNORECASE)
         impact_reason = re.sub(r"\s+", " ", impact_reason).strip()
-        key = f"{title.lower()}|{source.lower()}"
+        key = f"{title.lower()}|{url.lower()}"
         if key in seen:
             continue
         seen.add(key)
@@ -387,8 +448,8 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
                 "url": url,
                 "source": source,
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
-                "region": str(item.get("region") or "").strip(),
-                "impact": str(item.get("impact") or item.get("impact_level") or "").strip(),
+                "region": _strip_provider_terms(str(item.get("region") or "")).strip(),
+                "impact": _strip_provider_terms(str(item.get("impact") or item.get("impact_level") or "")).strip(),
                 "impact_reason": impact_reason,
             }
         )
@@ -539,7 +600,7 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
     table = payload.get("table") if isinstance(payload, dict) else None
     one_minute = str(payload.get("one_minute_brief") or "").strip()
 
-    norm_brief = [str(x).strip() for x in (brief or []) if str(x).strip()]
+    norm_brief = [_strip_provider_terms(str(x).strip()) for x in (brief or []) if _strip_provider_terms(str(x).strip())]
     if not norm_brief:
         norm_brief = list(_FALLBACK_BRIEF)
 
@@ -549,12 +610,13 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         if isinstance(row, dict):
             row["source"] = ""
     norm_table = table if isinstance(table, list) else []
+    one_minute = _strip_provider_terms(one_minute)
     if not one_minute:
         one_minute = "；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE
     if ("台股" not in one_minute and "美股" not in one_minute) and norm_brief:
         one_minute = f"{one_minute} 台股可留意權值與半導體，美股可觀察科技龍頭與利率敏感族群。"
 
-    return {
+    payload_out = {
         "updated_at": now.isoformat(),
         "next_update_at": (now + timedelta(seconds=_NEWS_CACHE_TTL_SEC)).isoformat(),
         "one_minute_brief": one_minute,
@@ -565,6 +627,7 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         "provider": "",
         "session_tag": "",
     }
+    return _sanitize_payload_inplace(payload_out)
 
 
 def _strip_html(value: str) -> str:
@@ -808,11 +871,15 @@ async def get_news_brief():
     _load_news_cache_from_disk()
     now_ts = datetime.now(timezone.utc).timestamp()
     if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < _NEWS_CACHE_TTL_SEC):
+        if isinstance(_NEWS_CACHE.get("data"), dict):
+            _sanitize_payload_inplace(_NEWS_CACHE["data"])
         return _NEWS_CACHE["data"]
 
     async with _NEWS_LOCK:
         now_ts = datetime.now(timezone.utc).timestamp()
         if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < _NEWS_CACHE_TTL_SEC):
+            if isinstance(_NEWS_CACHE.get("data"), dict):
+                _sanitize_payload_inplace(_NEWS_CACHE["data"])
             return _NEWS_CACHE["data"]
 
         try:
