@@ -1,9 +1,9 @@
-"""Stock API routes."""
+﻿"""Stock API routes."""
 
 from __future__ import annotations
 
-import math
 import asyncio
+import math
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -33,6 +33,19 @@ def _json_safe(value):
     return str(value)
 
 
+def _pick_latest_metric(per_pbr_rows, key_candidates):
+    if not isinstance(per_pbr_rows, list):
+        return None
+    for row in reversed(per_pbr_rows):
+        if not isinstance(row, dict):
+            continue
+        for key in key_candidates:
+            val = row.get(key)
+            if isinstance(val, (int, float)) and math.isfinite(float(val)):
+                return float(val)
+    return None
+
+
 @router.get("/stock/{symbol}")
 async def get_stock_overview(
     symbol: str,
@@ -43,6 +56,45 @@ async def get_stock_overview(
         data = await stock_service.get_stock_data(symbol, period=period)
         if not data:
             raise HTTPException(status_code=404, detail=f"找不到股票資料: {symbol}")
+
+        # Valuation rescue: merge latest fundamentals metrics into overview info.
+        try:
+            info = data.get("info") if isinstance(data, dict) else None
+            if isinstance(info, dict):
+                fundamentals = await stock_service.get_stock_fundamentals(
+                    symbol,
+                    market=data.get("market"),
+                )
+                per_pbr = fundamentals.get("per_pbr") if isinstance(fundamentals, dict) else []
+                pe = _pick_latest_metric(per_pbr, ["PER", "pe_ratio"])
+                pb = _pick_latest_metric(per_pbr, ["PBR", "pb_ratio"])
+                dy = _pick_latest_metric(per_pbr, ["dividend_yield", "yield"])
+
+                if info.get("pe_ratio") is None and pe is not None:
+                    info["pe_ratio"] = pe
+                if info.get("pb_ratio") is None and pb is not None:
+                    info["pb_ratio"] = pb
+                if info.get("dividend_yield") is None and dy is not None:
+                    info["dividend_yield"] = dy
+
+                # Final grounding rescue for missing core fields.
+                if (
+                    info.get("market_cap") is None
+                    or info.get("pe_ratio") is None
+                    or info.get("pb_ratio") is None
+                    or info.get("dividend_yield") is None
+                ):
+                    try:
+                        await stock_service._backfill_metrics_with_grounding(  # type: ignore[attr-defined]
+                            symbol=symbol,
+                            market=str(data.get("market") or ""),
+                            info=info,
+                        )
+                    except Exception:
+                        pass
+        except Exception as e:
+            print(f"[Stock] valuation rescue skipped for {symbol}: {type(e).__name__}: {e}")
+
         return data
     except HTTPException:
         raise
