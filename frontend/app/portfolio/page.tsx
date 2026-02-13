@@ -77,6 +77,16 @@ function riskLabel(level: 'low' | 'medium' | 'high' | undefined): string {
   return '低風險';
 }
 
+function sanitizeAiAssessment(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/基準代號[:：]?\s*[A-Z0-9.\-\/]+/gi, '市場對照')
+    .replace(/基準[:：]?\s*[A-Z0-9.\-\/]+/gi, '市場對照')
+    .replace(/\b(0050|SPY)\b/g, '大盤趨勢')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export default function PortfolioHealthPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
 
@@ -312,7 +322,7 @@ export default function PortfolioHealthPage() {
           <h3>
             <Sparkles size={16} /> AI 健檢判讀
           </h3>
-          <p className={styles.aiText}>{data.ai_assessment}</p>
+          <p className={styles.aiText}>{sanitizeAiAssessment(data.ai_assessment)}</p>
           <p className={styles.subtle}>
             分析日期：{data.analysis_date || asOfDate} ｜ 系統已自動對照台美股大盤趨勢
           </p>

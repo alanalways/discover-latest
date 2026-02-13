@@ -280,16 +280,30 @@ async def get_portfolio_health(
 
     suggestions: list[str] = []
     if max_weight_pct >= 55:
-        suggestions.append("單一持股權重過高，建議分批調降部位，避免波動快速放大。")
+        suggestions.append("單一持股權重過高，建議優先降權重，將資金分散到不同產業或市場。")
     elif max_weight_pct >= 35:
-        suggestions.append("持股集中度偏高，建議設定單一持股上限並逐步分散。")
+        suggestions.append("持股集中度偏高，建議設定單一標的上限，避免單點風險放大。")
     else:
-        suggestions.append("分散化表現良好，建議維持紀律並定期再平衡。")
+        suggestions.append("組合分散度尚可，維持紀律追蹤並定期檢視主線輪動。")
 
     if total_pnl_pct < -12:
-        suggestions.append("組合回撤偏大，建議先檢查停損紀律與倉位控管。")
+        suggestions.append("組合整體回撤偏大，建議先縮小高波動部位，再評估分批回補。")
     elif total_pnl_pct > 18:
-        suggestions.append("整體獲利不錯，可考慮分批鎖利並保留趨勢單。")
+        suggestions.append("組合獲利區間良好，可考慮分批鎖利並保留核心持倉。")
+
+    for row in sorted_by_weight[:3]:
+        symbol = str(row.get("symbol") or "").upper()
+        pnl_pct = _safe_float(row.get("pnl_pct"))
+        weight_pct = _safe_float(row.get("weight_pct"))
+        holding_days = int(_safe_float(row.get("holding_days"), default=0))
+        if pnl_pct <= -15:
+            suggestions.append(f"{symbol} 目前虧損偏大，建議設定明確停損條件或先降部位。")
+        elif pnl_pct >= 25 and weight_pct >= 30:
+            suggestions.append(f"{symbol} 獲利且權重偏高，可分批減碼並轉向分散配置。")
+        elif -5 <= pnl_pct <= 8 and holding_days >= 180:
+            suggestions.append(f"{symbol} 進入盤整區，建議等待趨勢確認再決定加碼或換股。")
+
+    suggestions = list(dict.fromkeys(suggestions))
 
     benchmark_label, benchmark_return = await _resolve_auto_benchmark(
         enriched=enriched,
@@ -519,9 +533,12 @@ async def _build_portfolio_ai_assessment(
         top.append(
             {
                 "symbol": row.get("symbol"),
+                "shares": round(_safe_float(row.get("shares")), 2),
+                "avg_cost": round(_safe_float(row.get("avg_cost")), 2),
                 "weight_pct": round(_safe_float(row.get("weight_pct")), 2),
                 "pnl_pct": round(_safe_float(row.get("pnl_pct")), 2),
                 "holding_days": row.get("holding_days"),
+                "buy_date": row.get("buy_date"),
             }
         )
 
@@ -549,12 +566,14 @@ async def _build_portfolio_ai_assessment(
         f"{tier_rules}"
         "內容需回應："
         "目前持股是否適合續抱、哪些條件下可再買、哪些條件下應減碼或停損。"
+        "請明確標示短線/中線/長線判讀，並給出可執行條件。"
+        "不得輸出『基準代號』字樣，不得提及 0050、SPY 等比較代號。"
         f"\n方案等級: {tier.upper()}"
         f"\n分析日期: {analysis_day.isoformat()}"
         f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
         f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
         f"\n系統建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
-        f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%"
+        f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%（僅趨勢參考）"
     )
 
     try:
