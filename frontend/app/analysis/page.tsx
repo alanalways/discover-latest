@@ -89,6 +89,12 @@ interface AiAnalysisPayload {
     result?: unknown;
 }
 
+interface IndustryChainData {
+    symbol?: string;
+    nodes?: Array<{ id: string; label: string; group: 'upstream' | 'core' | 'downstream' | string }>;
+    edges?: Array<{ source: string; target: string; label?: string }>;
+}
+
 function getErrorStatus(err: unknown): number | undefined {
     if (!err || typeof err !== 'object') return undefined;
     const value = (err as { status?: unknown }).status;
@@ -185,6 +191,7 @@ function AnalysisContent() {
         institutional?: InstitutionalRow[];
         margin?: MarginRow[];
     } | null>(null);
+    const [industryChain, setIndustryChain] = useState<IndustryChainData | null>(null);
     const [extraLoading, setExtraLoading] = useState(false);
 
     // Tab 控制
@@ -238,11 +245,13 @@ function AnalysisContent() {
                         institutional?: InstitutionalRow[];
                         margin?: MarginRow[];
                     } | null;
+                    industryChain?: IndustryChainData | null;
                 };
                 if (cached?.data) {
                     setData(cached.data);
                     setFundamentals(cached.fundamentals || null);
                     setChips(cached.chips || null);
+                    setIndustryChain(cached.industryChain || null);
                     hasHydratedCache = true;
                 }
             }
@@ -254,6 +263,7 @@ function AnalysisContent() {
             setLoading(true);
             setFundamentals(null);
             setChips(null);
+            setIndustryChain(null);
         }
         setError('');
         setAiResult('');
@@ -263,9 +273,10 @@ function AnalysisContent() {
 
             // 並行取得基本面+籌碼面資料
             setExtraLoading(true);
-            const [fundRes, chipRes] = await Promise.allSettled([
+            const [fundRes, chipRes, chainRes] = await Promise.allSettled([
                 api.getStockFundamentals(sym),
                 api.getStockChips(sym),
+                api.getIndustryChain(sym),
             ]);
             if (fundRes.status === 'fulfilled') {
                 setFundamentals(fundRes.value as {
@@ -280,6 +291,9 @@ function AnalysisContent() {
                     margin?: MarginRow[];
                 });
             }
+            if (chainRes.status === 'fulfilled') {
+                setIndustryChain(chainRes.value as IndustryChainData);
+            }
             setExtraLoading(false);
             try {
                 sessionStorage.setItem(
@@ -288,6 +302,7 @@ function AnalysisContent() {
                         data: result,
                         fundamentals: fundRes.status === 'fulfilled' ? fundRes.value : null,
                         chips: chipRes.status === 'fulfilled' ? chipRes.value : null,
+                        industryChain: chainRes.status === 'fulfilled' ? chainRes.value : null,
                     })
                 );
             } catch {
@@ -815,6 +830,50 @@ function AnalysisContent() {
                         )}
 
                         {/* ── AI 分析區塊 ── */}
+                        {industryChain?.nodes && industryChain.nodes.length > 0 && (
+                            <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                    <BarChart3 size={20} className="text-[var(--accent)]" />
+                                    產業鏈關聯圖（Beta）
+                                </h2>
+                                <p className="text-sm text-[var(--text-3)] mb-4">
+                                    以目前標的為核心，整理上游供應、核心公司與下游應用，協助快速判讀主題連動風險。
+                                </p>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
+                                        <div className="text-xs text-[var(--text-3)] mb-2">上游供應</div>
+                                        <div className="space-y-1 text-sm text-[var(--text-2)]">
+                                            {industryChain.nodes
+                                                .filter((n) => n.group === 'upstream')
+                                                .map((n) => (
+                                                    <div key={n.id}>• {n.label}</div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
+                                        <div className="text-xs text-[var(--text-3)] mb-2">核心標的</div>
+                                        <div className="space-y-1 text-sm font-semibold text-[var(--text-1)]">
+                                            {industryChain.nodes
+                                                .filter((n) => n.group === 'core')
+                                                .map((n) => (
+                                                    <div key={n.id}>• {n.label}</div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
+                                        <div className="text-xs text-[var(--text-3)] mb-2">下游應用</div>
+                                        <div className="space-y-1 text-sm text-[var(--text-2)]">
+                                            {industryChain.nodes
+                                                .filter((n) => n.group === 'downstream')
+                                                .map((n) => (
+                                                    <div key={n.id}>• {n.label}</div>
+                                                ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <svg className="w-32 h-32 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" /></svg>
