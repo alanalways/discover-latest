@@ -210,10 +210,12 @@ class SupabaseAdapter:
             return False
 
         def _exists_by(col: str) -> bool:
+            if col not in {"id", "user_id"}:
+                return False
             rows = self._request(
                 "GET",
                 "users",
-                params={col: f"eq.{user_id}", "select": "id,user_id", "limit": "1"},
+                params={col: f"eq.{user_id}", "select": "*", "limit": "1"},
                 use_service_key=True,
                 silent=True,
             )
@@ -222,7 +224,11 @@ class SupabaseAdapter:
             row = rows[0] if isinstance(rows[0], dict) else {}
 
             # Best-effort: if record exists by `id` but missing `user_id`, backfill it.
-            if col == "id" and (row.get("user_id") is None or row.get("user_id") == ""):
+            if (
+                col == "id"
+                and "user_id" in row
+                and (row.get("user_id") is None or row.get("user_id") == "")
+            ):
                 row_id = row.get("id")
                 if not row_id:
                     return False
@@ -239,7 +245,7 @@ class SupabaseAdapter:
                 verify_rows = self._request(
                     "GET",
                     "users",
-                    params={"user_id": f"eq.{user_id}", "select": "id,user_id", "limit": "1"},
+                    params={"user_id": f"eq.{user_id}", "select": "*", "limit": "1"},
                     use_service_key=True,
                     silent=True,
                 )
