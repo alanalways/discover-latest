@@ -33,6 +33,8 @@ router = APIRouter()
 _NEWS_CACHE_TTL_SEC = 1800
 _NEWS_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 _NEWS_LOCK = asyncio.Lock()
+_NEWS_CACHE_FILE = os.path.join(os.getcwd(), ".cache", "news_brief_cache.json")
+_NEWS_DISK_LOADED = False
 
 _TAVILY_KEYS: list[str] = []
 _TAVILY_KEY_INDEX = 0
@@ -65,6 +67,36 @@ _TOPIC_QUERY_MAP = {
     "U1": "US stock market sentiment futures S&P 500 Nasdaq latest",
     "U2": "US megacap tech AI Magnificent Seven earnings guidance latest",
 }
+
+
+def _load_news_cache_from_disk() -> None:
+    global _NEWS_DISK_LOADED
+    if _NEWS_DISK_LOADED:
+        return
+    _NEWS_DISK_LOADED = True
+    try:
+        if not os.path.exists(_NEWS_CACHE_FILE):
+            return
+        with open(_NEWS_CACHE_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        if not isinstance(payload, dict):
+            return
+        ts = float(payload.get("ts") or 0.0)
+        data = payload.get("data")
+        if ts > 0 and isinstance(data, dict):
+            _NEWS_CACHE["ts"] = ts
+            _NEWS_CACHE["data"] = data
+    except Exception:
+        return
+
+
+def _save_news_cache_to_disk(data: dict[str, Any], ts: float) -> None:
+    try:
+        os.makedirs(os.path.dirname(_NEWS_CACHE_FILE), exist_ok=True)
+        with open(_NEWS_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"ts": ts, "data": data}, f, ensure_ascii=False)
+    except Exception:
+        return
 
 
 def _taipei_now() -> datetime:
@@ -320,8 +352,12 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").strip()
+        # Some upstream rows include provider names in next line; keep only the headline line.
+        title = title.splitlines()[0].strip() if title else ""
         # Remove upstream provider traces accidentally embedded in title text.
         title = re.sub(r"\s*[-|]?\s*(tavily|tavly)\s*$", "", title, flags=re.IGNORECASE).strip()
+        # Remove accidental trailing domain markers after separator.
+        title = re.sub(r"\s*[-|]\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", title, flags=re.IGNORECASE).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
         source = str(item.get("source") or "").strip()
         if not title or not url:
@@ -458,7 +494,7 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
             headline_focus.append(t[:36])
 
     one_minute = (
-        f"一分鐘看市場：目前新聞重點集中在「{'、'.join(top_themes)}」，"
+        f"一分鐘看市場（依據最新 {min(len(items), 12)} 則新聞）：目前重點集中在「{'、'.join(top_themes)}」，"
         f"顯示資金主線仍圍繞總體數據與權值科技。"
         f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
         f"{market_link}"
@@ -763,6 +799,7 @@ async def _fetch_news_uncached() -> dict[str, Any]:
 @router.get("/news/brief")
 async def get_news_brief():
     """Unified financial news brief, refreshed every 30 minutes server-side."""
+    _load_news_cache_from_disk()
     now_ts = datetime.now(timezone.utc).timestamp()
     if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < _NEWS_CACHE_TTL_SEC):
         return _NEWS_CACHE["data"]
@@ -790,4 +827,5 @@ async def get_news_brief():
 
         _NEWS_CACHE["data"] = payload
         _NEWS_CACHE["ts"] = now_ts
+        _save_news_cache_to_disk(payload, now_ts)
         return payload
