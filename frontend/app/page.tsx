@@ -101,9 +101,15 @@ const FALLBACK_ETFS: MarketItem[] = [
   { name: 'Invesco QQQ', symbol: 'QQQ', value: '530.12', change: '+4.22', change_pct: '+0.80%', color: 'green' },
 ];
 
-const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [];
+const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [
+  '2330','2454','2317','2382','2308','2303','2603','2609','2881','2882',
+  '2891','2886','2412','1301','1303','2002','3711','2357','3034','2379',
+].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
-const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [];
+const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [
+  'AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','AMD','NFLX',
+  'JPM','V','MA','WMT','PG','COST','KO','PEP','QCOM','TXN',
+].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
 const EMPTY_TOP20: Top20Bucket = { gainers: [], losers: [], volume: [] };
 

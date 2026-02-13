@@ -491,11 +491,11 @@ def _fetch_top20_data() -> Dict:
     tw_data = merge_with_previous(tw_data, prev_tw, target=80)
     us_data = merge_with_previous(us_data, prev_us, target=80)
 
-    # Do not force-fill with synthetic zero rows. Keep real rows only.
+    # Keep previous/cached rows as first fallback to avoid empty dashboard after navigation/restart.
     if not tw_data:
-        tw_data = []
+        tw_data = list(prev_tw) if prev_tw else list(_FALLBACK_TOP20_TW)
     if not us_data:
-        us_data = []
+        us_data = list(prev_us) if prev_us else list(_FALLBACK_TOP20_US)
 
     _top20_cache = {"tw": tw_data, "us": us_data, "ts": now}
     return {"tw": tw_data, "us": us_data}
