@@ -540,7 +540,8 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
             {
                 "title": title,
                 "url": url,
-                "source": source,
+                # UI policy: hide provider/source labels in dashboard cards.
+                "source": "",
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
                 "region": region,
                 "impact": impact,
@@ -676,6 +677,10 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
                 brief_lines.append(f"新聞連結市場（{region}）：{title[:50]} -> {reason[:42]}。")
             else:
                 brief_lines.append(f"新聞連結市場（{region}）：{title[:60]}。")
+
+    brief_lines.append(
+        f"台美連結：{market_link} 目前判讀偏向{risk_tone}，建議依波動調整部位節奏。"
+    )
 
     if len(brief_lines) < 3:
         brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])

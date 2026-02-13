@@ -364,7 +364,7 @@ export default function Dashboard() {
             <Activity size={18} /> 財經新聞焦點
           </h3>
           <span className={styles.newsMeta}>
-            系統依交易時段自動更新（約 10 分鐘）
+            系統依交易時段自動更新（約 10 分鐘），焦點為台美股連動重點
           </span>
         </div>
         <div className={styles.newsGrid}>
@@ -586,5 +586,6 @@ function buildNewsImpactLine(item: NewsItem): string {
     inferred = '新聞與台美股盤勢連動重點整理中。';
   }
 
-  return `市場連結：${inferred}`;
+  const impact = String(item.impact || '').trim();
+  return impact ? `市場連結（${impact}）：${inferred}` : `市場連結：${inferred}`;
 }
