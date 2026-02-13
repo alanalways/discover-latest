@@ -74,6 +74,17 @@ const PLANS: PlanItem[] = [
   },
 ] as const;
 
+const FEATURE_MATRIX: Array<{ feature: string; free: string; pro: string; premium: string }> = [
+  { feature: '每日 AI 分析次數', free: '2 次（精簡）', pro: '20 次（進階）', premium: '200 次（完整）' },
+  { feature: 'AI 分析深度', free: '基礎重點', pro: '短中長線 + 技術面', premium: '多情境 + 進階策略拆解' },
+  { feature: '回測期間', free: '最長 1 年', pro: '最長 3 年', premium: '最長 5 年 + 權益曲線' },
+  { feature: '回測功能', free: '基本策略', pro: 'DCA + 多參數', premium: '完整策略組 + 明細' },
+  { feature: '自選清單上限', free: '5 檔', pro: '50 檔', premium: '200 檔' },
+  { feature: '投資健檢', free: '基礎建議', pro: '進階建議', premium: '完整風險與調整方案' },
+  { feature: '新聞焦點', free: '標準摘要', pro: '加強重點', premium: '完整市場連結摘要' },
+  { feature: '更新優先權', free: '標準', pro: '優先', premium: '最高優先' },
+];
+
 export default function PricingPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
 
@@ -227,6 +238,32 @@ export default function PricingPage() {
           </div>
         ))}
       </div>
+
+      <section className={styles.matrixSection}>
+        <h3 className={styles.matrixTitle}>功能差異一覽</h3>
+        <div className={styles.matrixWrap}>
+          <table className={styles.matrixTable}>
+            <thead>
+              <tr>
+                <th>功能項目</th>
+                <th>Free</th>
+                <th>Pro</th>
+                <th>Premium</th>
+              </tr>
+            </thead>
+            <tbody>
+              {FEATURE_MATRIX.map((row) => (
+                <tr key={row.feature}>
+                  <td>{row.feature}</td>
+                  <td>{row.free}</td>
+                  <td>{row.pro}</td>
+                  <td>{row.premium}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div className={styles.faq}>
         <p className={styles.faqNote}>

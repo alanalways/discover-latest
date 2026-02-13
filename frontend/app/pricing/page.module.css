@@ -209,6 +209,50 @@
     text-align: center;
 }
 
+.matrixSection {
+    width: 100%;
+}
+
+.matrixTitle {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    color: var(--text-1);
+    margin-bottom: 10px;
+}
+
+.matrixWrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-card);
+}
+
+.matrixTable {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 720px;
+}
+
+.matrixTable th,
+.matrixTable td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-2);
+    text-align: left;
+}
+
+.matrixTable th {
+    color: var(--text-1);
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.matrixTable tbody tr:last-child td {
+    border-bottom: none;
+}
+
 .faqNote {
     display: flex;
     align-items: center;
