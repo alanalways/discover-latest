@@ -135,6 +135,74 @@ async def smc_analysis(req: SmcRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/analysis/industry-chain/{symbol}")
+async def get_industry_chain(symbol: str):
+    """
+    Get a lightweight industry chain graph for the target symbol.
+
+    Response:
+    - nodes: [{ id, label, group }]
+    - edges: [{ source, target, label }]
+    """
+    sym = (symbol or "").strip().upper()
+    if not sym:
+        raise HTTPException(status_code=400, detail="symbol is required")
+
+    # Curated templates for major names. The graph is intentionally compact for UI readability.
+    templates = {
+        "2330": {
+            "name": "台積電",
+            "upstream": ["ASML", "東京威力科創", "矽晶圓供應商"],
+            "downstream": ["NVIDIA", "Apple", "AMD", "Qualcomm"],
+        },
+        "2454": {
+            "name": "聯發科",
+            "upstream": ["晶圓代工", "IP 授權", "封測"],
+            "downstream": ["智慧手機品牌", "IoT 設備商", "車用電子"],
+        },
+        "NVDA": {
+            "name": "NVIDIA",
+            "upstream": ["台積電", "HBM 記憶體", "CoWoS 封裝"],
+            "downstream": ["雲端資料中心", "AI SaaS", "邊緣運算"],
+        },
+        "TSLA": {
+            "name": "Tesla",
+            "upstream": ["電池材料", "車用晶片", "鋁/鋼供應"],
+            "downstream": ["EV 市場需求", "充電網路", "能源儲存"],
+        },
+        "AAPL": {
+            "name": "Apple",
+            "upstream": ["台積電", "記憶體供應商", "組裝代工"],
+            "downstream": ["iPhone 生態", "服務收入", "穿戴裝置"],
+        },
+    }
+
+    profile = templates.get(
+        sym,
+        {
+            "name": sym,
+            "upstream": ["關鍵原料", "核心零組件", "製造供應商"],
+            "downstream": ["品牌客戶", "終端通路", "終端需求"],
+        },
+    )
+
+    center_id = sym
+    nodes = [{"id": center_id, "label": profile["name"], "group": "core"}]
+    edges = []
+
+    for i, up in enumerate(profile["upstream"]):
+        node_id = f"up_{i}"
+        nodes.append({"id": node_id, "label": up, "group": "upstream"})
+        edges.append({"source": node_id, "target": center_id, "label": "供應"})
+
+    for i, down in enumerate(profile["downstream"]):
+        node_id = f"down_{i}"
+        nodes.append({"id": node_id, "label": down, "group": "downstream"})
+        edges.append({"source": center_id, "target": node_id, "label": "需求"})
+
+    return {"symbol": sym, "nodes": nodes, "edges": edges}
+
+
 def _extract_user_id(auth_header: str) -> Optional[str]:
     """從 Authorization header 中取出 user_id"""
     if not auth_header.startswith("Bearer "):

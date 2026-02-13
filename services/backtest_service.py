@@ -58,6 +58,7 @@ class BacktestService:
 
         if params is None:
             params = self._get_default_params(strategy)
+        params = self._sanitize_strategy_params(strategy, params)
 
         position_size = max(0.0, min(1.0, float(position_size or 0)))
         dca_amount = max(0.0, float(dca_amount or 0))
@@ -132,6 +133,109 @@ class BacktestService:
             "metrics": metrics,
             "equity_curve": equity_curve,
         }
+
+    def _sanitize_strategy_params(self, strategy: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize strategy params to safe ranges and avoid divide-by-zero."""
+        safe = dict(params or {})
+
+        def as_int(value: Any, default: int, min_value: int = 1, max_value: int = 10_000) -> int:
+            try:
+                parsed = int(float(value))
+            except Exception:
+                parsed = default
+            return max(min_value, min(max_value, parsed))
+
+        def as_float(value: Any, default: float, min_value: float = 0.0, max_value: float = 1_000_000.0) -> float:
+            try:
+                parsed = float(value)
+            except Exception:
+                parsed = default
+            if not math.isfinite(parsed):
+                parsed = default
+            return max(min_value, min(max_value, parsed))
+
+        if strategy == "ma_cross":
+            short_period = as_int(
+                safe.get("short_period", safe.get("ma_fast", 5)),
+                default=5,
+                min_value=1,
+                max_value=500,
+            )
+            long_period = as_int(
+                safe.get("long_period", safe.get("ma_slow", 20)),
+                default=20,
+                min_value=2,
+                max_value=1000,
+            )
+            if long_period <= short_period:
+                long_period = short_period + 1
+            safe["short_period"] = short_period
+            safe["long_period"] = long_period
+
+        if strategy in {"breakout", "momentum", "rsi"}:
+            period_key = "period"
+            if strategy == "breakout":
+                safe[period_key] = as_int(
+                    safe.get(period_key, safe.get("breakout_period", 20)),
+                    default=20,
+                    min_value=1,
+                    max_value=500,
+                )
+                safe["threshold"] = as_float(
+                    safe.get("threshold", safe.get("breakout_threshold", 0.02)),
+                    default=0.02,
+                    min_value=0.0,
+                    max_value=1.0,
+                )
+            elif strategy == "momentum":
+                safe[period_key] = as_int(
+                    safe.get(period_key, safe.get("momentum_period", 14)),
+                    default=14,
+                    min_value=1,
+                    max_value=500,
+                )
+                safe["threshold"] = as_float(
+                    safe.get("threshold", safe.get("momentum_threshold", 0.05)),
+                    default=0.05,
+                    min_value=0.0,
+                    max_value=2.0,
+                )
+            elif strategy == "rsi":
+                period = as_int(
+                    safe.get(period_key, safe.get("rsi_period", 14)),
+                    default=14,
+                    min_value=1,
+                    max_value=500,
+                )
+                oversold = as_float(
+                    safe.get("oversold", safe.get("rsi_buy", 30)),
+                    default=30.0,
+                    min_value=0.0,
+                    max_value=100.0,
+                )
+                overbought = as_float(
+                    safe.get("overbought", safe.get("rsi_sell", 70)),
+                    default=70.0,
+                    min_value=0.0,
+                    max_value=100.0,
+                )
+                if overbought <= oversold:
+                    overbought = min(100.0, oversold + 5.0)
+                safe[period_key] = period
+                safe["oversold"] = oversold
+                safe["overbought"] = overbought
+
+        if strategy == "martingale":
+            safe["multiplier"] = as_float(safe.get("multiplier", 2.0), 2.0, min_value=1.01, max_value=10.0)
+            safe["max_layers"] = as_int(safe.get("max_layers", 5), 5, min_value=1, max_value=20)
+            safe["max_position_pct"] = as_float(safe.get("max_position_pct", 0.5), 0.5, min_value=0.05, max_value=1.0)
+            safe["stop_loss_pct"] = as_float(safe.get("stop_loss_pct", 0.10), 0.10, min_value=0.001, max_value=0.95)
+            safe["take_profit_pct"] = as_float(safe.get("take_profit_pct", 0.05), 0.05, min_value=0.001, max_value=5.0)
+            safe["commission"] = as_float(safe.get("commission", 0.001425), 0.001425, min_value=0.0, max_value=0.02)
+            safe["slippage"] = as_float(safe.get("slippage", 0.001), 0.001, min_value=0.0, max_value=0.05)
+            safe["base_amount_pct"] = as_float(safe.get("base_amount_pct", 0.02), 0.02, min_value=0.001, max_value=1.0)
+
+        return safe
 
     def _simulate_trades_with_dca(
         self,
@@ -316,8 +420,8 @@ class BacktestService:
         短均線上穿長均線 → 買入
         短均線下穿長均線 → 賣出
         """
-        short_period = params.get("short_period", 5)
-        long_period = params.get("long_period", 20)
+        short_period = max(1, int(params.get("short_period", 5)))
+        long_period = max(short_period + 1, int(params.get("long_period", 20)))
         
         prices = [h.get("close", 0) for h in history]
         
@@ -359,7 +463,7 @@ class BacktestService:
         價格突破 N 日高點 → 買入
         價格跌破 N 日低點 → 賣出
         """
-        period = params.get("period", 20)
+        period = max(1, int(params.get("period", 20)))
         threshold = params.get("threshold", 0.02)
         
         signals = []
@@ -403,7 +507,7 @@ class BacktestService:
         價格漲幅超過閾值 → 買入
         價格跌幅超過閾值 → 賣出
         """
-        period = params.get("period", 14)
+        period = max(1, int(params.get("period", 14)))
         threshold = params.get("threshold", 0.05)
         
         signals = []
@@ -446,7 +550,7 @@ class BacktestService:
         RSI < 超賣區 → 買入
         RSI > 超買區 → 賣出
         """
-        period = params.get("period", 14)
+        period = max(1, int(params.get("period", 14)))
         oversold = params.get("oversold", 30)
         overbought = params.get("overbought", 70)
         
@@ -484,6 +588,7 @@ class BacktestService:
     
     def _calculate_rsi(self, history: List[Dict], period: int = 14) -> List[float]:
         """計算 RSI"""
+        period = max(1, int(period))
         prices = [h.get("close", 0) for h in history]
         rsi_values = []
         

@@ -50,6 +50,49 @@ interface Top20Response {
     us?: { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
 }
 
+interface NewsItem {
+    title: string;
+    url: string;
+    source?: string;
+    published_at?: string;
+    summary?: string;
+}
+
+interface NewsBriefResponse {
+    updated_at: string;
+    next_update_at: string;
+    brief: string[];
+    items: NewsItem[];
+}
+
+interface PortfolioHealthResponse {
+    portfolio: Array<{
+        symbol: string;
+        shares: number;
+        avg_cost: number;
+        current_price: number;
+        market_value: number;
+        cost_value: number;
+        pnl: number;
+        pnl_pct: number;
+        weight_pct: number;
+    }>;
+    summary: {
+        total_market_value: number;
+        total_cost: number;
+        total_pnl: number;
+        total_pnl_pct: number;
+        diversification_score: number;
+        max_weight_pct: number;
+        risk_level: 'low' | 'medium' | 'high';
+    };
+    suggestions: string[];
+    benchmark: {
+        symbol: string;
+        return_1y_pct: number;
+    };
+}
+
 interface AiAnalysisResultPayload {
     success?: boolean;
     analysis?: string;
@@ -66,7 +109,7 @@ export class ApiClient {
     private token: string | null = null;
     private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
     private authLimitsInFlight: Promise<AuthLimits> | null = null;
-    private readonly authLimitsTtlMs = 12_000;
+    private readonly authLimitsTtlMs = 3_000;
 
     setToken(token: string | null) {
         this.token = token;
@@ -174,6 +217,10 @@ export class ApiClient {
         return this.fetch(`/api/stock/${symbol}/chips`, { skipAuth: true });
     }
 
+    async getIndustryChain(symbol: string) {
+        return this.fetch(`/api/analysis/industry-chain/${encodeURIComponent(symbol)}`, { skipAuth: true });
+    }
+
     // ── Analysis ──
     async getAiAnalysis(symbol: string, period: string = '1y'): Promise<AiAnalysisResponse> {
         return this.fetch<AiAnalysisResponse>('/api/analysis/ai', {
@@ -247,6 +294,14 @@ export class ApiClient {
         return this.fetch(`/api/alerts/${alertId}`, { method: 'DELETE' });
     }
 
+    async getPortfolioHealth(benchmark = '0050') {
+        return this.fetch<PortfolioHealthResponse>(`/api/portfolio/health?benchmark=${encodeURIComponent(benchmark)}`);
+    }
+
+    async getNewsBrief() {
+        return this.fetch<NewsBriefResponse>('/api/news/brief', { skipAuth: true });
+    }
+
     // ── Auth ──
     async loginWithGoogle(token: string) {
         const res = await this.fetch<AuthResponse>('/api/auth/google', {
@@ -274,7 +329,7 @@ export class ApiClient {
         return this.fetch<{ client_id: string }>('/api/auth/config', { skipAuth: true });
     }
 
-    async getAuthLimits() {
+    async getAuthLimits(forceRefresh = false) {
         const token = this.getToken();
         if (!token) {
             return FREE_AUTH_LIMITS_FALLBACK;
@@ -282,6 +337,7 @@ export class ApiClient {
 
         const now = Date.now();
         if (
+            !forceRefresh &&
             this.authLimitsCache &&
             this.authLimitsCache.token === token &&
             this.authLimitsCache.expiresAt > now
@@ -289,7 +345,7 @@ export class ApiClient {
             return this.authLimitsCache.data;
         }
 
-        if (this.authLimitsInFlight) {
+        if (!forceRefresh && this.authLimitsInFlight) {
             return this.authLimitsInFlight;
         }
 

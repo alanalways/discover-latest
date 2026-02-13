@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 # Short-lived in-memory cache for auth limits to reduce hot-path DB calls/log spam.
-_AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "15"))
+_AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "5"))
 _auth_limits_cache: dict[str, dict] = {}
 
 

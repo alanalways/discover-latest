@@ -5,11 +5,20 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import time
 
 from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
+
+_TOP20_CACHE: dict = {
+    "ts": 0.0,
+    "data": None,
+}
+_TOP20_FETCH_LOCK = asyncio.Lock()
+_TOP20_TTL_OPEN_SEC = 45
+_TOP20_TTL_CLOSED_SEC = 1800
 
 
 @router.get("/market/overview")
@@ -38,63 +47,138 @@ async def market_overview():
 @router.get("/market/top20")
 async def market_top20():
     """Return top20 by gainers/losers/volume for TW and US."""
-    try:
-        from pages.market_overview import _FALLBACK_TOP20_TW, _FALLBACK_TOP20_US, _fetch_top20_data
-
+    def to_num(value, pct: bool = False) -> float:
+        if value is None:
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
         try:
-            data = await asyncio.wait_for(run_in_threadpool(_fetch_top20_data), timeout=8.0)
-        except asyncio.TimeoutError:
-            return {
-                "tw": {"gainers": [], "losers": [], "volume": []},
-                "us": {"gainers": [], "losers": [], "volume": []},
-                "error": "top20_timeout",
-            }
+            text = str(value).strip().replace(",", "")
+            if pct:
+                text = text.replace("%", "")
+            return float(text) if text else 0.0
+        except Exception:
+            return 0.0
 
-        tw = data.get("tw", [])
-        us = data.get("us", [])
+    def fallback_bucket(rows):
+        items = [r for r in (rows or []) if isinstance(r, dict)]
+        return {
+            "gainers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
+            "losers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True))[:20],
+            "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
+        }
 
-        def to_num(value, pct: bool = False) -> float:
-            if value is None:
-                return 0.0
-            if isinstance(value, (int, float)):
-                return float(value)
+    def _merge_rows(primary, fallback_rows, target: int = 20):
+        merged = []
+        seen = set()
+        for row in (primary or []) + (fallback_rows or []):
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            merged.append(row)
+            if len(merged) >= target:
+                break
+        return merged
+
+    try:
+        from pages.market_overview import (
+            _FALLBACK_TOP20_TW,
+            _FALLBACK_TOP20_US,
+            _fetch_top20_data,
+            _is_tw_market_open,
+            _is_us_market_open,
+        )
+
+        now_utc = datetime.now(ZoneInfo("UTC"))
+        tw_now = now_utc.astimezone(ZoneInfo("Asia/Taipei"))
+        us_now = now_utc.astimezone(ZoneInfo("America/New_York"))
+        tw_open = _is_tw_market_open(tw_now)
+        us_open = _is_us_market_open(us_now)
+        both_closed = (not tw_open) and (not us_open)
+
+        ttl = _TOP20_TTL_CLOSED_SEC if both_closed else _TOP20_TTL_OPEN_SEC
+        cached = _TOP20_CACHE.get("data")
+        if cached and (time.time() - float(_TOP20_CACHE.get("ts") or 0.0) < ttl):
+            return cached
+
+        async with _TOP20_FETCH_LOCK:
+            # Double-check inside lock
+            cached = _TOP20_CACHE.get("data")
+            if cached and (time.time() - float(_TOP20_CACHE.get("ts") or 0.0) < ttl):
+                return cached
+
             try:
-                text = str(value).strip().replace(",", "")
-                if pct:
-                    text = text.replace("%", "")
-                return float(text) if text else 0.0
-            except Exception:
-                return 0.0
+                data = await asyncio.wait_for(run_in_threadpool(_fetch_top20_data), timeout=8.0)
+            except asyncio.TimeoutError:
+                if _TOP20_CACHE.get("data"):
+                    return _TOP20_CACHE["data"]
+                payload = {
+                    "tw": fallback_bucket(_FALLBACK_TOP20_TW),
+                    "us": fallback_bucket(_FALLBACK_TOP20_US),
+                    "error": "top20_timeout",
+                }
+                _TOP20_CACHE["data"] = payload
+                _TOP20_CACHE["ts"] = time.time()
+                return payload
 
-        def sanitize(rows, market: str):
-            cleaned = []
-            for row in rows or []:
-                if not isinstance(row, dict):
-                    continue
-                symbol = str(row.get("symbol") or "").strip().upper()
-                if not symbol:
-                    continue
-                if market == "tw":
-                    # Keep only standard TW stock code (4 digits).
-                    if not (symbol.isdigit() and len(symbol) == 4):
+            tw = data.get("tw", [])
+            us = data.get("us", [])
+
+            def sanitize(rows, market: str):
+                cleaned = []
+                for row in rows or []:
+                    if not isinstance(row, dict):
                         continue
-                cleaned.append(row)
-            return cleaned
+                    symbol = str(row.get("symbol") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    if market == "tw":
+                        # Keep standard TW stock code only.
+                        if not (symbol.isdigit() and len(symbol) == 4):
+                            continue
+                    cleaned.append(row)
+                return cleaned
 
-        def sort_data(rows, market: str):
-            items = sanitize(rows, market)
-            if not items and market == "tw":
-                items = list((_FALLBACK_TOP20_TW or [])[:20])
-            if not items and market == "us":
-                items = list((_FALLBACK_TOP20_US or [])[:20])
-            return {
-                "gainers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
-                "losers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True))[:20],
-                "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
-            }
+            def sort_data(rows, market: str):
+                items = sanitize(rows, market)
+                fallback_rows = list((_FALLBACK_TOP20_TW if market == "tw" else _FALLBACK_TOP20_US) or [])[:20]
+                items = _merge_rows(items, fallback_rows, target=20)
+                bucket = {
+                    "gainers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
+                    "losers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True))[:20],
+                    "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
+                }
+                if len(bucket["gainers"]) < 20:
+                    bucket["gainers"] = _merge_rows(
+                        bucket["gainers"], sorted(fallback_rows, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True), target=20
+                    )
+                if len(bucket["losers"]) < 20:
+                    bucket["losers"] = _merge_rows(
+                        bucket["losers"], sorted(fallback_rows, key=lambda x: to_num(x.get("change_pct"), pct=True)), target=20
+                    )
+                if len(bucket["volume"]) < 20:
+                    bucket["volume"] = _merge_rows(
+                        bucket["volume"], sorted(fallback_rows, key=lambda x: to_num(x.get("volume")), reverse=True), target=20
+                    )
+                return bucket
 
-        return {"tw": sort_data(tw, "tw"), "us": sort_data(us, "us")}
+            payload = {"tw": sort_data(tw, "tw"), "us": sort_data(us, "us")}
+            _TOP20_CACHE["data"] = payload
+            _TOP20_CACHE["ts"] = time.time()
+            return payload
     except Exception as e:
+        try:
+            from pages.market_overview import _FALLBACK_TOP20_TW, _FALLBACK_TOP20_US
+            return {
+                "tw": fallback_bucket(_FALLBACK_TOP20_TW),
+                "us": fallback_bucket(_FALLBACK_TOP20_US),
+                "error": str(e),
+            }
+        except Exception:
+            pass
         return {
             "tw": {"gainers": [], "losers": [], "volume": []},
             "us": {"gainers": [], "losers": [], "volume": []},
@@ -130,4 +214,3 @@ async def market_hours():
             "timezone": "America/New_York",
         },
     }
-

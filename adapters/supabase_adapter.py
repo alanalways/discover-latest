@@ -21,6 +21,7 @@ class SupabaseAdapter:
         self._error_log_throttle: Dict[str, float] = {}
         self._pending_upgrade_mem: Dict[str, Dict[str, Any]] = {}
         self._ai_usage_mem: Dict[str, Dict[str, Any]] = {}
+        self._ai_usage_fk_blocked: Dict[str, str] = {}
     
     def _get_config(self):
         """??? Supabase ???"""
@@ -1321,8 +1322,18 @@ class SupabaseAdapter:
         if not url or not user_id:
             return False
 
+        # If this user is known to hit FK mismatch today, skip noisy DB retries.
+        if self._ai_usage_fk_blocked.get(user_id) == today:
+            if self._increment_ai_usage_fallback_metadata(user_id, today):
+                self._increment_ai_usage_fallback_memory(user_id, today)
+                return True
+            if self._increment_ai_usage_fallback_memory(user_id, today):
+                return True
+            return False
+
         try:
             self.ensure_public_user_record(user_id)
+            fk_blocked = False
             with httpx.Client(timeout=30.0) as client:
                 headers = self._get_headers(use_service_key=True)
 
@@ -1334,6 +1345,7 @@ class SupabaseAdapter:
                         json={"p_user_id": user_id, "p_date": today},
                     )
                     if rpc_resp.is_success:
+                        self._ai_usage_fk_blocked.pop(user_id, None)
                         return True
                     rpc_body = (rpc_resp.text or "")[:300]
                     self._log_request_error(
@@ -1345,6 +1357,8 @@ class SupabaseAdapter:
                         "violates foreign key constraint" in rpc_body
                         or "is not present in table" in rpc_body
                     ):
+                        fk_blocked = True
+                        self._ai_usage_fk_blocked[user_id] = today
                         if self.ensure_public_user_record(user_id):
                             retry_rpc = client.post(
                                 f"{url}/rest/v1/rpc/increment_ai_usage",
@@ -1352,9 +1366,20 @@ class SupabaseAdapter:
                                 json={"p_user_id": user_id, "p_date": today},
                             )
                             if retry_rpc.is_success:
+                                self._ai_usage_fk_blocked.pop(user_id, None)
                                 return True
                 except Exception as e:
                     print(f"[DB] ??? AI ??? RPC ???: {type(e).__name__}: {e}")
+
+                # If FK is still blocking DB writes, fallback directly to metadata/memory
+                # to keep UI quota counters moving.
+                if fk_blocked:
+                    if self._increment_ai_usage_fallback_metadata(user_id, today):
+                        self._increment_ai_usage_fallback_memory(user_id, today)
+                        return True
+                    if self._increment_ai_usage_fallback_memory(user_id, today):
+                        return True
+                    return False
 
                 # 2) Fallback????????ai_usage
                 def fetch_row() -> Optional[Dict[str, Any]]:
@@ -1412,6 +1437,7 @@ class SupabaseAdapter:
                             json={col: current + 1},
                         )
                         if patch_resp.is_success:
+                            self._ai_usage_fk_blocked.pop(user_id, None)
                             return True
                         if patch_resp.status_code == 409:
                             # conflict retry: reload row and patch again
@@ -1439,6 +1465,7 @@ class SupabaseAdapter:
                                         json={col_retry: now_val + 1},
                                     )
                                     if retry_resp.is_success:
+                                        self._ai_usage_fk_blocked.pop(user_id, None)
                                         return True
                     else:
                         # no row yet: create one
@@ -1448,6 +1475,7 @@ class SupabaseAdapter:
                             json={"user_id": user_id, "date": today},
                         )
                         if insert_row_resp.is_success:
+                            self._ai_usage_fk_blocked.pop(user_id, None)
                             return True
 
                 # 3) ??row??psert ???
@@ -1471,7 +1499,8 @@ class SupabaseAdapter:
                             params=params,
                             json=payload,
                         )
-                        if ins_resp.is_success or ins_resp.status_code == 409:
+                        if ins_resp.is_success:
+                            self._ai_usage_fk_blocked.pop(user_id, None)
                             return True
 
                 # Do not fallback to ai_usage_logs; table may not exist in all projects.

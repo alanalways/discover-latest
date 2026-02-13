@@ -35,37 +35,39 @@ class BacktestRequest(BaseModel):
 @router.post("/backtest/run")
 async def run_backtest(req: BacktestRequest, request: Request):
     """Run backtest with tier limits and normalized response."""
+    _validate_request(req)
+
+    user = _require_auth(request)
+    user_id = str(user.get("id") or "")
+
+    from services.feature_gate import get_limit
+    from services.rate_limiter import rate_limiter
+
+    tier = rate_limiter.check_and_downgrade(user_id)
+    max_years = int(get_limit(tier, "backtest_max_years") or 0)
+    period_years = _period_to_years(req.period)
+    if max_years > 0 and period_years > max_years:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{tier.upper()} 方案最多可回測 {max_years} 年",
+        )
+
+    from services.backtest_service import backtest_service
+    from services.stock_service import stock_service
+
     try:
-        _validate_request(req)
-
-        user = _require_auth(request)
-        user_id = str(user.get("id") or "")
-
-        from services.feature_gate import get_limit
-        from services.rate_limiter import rate_limiter
-
-        tier = rate_limiter.check_and_downgrade(user_id)
-        max_years = int(get_limit(tier, "backtest_max_years") or 0)
-        period_years = _period_to_years(req.period)
-        if max_years > 0 and period_years > max_years:
-            raise HTTPException(
-                status_code=403,
-                detail=f"{tier.upper()} 方案回測期間上限為 {max_years} 年",
-            )
-
-        from services.backtest_service import backtest_service
-        from services.stock_service import stock_service
-
         stock_data = await stock_service.get_stock_data(req.symbol, period=req.period)
         if not stock_data:
-            raise HTTPException(status_code=404, detail=f"找不到股票 {req.symbol} 的資料")
+            raise HTTPException(status_code=404, detail=f"找不到股票資料: {req.symbol}")
 
         history = stock_data.get("history") or []
         if len(history) < 30:
-            raise HTTPException(status_code=400, detail=f"歷史資料不足：目前 {len(history)} 筆，至少需要 30 筆")
+            raise HTTPException(
+                status_code=400,
+                detail=f"歷史資料不足（目前 {len(history)} 筆，至少需要 30 筆）",
+            )
 
         params = _build_strategy_params(req)
-
         result = await asyncio.to_thread(
             backtest_service.run_backtest,
             history=history,
@@ -78,19 +80,20 @@ async def run_backtest(req: BacktestRequest, request: Request):
             dca_frequency=req.dca_frequency,
             dca_day=req.dca_day,
         )
-
-        if not result:
-            raise HTTPException(status_code=500, detail="回測執行失敗")
-        if isinstance(result, dict) and result.get("error"):
-            raise HTTPException(status_code=400, detail=str(result.get("error")))
-
-        return _normalize_backtest_response(req, history, result)
-
     except HTTPException:
         raise
+    except ZeroDivisionError:
+        raise HTTPException(status_code=400, detail="回測參數包含 0 分母，請調整初始資金與策略參數")
     except Exception as e:
-        print(f"[Backtest] 執行失敗: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Backtest] run failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail="回測執行失敗")
+
+    if not result:
+        raise HTTPException(status_code=500, detail="回測執行失敗")
+    if isinstance(result, dict) and result.get("error"):
+        raise HTTPException(status_code=400, detail=str(result.get("error")))
+
+    return _normalize_backtest_response(req, history, result)
 
 
 @router.get("/backtest/strategies")
@@ -107,15 +110,31 @@ def _validate_request(req: BacktestRequest) -> None:
     if req.initial_capital <= 0:
         raise HTTPException(status_code=400, detail="初始資金必須大於 0")
     if req.position_size <= 0:
-        raise HTTPException(status_code=400, detail="倉位比例必須大於 0")
+        raise HTTPException(status_code=400, detail="投入比例必須大於 0")
     if req.dca_amount < 0:
-        raise HTTPException(status_code=400, detail="DCA 金額不可小於 0")
+        raise HTTPException(status_code=400, detail="DCA 金額不得小於 0")
     if req.dca_frequency not in {"daily", "weekly", "monthly"}:
-        raise HTTPException(status_code=400, detail="DCA 頻率必須為 daily/weekly/monthly")
+        raise HTTPException(status_code=400, detail="DCA 頻率僅支援 daily/weekly/monthly")
     if req.dca_frequency == "weekly" and not (1 <= req.dca_day <= 7):
-        raise HTTPException(status_code=400, detail="每週 DCA 日必須在 1~7")
+        raise HTTPException(status_code=400, detail="週期 DCA 日期需介於 1~7")
     if req.dca_frequency in {"daily", "monthly"} and not (1 <= req.dca_day <= 28):
-        raise HTTPException(status_code=400, detail="DCA 日必須在 1~28")
+        raise HTTPException(status_code=400, detail="DCA 日期需介於 1~28")
+    if req.strategy not in {"ma_cross", "breakout", "momentum", "rsi", "martingale", "monitoring_indicator"}:
+        raise HTTPException(status_code=400, detail=f"不支援策略: {req.strategy}")
+    if req.ma_fast <= 0 or req.ma_slow <= 0:
+        raise HTTPException(status_code=400, detail="MA 參數必須大於 0")
+    if req.ma_slow <= req.ma_fast:
+        raise HTTPException(status_code=400, detail="長期 MA 必須大於短期 MA")
+    if req.breakout_period <= 0:
+        raise HTTPException(status_code=400, detail="突破策略 period 必須大於 0")
+    if req.momentum_period <= 0:
+        raise HTTPException(status_code=400, detail="動能策略 period 必須大於 0")
+    if req.rsi_period <= 0:
+        raise HTTPException(status_code=400, detail="RSI period 必須大於 0")
+    if req.rsi_buy < 0 or req.rsi_buy > 100 or req.rsi_sell < 0 or req.rsi_sell > 100:
+        raise HTTPException(status_code=400, detail="RSI 閥值需介於 0~100")
+    if req.rsi_sell <= req.rsi_buy:
+        raise HTTPException(status_code=400, detail="RSI 賣出閥值必須大於買入閥值")
 
 
 def _build_strategy_params(req: BacktestRequest) -> dict[str, Any]:
@@ -150,7 +169,11 @@ def _build_strategy_params(req: BacktestRequest) -> dict[str, Any]:
     return params
 
 
-def _normalize_backtest_response(req: BacktestRequest, history: list[dict[str, Any]], result: dict[str, Any]) -> dict[str, Any]:
+def _normalize_backtest_response(
+    req: BacktestRequest,
+    history: list[dict[str, Any]],
+    result: dict[str, Any],
+) -> dict[str, Any]:
     metrics = result.get("metrics", {}) or {}
     total_return_pct = float(metrics.get("total_return_pct", 0))
     max_drawdown_pct = float(metrics.get("max_drawdown", 0))
@@ -220,10 +243,10 @@ def _normalize_backtest_response(req: BacktestRequest, history: list[dict[str, A
     }
 
 
-def _require_auth(request: Request) -> dict:
+def _require_auth(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="未登入")
+        raise HTTPException(status_code=401, detail="請先登入")
 
     token = auth_header.split(" ", 1)[1]
     try:
@@ -231,12 +254,12 @@ def _require_auth(request: Request) -> dict:
 
         user = auth_service.verify_session(token)
         if not user:
-            raise HTTPException(status_code=401, detail="Session 已失效")
+            raise HTTPException(status_code=401, detail="Session 驗證失敗")
         return user
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=401, detail="驗證失敗")
+        raise HTTPException(status_code=401, detail="登入狀態失效")
 
 
 def _period_to_years(period: str) -> int:

@@ -252,6 +252,14 @@ class StockService:
                     info["pb_ratio"] = pb_val
                 if dy_val is not None:
                     info["dividend_yield"] = dy_val
+                # Some FinMind responses include market value fields in TaiwanStockPER payload.
+                if self._to_float(info.get("market_cap")) is None:
+                    mv_from_per = self._pick_latest_numeric(
+                        per_pbr,
+                        ["Market_Value", "market_value", "market_cap", "marketValue", "marketCapitalization"],
+                    )
+                    if mv_from_per is not None:
+                        info["market_cap"] = mv_from_per
              
             # ?游?撣?
             if market_value_data:

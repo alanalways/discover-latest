@@ -78,6 +78,7 @@ app.add_middleware(
 # ── 掛載 API Routes ──
 from routes.auth import router as auth_router
 from routes.market import router as market_router
+from routes.news import router as news_router
 from routes.stock import router as stock_router
 from routes.analysis import router as analysis_router
 from routes.backtest import router as backtest_router
@@ -87,6 +88,7 @@ from routes.billing import router as billing_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
+app.include_router(news_router,     prefix="/api", tags=["News"])
 app.include_router(stock_router,    prefix="/api", tags=["Stock"])
 app.include_router(analysis_router, prefix="/api", tags=["Analysis"])
 app.include_router(backtest_router, prefix="/api", tags=["Backtest"])

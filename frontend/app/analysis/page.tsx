@@ -222,11 +222,41 @@ function AnalysisContent() {
     }, [period, periodOptions]);
 
     const fetchData = async (sym: string) => {
-        setLoading(true);
+        const cacheKey = `dl:analysis:${sym.toUpperCase()}:${period}`;
+        let hasHydratedCache = false;
+        try {
+            const raw = sessionStorage.getItem(cacheKey);
+            if (raw) {
+                const cached = JSON.parse(raw) as {
+                    data?: { info?: StockInfo; history?: StockHistoryRow[] } | null;
+                    fundamentals?: {
+                        revenue?: RevenueRow[];
+                        per_pbr?: PerPbrRow[];
+                        dividend?: DividendRow[];
+                    } | null;
+                    chips?: {
+                        institutional?: InstitutionalRow[];
+                        margin?: MarginRow[];
+                    } | null;
+                };
+                if (cached?.data) {
+                    setData(cached.data);
+                    setFundamentals(cached.fundamentals || null);
+                    setChips(cached.chips || null);
+                    hasHydratedCache = true;
+                }
+            }
+        } catch {
+            // Ignore cache parse errors.
+        }
+
+        if (!hasHydratedCache) {
+            setLoading(true);
+            setFundamentals(null);
+            setChips(null);
+        }
         setError('');
         setAiResult('');
-        setFundamentals(null);
-        setChips(null);
         try {
             const result = await api.getStock(sym, period) as { info?: StockInfo; history?: StockHistoryRow[] };
             setData(result);
@@ -251,6 +281,18 @@ function AnalysisContent() {
                 });
             }
             setExtraLoading(false);
+            try {
+                sessionStorage.setItem(
+                    cacheKey,
+                    JSON.stringify({
+                        data: result,
+                        fundamentals: fundRes.status === 'fulfilled' ? fundRes.value : null,
+                        chips: chipRes.status === 'fulfilled' ? chipRes.value : null,
+                    })
+                );
+            } catch {
+                // Ignore cache write errors.
+            }
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);
