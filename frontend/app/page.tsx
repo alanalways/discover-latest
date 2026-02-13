@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
+import { startRouteProgress } from '@/components/layout/RouteProgress';
 
 /* ── 型別 ── */
 interface MarketItem {
@@ -50,6 +51,21 @@ interface MarketHours {
 }
 
 const DASHBOARD_CACHE_KEY = 'dl:dashboard-cache:v1';
+const FALLBACK_INDICES: MarketItem[] = [
+  { name: '加權指數', symbol: 'TAIEX', value: '23,128.56', change: '+85.23', change_pct: '+0.37%', color: 'green' },
+  { name: 'S&P 500', symbol: 'SPX', value: '6,061.48', change: '+34.55', change_pct: '+0.57%', color: 'green' },
+  { name: 'NASDAQ', symbol: 'IXIC', value: '19,654.02', change: '+143.25', change_pct: '+0.73%', color: 'green' },
+  { name: '道瓊指數', symbol: 'DJI', value: '44,556.04', change: '-22.16', change_pct: '-0.05%', color: 'red' },
+  { name: '費半指數', symbol: 'SOX', value: '5,042.16', change: '+47.38', change_pct: '+0.95%', color: 'green' },
+];
+const FALLBACK_ETFS: MarketItem[] = [
+  { name: '元大台灣50', symbol: '0050', value: '186.25', change: '+0.85', change_pct: '+0.46%', color: 'green' },
+  { name: '元大高股息', symbol: '0056', value: '39.15', change: '+0.10', change_pct: '+0.26%', color: 'green' },
+  { name: '國泰永續高股息', symbol: '00878', value: '23.42', change: '-0.05', change_pct: '-0.21%', color: 'red' },
+  { name: '群益台灣精選高息', symbol: '00919', value: '24.06', change: '+0.08', change_pct: '+0.33%', color: 'green' },
+  { name: 'Vanguard S&P 500', symbol: 'VOO', value: '556.34', change: '+3.18', change_pct: '+0.57%', color: 'green' },
+  { name: 'Invesco QQQ', symbol: 'QQQ', value: '530.12', change: '+4.22', change_pct: '+0.80%', color: 'green' },
+];
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -169,6 +185,8 @@ export default function Dashboard() {
     } catch (err: unknown) {
       console.error('Dashboard fetch error:', err);
       setError('載入失敗，請稍後重試');
+      setIndices((prev) => (prev.length > 0 ? prev : FALLBACK_INDICES));
+      setEtfs((prev) => (prev.length > 0 ? prev : FALLBACK_ETFS));
       setTop20Tw(emptyTop20);
       setTop20Us(emptyTop20);
     } finally {
@@ -258,7 +276,7 @@ export default function Dashboard() {
           主要指數
         </h3>
         <div className={styles.indexGrid}>
-          {(indices.length > 0 ? indices : Array(5).fill(null)).map((idx, i) =>
+          {(indices.length > 0 ? indices : (loading ? Array(5).fill(null) : FALLBACK_INDICES)).map((idx, i) =>
             idx ? (
               <div key={idx.symbol} className={styles.indexCard}>
                 <div className={styles.indexHeader}>
@@ -285,7 +303,7 @@ export default function Dashboard() {
           熱門 ETF
         </h3>
         <div className={styles.etfGrid}>
-          {(etfs.length > 0 ? etfs : Array(6).fill(null)).map((etf, i) =>
+          {(etfs.length > 0 ? etfs : (loading ? Array(6).fill(null) : FALLBACK_ETFS)).map((etf, i) =>
             etf ? (
               <div key={etf.symbol} className={styles.etfCard}>
                 <div className={styles.etfName}>{etf.name}</div>
@@ -355,7 +373,11 @@ export default function Dashboard() {
             <div
               key={stock.symbol}
               className={styles.tableRow}
-              onClick={() => router.push(`/analysis?symbol=${stock.symbol}`)}
+              onClick={() => {
+                startRouteProgress();
+                router.push(`/analysis?symbol=${stock.symbol}`);
+              }}
+              onMouseDown={() => startRouteProgress()}
               style={{ cursor: 'pointer' }}
               title={`查看 ${stock.name} (${stock.symbol}) 的深度分析`}
             >

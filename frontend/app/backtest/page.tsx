@@ -154,6 +154,7 @@ export default function BacktestPage() {
             setError('Invalid DCA day');
             return;
         }
+        const normalizedDcaDay = Math.max(1, Math.min(dcaFrequency === 'weekly' ? 7 : 28, Math.round(dcaDay)));
         setLoading(true);
         setError('');
         setResult(null);
@@ -170,7 +171,7 @@ export default function BacktestPage() {
                 dca_enabled: dcaEnabled,
                 dca_amount: dcaAmount,
                 dca_frequency: dcaFrequency,
-                dca_day: dcaDay,
+                dca_day: normalizedDcaDay,
             });
             setResult(res as BacktestResult);
         } catch (err: unknown) {
@@ -255,7 +256,7 @@ export default function BacktestPage() {
                     )}
                     <div className={styles.field}>
                         <label>初始資金</label>
-                        <input type="number" value={capital} onChange={(e) => setCapital(+e.target.value)} />
+                        <input type="number" min={1} value={capital} onChange={(e) => setCapital(+e.target.value)} />
                     </div>
                     <div className={styles.field}>
                         <label>DCA 底層</label>

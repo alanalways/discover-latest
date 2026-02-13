@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Search, Moon, Sun, LogOut, Menu } from 'lucide-react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { useTheme } from '@/components/theme/ThemeProvider';
+import { startRouteProgress } from '@/components/layout/RouteProgress';
 import styles from './Topbar.module.css';
 
 interface TopbarProps {
@@ -50,6 +51,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
         e.preventDefault();
         const symbol = searchQuery.trim().toUpperCase();
         if (!symbol) return;
+        startRouteProgress();
         router.push(`/analysis?symbol=${symbol}`);
         setSearchQuery('');
     };
@@ -112,13 +114,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
                                             <div className={styles.dropdownEmail}>{user.email}</div>
                                         </div>
                                         <button
-                                            onClick={() => { router.push('/pricing'); setShowUserMenu(false); }}
+                                            onClick={() => { startRouteProgress(); router.push('/pricing'); setShowUserMenu(false); }}
                                             className={styles.dropdownBtn}
                                         >
                                             升級方案
                                         </button>
                                         <button
-                                            onClick={() => { router.push('/settings'); setShowUserMenu(false); }}
+                                            onClick={() => { startRouteProgress(); router.push('/settings'); setShowUserMenu(false); }}
                                             className={styles.dropdownBtn}
                                         >
                                             帳戶設定

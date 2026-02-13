@@ -1,8 +1,12 @@
-"""
-Market API — 市場總覽 + Top20 排行
-"""
-from fastapi import APIRouter
+"""Market API routes."""
+
+from __future__ import annotations
+
 import asyncio
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from fastapi import APIRouter
 from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
@@ -10,24 +14,33 @@ router = APIRouter()
 
 @router.get("/market/overview")
 async def market_overview():
-    """取得指數 + ETF 資料（台股 + 美股）"""
+    """Return market indices and ETFs with safe fallback."""
     try:
-        from pages.market_overview import _fetch_market_data
+        from pages.market_overview import _FALLBACK_ETFS, _FALLBACK_INDICES, _fetch_market_data
+
         data = await _fetch_market_data()
-        return {
-            "indices": data.get("indices", []),
-            "etfs": data.get("etfs", []),
-        }
+        indices = data.get("indices") or list(_FALLBACK_INDICES)
+        etfs = data.get("etfs") or list(_FALLBACK_ETFS)
+        return {"indices": indices, "etfs": etfs}
     except Exception as e:
-        return {"indices": [], "etfs": [], "error": str(e)}
+        try:
+            from pages.market_overview import _FALLBACK_ETFS, _FALLBACK_INDICES
+
+            return {
+                "indices": list(_FALLBACK_INDICES),
+                "etfs": list(_FALLBACK_ETFS),
+                "error": str(e),
+            }
+        except Exception:
+            return {"indices": [], "etfs": [], "error": str(e)}
 
 
 @router.get("/market/top20")
 async def market_top20():
-    """取得台美股 Top20 漲跌幅 + 成交量排行"""
+    """Return top20 by gainers/losers/volume for TW and US."""
     try:
-        from pages.market_overview import _fetch_top20_data
-        # _fetch_top20_data 內含大量同步 IO，丟到 threadpool 避免阻塞整個 event loop
+        from pages.market_overview import _FALLBACK_TOP20_TW, _FALLBACK_TOP20_US, _fetch_top20_data
+
         try:
             data = await asyncio.wait_for(run_in_threadpool(_fetch_top20_data), timeout=8.0)
         except asyncio.TimeoutError:
@@ -36,10 +49,11 @@ async def market_top20():
                 "us": {"gainers": [], "losers": [], "volume": []},
                 "error": "top20_timeout",
             }
+
         tw = data.get("tw", [])
         us = data.get("us", [])
 
-        def _to_num(value, pct: bool = False) -> float:
+        def to_num(value, pct: bool = False) -> float:
             if value is None:
                 return 0.0
             if isinstance(value, (int, float)):
@@ -52,46 +66,34 @@ async def market_top20():
             except Exception:
                 return 0.0
 
-        def _sanitize(stocks, market: str):
+        def sanitize(rows, market: str):
             cleaned = []
-            for row in stocks or []:
+            for row in rows or []:
                 if not isinstance(row, dict):
                     continue
                 symbol = str(row.get("symbol") or "").strip().upper()
                 if not symbol:
                     continue
                 if market == "tw":
-                    # TW Top20 only keeps standard stock/ETF code length=4.
-                    # This avoids warrant-like symbols (e.g. 711xxx) that often return empty data.
+                    # Keep only standard TW stock code (4 digits).
                     if not (symbol.isdigit() and len(symbol) == 4):
                         continue
                 cleaned.append(row)
             return cleaned
 
-        def sort_data(stocks, market: str):
-            items = _sanitize(stocks, market)
+        def sort_data(rows, market: str):
+            items = sanitize(rows, market)
             if not items and market == "tw":
-                items = [
-                    {"symbol": "2330", "name": "台積電", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                    {"symbol": "2454", "name": "聯發科", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                    {"symbol": "2317", "name": "鴻海", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                ]
+                items = list((_FALLBACK_TOP20_TW or [])[:20])
             if not items and market == "us":
-                items = [
-                    {"symbol": "AAPL", "name": "Apple", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                    {"symbol": "MSFT", "name": "Microsoft", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                    {"symbol": "NVDA", "name": "NVIDIA", "price": 0.0, "change": 0.0, "change_pct": 0.0, "volume": 0},
-                ]
+                items = list((_FALLBACK_TOP20_US or [])[:20])
             return {
-                "gainers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
-                "losers": sorted(items, key=lambda x: _to_num(x.get("change_pct"), pct=True))[:20],
-                "volume": sorted(items, key=lambda x: _to_num(x.get("volume")), reverse=True)[:20],
+                "gainers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
+                "losers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True))[:20],
+                "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
             }
 
-        return {
-            "tw": sort_data(tw, "tw"),
-            "us": sort_data(us, "us"),
-        }
+        return {"tw": sort_data(tw, "tw"), "us": sort_data(us, "us")}
     except Exception as e:
         return {
             "tw": {"gainers": [], "losers": [], "volume": []},
@@ -102,13 +104,11 @@ async def market_top20():
 
 @router.get("/market/hours")
 async def market_hours():
-    """取得台美股開休市狀態（含 2026 休市日規則）"""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
+    """Return market hours status using 2026 holiday calendars."""
     from pages.market_overview import (
         _is_tw_market_open,
-        _is_us_market_open,
         _is_tw_trading_day,
+        _is_us_market_open,
         _is_us_trading_day,
     )
 
@@ -130,3 +130,4 @@ async def market_hours():
             "timezone": "America/New_York",
         },
     }
+

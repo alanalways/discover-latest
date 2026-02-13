@@ -12,6 +12,36 @@ from typing import Optional
 router = APIRouter()
 
 
+# Short-lived in-memory cache for auth limits to reduce hot-path DB calls/log spam.
+_AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "15"))
+_auth_limits_cache: dict[str, dict] = {}
+
+
+def _get_cached_limits(user_id: str) -> Optional[dict]:
+    if not user_id:
+        return None
+    cached = _auth_limits_cache.get(user_id)
+    if not isinstance(cached, dict):
+        return None
+    expires_at = cached.get("expires_at")
+    payload = cached.get("payload")
+    if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
+        return None
+    if expires_at <= datetime.now(timezone.utc).timestamp():
+        _auth_limits_cache.pop(user_id, None)
+        return None
+    return payload
+
+
+def _set_cached_limits(user_id: str, payload: dict) -> None:
+    if not user_id or not isinstance(payload, dict):
+        return
+    _auth_limits_cache[user_id] = {
+        "expires_at": datetime.now(timezone.utc).timestamp() + max(3, _AUTH_LIMITS_CACHE_TTL_SEC),
+        "payload": payload,
+    }
+
+
 class GoogleAuthRequest(BaseModel):
     """Google OAuth callback 資料"""
     token: Optional[str] = None      # ID token (implicit flow)
@@ -227,10 +257,14 @@ async def get_auth_limits(request: Request):
         if not user_id:
             raise HTTPException(status_code=401, detail="使用者資訊無效")
 
+        cached_payload = _get_cached_limits(user_id)
+        if cached_payload:
+            return cached_payload
+
         supabase_adapter.ensure_public_user_record(user_id)
         info = rate_limiter.get_user_limits_info(user_id)
         tier = info.get("tier", "free")
-        return {
+        payload = {
             "tier": tier,
             "ai": {
                 "daily_limit": info.get("daily_limit", 0),
@@ -244,6 +278,8 @@ async def get_auth_limits(request: Request):
                 "max": get_limit(tier, "price_alert_max"),
             },
         }
+        _set_cached_limits(user_id, payload)
+        return payload
     except HTTPException:
         return _free_limits_payload()
     except Exception as e:

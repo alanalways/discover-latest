@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -47,6 +47,8 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const [effectiveTier, setEffectiveTier] = useState<'free' | 'pro' | 'premium'>('free');
     const [dailyLimit, setDailyLimit] = useState(2);
     const [dailyUsed, setDailyUsed] = useState(0);
+    const loadingLimitsRef = useRef(false);
+    const lastLoadAtRef = useRef(0);
 
     // 動態 tier 資訊
     const tier = effectiveTier;
@@ -67,10 +69,15 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     };
 
     const loadLimits = useCallback(async () => {
+        const now = Date.now();
+        if (now - lastLoadAtRef.current < 10_000) return;
+        if (loadingLimitsRef.current) return;
+        loadingLimitsRef.current = true;
         if (!user) {
             setEffectiveTier('free');
             setDailyLimit(2);
             setDailyUsed(0);
+            loadingLimitsRef.current = false;
             return;
         }
         try {
@@ -79,10 +86,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             setEffectiveTier(serverTier);
             setDailyLimit(limits.ai.daily_limit);
             setDailyUsed(limits.ai.daily_used);
+            lastLoadAtRef.current = Date.now();
         } catch {
             const fallbackTier = (user.tier || 'free') as 'free' | 'pro' | 'premium';
             setEffectiveTier(fallbackTier);
             setDailyLimit(fallbackTier === 'premium' ? 200 : fallbackTier === 'pro' ? 20 : 2);
+        } finally {
+            loadingLimitsRef.current = false;
         }
     }, [user]);
 
@@ -98,7 +108,11 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         void guardedLoad();
         window.addEventListener('dl:usage-refresh', onUsageRefresh);
         window.addEventListener('focus', onFocus);
-        const timer = window.setInterval(() => { void guardedLoad(); }, 30000);
+        const timer = window.setInterval(() => {
+            if (document.visibilityState === 'visible') {
+                void guardedLoad();
+            }
+        }, 180000);
 
         return () => {
             mounted = false;

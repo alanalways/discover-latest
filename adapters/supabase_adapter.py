@@ -1336,7 +1336,11 @@ class SupabaseAdapter:
                     if rpc_resp.is_success:
                         return True
                     rpc_body = (rpc_resp.text or "")[:300]
-                    print(f"[DB] increment_ai_usage RPC ???: status={rpc_resp.status_code}, body={rpc_body}")
+                    self._log_request_error(
+                        key=f"rpc:increment_ai_usage:{rpc_resp.status_code}",
+                        message=f"[DB] increment_ai_usage RPC failed: status={rpc_resp.status_code}, body={rpc_body}",
+                        min_interval_sec=300.0,
+                    )
                     if rpc_resp.status_code == 409 and (
                         "violates foreign key constraint" in rpc_body
                         or "is not present in table" in rpc_body

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
 import { ApiClient } from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
+import { startRouteProgress } from '@/components/layout/RouteProgress';
 import {
     TrendingUp, BarChart3, PieChart as PieChartIcon,
     DollarSign, Users, Activity, Landmark,
@@ -286,6 +287,7 @@ function AnalysisContent() {
         const nextSymbol = symbolInput.trim().toUpperCase();
         if (!nextSymbol) return;
         setSymbol(nextSymbol);
+        startRouteProgress();
         router.push(`/analysis?symbol=${nextSymbol}`);
     };
 
@@ -650,6 +652,10 @@ function AnalysisContent() {
                                         </div>
                                     </div>
                                 )}
+
+                                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 px-4 py-3 text-xs text-[var(--text-3)]">
+                                    欄位說明：`N/A` 代表資料源暫時未提供；`+` 代表相較前一期增加；`-` 代表相較前一期減少；若顯示 `+-` 代表原始來源無法判定方向，系統以 0 處理避免誤導。
+                                </div>
                             </div>
                         )}
 
@@ -758,6 +764,10 @@ function AnalysisContent() {
                                             {extraLoading ? '載入中...' : '暫無融資融券資料（僅支援台股）'}
                                         </div>
                                     )}
+                                </div>
+
+                                <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 px-4 py-3 text-xs text-[var(--text-3)]">
+                                    籌碼說明：外資 / 投信 / 自營為「買入 - 賣出」後的淨額；融資融券「增減」為相較前一交易日變化；正值顯示 `+`，負值顯示 `-`，`+-` 或空值皆視為資料源未明確提供。
                                 </div>
                             </div>
                         )}

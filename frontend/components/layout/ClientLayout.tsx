@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
+import RouteProgress from '@/components/layout/RouteProgress';
 import AuthProvider from '@/components/auth/AuthProvider';
 import LoginModal from '@/components/auth/LoginModal';
 import ThemeProvider from '@/components/theme/ThemeProvider';
@@ -14,6 +15,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         <AuthProvider>
             <ThemeProvider>
                 <div className="dl-shell">
+                    <RouteProgress />
                     <Sidebar
                         isOpen={sidebarOpen}
                         onClose={() => setSidebarOpen(false)}

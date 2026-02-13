@@ -362,12 +362,12 @@ def _fetch_top20_data() -> Dict:
             "2330", "2454", "2317", "2382", "2308", "2303", "2603", "2609", "2881", "2882",
             "2891", "2886", "2412", "1301", "1303", "2002", "3711", "2357", "3034", "2379",
             "3231", "2356", "3045", "4904", "3661", "2345", "5274", "2327", "3443", "8069",
-            "3037", "0050", "0056", "00878", "00919", "0052", "006208", "00929", "00939", "00940",
+            "3037", "0050", "0056", "00878", "00919", "0052",
         ]
-        # Enrich candidate pool with extra TW symbols, but avoid invalid 6-digit/7xx IDs.
+        # Enrich candidate pool with extra TW symbols, but keep only 4-digit tradeable symbols.
         candidate_symbols.extend([
             s for s in tw_name_map.keys()
-            if s.isdigit() and 4 <= len(s) <= 5 and s not in candidate_symbols
+            if s.isdigit() and len(s) == 4 and s not in candidate_symbols
         ][:30])
         tw_pool = list(dict.fromkeys(candidate_symbols))
         tw_batch_size = 28 if tw_open else 16
@@ -375,6 +375,8 @@ def _fetch_top20_data() -> Dict:
 
         for sym in tw_symbols:
             try:
+                if not (sym.isdigit() and len(sym) == 4):
+                    continue
                 fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
                 if not fm_data or len(fm_data) < 2:
                     continue

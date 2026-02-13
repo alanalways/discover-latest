@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Star, Plus, Trash2, Bell, Loader2, AlertCircle, Search } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
+import { startRouteProgress } from '@/components/layout/RouteProgress';
 
 interface WatchItem { symbol: string; name?: string; added_at?: string; }
 interface AlertItem {
@@ -165,10 +166,14 @@ export default function WatchlistPage() {
                                         className={styles.itemInfo}
                                         role="button"
                                         tabIndex={0}
-                                        onClick={() => router.push(`/analysis?symbol=${item.symbol}`)}
+                                        onClick={() => {
+                                            startRouteProgress();
+                                            router.push(`/analysis?symbol=${item.symbol}`);
+                                        }}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter' || e.key === ' ') {
                                                 e.preventDefault();
+                                                startRouteProgress();
                                                 router.push(`/analysis?symbol=${item.symbol}`);
                                             }
                                         }}

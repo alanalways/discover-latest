@@ -64,9 +64,14 @@ interface AiAnalysisResponse {
 
 export class ApiClient {
     private token: string | null = null;
+    private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
+    private authLimitsInFlight: Promise<AuthLimits> | null = null;
+    private readonly authLimitsTtlMs = 12_000;
 
     setToken(token: string | null) {
         this.token = token;
+        this.authLimitsCache = null;
+        this.authLimitsInFlight = null;
         if (typeof window !== 'undefined') {
             if (token) {
                 localStorage.setItem('dl_token', token);
@@ -270,11 +275,48 @@ export class ApiClient {
     }
 
     async getAuthLimits() {
-        if (!this.getToken()) {
+        const token = this.getToken();
+        if (!token) {
             return FREE_AUTH_LIMITS_FALLBACK;
         }
+
+        const now = Date.now();
+        if (
+            this.authLimitsCache &&
+            this.authLimitsCache.token === token &&
+            this.authLimitsCache.expiresAt > now
+        ) {
+            return this.authLimitsCache.data;
+        }
+
+        if (this.authLimitsInFlight) {
+            return this.authLimitsInFlight;
+        }
+
+        this.authLimitsInFlight = (async () => {
+            try {
+                const data = await this.fetch<AuthLimits>('/api/auth/limits');
+                this.authLimitsCache = {
+                    token,
+                    expiresAt: Date.now() + this.authLimitsTtlMs,
+                    data,
+                };
+                return data;
+            } catch {
+                const fallback = FREE_AUTH_LIMITS_FALLBACK;
+                this.authLimitsCache = {
+                    token,
+                    expiresAt: Date.now() + 5_000,
+                    data: fallback,
+                };
+                return fallback;
+            } finally {
+                this.authLimitsInFlight = null;
+            }
+        })();
+
         try {
-            return await this.fetch<AuthLimits>('/api/auth/limits');
+            return await this.authLimitsInFlight;
         } catch {
             return FREE_AUTH_LIMITS_FALLBACK;
         }
