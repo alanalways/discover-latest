@@ -209,6 +209,9 @@ class SupabaseAdapter:
         if not user_id:
             return False
 
+        def _exists_any() -> bool:
+            return _exists_by("user_id") or _exists_by("id")
+
         def _exists_by(col: str) -> bool:
             if col not in {"id", "user_id"}:
                 return False
@@ -232,7 +235,7 @@ class SupabaseAdapter:
                 row_id = row.get("id")
                 if not row_id:
                     return False
-                patched = self._request(
+                self._request(
                     "PATCH",
                     "users",
                     params={"id": f"eq.{row_id}"},
@@ -240,8 +243,6 @@ class SupabaseAdapter:
                     use_service_key=True,
                     silent=True,
                 )
-                if patched is None:
-                    return False
                 verify_rows = self._request(
                     "GET",
                     "users",
@@ -253,7 +254,7 @@ class SupabaseAdapter:
             return True
 
         try:
-            if _exists_by("user_id") or _exists_by("id"):
+            if _exists_any():
                 return True
 
             auth_user = self.auth_admin_get_user_by_id(user_id) or {}
@@ -286,7 +287,7 @@ class SupabaseAdapter:
                 clean_payload = {k: v for k, v in payload.items() if v not in (None, "")}
                 for conflict in on_conflicts:
                     params = {"on_conflict": conflict} if conflict else None
-                    inserted = self._request(
+                    self._request(
                         "POST",
                         "users",
                         params=params,
@@ -294,10 +295,11 @@ class SupabaseAdapter:
                         use_service_key=True,
                         silent=True,
                     )
-                    if inserted is not None and (_exists_by("user_id") or _exists_by("id")):
+                    # PostgREST may return 201/204 with empty body; verify by re-query.
+                    if _exists_any():
                         return True
 
-            return _exists_by("user_id") or _exists_by("id")
+            return _exists_any()
         except Exception:
             return False
 
@@ -1317,6 +1319,11 @@ class SupabaseAdapter:
         if not url or not user_id:
             return False
 
+        def _mirror_success_fallbacks() -> None:
+            # Keep counters stable across relogin / transient DB schema mismatches.
+            self._increment_ai_usage_fallback_memory(user_id, today)
+            self._increment_ai_usage_fallback_file(user_id, today)
+
         # If this user is known to hit FK mismatch today, skip noisy DB retries.
         if self._ai_usage_fk_blocked.get(user_id) == today:
             if self._increment_ai_usage_fallback_metadata(user_id, today):
@@ -1358,6 +1365,7 @@ class SupabaseAdapter:
                     )
                     if rpc_resp.is_success:
                         self._ai_usage_fk_blocked.pop(user_id, None)
+                        _mirror_success_fallbacks()
                         return True
                     rpc_body = (rpc_resp.text or "")[:300]
                     self._log_request_error(
@@ -1379,6 +1387,7 @@ class SupabaseAdapter:
                             )
                             if retry_rpc.is_success:
                                 self._ai_usage_fk_blocked.pop(user_id, None)
+                                _mirror_success_fallbacks()
                                 return True
                 except Exception as e:
                     print(f"[DB] ??? AI ??? RPC ???: {type(e).__name__}: {e}")
@@ -1454,6 +1463,7 @@ class SupabaseAdapter:
                         )
                         if patch_resp.is_success:
                             self._ai_usage_fk_blocked.pop(user_id, None)
+                            _mirror_success_fallbacks()
                             return True
                         if patch_resp.status_code == 409:
                             # conflict retry: reload row and patch again
@@ -1482,6 +1492,7 @@ class SupabaseAdapter:
                                     )
                                     if retry_resp.is_success:
                                         self._ai_usage_fk_blocked.pop(user_id, None)
+                                        _mirror_success_fallbacks()
                                         return True
                     else:
                         # no row yet: create one
@@ -1492,6 +1503,7 @@ class SupabaseAdapter:
                         )
                         if insert_row_resp.is_success:
                             self._ai_usage_fk_blocked.pop(user_id, None)
+                            _mirror_success_fallbacks()
                             return True
 
                 # 3) ??row??psert ???
@@ -1517,6 +1529,7 @@ class SupabaseAdapter:
                         )
                         if ins_resp.is_success:
                             self._ai_usage_fk_blocked.pop(user_id, None)
+                            _mirror_success_fallbacks()
                             return True
 
                 # Do not fallback to ai_usage_logs; table may not exist in all projects.

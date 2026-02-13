@@ -640,5 +640,7 @@ function buildNewsImpactLine(item: NewsItem): string {
   }
 
   const impact = sanitizeNewsText(item.impact || '');
-  return impact ? `市場連結（${impact}）：${inferred}` : `市場連結：${inferred}`;
+  const line = impact ? `市場連結（${impact}）：${inferred}` : `市場連結：${inferred}`;
+  const cleaned = sanitizeNewsText(line);
+  return cleaned || '市場連結：台美股短線可能受總體與權值股消息牽動。';
 }

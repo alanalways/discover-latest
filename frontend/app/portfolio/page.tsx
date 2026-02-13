@@ -82,6 +82,8 @@ function sanitizeAiAssessment(text: string): string {
   return text
     .replace(/基準代號[:：]?\s*[A-Z0-9.\-\/]+/gi, '市場對照')
     .replace(/基準[:：]?\s*[A-Z0-9.\-\/]+/gi, '市場對照')
+    .replace(/基準[^。\n]*?([+\-]?\d+(\.\d+)?%)/gi, '市場對照（近一年 $1）')
+    .replace(/市場對照[:：]?\s*[A-Z0-9.\-\/]+/gi, '市場對照')
     .replace(/\b(0050|SPY)\b/g, '大盤趨勢')
     .replace(/\s{2,}/g, ' ')
     .trim();

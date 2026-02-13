@@ -889,7 +889,8 @@ async def _collect_news_with_tavily() -> tuple[list[dict[str, Any]], str]:
                         {
                             "title": title,
                             "url": url,
-                            "source": str(row.get("source") or "News").strip(),
+                            # UI policy: hide upstream provider labels.
+                            "source": "",
                             "published_at": "",
                             "region": "TW" if topic.startswith("T") else ("US" if topic.startswith("U") else "Global"),
                             "impact": "high" if topic in ("G1", "T1", "U1") else "medium",
@@ -944,7 +945,9 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
     # and keep output tightly linked to latest Tavily/Grounding items.
     rule_payload = _build_rule_based_summary(items)
     key = _pick_gemini_key()
-    use_gemini_summary = str(os.environ.get("NEWS_USE_GEMINI_SUMMARY", "1")).strip().lower() in {
+    # Default to deterministic summarization in production; enable model summarization
+    # explicitly with NEWS_USE_GEMINI_SUMMARY=1 when needed.
+    use_gemini_summary = str(os.environ.get("NEWS_USE_GEMINI_SUMMARY", "0")).strip().lower() in {
         "1",
         "true",
         "yes",

@@ -1,4 +1,4 @@
-"""Watchlist, alerts, portfolio, and portfolio health APIs."""
+"""Watchlist, alerts, portfolio, and portfolio-health APIs."""
 
 from __future__ import annotations
 
@@ -47,6 +47,8 @@ async def add_to_watchlist(req: WatchlistAddRequest, request: Request):
     symbol = (req.symbol or "").strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol 不可為空")
+    if not _is_valid_portfolio_symbol(symbol):
+        raise HTTPException(status_code=400, detail="symbol 格式不正確，請輸入例如 2330 或 NVDA")
 
     try:
         tier = rate_limiter.check_and_downgrade(user_id)
@@ -85,12 +87,12 @@ async def remove_from_watchlist(symbol: str, request: Request):
     try:
         ok = bool(supabase_adapter.remove_from_watchlist(user_id, target))
         if not ok:
-            raise HTTPException(status_code=404, detail=f"找不到自選標的 {target}")
+            raise HTTPException(status_code=404, detail=f"找不到自選清單代碼: {target}")
         return {"success": True, "symbol": target}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"移除自選清單失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"刪除自選清單失敗: {e}")
 
 
 @router.get("/alerts")
@@ -102,7 +104,7 @@ async def get_alerts(request: Request):
         rows = supabase_adapter.get_user_alerts(user_id)
         return {"alerts": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取提醒失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"讀取價格提醒失敗: {e}")
 
 
 @router.post("/alerts/add")
@@ -114,7 +116,7 @@ async def add_alert(req: AlertAddRequest, request: Request):
 
     tier = rate_limiter.check_and_downgrade(user_id)
     if not can_access(tier, "price_alert"):
-        raise HTTPException(status_code=403, detail="目前方案不支援價格提醒")
+        raise HTTPException(status_code=403, detail="目前方案不支援價格提醒，請升級方案")
 
     symbol = (req.symbol or "").strip().upper()
     if not symbol:
@@ -134,7 +136,7 @@ async def add_alert(req: AlertAddRequest, request: Request):
         elif direction in ("lte", "below"):
             normalized_direction = "below"
         else:
-            raise HTTPException(status_code=400, detail="direction 必須為 above/below/gte/lte")
+            raise HTTPException(status_code=400, detail="direction 只接受 above/below/gte/lte")
 
         ok = bool(
             supabase_adapter.add_alert(
@@ -144,11 +146,13 @@ async def add_alert(req: AlertAddRequest, request: Request):
                 direction=normalized_direction,
             )
         )
-        return {"success": ok}
+        if not ok:
+            raise HTTPException(status_code=500, detail="新增價格提醒失敗")
+        return {"success": True}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"新增提醒失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"新增價格提醒失敗: {e}")
 
 
 @router.delete("/alerts/{alert_id}")
@@ -160,7 +164,7 @@ async def delete_alert(alert_id: str, request: Request):
         ok = bool(supabase_adapter.delete_alert(alert_id, user_id))
         return {"success": ok}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"刪除提醒失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"刪除價格提醒失敗: {e}")
 
 
 @router.get("/portfolio")
@@ -172,20 +176,23 @@ async def get_portfolio(request: Request):
         rows = supabase_adapter.get_user_portfolio(user_id)
         return {"portfolio": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取持股失敗: {e}")
+        raise HTTPException(status_code=500, detail=f"讀取持股資料失敗: {e}")
 
 
 @router.get("/portfolio/health")
 async def get_portfolio_health(
     request: Request,
-    as_of_date: str | None = Query(default=None, description="Analysis date YYYY-MM-DD"),
-    positions: str | None = Query(default=None, description="JSON array positions"),
-    include_ai: int = Query(default=0, description="1 to include AI assessment"),
+    as_of_date: str | None = Query(default=None, description="分析日期 YYYY-MM-DD"),
+    positions: str | None = Query(default=None, description="持股清單 JSON"),
+    include_ai: int = Query(default=0, description="1 代表加入 AI 健檢"),
 ):
     auth_user = _require_auth_user(request)
-    user_tier = str(auth_user.get("tier") or "free").strip().lower()
+    user_id = str(auth_user.get("id") or "")
+
+    from services.rate_limiter import rate_limiter
     from services.stock_service import stock_service
 
+    user_tier = rate_limiter.check_and_downgrade(user_id)
     analysis_day = _parse_analysis_date(as_of_date)
     holdings = _parse_positions_payload(positions)
     raw_positions_supplied = bool(str(positions or "").strip())
@@ -193,7 +200,7 @@ async def get_portfolio_health(
     if raw_positions_supplied and not holdings:
         raise HTTPException(
             status_code=400,
-            detail="持股格式無效：請輸入台股代碼（如 2330）或美股代碼（如 NVDA），且股數需大於 0。",
+            detail="持股格式錯誤。請輸入有效的股票代碼（例如 2330、NVDA）與大於 0 的股數/張數。",
         )
 
     if not holdings:
@@ -208,10 +215,10 @@ async def get_portfolio_health(
                 "max_weight_pct": 0.0,
                 "risk_level": "low",
             },
-            "suggestions": ["目前沒有持股資料，請先輸入股票代碼與股數再執行健檢。"],
-            "benchmark": {"label": "台美大盤趨勢（自動加權）", "return_1y_pct": 0.0},
+            "suggestions": ["請先輸入至少一筆持股後再開始健檢。"],
+            "benchmark": {"label": "台美大盤趨勢（系統自動加權）", "return_1y_pct": 0.0},
             "analysis_date": analysis_day.isoformat(),
-            "ai_assessment": "目前沒有持股資料，尚無法產生 AI 健檢判讀。",
+            "ai_assessment": "請先輸入持股資料後再使用 AI 健檢。",
         }
 
     async def enrich(holding: dict[str, Any]) -> dict[str, Any]:
@@ -258,6 +265,7 @@ async def get_portfolio_health(
         }
 
     enriched = await asyncio.gather(*[enrich(h) for h in holdings if isinstance(h, dict)])
+
     total_market_value = sum(max(0.0, _safe_float(h.get("market_value"))) for h in enriched)
     total_cost = sum(max(0.0, _safe_float(h.get("cost_value"))) for h in enriched)
     total_pnl = total_market_value - total_cost
@@ -280,16 +288,16 @@ async def get_portfolio_health(
 
     suggestions: list[str] = []
     if max_weight_pct >= 55:
-        suggestions.append("單一持股權重過高，建議優先降權重，將資金分散到不同產業或市場。")
+        suggestions.append("單一持股權重過高，建議優先分散配置，降低組合波動風險。")
     elif max_weight_pct >= 35:
-        suggestions.append("持股集中度偏高，建議設定單一標的上限，避免單點風險放大。")
+        suggestions.append("持股集中度偏高，建議逐步分散到不同產業與市場。")
     else:
-        suggestions.append("組合分散度尚可，維持紀律追蹤並定期檢視主線輪動。")
+        suggestions.append("分散化結構良好，建議維持紀律並定期再平衡。")
 
     if total_pnl_pct < -12:
-        suggestions.append("組合整體回撤偏大，建議先縮小高波動部位，再評估分批回補。")
+        suggestions.append("整體報酬率偏弱，建議重新檢視成本、停損與資金配置原則。")
     elif total_pnl_pct > 18:
-        suggestions.append("組合獲利區間良好，可考慮分批鎖利並保留核心持倉。")
+        suggestions.append("整體報酬率表現不錯，可考慮分批落袋並保留機動現金。")
 
     for row in sorted_by_weight[:3]:
         symbol = str(row.get("symbol") or "").upper()
@@ -297,11 +305,11 @@ async def get_portfolio_health(
         weight_pct = _safe_float(row.get("weight_pct"))
         holding_days = int(_safe_float(row.get("holding_days"), default=0))
         if pnl_pct <= -15:
-            suggestions.append(f"{symbol} 目前虧損偏大，建議設定明確停損條件或先降部位。")
+            suggestions.append(f"{symbol} 目前虧損較深，建議評估停損或降低部位，避免持續拖累。")
         elif pnl_pct >= 25 and weight_pct >= 30:
-            suggestions.append(f"{symbol} 獲利且權重偏高，可分批減碼並轉向分散配置。")
+            suggestions.append(f"{symbol} 獲利與權重都偏高，建議分批獲利了結，控制單一風險。")
         elif -5 <= pnl_pct <= 8 and holding_days >= 180:
-            suggestions.append(f"{symbol} 進入盤整區，建議等待趨勢確認再決定加碼或換股。")
+            suggestions.append(f"{symbol} 長期盤整，建議檢查持有理由與資金效率。")
 
     suggestions = list(dict.fromkeys(suggestions))
 
@@ -343,7 +351,7 @@ async def get_portfolio_health(
         },
         "suggestions": suggestions,
         "benchmark": {
-            "label": "台美大盤趨勢（自動加權）",
+            "label": "台美大盤趨勢（系統自動加權）",
             "return_1y_pct": round(benchmark_return, 2),
         },
         "analysis_date": analysis_day.isoformat(),
@@ -364,7 +372,7 @@ def _parse_analysis_date(raw: str | None) -> date:
     try:
         return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"as_of_date 格式錯誤（需為 YYYY-MM-DD）：{e}")
+        raise HTTPException(status_code=400, detail=f"as_of_date 格式錯誤，請用 YYYY-MM-DD: {e}")
 
 
 def _parse_buy_date(raw: Any) -> date | None:
@@ -383,7 +391,7 @@ def _parse_positions_payload(raw: str | None) -> list[dict[str, Any]]:
     try:
         payload = json.loads(raw)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"positions JSON 解析失敗：{e}")
+        raise HTTPException(status_code=400, detail=f"positions JSON 解析失敗: {e}")
 
     if not isinstance(payload, list):
         raise HTTPException(status_code=400, detail="positions 必須是陣列格式")
@@ -440,7 +448,6 @@ def _is_us_symbol(symbol: str) -> bool:
     s = str(symbol or "").strip().upper()
     if not s:
         return False
-    # Typical US ticker: 1-5 uppercase letters.
     return s.isalpha() and 1 <= len(s) <= 5
 
 
@@ -448,10 +455,8 @@ def _is_valid_portfolio_symbol(symbol: str) -> bool:
     s = str(symbol or "").strip().upper()
     if not s:
         return False
-    # TW stocks/ETF commonly use 4-6 digits.
     if re.fullmatch(r"\d{4,6}", s):
         return True
-    # US symbols: allow letters/digits with optional dot or hyphen (e.g., BRK.B).
     if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", s):
         return True
     return False
@@ -484,7 +489,7 @@ async def _resolve_auto_benchmark(
 ) -> tuple[str, float]:
     total_mv = sum(max(0.0, _safe_float(row.get("market_value"))) for row in enriched)
     if total_mv <= 0:
-        return ("台美大盤趨勢（自動加權）", 0.0)
+        return ("台美大盤趨勢（系統自動加權）", 0.0)
 
     us_mv = 0.0
     tw_mv = 0.0
@@ -499,12 +504,10 @@ async def _resolve_auto_benchmark(
     us_weight = us_mv / total_mv if total_mv > 0 else 0.0
     tw_weight = tw_mv / total_mv if total_mv > 0 else 0.0
 
-    # Internal proxy only. UI/output should not expose benchmark codes.
     tw_return = await _calc_proxy_return(stock_service, "0050", analysis_day)
     us_return = await _calc_proxy_return(stock_service, "SPY", analysis_day)
-
     mixed = tw_return * tw_weight + us_return * us_weight
-    return ("台美大盤趨勢（自動加權）", round(mixed, 2))
+    return ("台美大盤趨勢（系統自動加權）", round(mixed, 2))
 
 
 def _pick_gemini_key() -> str:
@@ -514,6 +517,16 @@ def _pick_gemini_key() -> str:
         if keys:
             return keys[0]
     return (os.environ.get("GEMINI_API_KEY") or "").strip()
+
+
+def _clean_ai_assessment(text: str) -> str:
+    cleaned = text or ""
+    cleaned = re.sub(r"\b(0050|SPY)\b", "大盤趨勢", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"基準代號[:：]?\s*[A-Z0-9.\-/]+", "市場對照", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"基準[:：]?\s*[A-Z0-9.\-/]+", "市場對照", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    return cleaned
+
 
 async def _build_portfolio_ai_assessment(
     analysis_day: date,
@@ -526,10 +539,10 @@ async def _build_portfolio_ai_assessment(
 ) -> str:
     key = _pick_gemini_key()
     if not key:
-        return "目前尚未設定 AI 金鑰，請先完成金鑰設定後再執行投資健檢。"
+        return "AI 服務目前不可用，建議先依分散配置與風險控管原則調整持股。"
 
     top = []
-    for row in holdings[:5]:
+    for row in holdings[:6]:
         top.append(
             {
                 "symbol": row.get("symbol"),
@@ -543,27 +556,25 @@ async def _build_portfolio_ai_assessment(
         )
 
     tier = user_tier if user_tier in {"free", "pro", "premium"} else "free"
-
     if tier == "free":
-        tier_rules = "你是 FREE 版投資顧問：輸出 3 點內、保守且可執行的建議。"
+        tier_rules = "FREE：輸出 3 點建議，聚焦風險、續抱與停損原則。"
     elif tier == "pro":
-        tier_rules = "你是 PRO 版投資顧問：輸出短中線策略、風控與分批計畫。"
+        tier_rules = "PRO：輸出 4-5 點建議，加入短中線加減碼觸發條件。"
     else:
-        tier_rules = "你是 PREMIUM 版投資顧問：輸出短中長線方案、風險情境與再平衡步驟。"
+        tier_rules = "PREMIUM：輸出 6-8 點建議，含短中長線、再平衡與替代配置建議。"
 
     prompt = (
-        "你是投資組合健檢分析師，請使用繁體中文輸出純文字。"
-        "請避免 markdown。"
-        f"{tier_rules}"
-        "請根據持股資料判斷目前持倉狀態，並給出可執行建議。"
-        "不得輸出『基準代號』字樣，不得提及 0050、SPY 等比較代號。"
-        "只需使用『台股/美股大盤趨勢』作為背景參考。"
+        "你是投資組合健檢分析師，請使用繁體中文輸出純文字，不要 markdown。\n"
+        f"{tier_rules}\n"
+        "請先判斷每一檔持股狀態（續抱/分批加碼/分批減碼/停損檢討），再給整體調整策略。\n"
+        "請連動台股與美股大盤趨勢，禁止輸出任何基準代號（例如 0050、SPY）。\n"
+        "最後請給可執行條件：進場、出場、風險控管。\n"
         f"\n方案等級: {tier.upper()}"
         f"\n分析日期: {analysis_day.isoformat()}"
         f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
-        f"\n主要持股: {json.dumps(top, ensure_ascii=False)}"
-        f"\n系統初步建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
-        f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%（僅趨勢參考）"
+        f"\n持股明細: {json.dumps(top, ensure_ascii=False)}"
+        f"\n規則建議: {json.dumps(suggestions[:5], ensure_ascii=False)}"
+        f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%"
     )
 
     try:
@@ -575,13 +586,14 @@ async def _build_portfolio_ai_assessment(
             resp = client.models.generate_content(model=MODEL_FINAL, contents=prompt)
             return str(getattr(resp, "text", "") or "").strip()
 
-        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=18)
+        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=24)
         if text:
-            return text
+            return _clean_ai_assessment(text)
     except Exception:
         pass
 
-    return "AI 健檢暫時無法使用，請先參考系統建議並稍後再試。"
+    return "AI 健檢暫時無法完成，建議先依分散配置、單一部位上限與停損規則調整持股。"
+
 
 def _require_auth(request: Request) -> str:
     user = _require_auth_user(request)
@@ -591,7 +603,7 @@ def _require_auth(request: Request) -> str:
 def _require_auth_user(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="未提供授權")
+        raise HTTPException(status_code=401, detail="缺少登入憑證")
 
     token = auth_header.split(" ", 1)[1]
     try:
@@ -607,5 +619,4 @@ def _require_auth_user(request: Request) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=401, detail="授權驗證失敗")
-
+        raise HTTPException(status_code=401, detail="登入驗證失敗")
