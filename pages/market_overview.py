@@ -212,6 +212,66 @@ def _rotate_pool(pool: List[str], batch_size: int, market_key: str) -> List[str]
     return selected
 
 
+def _safe_num(value: object) -> float:
+    try:
+        if value is None:
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value).strip().replace(",", "")
+        return float(text) if text else 0.0
+    except Exception:
+        return 0.0
+
+
+def _pick_latest_and_prev(rows: List[Dict]) -> Optional[Dict[str, float]]:
+    """
+    Pick latest usable row and previous usable trading row.
+    Avoid adjacent duplicates (same date / same close) that cause all-zero pct.
+    """
+    if not isinstance(rows, list) or len(rows) < 2:
+        return None
+
+    normalized = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        close = _safe_num(r.get("close") or r.get("Close"))
+        if close <= 0:
+            continue
+        normalized.append(
+            {
+                "date": str(r.get("date") or "").strip(),
+                "close": close,
+                "volume": int(_safe_num(r.get("volume") or r.get("Volume") or r.get("Trading_Volume"))),
+            }
+        )
+    if len(normalized) < 2:
+        return None
+
+    latest = normalized[-1]
+    prev = None
+    # Prefer prior row with different date OR different close to avoid duplicated snapshots.
+    for i in range(len(normalized) - 2, -1, -1):
+        cand = normalized[i]
+        if cand["date"] != latest["date"] or abs(cand["close"] - latest["close"]) > 1e-12:
+            prev = cand
+            break
+    if prev is None:
+        prev = normalized[-2]
+    if prev["close"] <= 0:
+        return None
+
+    change = latest["close"] - prev["close"]
+    pct = (change / prev["close"] * 100.0) if prev["close"] != 0 else 0.0
+    return {
+        "price": latest["close"],
+        "change": change,
+        "change_pct": pct,
+        "volume": float(latest["volume"]),
+    }
+
+
 # ──────────────────────────────────────
 # Batch fetcher — FinMind only
 # ──────────────────────────────────────
@@ -250,13 +310,11 @@ async def _fetch_market_data() -> Dict[str, list]:
                     fm_data = finmind_adapter.get_tw_stock_price_sync(proxy_symbol, start, end)
                 else:
                     fm_data = finmind_adapter.get_us_stock_price_sync(proxy_symbol, start, end)
-                if fm_data and len(fm_data) >= 2:
-                    last_row = fm_data[-1]
-                    prev_row = fm_data[-2]
-                    price = last_row["close"]
-                    prev_price = prev_row["close"]
-                    chg = price - prev_price
-                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                picked = _pick_latest_and_prev(fm_data or [])
+                if picked:
+                    price = picked["price"]
+                    chg = picked["change"]
+                    pct = picked["change_pct"]
                     indices.append({
                         "name": meta["name"],
                         "symbol": meta["display"],
@@ -274,13 +332,11 @@ async def _fetch_market_data() -> Dict[str, list]:
                     fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
                 else:
                     fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
-                if fm_data and len(fm_data) >= 2:
-                    last_row = fm_data[-1]
-                    prev_row = fm_data[-2]
-                    price = last_row["close"]
-                    prev_price = prev_row["close"]
-                    chg = price - prev_price
-                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                picked = _pick_latest_and_prev(fm_data or [])
+                if picked:
+                    price = picked["price"]
+                    chg = picked["change"]
+                    pct = picked["change_pct"]
                     etfs.append({
                         "name": meta["name"],
                         "symbol": meta["display"],
@@ -378,15 +434,15 @@ def _fetch_top20_data() -> Dict:
                 if not (sym.isdigit() and len(sym) == 4):
                     continue
                 fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
-                if not fm_data or len(fm_data) < 2:
+                picked = _pick_latest_and_prev(fm_data or [])
+                if not picked:
                     continue
-                price = float(fm_data[-1].get("close", 0) or 0)
-                prev_price = float(fm_data[-2].get("close", 0) or 0)
-                if price <= 0 or prev_price <= 0:
+                price = float(picked["price"])
+                if price <= 0:
                     continue
-                volume = int(fm_data[-1].get("volume", 0) or 0)
-                chg = price - prev_price
-                pct = (chg / prev_price * 100)
+                volume = int(picked["volume"])
+                chg = float(picked["change"])
+                pct = float(picked["change_pct"])
                 tw_data.append({
                     "symbol": sym,
                     "name": tw_name_map.get(sym, sym),
@@ -412,14 +468,12 @@ def _fetch_top20_data() -> Dict:
         for sym in us_symbols:
             try:
                 fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
-                if fm_data and len(fm_data) >= 2:
-                    last_row = fm_data[-1]
-                    prev_row = fm_data[-2]
-                    price = last_row["close"]
-                    prev_price = prev_row["close"]
-                    vol = last_row.get("Trading_Volume", last_row.get("volume", 0))
-                    chg = price - prev_price
-                    pct = (chg / prev_price * 100) if prev_price != 0 else 0.0
+                picked = _pick_latest_and_prev(fm_data or [])
+                if picked:
+                    price = picked["price"]
+                    chg = picked["change"]
+                    pct = picked["change_pct"]
+                    vol = picked["volume"]
                     us_data.append({
                         "symbol": sym,
                         "name": _US_STOCK_NAMES.get(sym, sym),
