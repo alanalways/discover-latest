@@ -360,6 +360,7 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         title = re.sub(r"\s*[-|]\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", title, flags=re.IGNORECASE).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
         source = str(item.get("source") or "").strip()
+        impact_reason = str(item.get("impact_reason") or "").strip()
         if not title or not url:
             continue
         source_lc = source.lower()
@@ -373,6 +374,9 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         # Do not leak upstream provider labels to UI.
         if "tavily" in source.lower() or "tavly" in source.lower():
             source = ""
+        # Remove provider traces from reason as well.
+        impact_reason = re.sub(r"\b(tavily|tavly)\b", "", impact_reason, flags=re.IGNORECASE)
+        impact_reason = re.sub(r"\s+", " ", impact_reason).strip()
         key = f"{title.lower()}|{source.lower()}"
         if key in seen:
             continue
@@ -385,7 +389,7 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
                 "region": str(item.get("region") or "").strip(),
                 "impact": str(item.get("impact") or item.get("impact_level") or "").strip(),
-                "impact_reason": str(item.get("impact_reason") or "").strip(),
+                "impact_reason": impact_reason,
             }
         )
         if len(rows) >= max_items:
@@ -495,7 +499,7 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
 
     one_minute = (
         f"一分鐘看市場（依據最新 {min(len(items), 12)} 則新聞）：目前重點集中在「{'、'.join(top_themes)}」，"
-        f"顯示資金主線仍圍繞總體數據與權值科技。"
+        f"顯示資金主線仍圍繞總體數據、利率預期與權值科技。"
         f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
         f"{market_link}"
         f"{action_hint}"
@@ -508,8 +512,9 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
         brief_lines.append(f"{theme}（影響{impact}）：{why}")
     for row in items[:3]:
         title = str(row.get("title") or "").strip()
+        region = str(row.get("region") or "").strip() or "Global"
         if title:
-            brief_lines.append(f"新聞連結市場：{title[:60]}。")
+            brief_lines.append(f"新聞連結市場（{region}）：{title[:60]}。")
 
     if len(brief_lines) < 3:
         brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])
@@ -768,7 +773,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         client = genai.Client(api_key=key)
         resp = await asyncio.wait_for(
             asyncio.to_thread(client.models.generate_content, model=MODEL_FINAL, contents=prompt),
-            timeout=12,
+            timeout=9,
         )
         parsed = _extract_json_object(getattr(resp, "text", "") or "")
         if not parsed:
@@ -776,7 +781,8 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         if not parsed.get("items"):
             parsed["items"] = items[:12]
         return _normalize_payload(parsed, provider=provider, session_tag=session_tag)
-    except Exception:
+    except Exception as e:
+        print(f"[News] summarize fallback: {type(e).__name__}")
         return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
 
 

@@ -549,15 +549,18 @@ function cleanNewsTitle(title: string): string {
   if (!title) return '';
   const firstLine = title.split('\n')[0].trim();
   return firstLine
-    .replace(/\s*[-|]?\s*(tavily|tavly)\s*$/i, '')
+    .replace(/\b(tavily|tavly)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function buildNewsImpactLine(item: NewsItem): string {
   const tags = [item.region, item.impact].filter(Boolean).join('・');
-  const reason = (item.impact_reason || '').trim().replace(/\s+/g, ' ');
+  const reason = (item.impact_reason || '')
+    .replace(/\b(tavily|tavly)\b/gi, '')
+    .trim()
+    .replace(/\s+/g, ' ');
   if (tags && reason) return `${tags}｜${reason.slice(0, 68)}`;
   if (reason) return reason.slice(0, 80);
-  return tags || '市場重點整理中';
+  return tags || '與台美股連動重點整理中';
 }
