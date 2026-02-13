@@ -181,7 +181,8 @@ async def get_portfolio_health(
     positions: str | None = Query(default=None, description="JSON array positions"),
     include_ai: int = Query(default=0, description="1 to include AI assessment"),
 ):
-    _require_auth(request)
+    auth_user = _require_auth_user(request)
+    user_tier = str(auth_user.get("tier") or "free").strip().lower()
     from services.stock_service import stock_service
 
     analysis_day = _parse_analysis_date(as_of_date)
@@ -304,6 +305,7 @@ async def get_portfolio_health(
             suggestions=suggestions,
             benchmark_label=benchmark_label,
             benchmark_return=round(benchmark_return, 2),
+            user_tier=user_tier,
         )
 
     return {
@@ -485,6 +487,7 @@ async def _build_portfolio_ai_assessment(
     suggestions: list[str],
     benchmark_label: str,
     benchmark_return: float,
+    user_tier: str = "free",
 ) -> str:
     key = _pick_gemini_key()
     if not key:
@@ -501,14 +504,31 @@ async def _build_portfolio_ai_assessment(
             }
         )
 
+    tier = user_tier if user_tier in {"free", "pro", "premium"} else "free"
+
+    if tier == "free":
+        tier_rules = (
+            "你在 FREE 模式，內容要精簡、保守。"
+            "輸出 140-200 字，最多 3 個重點，最後只給 1 條動作建議。"
+        )
+    elif tier == "pro":
+        tier_rules = (
+            "你在 PRO 模式，內容需包含可執行建議。"
+            "輸出 200-320 字，必須包含短中長線三段，並給 2 條具體動作（持有/加碼/減碼）。"
+        )
+    else:
+        tier_rules = (
+            "你在 PREMIUM 模式，內容需最完整。"
+            "輸出 260-420 字，必須包含短中長線、倉位調整節奏、風險情境（多空兩種）、"
+            "並給 3 條具體動作（持有/加碼/減碼與替代資產配置）。"
+        )
+
     prompt = (
-        "你是專業投資顧問，請用繁體中文輸出投資組合健檢摘要。"
-        "字數 180-260 字，禁止 markdown，直接純文字。"
-        "務必包含："
-        "1) 短線（1-4 週）持股狀態與風險；"
-        "2) 中線（1-3 個月）持股狀態與觀察指標；"
-        "3) 長線（3-12 個月）配置建議；"
-        "4) 最後給 2 點可執行動作。"
+        "你是專業投資顧問，請用繁體中文輸出投資組合健檢摘要，禁止 markdown，直接純文字。"
+        f"{tier_rules}"
+        "內容需回應："
+        "目前持股是否適合續抱、哪些條件下可再買、哪些條件下應減碼或停損。"
+        f"\n方案等級: {tier.upper()}"
         f"\n分析日期: {analysis_day.isoformat()}"
         f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
         f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
@@ -535,6 +555,11 @@ async def _build_portfolio_ai_assessment(
 
 
 def _require_auth(request: Request) -> str:
+    user = _require_auth_user(request)
+    return str(user.get("id") or "")
+
+
+def _require_auth_user(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="未提供授權")
@@ -549,7 +574,7 @@ def _require_auth(request: Request) -> str:
         user_id = str(user.get("id") or "")
         if not user_id:
             raise HTTPException(status_code=401, detail="缺少 user_id")
-        return user_id
+        return user
     except HTTPException:
         raise
     except Exception:
