@@ -36,6 +36,8 @@ _NEWS_LOCK = asyncio.Lock()
 _TAVILY_KEYS: list[str] = []
 _TAVILY_KEY_INDEX = 0
 _TAVILY_LOCK = threading.Lock()
+_TAVILY_USAGE_LOCK = threading.Lock()
+_TAVILY_DAILY_USAGE: dict[str, int] = {}
 
 _RSS_SOURCES = [
     "https://news.google.com/rss/search?q=finance+stock+market+when:1d&hl=en-US&gl=US&ceid=US:en",
@@ -147,6 +149,34 @@ def _next_tavily_key() -> str:
         key = keys[_TAVILY_KEY_INDEX % len(keys)]
         _TAVILY_KEY_INDEX += 1
     return key
+
+
+def _get_tavily_daily_budget() -> int:
+    raw = (os.environ.get("TAVILY_DAILY_BUDGET") or "").strip()
+    if raw.isdigit():
+        return max(1, int(raw))
+    # Default: 47 credits/day per key (fits the schedule profile).
+    key_count = max(1, len(_load_tavily_keys()))
+    return 47 * key_count
+
+
+def _reserve_tavily_queries(request_count: int) -> int:
+    if request_count <= 0:
+        return 0
+    today = _taipei_now().strftime("%Y-%m-%d")
+    budget = _get_tavily_daily_budget()
+    with _TAVILY_USAGE_LOCK:
+        used = _TAVILY_DAILY_USAGE.get(today, 0)
+        remain = max(0, budget - used)
+        allowed = min(request_count, remain)
+        if allowed > 0:
+            _TAVILY_DAILY_USAGE[today] = used + allowed
+        # Keep memory small: keep only today/yesterday counters.
+        if len(_TAVILY_DAILY_USAGE) > 3:
+            keys = sorted(_TAVILY_DAILY_USAGE.keys())
+            for k in keys[:-2]:
+                _TAVILY_DAILY_USAGE.pop(k, None)
+        return allowed
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -300,10 +330,13 @@ async def _collect_news_with_tavily() -> tuple[list[dict[str, Any]], str]:
 
     now_tw = _taipei_now()
     session_tag, topic_keys = _scheduled_topic_keys(now_tw)
+    allowed = _reserve_tavily_queries(len(topic_keys))
+    if allowed <= 0:
+        raise RuntimeError("tavily_budget_exhausted")
     items: list[dict[str, Any]] = []
 
     async with httpx.AsyncClient(timeout=16.0) as client:
-        for topic in topic_keys:
+        for topic in topic_keys[:allowed]:
             query = _TOPIC_QUERY_MAP.get(topic)
             if not query:
                 continue
