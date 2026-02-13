@@ -213,6 +213,37 @@
     width: 100%;
 }
 
+.detailSection {
+    width: 100%;
+}
+
+.detailGrid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+
+.detailCard {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 14px;
+}
+
+.detailTitle {
+    font-family: var(--font-heading);
+    font-size: 14px;
+    color: var(--text-1);
+    margin: 0 0 8px 0;
+}
+
+.detailCard p {
+    margin: 6px 0;
+    font-size: 12px;
+    color: var(--text-2);
+    line-height: 1.5;
+}
+
 .matrixTitle {
     font-family: var(--font-heading);
     font-size: 18px;
@@ -264,4 +295,10 @@
 
 .faqNote svg {
     color: var(--primary);
+}
+
+@media (max-width: 900px) {
+    .detailGrid {
+        grid-template-columns: 1fr;
+    }
 }

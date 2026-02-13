@@ -85,6 +85,32 @@ const FEATURE_MATRIX: Array<{ feature: string; free: string; pro: string; premiu
   { feature: '更新優先權', free: '標準', pro: '優先', premium: '最高優先' },
 ];
 
+const FEATURE_DETAILS: Array<{
+  title: string;
+  free: string;
+  pro: string;
+  premium: string;
+}> = [
+  {
+    title: 'AI 深度分析',
+    free: '提供單次重點判讀，適合快速看方向。',
+    pro: '加入短中長線拆解與多指標交叉（EMA/RSI/MACD/布林）。',
+    premium: '提供完整情境推演（含進出場劇本、風險區間與資金配置建議）。',
+  },
+  {
+    title: '投資健檢',
+    free: '提供基本持倉體檢與風險提示。',
+    pro: '新增更完整的調整建議與部位優化方向。',
+    premium: '提供完整組合健檢、再平衡方案與多資產建議。',
+  },
+  {
+    title: '財經新聞焦點',
+    free: '標準新聞摘要與市場概況。',
+    pro: '加強主題重點與市場連結，縮短判讀時間。',
+    premium: '提供完整一分鐘市場重點、主題影響表與策略提示。',
+  },
+];
+
 export default function PricingPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
 
@@ -262,6 +288,20 @@ export default function PricingPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className={styles.detailSection}>
+        <h3 className={styles.matrixTitle}>重點功能分級說明</h3>
+        <div className={styles.detailGrid}>
+          {FEATURE_DETAILS.map((row) => (
+            <article key={row.title} className={styles.detailCard}>
+              <h4 className={styles.detailTitle}>{row.title}</h4>
+              <p><strong>Free：</strong>{row.free}</p>
+              <p><strong>Pro：</strong>{row.pro}</p>
+              <p><strong>Premium：</strong>{row.premium}</p>
+            </article>
+          ))}
         </div>
       </section>
 
