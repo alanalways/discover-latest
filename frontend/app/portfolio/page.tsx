@@ -42,6 +42,7 @@ type PortfolioHealth = {
   suggestions: string[];
   benchmark: {
     symbol: string;
+    label?: string;
     return_1y_pct: number;
   };
   analysis_date?: string;
@@ -73,6 +74,15 @@ function riskLabel(level: 'low' | 'medium' | 'high' | undefined): string {
   if (level === 'high') return '高風險';
   if (level === 'medium') return '中風險';
   return '低風險';
+}
+
+function benchmarkLabel(benchmark: { symbol?: string; label?: string } | undefined): string {
+  if (!benchmark) return '台美大盤';
+  if (benchmark.label && benchmark.label.trim()) return benchmark.label.trim();
+  const symbol = String(benchmark.symbol || '').toUpperCase();
+  if (symbol === '0050') return '台股大盤';
+  if (symbol === 'SPY') return '美股大盤';
+  return '台美大盤加權';
 }
 
 export default function PortfolioHealthPage() {
@@ -279,7 +289,7 @@ export default function PortfolioHealthPage() {
           </h3>
           <p className={styles.aiText}>{data.ai_assessment}</p>
           <p className={styles.subtle}>
-            分析日期：{data.analysis_date || asOfDate} ｜ 市場對照：{data.benchmark.symbol} 近一年報酬 {data.benchmark.return_1y_pct.toFixed(2)}%
+            分析日期：{data.analysis_date || asOfDate} ｜ 市場對照：{benchmarkLabel(data.benchmark)} 近一年報酬 {data.benchmark.return_1y_pct.toFixed(2)}%
           </p>
         </div>
       )}
