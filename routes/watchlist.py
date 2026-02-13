@@ -203,10 +203,10 @@ async def get_portfolio_health(
                 "max_weight_pct": 0.0,
                 "risk_level": "low",
             },
-            "suggestions": ["目前尚無持股，請先新增持股後再進行健檢。"],
+            "suggestions": ["目前沒有持股資料，請先輸入股票代碼與股數再執行健檢。"],
             "benchmark": {"symbol": benchmark.upper(), "return_1y_pct": 0.0},
             "analysis_date": analysis_day.isoformat(),
-            "ai_assessment": "尚無持股資料，暫時無法產生 AI 健檢。",
+            "ai_assessment": "目前沒有持股資料，尚無法產生 AI 健檢判讀。",
         }
 
     async def enrich(holding: dict[str, Any]) -> dict[str, Any]:
@@ -218,7 +218,10 @@ async def get_portfolio_health(
 
         current_price = _safe_float(holding.get("current_price"))
         try:
-            stock = await stock_service.get_stock_data(symbol=symbol, period=_period_for_analysis_date(analysis_day))
+            stock = await stock_service.get_stock_data(
+                symbol=symbol,
+                period=_period_for_analysis_date(analysis_day),
+            )
             info = stock.get("info", {}) if isinstance(stock, dict) else {}
             history = stock.get("history", []) if isinstance(stock, dict) else []
             dated_close = _pick_close_at_or_before(history, analysis_day)
@@ -272,21 +275,24 @@ async def get_portfolio_health(
 
     suggestions: list[str] = []
     if max_weight_pct >= 55:
-        suggestions.append("單一持股比重偏高，建議分批降權重、提升分散度。")
+        suggestions.append("單一持股權重過高，建議分批調降部位，避免波動快速放大。")
     elif max_weight_pct >= 35:
-        suggestions.append("持股集中度偏高，建議補齊不同產業與市場配置。")
+        suggestions.append("持股集中度偏高，建議設定單一持股上限並逐步分散。")
     else:
-        suggestions.append("分散度健康，建議維持紀律並定期再平衡。")
+        suggestions.append("分散化表現良好，建議維持紀律並定期再平衡。")
 
     if total_pnl_pct < -12:
-        suggestions.append("整體回撤偏大，建議檢查停損規則與部位上限。")
+        suggestions.append("組合回撤偏大，建議先檢查停損紀律與倉位控管。")
     elif total_pnl_pct > 18:
-        suggestions.append("整體報酬偏強，可設定分批停利與移動停利。")
+        suggestions.append("整體獲利不錯，可考慮分批鎖利並保留趨勢單。")
 
     benchmark_symbol = (benchmark or "0050").strip().upper()
     benchmark_return = 0.0
     try:
-        bm = await stock_service.get_stock_data(symbol=benchmark_symbol, period=_period_for_analysis_date(analysis_day))
+        bm = await stock_service.get_stock_data(
+            symbol=benchmark_symbol,
+            period=_period_for_analysis_date(analysis_day),
+        )
         bm_history = bm.get("history", []) if isinstance(bm, dict) else []
         first = _pick_close_at_or_before(bm_history, analysis_day - timedelta(days=365))
         last = _pick_close_at_or_before(bm_history, analysis_day)
@@ -347,7 +353,7 @@ def _parse_analysis_date(raw: str | None) -> date:
     try:
         return datetime.strptime(raw.strip(), "%Y-%m-%d").date()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"as_of_date 格式錯誤（YYYY-MM-DD）: {e}")
+        raise HTTPException(status_code=400, detail=f"as_of_date 格式錯誤（需為 YYYY-MM-DD）：{e}")
 
 
 def _parse_buy_date(raw: Any) -> date | None:
@@ -366,10 +372,10 @@ def _parse_positions_payload(raw: str | None) -> list[dict[str, Any]]:
     try:
         payload = json.loads(raw)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"positions JSON 格式錯誤: {e}")
+        raise HTTPException(status_code=400, detail=f"positions JSON 解析失敗：{e}")
 
     if not isinstance(payload, list):
-        raise HTTPException(status_code=400, detail="positions 必須是陣列")
+        raise HTTPException(status_code=400, detail="positions 必須是陣列格式")
 
     rows: list[dict[str, Any]] = []
     for item in payload:
@@ -438,7 +444,7 @@ async def _build_portfolio_ai_assessment(
 ) -> str:
     key = _pick_gemini_key()
     if not key:
-        return "未設定 AI 金鑰，暫時無法產生健檢結論。"
+        return "尚未設定 AI 金鑰，暫時無法提供 AI 健檢摘要。"
 
     top = []
     for row in holdings[:5]:
@@ -452,19 +458,23 @@ async def _build_portfolio_ai_assessment(
         )
 
     prompt = (
-        "請用繁體中文輸出一段 120-220 字的投資組合健檢，不要使用 markdown。"
-        "內容需包含：目前狀態判斷、主要風險、接下來 1-2 個可執行調整。"
-        "避免保證報酬語句。"
+        "你是專業投資顧問，請用繁體中文輸出投資組合健檢摘要。"
+        "字數 180-260 字，禁止 markdown，直接純文字。"
+        "務必包含："
+        "1) 短線（1-4 週）持股狀態與風險；"
+        "2) 中線（1-3 個月）持股狀態與觀察指標；"
+        "3) 長線（3-12 個月）配置建議；"
+        "4) 最後給 2 點可執行動作。"
         f"\n分析日期: {analysis_day.isoformat()}"
-        f"\n摘要: {json.dumps(summary, ensure_ascii=False)}"
+        f"\n組合摘要: {json.dumps(summary, ensure_ascii=False)}"
         f"\n前五大持股: {json.dumps(top, ensure_ascii=False)}"
         f"\n系統建議: {json.dumps(suggestions[:3], ensure_ascii=False)}"
-        f"\n基準: {benchmark_symbol} 近一年報酬 {benchmark_return:.2f}%"
+        f"\n比較基準: {benchmark_symbol}，近一年報酬 {benchmark_return:.2f}%"
     )
 
     try:
-        from google import genai
         from config.models import MODEL_FINAL
+        from google import genai
 
         def _run() -> str:
             client = genai.Client(api_key=key)
@@ -476,7 +486,8 @@ async def _build_portfolio_ai_assessment(
             return text
     except Exception:
         pass
-    return "AI 健檢暫時不可用，建議先依分散配置與風險控制原則調整持股。"
+
+    return "AI 健檢暫時不可用。建議先檢查最大持股權重與總回撤，再依分散化原則調整部位。"
 
 
 def _require_auth(request: Request) -> str:
