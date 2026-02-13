@@ -440,14 +440,21 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         if key in seen:
             continue
         seen.add(key)
+        region = _strip_provider_terms(str(item.get("region") or "")).strip()
+        impact = _strip_provider_terms(str(item.get("impact") or item.get("impact_level") or "")).strip()
+        if region.lower() in {"tavily", "tavly", "news", "unknown"}:
+            region = ""
+        if impact.lower() in {"tavily", "tavly", "news", "unknown"}:
+            impact = ""
+
         rows.append(
             {
                 "title": title,
                 "url": url,
                 "source": source,
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
-                "region": _strip_provider_terms(str(item.get("region") or "")).strip(),
-                "impact": _strip_provider_terms(str(item.get("impact") or item.get("impact_level") or "")).strip(),
+                "region": region,
+                "impact": impact,
                 "impact_reason": impact_reason,
             }
         )

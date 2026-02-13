@@ -554,8 +554,16 @@ function cleanNewsTitle(title: string): string {
     .trim();
 }
 
+function cleanNewsTag(tag?: string): string {
+  const text = String(tag || '')
+    .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text;
+}
+
 function buildNewsImpactLine(item: NewsItem): string {
-  const tags = [item.region, item.impact].filter(Boolean).join('・');
+  const tags = [cleanNewsTag(item.region), cleanNewsTag(item.impact)].filter(Boolean).join('・');
   const reason = (item.impact_reason || '')
     .replace(/\b(tavily|tavly)\b/gi, '')
     .trim()
