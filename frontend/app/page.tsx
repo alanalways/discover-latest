@@ -401,7 +401,6 @@ export default function Dashboard() {
           </h3>
           <span className={styles.newsMeta}>
             系統每 30 分鐘統一更新
-            {news.provider ? ` · 來源 ${news.provider}` : ''}
           </span>
         </div>
         <div className={styles.newsGrid}>
@@ -447,7 +446,6 @@ export default function Dashboard() {
                 className={styles.newsLink}
               >
                 <span className={styles.newsTitle}>{item.title}</span>
-                <span className={styles.newsSource}>{item.source || 'News'} </span>
               </a>
             ))}
             {(!news.items || news.items.length === 0) && (
