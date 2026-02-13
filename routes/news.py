@@ -22,6 +22,7 @@ import os
 import re
 import threading
 from typing import Any
+from urllib.parse import urlparse
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -216,6 +217,13 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         source = str(item.get("source") or "").strip()
         if not title or not url:
             continue
+        if source.lower() in {"tavily", "tavly", "tavily ai", "news", "unknown"}:
+            try:
+                host = urlparse(url).netloc.lower()
+                host = host.replace("www.", "")
+                source = host.split(":")[0] if host else ""
+            except Exception:
+                source = ""
         key = f"{title.lower()}|{source.lower()}"
         if key in seen:
             continue
@@ -224,7 +232,7 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
             {
                 "title": title,
                 "url": url,
-                "source": source or "News",
+                "source": source,
                 "published_at": str(item.get("published_at") or item.get("published") or "").strip(),
                 "region": str(item.get("region") or "").strip(),
                 "impact": str(item.get("impact") or item.get("impact_level") or "").strip(),
@@ -363,7 +371,6 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         "brief": norm_brief[:5],
         "items": norm_items,
         "table": norm_table[:8],
-        "provider": provider,
         "session_tag": session_tag,
     }
 
