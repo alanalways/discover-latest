@@ -217,13 +217,17 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         source = str(item.get("source") or "").strip()
         if not title or not url:
             continue
-        if source.lower() in {"tavily", "tavly", "tavily ai", "news", "unknown"}:
+        source_lc = source.lower()
+        if source_lc in {"tavily", "tavly", "tavily ai", "news", "unknown"} or "tavily" in source_lc or "tavly" in source_lc:
             try:
                 host = urlparse(url).netloc.lower()
                 host = host.replace("www.", "")
                 source = host.split(":")[0] if host else ""
             except Exception:
                 source = ""
+        # Do not leak upstream provider labels to UI.
+        if "tavily" in source.lower() or "tavly" in source.lower():
+            source = ""
         key = f"{title.lower()}|{source.lower()}"
         if key in seen:
             continue
@@ -363,6 +367,8 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
     norm_table = table if isinstance(table, list) else []
     if not one_minute:
         one_minute = "；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE
+    if ("台股" not in one_minute and "美股" not in one_minute) and norm_brief:
+        one_minute = f"{one_minute} 台股可留意權值與半導體，美股可觀察科技龍頭與利率敏感族群。"
 
     return {
         "updated_at": now.isoformat(),
