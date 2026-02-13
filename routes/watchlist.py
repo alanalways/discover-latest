@@ -181,14 +181,11 @@ async def get_portfolio_health(
     positions: str | None = Query(default=None, description="JSON array positions"),
     include_ai: int = Query(default=0, description="1 to include AI assessment"),
 ):
-    user_id = _require_auth(request)
-    from adapters.supabase_adapter import supabase_adapter
+    _require_auth(request)
     from services.stock_service import stock_service
 
     analysis_day = _parse_analysis_date(as_of_date)
     holdings = _parse_positions_payload(positions)
-    if not holdings:
-        holdings = supabase_adapter.get_user_portfolio(user_id) or []
 
     if not holdings:
         return {

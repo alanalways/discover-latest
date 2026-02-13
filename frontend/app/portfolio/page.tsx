@@ -83,7 +83,6 @@ export default function PortfolioHealthPage() {
   const [data, setData] = useState<PortfolioHealth | null>(null);
 
   const [asOfDate, setAsOfDate] = useState(today());
-  const [useManual, setUseManual] = useState(true);
   const [positions, setPositions] = useState<PositionRow[]>([newRow()]);
 
   const validManualCount = useMemo(
@@ -99,7 +98,7 @@ export default function PortfolioHealthPage() {
   const runHealthCheck = async () => {
     if (!isLoggedIn) return;
 
-    if (useManual && validManualCount === 0) {
+    if (validManualCount === 0) {
       setError('請至少輸入一筆有效持股（股票代碼 + 股數）。');
       return;
     }
@@ -108,16 +107,14 @@ export default function PortfolioHealthPage() {
     setError('');
 
     try {
-      const payload = useManual
-        ? positions
-            .map((p) => ({
-              symbol: p.symbol.trim().toUpperCase(),
-              shares: Number(p.shares),
-              avg_cost: Number(p.avgCost || 0),
-              buy_date: p.buyDate || undefined,
-            }))
-            .filter((p) => p.symbol && Number.isFinite(p.shares) && p.shares > 0)
-        : undefined;
+      const payload = positions
+        .map((p) => ({
+          symbol: p.symbol.trim().toUpperCase(),
+          shares: Number(p.shares),
+          avg_cost: Number(p.avgCost || 0),
+          buy_date: p.buyDate || undefined,
+        }))
+        .filter((p) => p.symbol && Number.isFinite(p.shares) && p.shares > 0);
 
       const res = (await api.getPortfolioHealth({
         asOfDate: asOfDate || undefined,
@@ -176,64 +173,58 @@ export default function PortfolioHealthPage() {
             <span>分析日期</span>
             <input type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
           </label>
-          <label className={styles.switch}>
-            <input type="checkbox" checked={useManual} onChange={(e) => setUseManual(e.target.checked)} />
-            <span>使用手動輸入持股（關閉則改讀雲端已儲存持股）</span>
-          </label>
         </div>
 
-        {useManual && (
-          <div className={styles.manualBlock}>
-            <div className={styles.manualHead}>
-              <h3>持股明細輸入</h3>
-              <button type="button" className={styles.addBtn} onClick={() => setPositions((p) => [...p, newRow()])}>
-                <Plus size={14} /> 新增持股
-              </button>
-            </div>
-            <div className={styles.manualTable}>
-              <div className={styles.manualRowHead}>
-                <span>股票代碼</span>
-                <span>股數</span>
-                <span>平均成本</span>
-                <span>買入日期</span>
-                <span>操作</span>
-              </div>
-              {positions.map((row) => (
-                <div key={row.id} className={styles.manualRow}>
-                  <input
-                    value={row.symbol}
-                    placeholder="2330 / NVDA"
-                    onChange={(e) => updateRow(row.id, { symbol: e.target.value.toUpperCase() })}
-                  />
-                  <input
-                    value={row.shares}
-                    placeholder="100"
-                    onChange={(e) => updateRow(row.id, { shares: e.target.value })}
-                  />
-                  <input
-                    value={row.avgCost}
-                    placeholder="600"
-                    onChange={(e) => updateRow(row.id, { avgCost: e.target.value })}
-                  />
-                  <input
-                    type="date"
-                    value={row.buyDate}
-                    onChange={(e) => updateRow(row.id, { buyDate: e.target.value })}
-                  />
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    onClick={() => removeRow(row.id)}
-                    disabled={positions.length <= 1}
-                    title="刪除"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
+        <div className={styles.manualBlock}>
+          <div className={styles.manualHead}>
+            <h3>持股明細輸入</h3>
+            <button type="button" className={styles.addBtn} onClick={() => setPositions((p) => [...p, newRow()])}>
+              <Plus size={14} /> 新增持股
+            </button>
           </div>
-        )}
+          <div className={styles.manualTable}>
+            <div className={styles.manualRowHead}>
+              <span>股票代碼</span>
+              <span>股數</span>
+              <span>平均成本</span>
+              <span>買入日期</span>
+              <span>操作</span>
+            </div>
+            {positions.map((row) => (
+              <div key={row.id} className={styles.manualRow}>
+                <input
+                  value={row.symbol}
+                  placeholder="2330 / NVDA"
+                  onChange={(e) => updateRow(row.id, { symbol: e.target.value.toUpperCase() })}
+                />
+                <input
+                  value={row.shares}
+                  placeholder="100"
+                  onChange={(e) => updateRow(row.id, { shares: e.target.value })}
+                />
+                <input
+                  value={row.avgCost}
+                  placeholder="600"
+                  onChange={(e) => updateRow(row.id, { avgCost: e.target.value })}
+                />
+                <input
+                  type="date"
+                  value={row.buyDate}
+                  onChange={(e) => updateRow(row.id, { buyDate: e.target.value })}
+                />
+                <button
+                  type="button"
+                  className={styles.iconBtn}
+                  onClick={() => removeRow(row.id)}
+                  disabled={positions.length <= 1}
+                  title="刪除"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
 
         <button className={styles.runBtn} onClick={runHealthCheck} disabled={loading}>
           {loading ? <Loader2 className={styles.spin} size={16} /> : <Sparkles size={16} />}
