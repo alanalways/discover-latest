@@ -54,6 +54,9 @@ interface NewsItem {
   url: string;
   source?: string;
   published_at?: string;
+  region?: string;
+  impact?: string;
+  impact_reason?: string;
 }
 
 interface NewsBrief {
@@ -406,7 +409,10 @@ export default function Dashboard() {
                 rel="noreferrer"
                 className={styles.newsLink}
               >
-                <span className={styles.newsTitle}>{item.title}</span>
+                <span className={styles.newsTitle}>{cleanNewsTitle(item.title)}</span>
+                <span className={styles.newsImpact}>
+                  {buildNewsImpactLine(item)}
+                </span>
               </a>
             ))}
             {(!news.items || news.items.length === 0) && (
@@ -537,4 +543,21 @@ function formatVolume(vol: number): string {
   if (vol >= 1_000_000) return `${(vol / 1_000_000).toFixed(1)}M`;
   if (vol >= 1_000) return `${(vol / 1_000).toFixed(1)}K`;
   return String(vol);
+}
+
+function cleanNewsTitle(title: string): string {
+  if (!title) return '';
+  const firstLine = title.split('\n')[0].trim();
+  return firstLine
+    .replace(/\s*[-|]?\s*(tavily|tavly)\s*$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildNewsImpactLine(item: NewsItem): string {
+  const tags = [item.region, item.impact].filter(Boolean).join('・');
+  const reason = (item.impact_reason || '').trim().replace(/\s+/g, ' ');
+  if (tags && reason) return `${tags}｜${reason.slice(0, 68)}`;
+  if (reason) return reason.slice(0, 80);
+  return tags || '市場重點整理中';
 }
