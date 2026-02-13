@@ -364,6 +364,10 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
         norm_brief = list(_FALLBACK_BRIEF)
 
     norm_items = _normalize_items(items, max_items=12)
+    # UI policy: do not display upstream provider labels in the dashboard card.
+    for row in norm_items:
+        if isinstance(row, dict):
+            row["source"] = ""
     norm_table = table if isinstance(table, list) else []
     if not one_minute:
         one_minute = "；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE
@@ -535,18 +539,18 @@ async def _collect_news_with_grounding() -> list[dict[str, Any]]:
 
 
 async def _summarize_news_items(items: list[dict[str, Any]], provider: str, session_tag: str) -> dict[str, Any]:
+    # Default to deterministic summary from collected headlines to avoid model timeout
+    # and keep output tightly linked to latest Tavily/Grounding items.
+    rule_payload = _build_rule_based_summary(items)
     key = _pick_gemini_key()
-    if not key:
-        return _normalize_payload(
-            {
-                "one_minute_brief": _FALLBACK_ONE_MINUTE,
-                "brief": _FALLBACK_BRIEF,
-                "items": items,
-                "table": [],
-            },
-            provider=provider,
-            session_tag=session_tag,
-        )
+    use_gemini_summary = str(os.environ.get("NEWS_USE_GEMINI_SUMMARY", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not key or not use_gemini_summary:
+        return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
 
     from google import genai
     from config.models import MODEL_FINAL
@@ -584,7 +588,7 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         client = genai.Client(api_key=key)
         resp = await asyncio.wait_for(
             asyncio.to_thread(client.models.generate_content, model=MODEL_FINAL, contents=prompt),
-            timeout=18,
+            timeout=12,
         )
         parsed = _extract_json_object(getattr(resp, "text", "") or "")
         if not parsed:
@@ -592,10 +596,8 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
         if not parsed.get("items"):
             parsed["items"] = items[:12]
         return _normalize_payload(parsed, provider=provider, session_tag=session_tag)
-    except Exception as e:
-        print(f"[News] summarize fallback: {type(e).__name__}")
-        fallback_payload = _build_rule_based_summary(items)
-        return _normalize_payload(fallback_payload, provider=provider, session_tag=session_tag)
+    except Exception:
+        return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
 
 
 async def _fetch_news_uncached() -> dict[str, Any]:
