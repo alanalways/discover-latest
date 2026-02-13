@@ -364,7 +364,7 @@ export default function Dashboard() {
             <Activity size={18} /> 財經新聞焦點
           </h3>
           <span className={styles.newsMeta}>
-            系統每 30 分鐘統一更新
+            系統依交易時段自動更新（約 10 分鐘）
           </span>
         </div>
         <div className={styles.newsGrid}>

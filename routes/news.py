@@ -5,7 +5,7 @@ Priority:
 2) Gemini grounding collection
 3) RSS fallback
 
-Output is cached for 30 minutes and includes:
+Output is cached with session-aware TTL and includes:
 - one_minute_brief (Traditional Chinese)
 - brief bullets
 - impact table
@@ -30,7 +30,7 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-_NEWS_CACHE_TTL_SEC = 1800
+_DEFAULT_NEWS_CACHE_TTL_SEC = int((os.environ.get("NEWS_CACHE_TTL_SEC") or "600").strip() or "600")
 _NEWS_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 _NEWS_LOCK = asyncio.Lock()
 _NEWS_CACHE_FILE = os.path.join(os.getcwd(), ".cache", "news_brief_cache.json")
@@ -67,6 +67,43 @@ _TOPIC_QUERY_MAP = {
     "U1": "US stock market sentiment futures S&P 500 Nasdaq latest",
     "U2": "US megacap tech AI Magnificent Seven earnings guidance latest",
 }
+
+
+def _to_int_env(name: str, default: int) -> int:
+    raw = (os.environ.get(name) or "").strip()
+    if raw.isdigit():
+        return max(30, int(raw))
+    return default
+
+
+def _news_cache_ttl_sec(now_tw: datetime | None = None) -> int:
+    now_tw = now_tw or _taipei_now()
+    session_tag, _ = _scheduled_topic_keys(now_tw)
+    special = _is_special_window(now_tw)
+
+    trading_ttl = _to_int_env("NEWS_CACHE_TTL_TRADING_SEC", _DEFAULT_NEWS_CACHE_TTL_SEC)
+    off_ttl = _to_int_env("NEWS_CACHE_TTL_OFF_SEC", 1800)
+    weekend_ttl = _to_int_env("NEWS_CACHE_TTL_WEEKEND_SEC", 1800)
+    special_ttl = _to_int_env("NEWS_CACHE_TTL_SPECIAL_SEC", 300)
+
+    if special:
+        return special_ttl
+    if not _is_weekday(now_tw):
+        return weekend_ttl
+
+    trading_sessions = {
+        "tw_pre_open",
+        "tw_open_spike",
+        "tw_intraday",
+        "tw_mid_special",
+        "tw_tail_special",
+        "tw_post_close",
+        "us_pre_open",
+        "us_intraday",
+        "us_mid_special",
+        "us_post_close",
+    }
+    return trading_ttl if session_tag in trading_sessions else off_ttl
 
 
 def _strip_provider_terms(text: str) -> str:
@@ -606,6 +643,7 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", session_tag: str = "") -> dict[str, Any]:
     now = datetime.now(timezone.utc)
+    ttl_sec = _news_cache_ttl_sec()
     brief = payload.get("brief") if isinstance(payload, dict) else None
     items = payload.get("items") if isinstance(payload, dict) else None
     table = payload.get("table") if isinstance(payload, dict) else None
@@ -653,7 +691,7 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
 
     payload_out = {
         "updated_at": now.isoformat(),
-        "next_update_at": (now + timedelta(seconds=_NEWS_CACHE_TTL_SEC)).isoformat(),
+        "next_update_at": (now + timedelta(seconds=ttl_sec)).isoformat(),
         "one_minute_brief": one_minute,
         "brief": norm_brief[:5],
         "items": norm_items,
@@ -905,17 +943,19 @@ async def _fetch_news_uncached() -> dict[str, Any]:
 
 @router.get("/news/brief")
 async def get_news_brief():
-    """Unified financial news brief, refreshed every 30 minutes server-side."""
+    """Unified financial news brief with session-aware cache TTL."""
     _load_news_cache_from_disk()
+    ttl_sec = _news_cache_ttl_sec()
     now_ts = datetime.now(timezone.utc).timestamp()
-    if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < _NEWS_CACHE_TTL_SEC):
+    if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < ttl_sec):
         if isinstance(_NEWS_CACHE.get("data"), dict):
             _sanitize_payload_inplace(_NEWS_CACHE["data"])
         return _NEWS_CACHE["data"]
 
     async with _NEWS_LOCK:
+        ttl_sec = _news_cache_ttl_sec()
         now_ts = datetime.now(timezone.utc).timestamp()
-        if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < _NEWS_CACHE_TTL_SEC):
+        if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < ttl_sec):
             if isinstance(_NEWS_CACHE.get("data"), dict):
                 _sanitize_payload_inplace(_NEWS_CACHE["data"])
             return _NEWS_CACHE["data"]
