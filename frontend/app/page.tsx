@@ -59,8 +59,12 @@ interface NewsItem {
 interface NewsBrief {
   updated_at?: string;
   next_update_at?: string;
+  one_minute_brief?: string;
   brief?: string[];
   items?: NewsItem[];
+  table?: { theme?: string; impact?: string; why?: string }[];
+  provider?: string;
+  session_tag?: string;
 }
 
 type Top20Bucket = { gainers: Top20Stock[]; losers: Top20Stock[]; volume: Top20Stock[] };
@@ -234,8 +238,8 @@ export default function Dashboard() {
   const [error, setError] = useState('');
 
   const hydrateFromPayload = useCallback((payload: DashboardCachePayload) => {
-    if (Array.isArray(payload.indices)) setIndices(payload.indices);
-    if (Array.isArray(payload.etfs)) setEtfs(payload.etfs);
+    if (Array.isArray(payload.indices) && payload.indices.length > 0) setIndices(payload.indices);
+    if (Array.isArray(payload.etfs) && payload.etfs.length > 0) setEtfs(payload.etfs);
     if (payload.hours) setHours(payload.hours);
     if (payload.top20Tw) setTop20Tw(normalizeTop20Bucket(payload.top20Tw, FALLBACK_TOP20_TW));
     if (payload.top20Us) setTop20Us(normalizeTop20Bucket(payload.top20Us, FALLBACK_TOP20_US));
@@ -395,15 +399,43 @@ export default function Dashboard() {
           <h3 className={styles.sectionTitle}>
             <Activity size={18} /> 財經新聞焦點
           </h3>
-          <span className={styles.newsMeta}>系統每 30 分鐘統一更新</span>
+          <span className={styles.newsMeta}>
+            系統每 30 分鐘統一更新
+            {news.provider ? ` · 來源 ${news.provider}` : ''}
+          </span>
         </div>
         <div className={styles.newsGrid}>
           <div className={styles.newsBriefCard}>
+            <p className={styles.newsOneMinute}>
+              {news.one_minute_brief || FALLBACK_NEWS_BRIEF[0]}
+            </p>
             {(news.brief && news.brief.length ? news.brief : FALLBACK_NEWS_BRIEF).slice(0, 3).map((line, idx) => (
               <p key={`${line}-${idx}`} className={styles.newsBullet}>
                 {line}
               </p>
             ))}
+            {Array.isArray(news.table) && news.table.length > 0 && (
+              <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
+                <table style={{ width: '100%', fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>主題</th>
+                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>影響</th>
+                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>重點</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {news.table.slice(0, 4).map((row, idx) => (
+                      <tr key={`${row.theme || 'theme'}-${idx}`}>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{row.theme || '-'}</td>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{row.impact || '-'}</td>
+                        <td style={{ padding: '4px 0', verticalAlign: 'top', opacity: 0.9 }}>{row.why || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
           <div className={styles.newsListCard}>
             {(news.items || []).slice(0, 4).map((item) => (
