@@ -213,6 +213,8 @@ def _normalize_items(items: Any, max_items: int = 12) -> list[dict[str, Any]]:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").strip()
+        # Remove upstream provider traces accidentally embedded in title text.
+        title = re.sub(r"\s*[-|]?\s*(tavily|tavly)\s*$", "", title, flags=re.IGNORECASE).strip()
         url = str(item.get("url") or item.get("link") or "").strip()
         source = str(item.get("source") or "").strip()
         if not title or not url:
@@ -342,19 +344,26 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     elif us_focus > tw_focus and us_focus >= 2:
         market_link = "美股科技與利率敏感族群主導，台股多受美股風險偏好外溢影響。"
 
+    headline_focus = []
+    for row in items[:4]:
+        t = str(row.get("title") or "").strip()
+        if t:
+            headline_focus.append(t[:36])
+
     one_minute = (
         f"一分鐘看市場：目前新聞重點集中在「{'、'.join(top_themes)}」，"
         f"顯示資金主線仍圍繞總體數據與權值科技。"
         f"綜合新聞情緒判斷，短線風格偏向{risk_tone}；"
         f"{market_link}"
         f"{action_hint}"
+        f"{(' 焦點事件：' + ' / '.join(headline_focus[:2]) + '。') if headline_focus else ''}"
     )
 
     brief_lines: list[str] = []
     for theme in top_themes[:3]:
         impact, why = theme_meta.get(theme, ("中", "留意該主題對資金輪動的連鎖效應。"))
         brief_lines.append(f"{theme}（影響{impact}）：{why}")
-    for row in items[:2]:
+    for row in items[:3]:
         title = str(row.get("title") or "").strip()
         if title:
             brief_lines.append(f"新聞連結市場：{title[:60]}。")
