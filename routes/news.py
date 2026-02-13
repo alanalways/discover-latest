@@ -39,6 +39,7 @@ _TAVILY_KEY_INDEX = 0
 _TAVILY_LOCK = threading.Lock()
 _TAVILY_USAGE_LOCK = threading.Lock()
 _TAVILY_DAILY_USAGE: dict[str, int] = {}
+_EVENT_CALENDAR_CACHE: list[dict[str, Any]] | None = None
 
 _RSS_SOURCES = [
     "https://news.google.com/rss/search?q=finance+stock+market+when:1d&hl=en-US&gl=US&ceid=US:en",
@@ -107,6 +108,109 @@ def _scheduled_topic_keys(now_tw: datetime) -> tuple[str, list[str]]:
     return "off_session", ["G1", "T1", "U1"]
 
 
+def _load_event_calendar() -> list[dict[str, Any]]:
+    """
+    Load event calendar from env JSON.
+    Expected schema:
+    [
+      {"date":"2026-03-18","time_utc":"18:00","type":"FOMC","importance":"high"}
+    ]
+    """
+    global _EVENT_CALENDAR_CACHE
+    if _EVENT_CALENDAR_CACHE is not None:
+        return _EVENT_CALENDAR_CACHE
+
+    raw = (os.environ.get("NEWS_EVENT_CALENDAR_JSON") or "").strip()
+    if not raw:
+        _EVENT_CALENDAR_CACHE = []
+        return _EVENT_CALENDAR_CACHE
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            rows: list[dict[str, Any]] = []
+            for item in parsed:
+                if not isinstance(item, dict):
+                    continue
+                date_text = str(item.get("date") or "").strip()
+                time_text = str(item.get("time_utc") or "00:00").strip()
+                if len(date_text) != 10:
+                    continue
+                rows.append(
+                    {
+                        "date": date_text,
+                        "time_utc": time_text if len(time_text) >= 4 else "00:00",
+                        "type": str(item.get("type") or "").strip(),
+                        "importance": str(item.get("importance") or "").strip().lower() or "medium",
+                    }
+                )
+            _EVENT_CALENDAR_CACHE = rows
+            return rows
+    except Exception:
+        pass
+    _EVENT_CALENDAR_CACHE = []
+    return _EVENT_CALENDAR_CACHE
+
+
+def _is_special_window(now_tw: datetime) -> bool:
+    """
+    Special window:
+    - calendar event day and now within [-6h, +6h] around event UTC time
+    - or manually forced by env NEWS_FORCE_SPECIAL=1
+    """
+    force = str(os.environ.get("NEWS_FORCE_SPECIAL", "")).strip().lower() in {"1", "true", "yes", "on"}
+    if force:
+        return True
+
+    now_utc = now_tw.astimezone(timezone.utc)
+    events = _load_event_calendar()
+    if not events:
+        return False
+
+    for ev in events:
+        date_text = str(ev.get("date") or "").strip()
+        time_text = str(ev.get("time_utc") or "00:00").strip()
+        try:
+            hour = int(time_text.split(":")[0])
+            minute = int(time_text.split(":")[1]) if ":" in time_text else 0
+            event_dt = datetime.strptime(date_text, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc, hour=hour, minute=minute, second=0, microsecond=0
+            )
+            delta_h = abs((now_utc - event_dt).total_seconds()) / 3600.0
+            if delta_h <= 6.0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _build_query_plan(now_tw: datetime) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Returns a plan list:
+      [{"topic":"G1","depth":"basic|advanced","max_results":3,"cost":1|2}, ...]
+    """
+    session_tag, topics = _scheduled_topic_keys(now_tw)
+    special = _is_special_window(now_tw)
+
+    plan: list[dict[str, Any]] = []
+    for t in topics:
+        plan.append({"topic": t, "depth": "basic", "max_results": 3, "cost": 1})
+
+    if special:
+        # Promote macro/geopolitics depth and add missing key themes.
+        boosted_topics = {"G1", "G2"}
+        existing = {str(p.get("topic")) for p in plan}
+        for p in plan:
+            if p.get("topic") in boosted_topics:
+                p["depth"] = "advanced"
+                p["cost"] = 2
+                p["max_results"] = 4
+        for t in ("G1", "G2"):
+            if t not in existing:
+                plan.append({"topic": t, "depth": "advanced", "max_results": 4, "cost": 2})
+
+    return (f"{session_tag}{':special' if special else ''}", plan)
+
+
 def _pick_gemini_key() -> str:
     multi = (os.environ.get("GEMINI_API_KEYS") or "").strip()
     if multi:
@@ -156,28 +260,31 @@ def _get_tavily_daily_budget() -> int:
     raw = (os.environ.get("TAVILY_DAILY_BUDGET") or "").strip()
     if raw.isdigit():
         return max(1, int(raw))
-    # Default: 47 credits/day per key (fits the schedule profile).
-    key_count = max(1, len(_load_tavily_keys()))
-    return 47 * key_count
+    # Default from monthly budget profile (e.g. 5000/month -> ~238/day on 21 trading days).
+    monthly_raw = (os.environ.get("TAVILY_MONTHLY_BUDGET") or "").strip()
+    trading_days_raw = (os.environ.get("TAVILY_TRADING_DAYS_PER_MONTH") or "").strip()
+    monthly = int(monthly_raw) if monthly_raw.isdigit() else 5000
+    trading_days = int(trading_days_raw) if trading_days_raw.isdigit() else 21
+    return max(1, int(monthly / max(1, trading_days)))
 
 
-def _reserve_tavily_queries(request_count: int) -> int:
-    if request_count <= 0:
-        return 0
+def _reserve_tavily_credit(cost: int) -> bool:
+    if cost <= 0:
+        return True
     today = _taipei_now().strftime("%Y-%m-%d")
     budget = _get_tavily_daily_budget()
     with _TAVILY_USAGE_LOCK:
         used = _TAVILY_DAILY_USAGE.get(today, 0)
         remain = max(0, budget - used)
-        allowed = min(request_count, remain)
-        if allowed > 0:
-            _TAVILY_DAILY_USAGE[today] = used + allowed
+        if remain < cost:
+            return False
+        _TAVILY_DAILY_USAGE[today] = used + cost
         # Keep memory small: keep only today/yesterday counters.
         if len(_TAVILY_DAILY_USAGE) > 3:
             keys = sorted(_TAVILY_DAILY_USAGE.keys())
             for k in keys[:-2]:
                 _TAVILY_DAILY_USAGE.pop(k, None)
-        return allowed
+        return True
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
@@ -484,16 +591,19 @@ async def _collect_news_with_tavily() -> tuple[list[dict[str, Any]], str]:
         raise RuntimeError("no_tavily_key")
 
     now_tw = _taipei_now()
-    session_tag, topic_keys = _scheduled_topic_keys(now_tw)
-    allowed = _reserve_tavily_queries(len(topic_keys))
-    if allowed <= 0:
-        raise RuntimeError("tavily_budget_exhausted")
+    session_tag, query_plan = _build_query_plan(now_tw)
+    if not query_plan:
+        raise RuntimeError("tavily_no_plan")
     items: list[dict[str, Any]] = []
 
     async with httpx.AsyncClient(timeout=16.0) as client:
-        for topic in topic_keys[:allowed]:
+        for q in query_plan:
+            topic = str(q.get("topic") or "")
             query = _TOPIC_QUERY_MAP.get(topic)
             if not query:
+                continue
+            cost = int(q.get("cost") or 1)
+            if not _reserve_tavily_credit(cost):
                 continue
             api_key = _next_tavily_key() or first_key
             try:
@@ -502,8 +612,8 @@ async def _collect_news_with_tavily() -> tuple[list[dict[str, Any]], str]:
                     json={
                         "api_key": api_key,
                         "query": query,
-                        "search_depth": "basic",
-                        "max_results": 3,
+                        "search_depth": str(q.get("depth") or "basic"),
+                        "max_results": int(q.get("max_results") or 3),
                         "include_answer": False,
                         "include_raw_content": False,
                     },
