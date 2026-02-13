@@ -1,17 +1,18 @@
-"""
-Stock Routes — 股票核心資料、歷史、搜尋與籌碼
-"""
-from fastapi import APIRouter, HTTPException, Query
-from typing import List, Dict, Optional
-from services.stock_service import stock_service
-import asyncio
+"""Stock API routes."""
+
+from __future__ import annotations
+
 import math
+
+from fastapi import APIRouter, HTTPException, Query
+
+from services.stock_service import stock_service
 
 router = APIRouter()
 
 
 def _json_safe(value):
-    """Ensure payload is JSON serializable and finite."""
+    """Ensure payload is JSON-serializable and finite."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -30,51 +31,53 @@ def _json_safe(value):
         return {str(k): _json_safe(v) for k, v in value.items()}
     return str(value)
 
+
 @router.get("/stock/{symbol}")
 async def get_stock_overview(
     symbol: str,
-    period: str = Query("1y", description="1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, max")
+    period: str = Query("1y", description="1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, max"),
 ):
-    """取得股票概要 (Info + Latest History + Valuation + Market Cap)"""
+    """Get stock overview (info + history + valuation + market cap)."""
     try:
         data = await stock_service.get_stock_data(symbol, period=period)
         if not data:
-            raise HTTPException(status_code=404, detail=f"找不到股票: {symbol}")
+            raise HTTPException(status_code=404, detail=f"找不到股票資料: {symbol}")
         return data
     except HTTPException:
         raise
     except Exception as e:
         print(f"[Stock] overview failed for {symbol}: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=500, detail="取得股票資料失敗")
+        raise HTTPException(status_code=500, detail="股票資料讀取失敗")
+
 
 @router.get("/stock/{symbol}/history")
 async def get_stock_history(
-    symbol: str, 
-    period: str = Query("1y", description="1mo, 3mo, 6mo, 1y, 3y, 5y, max")
+    symbol: str,
+    period: str = Query("1y", description="1mo, 3mo, 6mo, 1y, 3y, 5y, max"),
 ):
-    """取得歷史 K 線 (Lightweight Charts 格式)"""
+    """Get stock history for chart rendering."""
     try:
-        history = await stock_service.get_stock_history(symbol, period=period)
-        return history
+        return await stock_service.get_stock_history(symbol, period=period)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/stock/search/{query}")
 async def search_stocks(query: str, limit: int = 10):
-    """搜尋股票 (支援台股與美股)"""
+    """Search symbols by code or name."""
     try:
-        results = await stock_service.search_symbols(query, limit=limit)
-        return results
+        return await stock_service.search_symbols(query, limit=limit)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/stock/{symbol}/fundamentals")
 async def get_stock_fundamentals(symbol: str):
-    """取得基本面資料 (財務報表)"""
+    """Get fundamentals (safe fallback, never hard-fail)."""
     fallback = {
         "revenue": [],
         "per_pbr": [],
@@ -99,12 +102,12 @@ async def get_stock_fundamentals(symbol: str):
         print(f"[Stock] fundamentals fallback for {symbol}: {type(e).__name__}: {e}")
         return fallback
 
+
 @router.get("/stock/{symbol}/chips")
 async def get_stock_chips(symbol: str):
-    """取得籌碼面資料 (法人買賣)"""
+    """Get chips data (institutional/margin)."""
     try:
-        data = await stock_service.get_stock_chips(symbol)
-        return data
+        return await stock_service.get_stock_chips(symbol)
     except HTTPException:
         raise
     except Exception as e:

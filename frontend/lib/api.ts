@@ -2,6 +2,8 @@
  * API Client — 統一管理與 FastAPI 後端的通訊
  */
 
+import { doneRouteProgress, startRouteProgress } from '@/components/layout/RouteProgress';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
 const FREE_AUTH_LIMITS_FALLBACK = {
@@ -25,6 +27,7 @@ const FREE_AUTH_LIMITS_FALLBACK = {
 
 interface FetchOptions extends RequestInit {
     skipAuth?: boolean;
+    skipProgress?: boolean;
 }
 
 interface MarketItem {
@@ -145,7 +148,7 @@ export class ApiClient {
     }
 
     async fetch<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-        const { skipAuth, ...fetchOpts } = options;
+        const { skipAuth, skipProgress, ...fetchOpts } = options;
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...(fetchOpts.headers as Record<string, string>),
@@ -155,9 +158,17 @@ export class ApiClient {
             headers['Authorization'] = `Bearer ${this.getToken()}`;
         }
 
+        if (!skipProgress) {
+            startRouteProgress();
+        }
+
         const res = await fetch(`${API_BASE}${endpoint}`, {
             ...fetchOpts,
             headers,
+        }).finally(() => {
+            if (!skipProgress) {
+                doneRouteProgress();
+            }
         });
 
         if (res.status === 401 && !skipAuth) {
@@ -205,7 +216,7 @@ export class ApiClient {
     }
 
     async getMarketHours() {
-        return this.fetch<MarketHoursResponse>('/api/market/hours', { skipAuth: true });
+        return this.fetch<MarketHoursResponse>('/api/market/hours', { skipAuth: true, skipProgress: true });
     }
 
     // ── Stock ──
@@ -384,7 +395,7 @@ export class ApiClient {
 
         this.authLimitsInFlight = (async () => {
             try {
-                const data = await this.fetch<AuthLimits>('/api/auth/limits');
+                const data = await this.fetch<AuthLimits>('/api/auth/limits', { skipProgress: true });
                 this.authLimitsCache = {
                     token,
                     expiresAt: Date.now() + this.authLimitsTtlMs,

@@ -49,7 +49,7 @@ async def run_backtest(req: BacktestRequest, request: Request):
     if max_years > 0 and period_years > max_years:
         raise HTTPException(
             status_code=403,
-            detail=f"{tier.upper()} 方案最多可回測 {max_years} 年",
+            detail=f"{tier.upper()} 方案最多回測 {max_years} 年",
         )
 
     from services.backtest_service import backtest_service
@@ -83,7 +83,7 @@ async def run_backtest(req: BacktestRequest, request: Request):
     except HTTPException:
         raise
     except ZeroDivisionError:
-        raise HTTPException(status_code=400, detail="回測參數包含 0 分母，請調整初始資金與策略參數")
+        raise HTTPException(status_code=400, detail="回測參數包含 0，請檢查初始資金與策略參數。")
     except Exception as e:
         print(f"[Backtest] run failed: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail="回測執行失敗")
@@ -95,7 +95,7 @@ async def run_backtest(req: BacktestRequest, request: Request):
         if "division by zero" in detail_text.lower():
             raise HTTPException(
                 status_code=400,
-                detail="Backtest 計算出現除以 0，請調整初始資金與參數後再試。",
+                detail="Backtest 發生除以 0，請檢查初始資金、投入金額與策略門檻。",
             )
         raise HTTPException(status_code=400, detail=detail_text)
 
@@ -116,21 +116,21 @@ def _validate_request(req: BacktestRequest) -> None:
     if req.initial_capital <= 0:
         raise HTTPException(status_code=400, detail="初始資金必須大於 0")
     if req.position_size <= 0:
-        raise HTTPException(status_code=400, detail="投入比例必須大於 0")
+        raise HTTPException(status_code=400, detail="部位比例必須大於 0")
     if req.dca_amount < 0:
-        raise HTTPException(status_code=400, detail="DCA 金額不得小於 0")
+        raise HTTPException(status_code=400, detail="DCA 金額不可小於 0")
     if req.dca_frequency not in {"daily", "weekly", "monthly"}:
-        raise HTTPException(status_code=400, detail="DCA 頻率僅支援 daily/weekly/monthly")
+        raise HTTPException(status_code=400, detail="DCA 頻率必須為 daily/weekly/monthly")
     if req.dca_frequency == "weekly" and not (1 <= req.dca_day <= 7):
-        raise HTTPException(status_code=400, detail="週期 DCA 日期需介於 1~7")
+        raise HTTPException(status_code=400, detail="週頻 DCA 的 dca_day 必須介於 1~7")
     if req.dca_frequency in {"daily", "monthly"} and not (1 <= req.dca_day <= 28):
-        raise HTTPException(status_code=400, detail="DCA 日期需介於 1~28")
+        raise HTTPException(status_code=400, detail="日頻/月頻 DCA 的 dca_day 必須介於 1~28")
     if req.strategy not in {"ma_cross", "breakout", "momentum", "rsi", "martingale", "monitoring_indicator"}:
-        raise HTTPException(status_code=400, detail=f"不支援策略: {req.strategy}")
+        raise HTTPException(status_code=400, detail=f"不支援的策略: {req.strategy}")
     if req.ma_fast <= 0 or req.ma_slow <= 0:
         raise HTTPException(status_code=400, detail="MA 參數必須大於 0")
     if req.ma_slow <= req.ma_fast:
-        raise HTTPException(status_code=400, detail="長期 MA 必須大於短期 MA")
+        raise HTTPException(status_code=400, detail="慢速 MA 必須大於快速 MA")
     if req.breakout_period <= 0:
         raise HTTPException(status_code=400, detail="突破策略 period 必須大於 0")
     if req.momentum_period <= 0:
@@ -138,9 +138,9 @@ def _validate_request(req: BacktestRequest) -> None:
     if req.rsi_period <= 0:
         raise HTTPException(status_code=400, detail="RSI period 必須大於 0")
     if req.rsi_buy < 0 or req.rsi_buy > 100 or req.rsi_sell < 0 or req.rsi_sell > 100:
-        raise HTTPException(status_code=400, detail="RSI 閥值需介於 0~100")
+        raise HTTPException(status_code=400, detail="RSI 閾值必須在 0~100")
     if req.rsi_sell <= req.rsi_buy:
-        raise HTTPException(status_code=400, detail="RSI 賣出閥值必須大於買入閥值")
+        raise HTTPException(status_code=400, detail="RSI 賣出閾值必須高於買入閾值")
 
 
 def _build_strategy_params(req: BacktestRequest) -> dict[str, Any]:
@@ -252,7 +252,7 @@ def _normalize_backtest_response(
 def _require_auth(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="請先登入")
+        raise HTTPException(status_code=401, detail="未提供授權")
 
     token = auth_header.split(" ", 1)[1]
     try:
@@ -265,7 +265,7 @@ def _require_auth(request: Request) -> dict[str, Any]:
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(status_code=401, detail="登入狀態失效")
+        raise HTTPException(status_code=401, detail="授權驗證失敗")
 
 
 def _period_to_years(period: str) -> int:

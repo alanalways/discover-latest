@@ -5,10 +5,16 @@ import { usePathname } from 'next/navigation';
 import styles from './RouteProgress.module.css';
 
 const START_EVENT = 'dl:route-progress-start';
+const DONE_EVENT = 'dl:route-progress-done';
 
 export function startRouteProgress() {
     if (typeof window === 'undefined') return;
     window.dispatchEvent(new Event(START_EVENT));
+}
+
+export function doneRouteProgress() {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new Event(DONE_EVENT));
 }
 
 function isInternalAnchor(target: EventTarget | null): HTMLAnchorElement | null {
@@ -29,6 +35,7 @@ export default function RouteProgress() {
     const progressTimerRef = useRef<number | null>(null);
     const failSafeTimerRef = useRef<number | null>(null);
     const finishingRef = useRef(false);
+    const pendingRef = useRef(0);
 
     const clearTimers = () => {
         if (progressTimerRef.current) {
@@ -70,7 +77,16 @@ export default function RouteProgress() {
     };
 
     useEffect(() => {
-        const onStart = () => start();
+        const onStart = () => {
+            pendingRef.current += 1;
+            start();
+        };
+        const onDone = () => {
+            pendingRef.current = Math.max(0, pendingRef.current - 1);
+            if (pendingRef.current === 0) {
+                finish();
+            }
+        };
         const onClick = (e: MouseEvent) => {
             if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
             const anchor = isInternalAnchor(e.target);
@@ -79,9 +95,11 @@ export default function RouteProgress() {
         };
 
         window.addEventListener(START_EVENT, onStart);
+        window.addEventListener(DONE_EVENT, onDone);
         document.addEventListener('click', onClick, true);
         return () => {
             window.removeEventListener(START_EVENT, onStart);
+            window.removeEventListener(DONE_EVENT, onDone);
             document.removeEventListener('click', onClick, true);
             clearTimers();
         };
@@ -90,6 +108,7 @@ export default function RouteProgress() {
 
     useEffect(() => {
         if (visible) {
+            pendingRef.current = 0;
             finish();
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -101,4 +120,3 @@ export default function RouteProgress() {
         </div>
     );
 }
-
