@@ -563,7 +563,6 @@ function cleanNewsTag(tag?: string): string {
 }
 
 function buildNewsImpactLine(item: NewsItem): string {
-  const tags = [cleanNewsTag(item.region), cleanNewsTag(item.impact)].filter(Boolean).join('・');
   const reason = (item.impact_reason || '')
     .replace(/\b(tavily|tavly)\b/gi, '')
     .trim()
@@ -583,6 +582,5 @@ function buildNewsImpactLine(item: NewsItem): string {
     inferred = '新聞與台美股盤勢連動重點整理中。';
   }
 
-  if (tags) return `${tags}｜${inferred}`;
-  return inferred;
+  return `市場連結：${inferred}`;
 }

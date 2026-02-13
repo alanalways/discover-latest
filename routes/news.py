@@ -612,18 +612,42 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
     one_minute = str(payload.get("one_minute_brief") or "").strip()
 
     norm_brief = [_strip_provider_terms(str(x).strip()) for x in (brief or []) if _strip_provider_terms(str(x).strip())]
-    if not norm_brief:
-        norm_brief = list(_FALLBACK_BRIEF)
-
     norm_items = _normalize_items(items, max_items=12)
+    rule_summary = _build_rule_based_summary(norm_items) if norm_items else {}
+    rule_brief = (
+        [
+            _strip_provider_terms(str(x).strip())
+            for x in (rule_summary.get("brief") or [])
+            if _strip_provider_terms(str(x).strip())
+        ]
+        if isinstance(rule_summary, dict)
+        else []
+    )
+    rule_table = rule_summary.get("table") if isinstance(rule_summary, dict) else []
+    rule_one_minute = _strip_provider_terms(str((rule_summary or {}).get("one_minute_brief") or "").strip())
+
+    if not norm_brief:
+        norm_brief = rule_brief[:5] if rule_brief else list(_FALLBACK_BRIEF)
+    elif norm_brief == list(_FALLBACK_BRIEF) and rule_brief:
+        # Prefer data-linked lines from current items over static fallback copy.
+        norm_brief = rule_brief[:5]
+
     # UI policy: do not display upstream provider labels in the dashboard card.
     for row in norm_items:
         if isinstance(row, dict):
             row["source"] = ""
     norm_table = table if isinstance(table, list) else []
+    if not norm_table and isinstance(rule_table, list) and rule_table:
+        norm_table = rule_table
+
     one_minute = _strip_provider_terms(one_minute)
-    if not one_minute:
-        one_minute = "；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE
+    if (
+        not one_minute
+        or one_minute == _FALLBACK_ONE_MINUTE
+        or len(one_minute) < 40
+        or ("市場" not in one_minute and "台股" not in one_minute and "美股" not in one_minute)
+    ):
+        one_minute = rule_one_minute or ("；".join(norm_brief[:2]) or _FALLBACK_ONE_MINUTE)
     if ("台股" not in one_minute and "美股" not in one_minute) and norm_brief:
         one_minute = f"{one_minute} 台股可留意權值與半導體，美股可觀察科技龍頭與利率敏感族群。"
 
