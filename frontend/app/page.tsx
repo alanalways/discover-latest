@@ -586,6 +586,7 @@ function cleanNewsTitle(title: string): string {
   const firstLine = title.split('\n')[0].trim();
   return firstLine
     .replace(/\b(tavily|tavly)\b/gi, '')
+    .replace(/(來源|source)\s*[:：]?\s*$/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -593,6 +594,7 @@ function cleanNewsTitle(title: string): string {
 function sanitizeNewsText(text: string): string {
   return String(text || '')
     .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
+    .replace(/(來源|source)\s*[:：]?\s*/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -608,6 +610,7 @@ function isNoiseNewsItem(item: NewsItem): boolean {
 function cleanNewsTag(tag?: string): string {
   const text = String(tag || '')
     .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
+    .replace(/(來源|source)\s*[:：]?\s*/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
   return text;

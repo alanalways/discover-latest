@@ -112,8 +112,12 @@ def _news_cache_ttl_sec(now_tw: datetime | None = None) -> int:
 def _strip_provider_terms(text: str) -> str:
     cleaned = str(text or "")
     cleaned = re.sub(r"\b(tavily|tavly)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"(來源|source)\s*[:：]?\s*(tavily|tavly)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\b(by|from)\s+(tavily|tavly)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s*[-|]?\s*(tavily|tavly)(?:\.[a-z]+)?\s*$", "", cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -|,;:/")
+    if cleaned.lower() in {"tavily", "tavly", "news", "unknown", "source", "來源"}:
+        return ""
     return cleaned
 
 
@@ -675,11 +679,10 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
 
     # Force a market-linked one-minute brief so users can quickly connect news -> market impact.
     one_minute = (
-        f"一分鐘看市場（最新 {min(len(items), 12)} 則）：主軸集中在「{'、'.join(top_themes)}」，"
+        f"一分鐘新聞（最新 {min(len(items), 12)} 則）：主軸集中在「{'、'.join(top_themes)}」，"
         f"短線風格{risk_tone}。"
         f"{market_link}"
-        f"台股可先看權值與半導體，"
-        f"美股可先看大型科技與利率敏感族群。"
+        f"台股先看權值與半導體，美股先看大型科技與利率敏感族群。"
         f"{action_hint}"
         f"{(' 焦點事件：' + ' / '.join(headline_focus[:2]) + '。') if headline_focus else ''}"
     )
@@ -688,19 +691,17 @@ def _build_rule_based_summary(items: list[dict[str, Any]]) -> dict[str, Any]:
     for theme in top_themes[:3]:
         impact, why = theme_meta.get(theme, ("中", "留意該主題對資金輪動的連鎖效應。"))
         brief_lines.append(f"{theme}（影響{impact}）：{why}")
-    for row in items[:3]:
+    for row in items[:4]:
         title = str(row.get("title") or "").strip()
         region = str(row.get("region") or "").strip() or "Global"
         reason = _strip_provider_terms(str(row.get("impact_reason") or "")).strip()
         if title:
             if reason:
-                brief_lines.append(f"新聞連結市場（{region}）：{title[:50]} -> {reason[:42]}。")
+                brief_lines.append(f"新聞重點（{region}）：{title[:46]} -> 市場連結：{reason[:44]}。")
             else:
-                brief_lines.append(f"新聞連結市場（{region}）：{title[:60]}。")
+                brief_lines.append(f"新聞重點（{region}）：{title[:58]}。")
 
-    brief_lines.append(
-        f"台美連結：{market_link} 目前判讀偏向{risk_tone}，建議依波動調整部位節奏。"
-    )
+    brief_lines.append(f"台美連結：{market_link} 目前判讀偏向{risk_tone}，建議依波動調整部位節奏。")
 
     if len(brief_lines) < 3:
         brief_lines.extend(_FALLBACK_BRIEF[: 3 - len(brief_lines)])
@@ -1009,13 +1010,15 @@ async def _fetch_news_uncached() -> dict[str, Any]:
         items, session_tag = await _collect_news_with_tavily()
         return await _summarize_news_items(items, provider="system", session_tag=session_tag)
     except Exception as e:
-        print(f"[News] tavily path failed: {type(e).__name__}: {e}")
+        if str(os.environ.get("NEWS_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+            print(f"[News] tavily path failed: {type(e).__name__}: {e}")
 
     try:
         items = await _collect_news_with_grounding()
         return await _summarize_news_items(items, provider="system", session_tag="fallback")
     except Exception as e:
-        print(f"[News] grounding path failed: {type(e).__name__}: {e}")
+        if str(os.environ.get("NEWS_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+            print(f"[News] grounding path failed: {type(e).__name__}: {e}")
 
     return await _fetch_news_rss_fallback()
 
