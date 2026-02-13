@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -85,7 +86,8 @@ async def get_stock_fundamentals(symbol: str):
         "dividend": [],
     }
     try:
-        data = await stock_service.get_stock_fundamentals(symbol)
+        # Guard against slow upstream providers; prefer fast fallback over 500.
+        data = await asyncio.wait_for(stock_service.get_stock_fundamentals(symbol), timeout=12)
         if not isinstance(data, dict):
             return fallback
         payload = {
@@ -98,6 +100,9 @@ async def get_stock_fundamentals(symbol: str):
             return _json_safe(payload)
         except Exception:
             return fallback
+    except TimeoutError:
+        print(f"[Stock] fundamentals timeout fallback for {symbol}")
+        return fallback
     except Exception as e:
         print(f"[Stock] fundamentals fallback for {symbol}: {type(e).__name__}: {e}")
         return fallback
