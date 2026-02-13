@@ -143,15 +143,15 @@ export default function BacktestPage() {
             return;
         }
         if (!Number.isFinite(capital) || capital <= 0) {
-            setError('Initial capital must be greater than 0');
+            setError('初始資金必須大於 0');
             return;
         }
         if (!Number.isFinite(dcaAmount) || dcaAmount < 0) {
-            setError('DCA amount cannot be negative');
+            setError('DCA 金額不可為負數');
             return;
         }
         if (!Number.isFinite(dcaDay)) {
-            setError('Invalid DCA day');
+            setError('DCA 日期設定無效');
             return;
         }
         const normalizedDcaDay = Math.max(1, Math.min(dcaFrequency === 'weekly' ? 7 : 28, Math.round(dcaDay)));
@@ -175,8 +175,13 @@ export default function BacktestPage() {
             });
             setResult(res as BacktestResult);
         } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : '回測失敗';
-            setError(msg);
+            const raw = err instanceof Error ? err.message : '回測失敗';
+            const msgLower = String(raw || '').toLowerCase();
+            if (msgLower.includes('division by zero') || msgLower.includes('float division') || msgLower.includes('initial_capital')) {
+                setError('參數計算發生除以 0，請確認初始資金大於 0，並調整策略參數後重試。');
+            } else {
+                setError(raw);
+            }
         } finally {
             setLoading(false);
         }
@@ -256,7 +261,15 @@ export default function BacktestPage() {
                     )}
                     <div className={styles.field}>
                         <label>初始資金</label>
-                        <input type="number" min={1} value={capital} onChange={(e) => setCapital(+e.target.value)} />
+                        <input
+                            type="number"
+                            min={1}
+                            value={capital}
+                            onChange={(e) => setCapital(+e.target.value)}
+                            onBlur={() => {
+                                if (!Number.isFinite(capital) || capital <= 0) setCapital(1);
+                            }}
+                        />
                     </div>
                     <div className={styles.field}>
                         <label>DCA 底層</label>
