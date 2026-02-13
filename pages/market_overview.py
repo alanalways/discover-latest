@@ -405,7 +405,8 @@ def _fetch_top20_data() -> Dict:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        us_batch_size = 12 if us_open else 6
+        # Keep enough symbols to avoid sparse Top20 output while still respecting rate limits.
+        us_batch_size = 20 if us_open else 12
         us_symbols = _rotate_pool(_US_TOP_SYMBOLS, us_batch_size, "us")
 
         for sym in us_symbols:
@@ -436,15 +437,11 @@ def _fetch_top20_data() -> Dict:
     tw_data = merge_with_previous(tw_data, prev_tw, target=80)
     us_data = merge_with_previous(us_data, prev_us, target=80)
 
-    if len(tw_data) < 20:
-        tw_data = merge_with_previous(tw_data, _FALLBACK_TOP20_TW, target=20)
-    if len(us_data) < 20:
-        us_data = merge_with_previous(us_data, _FALLBACK_TOP20_US, target=20)
-
+    # Do not force-fill with synthetic zero rows. Keep real rows only.
     if not tw_data:
-        tw_data = list(_FALLBACK_TOP20_TW)
+        tw_data = []
     if not us_data:
-        us_data = list(_FALLBACK_TOP20_US)
+        us_data = []
 
     _top20_cache = {"tw": tw_data, "us": us_data, "ts": now}
     return {"tw": tw_data, "us": us_data}

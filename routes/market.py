@@ -104,6 +104,16 @@ async def market_top20():
             "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
         }
 
+    def is_placeholder_row(row: dict) -> bool:
+        """Placeholder rows are synthetic rows with all numeric fields at zero."""
+        if not isinstance(row, dict):
+            return True
+        pct = abs(to_num(row.get("change_pct"), pct=True))
+        vol = abs(to_num(row.get("volume")))
+        price = abs(to_num(row.get("price")))
+        close = abs(to_num(row.get("close")))
+        return pct == 0.0 and vol == 0.0 and price == 0.0 and close == 0.0
+
     def _merge_rows(primary, fallback_rows, target: int = 20):
         merged = []
         seen = set()
@@ -181,24 +191,14 @@ async def market_top20():
             def sort_data(rows, market: str):
                 items = sanitize(rows, market)
                 fallback_rows = list((_FALLBACK_TOP20_TW if market == "tw" else _FALLBACK_TOP20_US) or [])[:20]
-                items = _merge_rows(items, fallback_rows, target=20)
+                items = [r for r in items if not is_placeholder_row(r)]
+                if not items:
+                    items = [r for r in fallback_rows if not is_placeholder_row(r)]
                 bucket = {
                     "gainers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True)[:20],
                     "losers": sorted(items, key=lambda x: to_num(x.get("change_pct"), pct=True))[:20],
                     "volume": sorted(items, key=lambda x: to_num(x.get("volume")), reverse=True)[:20],
                 }
-                if len(bucket["gainers"]) < 20:
-                    bucket["gainers"] = _merge_rows(
-                        bucket["gainers"], sorted(fallback_rows, key=lambda x: to_num(x.get("change_pct"), pct=True), reverse=True), target=20
-                    )
-                if len(bucket["losers"]) < 20:
-                    bucket["losers"] = _merge_rows(
-                        bucket["losers"], sorted(fallback_rows, key=lambda x: to_num(x.get("change_pct"), pct=True)), target=20
-                    )
-                if len(bucket["volume"]) < 20:
-                    bucket["volume"] = _merge_rows(
-                        bucket["volume"], sorted(fallback_rows, key=lambda x: to_num(x.get("volume")), reverse=True), target=20
-                    )
                 return bucket
 
             payload = {"tw": sort_data(tw, "tw"), "us": sort_data(us, "us")}

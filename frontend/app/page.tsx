@@ -98,51 +98,9 @@ const FALLBACK_ETFS: MarketItem[] = [
   { name: 'Invesco QQQ', symbol: 'QQQ', value: '530.12', change: '+4.22', change_pct: '+0.80%', color: 'green' },
 ];
 
-const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [
-  { symbol: '2330', name: '台積電', change_pct: 0, volume: 0 },
-  { symbol: '2454', name: '聯發科', change_pct: 0, volume: 0 },
-  { symbol: '2317', name: '鴻海', change_pct: 0, volume: 0 },
-  { symbol: '2308', name: '台達電', change_pct: 0, volume: 0 },
-  { symbol: '2303', name: '聯電', change_pct: 0, volume: 0 },
-  { symbol: '2603', name: '長榮', change_pct: 0, volume: 0 },
-  { symbol: '2609', name: '陽明', change_pct: 0, volume: 0 },
-  { symbol: '2881', name: '富邦金', change_pct: 0, volume: 0 },
-  { symbol: '2882', name: '國泰金', change_pct: 0, volume: 0 },
-  { symbol: '2891', name: '中信金', change_pct: 0, volume: 0 },
-  { symbol: '2886', name: '兆豐金', change_pct: 0, volume: 0 },
-  { symbol: '2412', name: '中華電', change_pct: 0, volume: 0 },
-  { symbol: '1301', name: '台塑', change_pct: 0, volume: 0 },
-  { symbol: '1303', name: '南亞', change_pct: 0, volume: 0 },
-  { symbol: '2002', name: '中鋼', change_pct: 0, volume: 0 },
-  { symbol: '3711', name: '日月光投控', change_pct: 0, volume: 0 },
-  { symbol: '2357', name: '華碩', change_pct: 0, volume: 0 },
-  { symbol: '3034', name: '聯詠', change_pct: 0, volume: 0 },
-  { symbol: '2379', name: '瑞昱', change_pct: 0, volume: 0 },
-  { symbol: '3231', name: '緯創', change_pct: 0, volume: 0 },
-];
+const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [];
 
-const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [
-  { symbol: 'AAPL', name: 'Apple', change_pct: 0, volume: 0 },
-  { symbol: 'MSFT', name: 'Microsoft', change_pct: 0, volume: 0 },
-  { symbol: 'NVDA', name: 'NVIDIA', change_pct: 0, volume: 0 },
-  { symbol: 'AMZN', name: 'Amazon', change_pct: 0, volume: 0 },
-  { symbol: 'GOOGL', name: 'Alphabet', change_pct: 0, volume: 0 },
-  { symbol: 'META', name: 'Meta', change_pct: 0, volume: 0 },
-  { symbol: 'TSLA', name: 'Tesla', change_pct: 0, volume: 0 },
-  { symbol: 'AVGO', name: 'Broadcom', change_pct: 0, volume: 0 },
-  { symbol: 'AMD', name: 'AMD', change_pct: 0, volume: 0 },
-  { symbol: 'NFLX', name: 'Netflix', change_pct: 0, volume: 0 },
-  { symbol: 'JPM', name: 'JPMorgan', change_pct: 0, volume: 0 },
-  { symbol: 'V', name: 'Visa', change_pct: 0, volume: 0 },
-  { symbol: 'MA', name: 'Mastercard', change_pct: 0, volume: 0 },
-  { symbol: 'WMT', name: 'Walmart', change_pct: 0, volume: 0 },
-  { symbol: 'PG', name: 'P&G', change_pct: 0, volume: 0 },
-  { symbol: 'COST', name: 'Costco', change_pct: 0, volume: 0 },
-  { symbol: 'KO', name: 'Coca-Cola', change_pct: 0, volume: 0 },
-  { symbol: 'PEP', name: 'PepsiCo', change_pct: 0, volume: 0 },
-  { symbol: 'QCOM', name: 'Qualcomm', change_pct: 0, volume: 0 },
-  { symbol: 'TXN', name: 'Texas Instruments', change_pct: 0, volume: 0 },
-];
+const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [];
 
 const EMPTY_TOP20: Top20Bucket = { gainers: [], losers: [], volume: [] };
 
@@ -178,7 +136,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Pro
 }
 
 function normalizeTop20Bucket(raw: unknown, fallback: Top20Bucket): Top20Bucket {
-  const mergeRows = (primary: Top20Stock[], secondary: Top20Stock[], min = 20): Top20Stock[] => {
+  const mergeRows = (primary: Top20Stock[], secondary: Top20Stock[]): Top20Stock[] => {
     const rows: Top20Stock[] = [];
     const seen = new Set<string>();
     for (const row of [...primary, ...secondary]) {
@@ -186,22 +144,25 @@ function normalizeTop20Bucket(raw: unknown, fallback: Top20Bucket): Top20Bucket 
       if (!symbol || seen.has(symbol)) continue;
       seen.add(symbol);
       rows.push(row);
-      if (rows.length >= min) break;
+      if (rows.length >= 20) break;
     }
     return rows;
   };
 
-  const ensureBucketSize = (bucket: Top20Bucket): Top20Bucket => ({
-    gainers: mergeRows(bucket.gainers || [], fallback.gainers || []),
-    losers: mergeRows(bucket.losers || [], fallback.losers || []),
-    volume: mergeRows(bucket.volume || [], fallback.volume || []),
-  });
+  const normalizeBucket = (bucket: Top20Bucket): Top20Bucket => {
+    const gainers = mergeRows(bucket.gainers || [], []);
+    const losers = mergeRows(bucket.losers || [], []);
+    const volume = mergeRows(bucket.volume || [], []);
+    const hasRealData = gainers.length > 0 || losers.length > 0 || volume.length > 0;
+    if (hasRealData) return { gainers, losers, volume };
+    return fallback;
+  };
 
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
     const obj = raw as Partial<Top20Bucket>;
     if (Array.isArray(obj.gainers) && Array.isArray(obj.losers) && Array.isArray(obj.volume)) {
       if (obj.gainers.length || obj.losers.length || obj.volume.length) {
-        return ensureBucketSize({
+        return normalizeBucket({
           gainers: obj.gainers,
           losers: obj.losers,
           volume: obj.volume,
@@ -213,11 +174,11 @@ function normalizeTop20Bucket(raw: unknown, fallback: Top20Bucket): Top20Bucket 
   if (Array.isArray(raw)) {
     const rows = raw as Top20Stock[];
     if (rows.length > 0) {
-      return ensureBucketSize(toBucket(rows));
+      return normalizeBucket(toBucket(rows));
     }
   }
 
-  return ensureBucketSize(fallback);
+  return fallback;
 }
 
 export default function Dashboard() {
