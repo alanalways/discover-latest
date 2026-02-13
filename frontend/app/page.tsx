@@ -565,17 +565,21 @@ function cleanNewsTag(tag?: string): string {
 function buildNewsImpactLine(item: NewsItem): string {
   const reason = (item.impact_reason || '')
     .replace(/\b(tavily|tavly)\b/gi, '')
-    .trim()
-    .replace(/\s+/g, ' ');
+    .replace(/https?:\/\/\S+/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   const title = cleanNewsTitle(item.title || '').toLowerCase();
+  const hasZhReason = /[\u4e00-\u9fff]/.test(reason);
 
   let inferred = '';
-  if (reason) {
+  if (hasZhReason && reason.length >= 6) {
     inferred = reason.slice(0, 72);
   } else if (/(fomc|fed|cpi|inflation|yield|rate)/.test(title)) {
     inferred = '總體與利率預期變化，可能影響台美股估值。';
   } else if (/(nvidia|ai|semiconductor|chip|tsmc|台積電)/.test(title)) {
     inferred = '科技與半導體主線變化，影響台美權值與供應鏈。';
+  } else if (/(earnings|guidance|財報|法說)/.test(title)) {
+    inferred = '企業財報與展望更新，可能影響短線族群輪動。';
   } else if (/(oil|crude|war|sanction|geopolit)/.test(title)) {
     inferred = '地緣與原物料風險升溫，市場波動可能擴大。';
   } else {

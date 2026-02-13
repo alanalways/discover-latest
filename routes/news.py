@@ -972,8 +972,8 @@ async def _summarize_news_items(items: list[dict[str, Any]], provider: str, sess
     except asyncio.TimeoutError:
         # Keep API latency stable: timeout should not spam logs or block response.
         return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
-    except Exception as e:
-        print(f"[News] summarize fallback: {type(e).__name__}")
+    except Exception:
+        # Keep fallback silent for non-critical summarize failures.
         return _normalize_payload(rule_payload, provider=provider, session_tag=session_tag)
 
 
