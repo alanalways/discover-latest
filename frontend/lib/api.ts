@@ -65,8 +65,12 @@ interface NewsItem {
 interface NewsBriefResponse {
     updated_at: string;
     next_update_at: string;
+    one_minute_brief?: string;
     brief: string[];
     items: NewsItem[];
+    table?: Array<{ theme?: string; impact?: string; why?: string }>;
+    provider?: string;
+    session_tag?: string;
 }
 
 interface PortfolioHealthResponse {

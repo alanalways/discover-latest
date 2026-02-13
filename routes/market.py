@@ -136,7 +136,7 @@ async def market_top20():
                     if not symbol:
                         continue
                     if market == "tw":
-                        # Keep standard TW stock code only.
+                        # Keep standard TW tradeable symbols only (4-digit stock/ETF).
                         if not (symbol.isdigit() and len(symbol) == 4):
                             continue
                     cleaned.append(row)

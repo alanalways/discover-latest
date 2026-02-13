@@ -58,6 +58,8 @@ class AuthResponse(BaseModel):
 def _free_limits_payload() -> dict:
     """未登入時回傳前端可用的預設免費額度"""
     from services.feature_gate import get_limit
+    watchlist_max = int(get_limit("free", "watchlist_max") or 0)
+    alerts_max = int(get_limit("free", "price_alert_max") or 0)
     return {
         "tier": "free",
         "ai": {
@@ -66,10 +68,14 @@ def _free_limits_payload() -> dict:
             "daily_remaining": 2,
         },
         "watchlist": {
-            "max": get_limit("free", "watchlist_max"),
+            "max": watchlist_max,
+            "used": 0,
+            "remaining": watchlist_max,
         },
         "alerts": {
-            "max": get_limit("free", "price_alert_max"),
+            "max": alerts_max,
+            "used": 0,
+            "remaining": alerts_max,
         },
     }
 
@@ -264,6 +270,12 @@ async def get_auth_limits(request: Request):
         supabase_adapter.ensure_public_user_record(user_id)
         info = rate_limiter.get_user_limits_info(user_id)
         tier = info.get("tier", "free")
+        watchlist = supabase_adapter.get_user_watchlist(user_id) or []
+        alerts = supabase_adapter.get_user_alerts(user_id) or []
+        watchlist_max = int(get_limit(tier, "watchlist_max") or 0)
+        alerts_max = int(get_limit(tier, "price_alert_max") or 0)
+        watchlist_used = len(watchlist)
+        alerts_used = len(alerts)
         payload = {
             "tier": tier,
             "ai": {
@@ -272,10 +284,14 @@ async def get_auth_limits(request: Request):
                 "daily_remaining": info.get("daily_remaining", 0),
             },
             "watchlist": {
-                "max": get_limit(tier, "watchlist_max"),
+                "max": watchlist_max,
+                "used": watchlist_used,
+                "remaining": max(0, watchlist_max - watchlist_used),
             },
             "alerts": {
-                "max": get_limit(tier, "price_alert_max"),
+                "max": alerts_max,
+                "used": alerts_used,
+                "remaining": max(0, alerts_max - alerts_used),
             },
         }
         _set_cached_limits(user_id, payload)

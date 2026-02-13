@@ -91,7 +91,13 @@ async def run_backtest(req: BacktestRequest, request: Request):
     if not result:
         raise HTTPException(status_code=500, detail="回測執行失敗")
     if isinstance(result, dict) and result.get("error"):
-        raise HTTPException(status_code=400, detail=str(result.get("error")))
+        detail_text = str(result.get("error"))
+        if "division by zero" in detail_text.lower():
+            raise HTTPException(
+                status_code=400,
+                detail="Backtest 計算出現除以 0，請調整初始資金與參數後再試。",
+            )
+        raise HTTPException(status_code=400, detail=detail_text)
 
     return _normalize_backtest_response(req, history, result)
 

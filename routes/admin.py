@@ -1,10 +1,12 @@
-"""
-Admin API — 管理後台
-"""
+﻿"""Admin API routes."""
+
+from __future__ import annotations
+
 import os
+from typing import Any, Optional
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional
 
 router = APIRouter()
 
@@ -17,12 +19,19 @@ class TierUpdateRequest(BaseModel):
     expires_at: Optional[str] = None
 
 
+class PendingModerateRequest(BaseModel):
+    user_id: str
+    tier: Optional[str] = None
+    expires_at: Optional[str] = None
+
+
 @router.get("/admin/users")
 async def list_users(request: Request):
-    """列出所有使用者"""
+    """List users for admin dashboard."""
     _require_admin(request)
     try:
         from adapters.supabase_adapter import supabase_adapter
+
         users = supabase_adapter.get_all_users()
         return {"users": users or []}
     except Exception as e:
@@ -31,53 +40,149 @@ async def list_users(request: Request):
 
 @router.post("/admin/tier")
 async def update_tier(req: TierUpdateRequest, request: Request):
-    """更新用戶方案"""
+    """Manual tier update."""
     _require_admin(request)
     try:
         from services.auth_service import auth_service
-        result = auth_service.admin_update_tier(
-            req.user_id, req.tier, req.expires_at
-        )
-        return {"success": result}
+        from adapters.supabase_adapter import supabase_adapter
+
+        ok = auth_service.admin_update_tier(req.user_id, req.tier, req.expires_at)
+        if ok:
+            # If user is manually updated, clear pending request if present.
+            try:
+                supabase_adapter.clear_pending_upgrade_request(req.user_id)
+            except Exception:
+                pass
+        return {"success": bool(ok)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/admin/stats")
 async def get_stats(request: Request):
-    """取得系統統計"""
+    """Basic platform stats."""
     _require_admin(request)
     try:
         from adapters.supabase_adapter import supabase_adapter
+
         users = supabase_adapter.get_all_users() or []
-        tier_counts = {}
+        pending = supabase_adapter.list_pending_upgrade_requests() or []
+
+        tier_counts: dict[str, int] = {}
         for u in users:
-            t = u.get("tier", "free")
+            t = str(u.get("tier") or "free").lower()
             tier_counts[t] = tier_counts.get(t, 0) + 1
+
         return {
             "total_users": len(users),
             "tier_distribution": tier_counts,
+            "pending_upgrade_count": len(pending),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _require_admin(request: Request):
-    """驗證 admin 權限"""
+@router.get("/admin/upgrade-pending")
+async def list_upgrade_pending(request: Request):
+    """List pending upgrade requests."""
+    _require_admin(request)
+    try:
+        from adapters.supabase_adapter import supabase_adapter
+
+        rows = supabase_adapter.list_pending_upgrade_requests() or []
+        return {"pending": rows}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/upgrade-pending/approve")
+async def approve_upgrade_pending(req: PendingModerateRequest, request: Request):
+    """Approve pending upgrade and apply tier immediately."""
+    _require_admin(request)
+    user_id = (req.user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    try:
+        from adapters.supabase_adapter import supabase_adapter
+        from services.auth_service import auth_service
+
+        pending = supabase_adapter.get_pending_upgrade_request(user_id)
+        if not pending:
+            raise HTTPException(status_code=404, detail="找不到待審核申請")
+
+        tier = (req.tier or pending.get("plan") or "").strip().lower()
+        if tier not in {"free", "pro", "premium"}:
+            raise HTTPException(status_code=400, detail="tier 必須為 free/pro/premium")
+
+        ok = auth_service.admin_update_tier(user_id, tier, req.expires_at)
+        if not ok:
+            raise HTTPException(status_code=500, detail="升級方案寫入失敗")
+
+        supabase_adapter.clear_pending_upgrade_request(user_id)
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "tier": tier,
+            "message": "升級申請已核准並套用方案",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/upgrade-pending/reject")
+async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
+    """Reject pending upgrade request."""
+    _require_admin(request)
+    user_id = (req.user_id or "").strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    try:
+        from adapters.supabase_adapter import supabase_adapter
+
+        pending = supabase_adapter.get_pending_upgrade_request(user_id)
+        if not pending:
+            raise HTTPException(status_code=404, detail="找不到待審核申請")
+
+        ok = supabase_adapter.clear_pending_upgrade_request(user_id)
+        if not ok:
+            raise HTTPException(status_code=500, detail="清除待審核申請失敗")
+
+        return {
+            "success": True,
+            "user_id": user_id,
+            "message": "已拒絕升級申請",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _require_admin(request: Request) -> dict[str, Any]:
+    """Verify admin access by session + allowlist emails."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="請先登入")
+
     token = auth_header.split(" ", 1)[1]
     try:
         from services.auth_service import auth_service
+
         user = auth_service.verify_session(token)
         if not user:
-            raise HTTPException(status_code=401, detail="Session 已過期")
+            raise HTTPException(status_code=401, detail="Session 已失效")
+
         raw_admins = os.environ.get("ADMIN_EMAILS", _DEFAULT_ADMIN_EMAIL)
         admin_emails = {e.strip().lower() for e in raw_admins.split(",") if e.strip()}
         user_email = (user.get("email") or "").strip().lower()
         if user_email not in admin_emails:
-            raise HTTPException(status_code=403, detail="需要管理員權限")
+            raise HTTPException(status_code=403, detail="你不是管理員")
+        return user
     except HTTPException:
         raise
     except Exception:

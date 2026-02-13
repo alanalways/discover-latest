@@ -5,6 +5,7 @@ DiscoverLatest ?????? - Supabase Adapter (REST API ???)
 import os
 import json
 import time
+import threading
 import httpx
 from typing import Optional, Dict, Any, List
 from datetime import date, datetime, timezone
@@ -22,6 +23,11 @@ class SupabaseAdapter:
         self._pending_upgrade_mem: Dict[str, Dict[str, Any]] = {}
         self._ai_usage_mem: Dict[str, Dict[str, Any]] = {}
         self._ai_usage_fk_blocked: Dict[str, str] = {}
+        self._ai_usage_file_lock = threading.Lock()
+        self._ai_usage_file = os.environ.get(
+            "AI_USAGE_FALLBACK_FILE",
+            os.path.join(os.getcwd(), ".cache", "ai_usage_fallback.json"),
+        )
     
     def _get_config(self):
         """??? Supabase ???"""
@@ -198,68 +204,83 @@ class SupabaseAdapter:
         return None
 
     def ensure_public_user_record(self, user_id: str) -> bool:
-        """??? public.users ?????? user?????ai_usage FK ???????"""
+        """Ensure public.users has a matching record for AI usage FK constraints."""
+        user_id = str(user_id or "").strip()
         if not user_id:
             return False
-        try:
-            existing = self._request(
+
+        def _exists_by(col: str) -> bool:
+            rows = self._request(
                 "GET",
                 "users",
-                params={"id": f"eq.{user_id}", "select": "id", "limit": "1"},
+                params={col: f"eq.{user_id}", "select": "id,user_id", "limit": "1"},
                 use_service_key=True,
                 silent=True,
             )
-            if isinstance(existing, list) and existing:
+            if not (isinstance(rows, list) and rows):
+                return False
+            row = rows[0] if isinstance(rows[0], dict) else {}
+
+            # Best-effort: if record exists by `id` but missing `user_id`, backfill it.
+            if col == "id" and (row.get("user_id") is None or row.get("user_id") == ""):
+                row_id = row.get("id")
+                if row_id:
+                    self._request(
+                        "PATCH",
+                        "users",
+                        params={"id": f"eq.{row_id}"},
+                        json={"user_id": user_id},
+                        use_service_key=True,
+                        silent=True,
+                    )
+            return True
+
+        try:
+            if _exists_by("user_id") or _exists_by("id"):
                 return True
 
             auth_user = self.auth_admin_get_user_by_id(user_id) or {}
             metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
-            email = (auth_user.get("email") or "").strip()
+            email = str(auth_user.get("email") or "").strip()
             name = (
                 metadata.get("full_name")
                 or metadata.get("name")
                 or (email.split("@", 1)[0] if email else "")
             )
-
             now_iso = datetime.now(timezone.utc).isoformat()
+
+            base = {"email": email, "name": name, "created_at": now_iso}
+            base = {k: v for k, v in base.items() if v not in (None, "")}
+
             payload_variants = [
-                {"id": user_id, "email": email, "name": name, "tier": "free", "created_at": now_iso},
-                {"id": user_id, "email": email, "name": name, "tier": "free"},
-                {"id": user_id, "email": email, "name": name},
-                {"id": user_id, "email": email},
+                {**base, "id": user_id, "user_id": user_id, "tier": "free", "plan": "free"},
+                {**base, "id": user_id, "user_id": user_id, "tier": "free"},
+                {**base, "id": user_id, "user_id": user_id},
+                {**base, "user_id": user_id, "tier": "free", "plan": "free"},
+                {**base, "user_id": user_id},
+                {**base, "id": user_id},
+                {"id": user_id, "user_id": user_id},
+                {"user_id": user_id},
                 {"id": user_id},
             ]
-            for payload in payload_variants:
-                # ????insert
-                inserted = self._request(
-                    "POST",
-                    "users",
-                    json=payload,
-                    use_service_key=True,
-                    silent=True,
-                )
-                if inserted is not None:
-                    return True
-                # upsert insert
-                upserted = self._request(
-                    "POST",
-                    "users",
-                    params={"on_conflict": "id"},
-                    json=payload,
-                    use_service_key=True,
-                    silent=True,
-                )
-                if upserted is not None:
-                    return True
+            on_conflicts = [None, "id", "user_id", "id,user_id", "user_id,id"]
 
-            verify = self._request(
-                "GET",
-                "users",
-                params={"id": f"eq.{user_id}", "select": "id", "limit": "1"},
-                use_service_key=True,
-                silent=True,
-            )
-            return bool(isinstance(verify, list) and verify)
+            for payload in payload_variants:
+                clean_payload = {k: v for k, v in payload.items() if v not in (None, "")}
+                for conflict in on_conflicts:
+                    params = {"on_conflict": conflict} if conflict else None
+                    inserted = self._request(
+                        "POST",
+                        "users",
+                        params=params,
+                        json=clean_payload,
+                        use_service_key=True,
+                        silent=True,
+                    )
+                    if inserted is not None and (_exists_by("user_id") or _exists_by("id")):
+                        return True
+
+            return _exists_by("user_id") or _exists_by("id")
         except Exception:
             return False
 
@@ -910,12 +931,11 @@ class SupabaseAdapter:
             return False
 
     def get_pending_upgrade_request(self, user_id: str) -> Optional[Dict[str, Any]]:
-        """Read latest pending upgrade request for a user.
+        """Read pending upgrade request for a user.
 
-        Storage fallback is `admin_logs` with:
-        - action = upgrade_request_pending
-        - target_user_id = user id
-        - details = json payload
+        Source order:
+        1) auth.users.user_metadata.pending_upgrade
+        2) in-process memory fallback
         """
         if not user_id:
             return None
@@ -928,54 +948,7 @@ class SupabaseAdapter:
         if isinstance(mem_pending, dict):
             return mem_pending
 
-        try:
-            query_variants = [
-                {
-                    "target_user_id": f"eq.{user_id}",
-                    "action": "eq.upgrade_request_pending",
-                    "select": "*",
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
-                {
-                    "user_id": f"eq.{user_id}",
-                    "action": "eq.upgrade_request_pending",
-                    "select": "*",
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
-                {
-                    "target_user_id": f"eq.{user_id}",
-                    "select": "*",
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
-                {
-                    "user_id": f"eq.{user_id}",
-                    "select": "*",
-                    "order": "created_at.desc",
-                    "limit": "1",
-                },
-            ]
-            for params in query_variants:
-                rows = self._request(
-                    "GET",
-                    "admin_logs",
-                    params=params,
-                    use_service_key=True,
-                    silent=True,
-                )
-                if not rows or not isinstance(rows, list):
-                    continue
-                row = rows[0] if rows else None
-                if not isinstance(row, dict):
-                    continue
-                pending = self._extract_pending_from_admin_log_row(row, user_id)
-                if pending.get("plan") or pending.get("email") or pending.get("id"):
-                    return pending
-            return None
-        except Exception:
-            return None
+        return None
 
     def create_pending_upgrade_request(
         self,
@@ -1011,15 +984,8 @@ class SupabaseAdapter:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         request_id = f"UPG-{int(time.time())}"
-        payload = {
-            "admin_id": "system",
-            "action": "upgrade_request_pending",
-            "target_user_id": user_id,
-            "details": json.dumps(details, ensure_ascii=False),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
         try:
-            # 1) Primary storage: auth.users.user_metadata.pending_upgrade
+            # Primary storage: auth.users.user_metadata.pending_upgrade
             if self._set_pending_upgrade_request_metadata(
                 user_id=user_id,
                 user_email=user_email,
@@ -1038,101 +1004,8 @@ class SupabaseAdapter:
                     "status": "pending",
                 }
                 return {"success": True, "request_id": request_id, "pending": pending}
-
-            # 2) Fallback storage: admin_logs (for old schema/project)
-            payload_variants = [
-                payload,
-                {
-                    "action": "upgrade_request_pending",
-                    "target_user_id": user_id,
-                    "details": json.dumps(details, ensure_ascii=False),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                {
-                    "action": "upgrade_request_pending",
-                    "user_id": user_id,
-                    "details": json.dumps(details, ensure_ascii=False),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                {
-                    "action": "upgrade_request_pending",
-                    "target_user_id": user_id,
-                    "payload": json.dumps(details, ensure_ascii=False),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                {
-                    "action": "upgrade_request_pending",
-                    "user_id": user_id,
-                    "payload": json.dumps(details, ensure_ascii=False),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                {
-                    "action": "upgrade_request_pending",
-                    "target_user_id": user_id,
-                    "plan": plan,
-                    "billing_cycle": billing_cycle,
-                    "email": user_email,
-                    "name": user_name,
-                    "status": "pending",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-                {
-                    "action": "upgrade_request_pending",
-                    "user_id": user_id,
-                    "plan": plan,
-                    "billing_cycle": billing_cycle,
-                    "email": user_email,
-                    "name": user_name,
-                    "status": "pending",
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            ]
-
-            inserted = None
-            for p in payload_variants:
-                inserted = self._request(
-                    "POST",
-                    "admin_logs",
-                    json=p,
-                    use_service_key=True,
-                    silent=True,
-                )
-                if inserted is not None:
-                    break
-
-            if inserted is None:
-                pending = {
-                    "id": request_id,
-                    "user_id": user_id,
-                    "plan": plan,
-                    "billing_cycle": billing_cycle,
-                    "email": user_email,
-                    "name": user_name,
-                    "created_at": details.get("created_at"),
-                    "status": "pending",
-                }
-                self._pending_upgrade_mem[user_id] = pending
-                return {
-                    "success": True,
-                    "request_id": request_id,
-                    "pending": pending,
-                    "message": "pending_saved_in_memory",
-                }
-
-            row = inserted[0] if isinstance(inserted, list) and inserted else {}
-            request_id = str((row or {}).get("id") or request_id)
-            pending = self.get_pending_upgrade_request(user_id) or {
-                "id": request_id,
-                "user_id": user_id,
-                "plan": plan,
-                "billing_cycle": billing_cycle,
-                "email": user_email,
-                "name": user_name,
-                "status": "pending",
-            }
-            return {"success": True, "request_id": request_id, "pending": pending}
         except Exception as e:
-            # Hard fallback: never block upgrade request creation because of schema drift.
+            # Hard fallback: never block upgrade request creation.
             pending = {
                 "id": request_id,
                 "user_id": user_id,
@@ -1152,34 +1025,68 @@ class SupabaseAdapter:
                 "message": "pending_saved_in_memory_after_exception",
             }
 
+        # Metadata write failed. Keep service available via memory fallback.
+        pending = {
+            "id": request_id,
+            "user_id": user_id,
+            "plan": plan,
+            "billing_cycle": billing_cycle,
+            "email": user_email,
+            "name": user_name,
+            "created_at": details.get("created_at"),
+            "status": "pending",
+        }
+        self._pending_upgrade_mem[user_id] = pending
+        return {
+            "success": True,
+            "request_id": request_id,
+            "pending": pending,
+            "message": "pending_saved_in_memory",
+        }
+
     def clear_pending_upgrade_request(self, user_id: str) -> bool:
         """Clear pending upgrade request after manual approval."""
         if not user_id:
             return False
         self._pending_upgrade_mem.pop(user_id, None)
-        metadata_ok = self._clear_pending_upgrade_request_metadata(user_id)
-        try:
-            url, _, _ = self._get_config()
-            if not url:
-                return metadata_ok
-            with httpx.Client(timeout=15.0) as client:
-                query_variants = [
-                    {"target_user_id": f"eq.{user_id}", "action": "eq.upgrade_request_pending"},
-                    {"user_id": f"eq.{user_id}", "action": "eq.upgrade_request_pending"},
-                    {"target_user_id": f"eq.{user_id}"},
-                    {"user_id": f"eq.{user_id}"},
-                ]
-                for params in query_variants:
-                    resp = client.delete(
-                        f"{url}/rest/v1/admin_logs",
-                        headers=self._get_headers(use_service_key=True),
-                        params=params,
-                    )
-                    if 200 <= resp.status_code < 300:
-                        return True
-                return metadata_ok
-        except Exception:
-            return metadata_ok
+        return self._clear_pending_upgrade_request_metadata(user_id)
+
+    def list_pending_upgrade_requests(self) -> List[Dict[str, Any]]:
+        """List all pending upgrade requests for admin moderation."""
+        pending_rows: Dict[str, Dict[str, Any]] = {}
+
+        # Primary source: auth metadata
+        auth_users: List[Dict[str, Any]] = []
+        for page in range(1, 11):
+            rows = self.auth_admin_list_users(page=page, per_page=200)
+            if not rows:
+                break
+            auth_users.extend(rows)
+            if len(rows) < 200:
+                break
+
+        for row in auth_users:
+            uid = str(row.get("id") or "").strip()
+            if not uid:
+                continue
+            metadata = row.get("user_metadata") if isinstance(row.get("user_metadata"), dict) else {}
+            pending = self._extract_pending_from_metadata(uid, metadata)
+            if not pending:
+                continue
+            pending["email"] = pending.get("email") or row.get("email") or ""
+            pending["name"] = pending.get("name") or metadata.get("full_name") or metadata.get("name") or ""
+            pending_rows[uid] = pending
+
+        # Fallback source: in-process memory
+        for uid, row in self._pending_upgrade_mem.items():
+            if uid in pending_rows:
+                continue
+            if isinstance(row, dict):
+                pending_rows[uid] = dict(row)
+
+        rows = list(pending_rows.values())
+        rows.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        return rows
     
     # ===== AI ?????? =====
 
@@ -1229,6 +1136,74 @@ class SupabaseAdapter:
         except Exception:
             return False
 
+    def _load_ai_usage_file_rows(self) -> Dict[str, Dict[str, Any]]:
+        """Load persistent AI usage fallback rows from local JSON file."""
+        try:
+            with self._ai_usage_file_lock:
+                path = self._ai_usage_file
+                if not path:
+                    return {}
+                folder = os.path.dirname(path)
+                if folder:
+                    os.makedirs(folder, exist_ok=True)
+                if not os.path.exists(path):
+                    return {}
+                with open(path, "r", encoding="utf-8") as f:
+                    raw = json.load(f)
+                if isinstance(raw, dict):
+                    return raw
+                return {}
+        except Exception:
+            return {}
+
+    def _save_ai_usage_file_rows(self, rows: Dict[str, Dict[str, Any]]) -> bool:
+        """Persist AI usage fallback rows to local JSON file."""
+        try:
+            with self._ai_usage_file_lock:
+                path = self._ai_usage_file
+                if not path:
+                    return False
+                folder = os.path.dirname(path)
+                if folder:
+                    os.makedirs(folder, exist_ok=True)
+                tmp = f"{path}.tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(rows or {}, f, ensure_ascii=False)
+                os.replace(tmp, path)
+            return True
+        except Exception:
+            return False
+
+    def _get_ai_usage_fallback_from_file(self, user_id: str, today: str) -> int:
+        """Read persistent fallback counter for one user/day."""
+        if not user_id:
+            return 0
+        rows = self._load_ai_usage_file_rows()
+        row = rows.get(user_id)
+        if not isinstance(row, dict):
+            return 0
+        if str(row.get("date") or "") != today:
+            return 0
+        try:
+            return int(row.get("count") or 0)
+        except Exception:
+            return 0
+
+    def _increment_ai_usage_fallback_file(self, user_id: str, today: str) -> bool:
+        """Increment persistent fallback counter for one user/day."""
+        if not user_id:
+            return False
+        rows = self._load_ai_usage_file_rows()
+        current = rows.get(user_id) if isinstance(rows, dict) else None
+        current_count = 0
+        if isinstance(current, dict) and str(current.get("date") or "") == today:
+            try:
+                current_count = int(current.get("count") or 0)
+            except Exception:
+                current_count = 0
+        rows[user_id] = {"date": today, "count": current_count + 1}
+        return self._save_ai_usage_file_rows(rows)
+
     def _increment_ai_usage_fallback_metadata(self, user_id: str, today: str) -> bool:
         """Increment fallback daily usage counter in auth metadata."""
         try:
@@ -1270,6 +1245,7 @@ class SupabaseAdapter:
                 "select": "*",
             },
             use_service_key=True,
+            silent=True,
         )
         if not isinstance(rows, list):
             # fallback: row may not have date column in some projects
@@ -1283,6 +1259,7 @@ class SupabaseAdapter:
                     "order": "created_at.desc",
                 },
                 use_service_key=True,
+                silent=True,
             )
         if isinstance(rows, list) and rows:
             total = 0
@@ -1311,9 +1288,10 @@ class SupabaseAdapter:
         # Fallbacks: schema/FK mismatch or admin API restriction.
         meta_total = self._get_ai_usage_fallback_from_metadata(user_id, today)
         mem_total = self._get_ai_usage_fallback_from_memory(user_id, today)
+        file_total = self._get_ai_usage_fallback_from_file(user_id, today)
         if db_total is None:
-            return max(meta_total, mem_total)
-        return max(db_total, meta_total, mem_total)
+            return max(meta_total, mem_total, file_total)
+        return max(db_total, meta_total, mem_total, file_total)
     
     def increment_ai_usage(self, user_id: str) -> bool:
         """?????? AI ???????????RPC??? 409 ????????"""
@@ -1326,13 +1304,30 @@ class SupabaseAdapter:
         if self._ai_usage_fk_blocked.get(user_id) == today:
             if self._increment_ai_usage_fallback_metadata(user_id, today):
                 self._increment_ai_usage_fallback_memory(user_id, today)
+                self._increment_ai_usage_fallback_file(user_id, today)
                 return True
             if self._increment_ai_usage_fallback_memory(user_id, today):
+                self._increment_ai_usage_fallback_file(user_id, today)
+                return True
+            if self._increment_ai_usage_fallback_file(user_id, today):
                 return True
             return False
 
         try:
-            self.ensure_public_user_record(user_id)
+            ensured = self.ensure_public_user_record(user_id)
+            if not ensured:
+                self._ai_usage_fk_blocked[user_id] = today
+                if self._increment_ai_usage_fallback_metadata(user_id, today):
+                    self._increment_ai_usage_fallback_memory(user_id, today)
+                    self._increment_ai_usage_fallback_file(user_id, today)
+                    return True
+                if self._increment_ai_usage_fallback_memory(user_id, today):
+                    self._increment_ai_usage_fallback_file(user_id, today)
+                    return True
+                if self._increment_ai_usage_fallback_file(user_id, today):
+                    return True
+                return False
+
             fk_blocked = False
             with httpx.Client(timeout=30.0) as client:
                 headers = self._get_headers(use_service_key=True)
@@ -1376,8 +1371,12 @@ class SupabaseAdapter:
                 if fk_blocked:
                     if self._increment_ai_usage_fallback_metadata(user_id, today):
                         self._increment_ai_usage_fallback_memory(user_id, today)
+                        self._increment_ai_usage_fallback_file(user_id, today)
                         return True
                     if self._increment_ai_usage_fallback_memory(user_id, today):
+                        self._increment_ai_usage_fallback_file(user_id, today)
+                        return True
+                    if self._increment_ai_usage_fallback_file(user_id, today):
                         return True
                     return False
 
@@ -1510,8 +1509,12 @@ class SupabaseAdapter:
         # Final fallback: keep counting in auth metadata so limits/left sidebar stay consistent.
         if self._increment_ai_usage_fallback_metadata(user_id, today):
             self._increment_ai_usage_fallback_memory(user_id, today)
+            self._increment_ai_usage_fallback_file(user_id, today)
             return True
         if self._increment_ai_usage_fallback_memory(user_id, today):
+            self._increment_ai_usage_fallback_file(user_id, today)
+            return True
+        if self._increment_ai_usage_fallback_file(user_id, today):
             return True
         return False
     

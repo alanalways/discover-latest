@@ -86,10 +86,7 @@ export default function PricingPage() {
   const mapUpgradeError = (err: ApiError): string => {
     const code = (err.code || '').toLowerCase();
     if (code === 'pending_exists') return '你已有待審核升級申請，請先等待管理員審核。';
-    if (code === 'smtp_auth_failed') return '通知信寄送失敗：SMTP 帳密不正確，請檢查 SMTP_USER / SMTP_PASS。';
-    if (code === 'smtp_not_configured') return '通知信尚未設定：請在 Hugging Face Secrets 設定 SMTP_USER / SMTP_PASS。';
-    if (code === 'smtp_connect_failed' || code === 'smtp_timeout') return '通知信連線失敗：目前伺服器無法連到 SMTP。';
-    if (code === 'smtp_recipients_refused' || code === 'admin_email_missing') return '通知信收件設定錯誤：請確認 UPGRADE_ADMIN_EMAIL。';
+    if (code === 'not_admin') return '目前無法建立申請，請稍後再試。';
     return err.message || '建立升級申請失敗，請稍後再試。';
   };
 
@@ -155,8 +152,8 @@ export default function PricingPage() {
       <div className={styles.header}>
         <h2 className={styles.title}>會員方案</h2>
         <p className={styles.subtitle}>
-          從「看盤」進化到「策略化決策」。升級後可解鎖更高 AI 次數、更完整分析維度與更長回測視角，
-          讓每次進出場都有更明確依據。
+          從「看盤」升級到「可執行策略」。Pro / Premium 會解鎖更高 AI 次數、更多技術與資金管理維度、
+          更長回測區間與進階決策提示，幫你把觀察轉成可落地的進出場計畫。
         </p>
 
         <div className={styles.currencyToggle}>
@@ -233,7 +230,8 @@ export default function PricingPage() {
 
       <div className={styles.faq}>
         <p className={styles.faqNote}>
-          升級流程：送出申請 → 系統鎖定重複申請 → 管理員人工審核（1-5 個工作天）→ 開通對應方案權限。
+          升級流程：送出升級申請後，系統會先鎖定重複送出，管理員登入後可直接在後台看到你的待審核申請，
+          並進行人工審核（約 1-5 個工作天）後開通方案。審核完成前你的按鈕會顯示「審核中」。
         </p>
       </div>
     </div>
