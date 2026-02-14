@@ -47,7 +47,9 @@ interface Top20Response {
 
 interface MarketHours {
   is_open: boolean;
+  is_trading_day?: boolean;
   time: string;
+  timezone?: string;
 }
 
 interface NewsItem {
@@ -136,6 +138,30 @@ const FALLBACK_NEWS_BRIEF = [
 ];
 
 let dashboardMemoryCache: DashboardCachePayload | null = null;
+
+function toMinutes(text: string): number {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(text || '').trim());
+  if (!m) return -1;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return -1;
+  return hh * 60 + mm;
+}
+
+function getSessionLabel(market: 'tw' | 'us', h?: MarketHours | null): { label: string; open: boolean } {
+  if (!h) return { label: '狀態未知', open: false };
+  if (h.is_open) return { label: '開市中', open: true };
+  if (!h.is_trading_day) return { label: '休市', open: false };
+
+  const mins = toMinutes(h.time);
+  if (mins < 0) return { label: '休市', open: false };
+
+  const openMins = market === 'tw' ? 9 * 60 : 9 * 60 + 30;
+  const closeMins = market === 'tw' ? 13 * 60 + 30 : 16 * 60;
+  if (mins < openMins) return { label: '盤前', open: false };
+  if (mins >= closeMins) return { label: '盤後', open: false };
+  return { label: '交易中', open: true };
+}
 
 function hasUsableNews(payload: NewsBrief | null | undefined): boolean {
   if (!payload) return false;
@@ -389,6 +415,8 @@ export default function Dashboard() {
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
   const activeMarketKey = activeMarket === 'tw' ? 'tw' : 'us';
+  const twSession = getSessionLabel('tw', hours?.tw);
+  const usSession = getSessionLabel('us', hours?.us);
   const loadingToday = activeMarketKey === 'tw' ? top20Meta.tw_loading_today : top20Meta.us_loading_today;
   const usingPrevious = activeMarketKey === 'tw' ? top20Meta.tw_using_previous_session : top20Meta.us_using_previous_session;
   const visibleNewsItems = (news.items || []).filter((item) => !isNoiseNewsItem(item)).slice(0, 4);
@@ -406,11 +434,11 @@ export default function Dashboard() {
           <span>市場概覽</span>
           {hours && (
             <>
-              <span className={`${styles.marketStatus} ${hours.tw.is_open ? styles.open : styles.closed}`}>
-                台股 {hours.tw.is_open ? '開市中' : '休市'}
+              <span className={`${styles.marketStatus} ${twSession.open ? styles.open : styles.closed}`}>
+                台股 {twSession.label}
               </span>
-              <span className={`${styles.marketStatus} ${hours.us.is_open ? styles.open : styles.closed}`}>
-                美股 {hours.us.is_open ? '開市中' : '休市'}
+              <span className={`${styles.marketStatus} ${usSession.open ? styles.open : styles.closed}`}>
+                美股 {usSession.label}
               </span>
             </>
           )}

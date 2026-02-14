@@ -1,65 +1,55 @@
-"""
-Analysis API — AI 分析 + SMC/ICT 技術分析
-"""
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from typing import Optional
-import json
+"""Analysis API routes."""
+
+from __future__ import annotations
+
 import asyncio
 import math
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 router = APIRouter()
 
 
 class AnalysisRequest(BaseModel):
-    """AI 分析請求"""
     symbol: str
     period: str = "1y"
-    analysis_type: str = "full"  # full | trend | smc
+    analysis_type: str = "full"
 
 
 class SmcRequest(BaseModel):
-    """SMC 分析請求"""
     symbol: str
     period: str = "6mo"
 
 
 @router.post("/analysis/ai")
 async def ai_analysis(req: AnalysisRequest, request: Request):
-    """AI 深度分析（Gemini）"""
-    # 驗證用戶權限
+    """Run AI analysis with quota check and safe charging behavior."""
     auth_header = request.headers.get("Authorization", "")
     user_id = _extract_user_id(auth_header)
 
     try:
-        # Feature gate 檢查
         from services.feature_gate import can_access
         from services.rate_limiter import rate_limiter
+        from services.stock_service import stock_service
+        from services.gemini_service import gemini_service
 
         if not user_id:
             raise HTTPException(status_code=401, detail="請先登入後再使用 AI 分析")
 
         tier = rate_limiter.check_and_downgrade(user_id)
-
         if not can_access(tier, "ai_analysis"):
-            raise HTTPException(status_code=403, detail="此功能需要升級方案")
+            raise HTTPException(status_code=403, detail="目前方案無法使用 AI 分析")
 
-        # FinMind-only：不依賴 NDC 外部來源
-        macro_data = None
-
-        # 檢查每日額度並記錄用量（登入用戶）
-        allowed, reason = rate_limiter.acquire_request(user_id)
+        # Pre-check quota, but do not consume yet.
+        allowed, reason = rate_limiter.can_make_request(user_id)
         if not allowed:
-            raise HTTPException(status_code=429, detail=reason or "今日 AI 分析次數已達上限")
-
-        # 執行分析
-        from services.stock_service import stock_service
-        from services.gemini_service import gemini_service
+            raise HTTPException(status_code=429, detail=reason or "今日 AI 次數已達上限")
 
         stock_data = await stock_service.get_stock_data_for_analysis(req.symbol, req.period)
         if not stock_data:
-            raise HTTPException(status_code=404, detail=f"無法取得 {req.symbol} 資料")
+            raise HTTPException(status_code=404, detail=f"找不到股票 {req.symbol}")
 
         info_payload = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
         if isinstance(info_payload, dict):
@@ -72,35 +62,59 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         if tier in ("pro", "premium"):
             try:
                 from services.smc_service import smc_service
-                smc_result = await asyncio.to_thread(smc_service.analyze, history_payload[-260:] if history_payload else [])
+
+                smc_result = await asyncio.to_thread(
+                    smc_service.analyze,
+                    history_payload[-260:] if history_payload else [],
+                )
                 smc_summary = _summarize_smc(smc_result)
             except Exception:
                 smc_summary = ""
 
         result = await asyncio.to_thread(
-            gemini_service.generate_analysis, req.symbol, info_payload, smc_summary, tech_snapshot, macro_data, "", tier
+            gemini_service.generate_analysis,
+            req.symbol,
+            info_payload,
+            smc_summary,
+            tech_snapshot,
+            None,
+            "",
+            tier,
         )
-        # 統一回傳：analysis 一律字串，避免前端渲染物件造成 client-side exception
+
         analysis_text = ""
+        degraded = False
+        error_text = ""
+
         if isinstance(result, dict):
             raw_analysis = result.get("analysis", "")
             if isinstance(raw_analysis, str):
                 analysis_text = raw_analysis.strip()
             elif raw_analysis is not None:
-                analysis_text = str(raw_analysis)
+                analysis_text = str(raw_analysis).strip()
 
-            if not analysis_text:
-                raw_error = result.get("error")
-                if isinstance(raw_error, str) and raw_error.strip():
-                    analysis_text = f"AI 分析失敗：{raw_error.strip()}"
+            degraded = bool(result.get("degraded"))
+            raw_error = result.get("error")
+            if isinstance(raw_error, str):
+                error_text = raw_error.strip()
         elif result is not None:
-            analysis_text = str(result)
+            analysis_text = str(result).strip()
+
+        if not analysis_text and error_text:
+            analysis_text = f"AI 分析暫時失敗：{error_text}"
+
+        if analysis_text:
+            # Charge only when there is usable output.
+            rate_limiter.record_request(user_id)
+        else:
+            raise HTTPException(status_code=503, detail="AI 暫時無法產生可用分析，未扣除使用次數")
 
         return {
             "analysis": analysis_text,
-            "result": result,  # 保留原始結果給進階前端或偵錯
+            "result": result,
+            "charged": True,
+            "degraded": degraded,
         }
-
     except HTTPException:
         raise
     except Exception as e:
@@ -109,26 +123,19 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
 
 @router.post("/analysis/smc")
 async def smc_analysis(req: SmcRequest):
-    """SMC/ICT 技術分析"""
+    """Run SMC analysis."""
     try:
         from services.smc_service import SmcService
         from services.stock_service import stock_service
 
-        # 取得歷史資料
         history = await stock_service.get_stock_history(req.symbol, period=req.period)
         if not history:
-            raise HTTPException(status_code=404, detail=f"無歷史資料: {req.symbol}")
+            raise HTTPException(status_code=404, detail=f"找不到 {req.symbol} 的歷史資料")
 
         smc = SmcService()
-        # 轉為需要的格式
-        if hasattr(history, "to_dict"):
-            records = history.to_dict("records")
-        else:
-            records = history
-
+        records = history.to_dict("records") if hasattr(history, "to_dict") else history
         result = smc.analyze(records)
         return result
-
     except HTTPException:
         raise
     except Exception as e:
@@ -137,42 +144,35 @@ async def smc_analysis(req: SmcRequest):
 
 @router.get("/analysis/industry-chain/{symbol}")
 async def get_industry_chain(symbol: str):
-    """
-    Get a lightweight industry chain graph for the target symbol.
-
-    Response:
-    - nodes: [{ id, label, group }]
-    - edges: [{ source, target, label }]
-    """
+    """Get lightweight industry chain graph."""
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
 
-    # Curated templates for major names. The graph is intentionally compact for UI readability.
     templates = {
         "2330": {
             "name": "台積電",
-            "upstream": ["ASML", "東京威力科創", "矽晶圓供應商"],
+            "upstream": ["ASML", "EDA/IP", "矽晶圓"],
             "downstream": ["NVIDIA", "Apple", "AMD", "Qualcomm"],
         },
         "2454": {
             "name": "聯發科",
             "upstream": ["晶圓代工", "IP 授權", "封測"],
-            "downstream": ["智慧手機品牌", "IoT 設備商", "車用電子"],
+            "downstream": ["智慧手機", "IoT 裝置", "車用晶片"],
         },
         "NVDA": {
             "name": "NVIDIA",
-            "upstream": ["台積電", "HBM 記憶體", "CoWoS 封裝"],
-            "downstream": ["雲端資料中心", "AI SaaS", "邊緣運算"],
+            "upstream": ["台積電", "HBM 記憶體", "先進封裝"],
+            "downstream": ["雲端運算", "AI SaaS", "資料中心"],
         },
         "TSLA": {
             "name": "Tesla",
-            "upstream": ["電池材料", "車用晶片", "鋁/鋼供應"],
-            "downstream": ["EV 市場需求", "充電網路", "能源儲存"],
+            "upstream": ["電池供應", "車用晶片", "車身材料"],
+            "downstream": ["電動車市場", "自駕生態", "能源儲存"],
         },
         "AAPL": {
             "name": "Apple",
-            "upstream": ["台積電", "記憶體供應商", "組裝代工"],
+            "upstream": ["台積電", "記憶體/面板", "組裝供應鏈"],
             "downstream": ["iPhone 生態", "服務收入", "穿戴裝置"],
         },
     }
@@ -181,8 +181,8 @@ async def get_industry_chain(symbol: str):
         sym,
         {
             "name": sym,
-            "upstream": ["關鍵原料", "核心零組件", "製造供應商"],
-            "downstream": ["品牌客戶", "終端通路", "終端需求"],
+            "upstream": ["上游原料", "中游零組件", "製造供應鏈"],
+            "downstream": ["終端產品", "應用服務", "通路需求"],
         },
     )
 
@@ -204,12 +204,12 @@ async def get_industry_chain(symbol: str):
 
 
 def _extract_user_id(auth_header: str) -> Optional[str]:
-    """從 Authorization header 中取出 user_id"""
     if not auth_header.startswith("Bearer "):
         return None
     token = auth_header.split(" ", 1)[1]
     try:
         from services.auth_service import auth_service
+
         user = auth_service.verify_session(token)
         return user.get("id") if user else None
     except Exception:
@@ -229,17 +229,19 @@ def _ema(values: list[float], period: int) -> Optional[float]:
 def _rsi(values: list[float], period: int = 14) -> Optional[float]:
     if len(values) <= period:
         return None
-    gains = []
-    losses = []
+    gains: list[float] = []
+    losses: list[float] = []
     for i in range(1, len(values)):
         delta = values[i] - values[i - 1]
         gains.append(max(delta, 0.0))
         losses.append(max(-delta, 0.0))
+
     avg_gain = sum(gains[:period]) / period
     avg_loss = sum(losses[:period]) / period
     for i in range(period, len(gains)):
         avg_gain = (avg_gain * (period - 1) + gains[i]) / period
         avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+
     if avg_loss <= 0:
         return 100.0
     rs = avg_gain / avg_loss
@@ -293,7 +295,7 @@ def _build_technical_snapshot(history: list[dict]) -> str:
     keltner_up = (keltner_mid + 2 * atr14) if (keltner_mid is not None and atr14 is not None) else None
     keltner_dn = (keltner_mid - 2 * atr14) if (keltner_mid is not None and atr14 is not None) else None
 
-    lines = [f"現價: {last:.2f}"]
+    lines = [f"Price: {last:.2f}"]
     if ema20 is not None:
         lines.append(f"EMA20: {ema20:.2f}")
     if ema50 is not None:
@@ -307,11 +309,11 @@ def _build_technical_snapshot(history: list[dict]) -> str:
     if macd_signal is not None:
         lines.append(f"MACD Signal: {macd_signal:.4f}")
     if boll_up is not None and boll_dn is not None:
-        lines.append(f"Bollinger(20,2): 上軌 {boll_up:.2f}, 下軌 {boll_dn:.2f}")
+        lines.append(f"Bollinger(20,2): {boll_up:.2f}/{boll_dn:.2f}")
     if keltner_up is not None and keltner_dn is not None:
-        lines.append(f"Keltner(EMA20, ATR14x2): 上軌 {keltner_up:.2f}, 下軌 {keltner_dn:.2f}")
+        lines.append(f"Keltner(EMA20, ATR14x2): {keltner_up:.2f}/{keltner_dn:.2f}")
     if highs and lows:
-        lines.append(f"近52週高低: {max(highs[-250:]):.2f}/{min(lows[-250:]):.2f}")
+        lines.append(f"52W High/Low: {max(highs[-250:]):.2f}/{min(lows[-250:]):.2f}")
     return " | ".join(lines)
 
 
@@ -324,9 +326,9 @@ def _summarize_smc(result: Optional[dict]) -> str:
     fvg = result.get("fvg") or []
     liquidity = result.get("liquidity") or []
     return (
-        f"趨勢: {trend}; "
-        f"結構訊號 {len(structures)} 個; "
-        f"Order Block {len(order_blocks)} 個; "
-        f"FVG {len(fvg)} 個; "
-        f"流動性區 {len(liquidity)} 個"
+        f"Trend: {trend}; "
+        f"Structures {len(structures)}; "
+        f"Order Blocks {len(order_blocks)}; "
+        f"FVG {len(fvg)}; "
+        f"Liquidity Zones {len(liquidity)}"
     )

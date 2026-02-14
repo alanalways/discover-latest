@@ -257,10 +257,17 @@ export class ApiClient {
 
     // ── Analysis ──
     async getAiAnalysis(symbol: string, period: string = '1y'): Promise<AiAnalysisResponse> {
-        return this.fetch<AiAnalysisResponse>('/api/analysis/ai', {
-            method: 'POST',
-            body: JSON.stringify({ symbol, period }),
-        });
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 70_000) : null;
+        try {
+            return await this.fetch<AiAnalysisResponse>('/api/analysis/ai', {
+                method: 'POST',
+                body: JSON.stringify({ symbol, period }),
+                ...(controller ? { signal: controller.signal } : {}),
+            });
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
     }
 
     async runSmcAnalysis(symbol: string, period: string = '6mo') {
