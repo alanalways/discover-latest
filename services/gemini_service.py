@@ -1,4 +1,4 @@
-"""Gemini AI service with two-stage generation and timeout-safe fallback."""
+"""Gemini AI service with stage1 grounding + stage2 synthesis."""
 
 from __future__ import annotations
 
@@ -18,6 +18,15 @@ GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "30"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "45"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
+GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "18")))
+
+INTRO_LINE = "\u6211\u662f DiscoverLatest AI\u3002"
+S1 = "\u4e00\u3001\u5e02\u5834\u60c5\u5883\u8207\u7d50\u8ad6 \U0001F50E"
+S2 = "\u4e8c\u3001\u95dc\u9375\u50ac\u5316\u8207\u57fa\u672c\u9762 \U0001F9F1"
+S3 = "\u4e09\u3001\u4ea4\u6613\u7b56\u7565\u8207\u57f7\u884c \U0001F9ED"
+S4 = "\u56db\u3001\u98a8\u96aa\u8207\u5931\u6548\u689d\u4ef6 \u26A0\uFE0F"
+S5 = "\u4e94\u3001\u63a5\u4e0b\u4f86\u8981\u8ffd\u8e64\u7684\u4e8b\u4ef6 \U0001F4C5"
+SMC_HEADER = "SMC \u7d50\u69cb\u5224\u8b80 \U0001F9E0"
 
 _key_pool: List[str] = []
 _key_index = 0
@@ -25,6 +34,7 @@ _key_lock = threading.Lock()
 
 _metrics_cache: Dict[str, Dict[str, Any]] = {}
 _metrics_cache_lock = threading.Lock()
+
 _analysis_cache: Dict[str, Dict[str, Any]] = {}
 _analysis_cache_lock = threading.Lock()
 
@@ -34,9 +44,9 @@ def _load_key_pool() -> List[str]:
     if _key_pool:
         return _key_pool
 
-    multi_keys = os.environ.get("GEMINI_API_KEYS", "")
-    if multi_keys:
-        keys = [k.strip() for k in multi_keys.split(",") if k.strip()]
+    multi = os.environ.get("GEMINI_API_KEYS", "")
+    if multi:
+        keys = [k.strip() for k in multi.split(",") if k.strip()]
         if keys:
             _key_pool = keys
             print(f"[Gemini] Loaded {len(keys)} API keys from GEMINI_API_KEYS")
@@ -92,15 +102,18 @@ class GeminiService:
         if isinstance(value, (int, float)):
             v = float(value)
             return v if v == v and v not in (float("inf"), float("-inf")) else None
+
         text = str(value).strip().replace(",", "")
         if not text:
             return None
         if text.endswith("%"):
             text = text[:-1].strip()
+
         units = {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}
         mul = units.get(text[-1:].upper())
         if mul:
             text = text[:-1].strip()
+
         try:
             base = float(text)
             v = base * mul if mul else base
@@ -112,15 +125,18 @@ class GeminiService:
     def _extract_json_object(text: str) -> Dict[str, Any]:
         if not text:
             return {}
+
         cleaned = text.strip()
         if cleaned.startswith("```"):
             cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned)
+
         try:
             parsed = json.loads(cleaned)
             return parsed if isinstance(parsed, dict) else {}
         except Exception:
             pass
+
         start = cleaned.find("{")
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
@@ -130,11 +146,13 @@ class GeminiService:
                 return parsed if isinstance(parsed, dict) else {}
             except Exception:
                 return {}
+
         return {}
 
     def ground_company_metrics(self, symbol: str, market: str = "TW", company_name: str = "") -> Dict[str, Any]:
         normalized_symbol = str(symbol or "").strip().upper()
         cache_key = f"{time.strftime('%Y-%m-%d')}:{normalized_symbol}"
+
         with _metrics_cache_lock:
             cached = _metrics_cache.get(cache_key)
             if isinstance(cached, dict):
@@ -151,10 +169,10 @@ class GeminiService:
             return {"success": False, "metrics": {}, "sources": [], "error": "google_genai_missing"}
 
         prompt = (
-            "Use Google Search grounding and return JSON only. "
+            "Use Google Search grounding and return strict JSON only. "
             '{"market_cap": number|null, "pe_ratio": number|null, "pb_ratio": number|null, '
             '"dividend_yield": number|null, "as_of": string|null}. '
-            "market_cap must be absolute number, dividend_yield is percentage number. "
+            "market_cap must be absolute numeric value. dividend_yield is percentage numeric value. "
             f"symbol={normalized_symbol}, market={market}, company={company_name or normalized_symbol}."
         )
 
@@ -164,23 +182,24 @@ class GeminiService:
                 model=MODEL_GROUNDING,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.1,
+                    max_output_tokens=240,
                 ),
             )
 
         sources: List[Dict[str, str]] = []
-        response = None
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(_run)
+        ex = ThreadPoolExecutor(max_workers=1)
+        f = ex.submit(_run)
         try:
-            response = future.result(timeout=16)
+            response = f.result(timeout=16)
         except FuturesTimeoutError:
-            future.cancel()
+            f.cancel()
             return {"success": False, "metrics": {}, "sources": [], "error": "grounding_timeout"}
         except Exception as e:
             return {"success": False, "metrics": {}, "sources": [], "error": type(e).__name__}
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            ex.shutdown(wait=False, cancel_futures=True)
 
         text_out = response.text if response and getattr(response, "text", None) else ""
         candidates = getattr(response, "candidates", None) or []
@@ -206,8 +225,10 @@ class GeminiService:
             "as_of": parsed.get("as_of"),
         }
         result = {"success": True, "metrics": metrics, "sources": sources[:8]}
+
         with _metrics_cache_lock:
             _metrics_cache[cache_key] = result
+
         return result
 
     def _build_context(
@@ -220,24 +241,22 @@ class GeminiService:
     ) -> str:
         parts: List[str] = []
         if stock_info:
-            name = stock_info.get("name", symbol)
-            price = stock_info.get("price", 0)
-            chg = stock_info.get("change_percent", 0)
-            parts.append(f"Symbol: {symbol} ({name}), Price: {price}, Change: {chg}%")
+            parts.append(f"Symbol={symbol} Name={stock_info.get('name', symbol)}")
             parts.append(
-                "Valuation: "
-                f"PE={stock_info.get('pe_ratio')}, PB={stock_info.get('pb_ratio')}, "
-                f"DividendYield={stock_info.get('dividend_yield')}, MarketCap={stock_info.get('market_cap')}"
+                "Snapshot="
+                f"Price:{stock_info.get('price')},"
+                f"ChangePct:{stock_info.get('change_percent')},"
+                f"PE:{stock_info.get('pe_ratio')},"
+                f"PB:{stock_info.get('pb_ratio')},"
+                f"DY:{stock_info.get('dividend_yield')},"
+                f"MarketCap:{stock_info.get('market_cap')}"
             )
-        if smc_summary:
-            parts.append(f"SMC: {smc_summary}")
         if prediction_summary:
-            parts.append(f"Technical Snapshot: {prediction_summary}")
+            parts.append(f"Technical={prediction_summary}")
+        if smc_summary:
+            parts.append(f"SMC={smc_summary}")
         if macro_data:
-            score = macro_data.get("score")
-            light = macro_data.get("light")
-            date = macro_data.get("date")
-            parts.append(f"Macro ({date}): score={score}, regime={light}")
+            parts.append(f"Macro={macro_data}")
         return "\n".join(parts)
 
     @staticmethod
@@ -245,13 +264,36 @@ class GeminiService:
         out = (text or "").replace("\r\n", "\n").strip()
         if not out:
             return ""
+
         out = re.sub(r"(?m)^\s*[-*]{3,}\s*$", "", out)
-        out = out.replace("***", "").replace("**", "")
-        out = re.sub(r"(?m)^\s*#{1,6}\s*", "", out)
-        out = re.sub(r"(?m)^\s*-\s+", "• ", out)
-        out = re.sub(r"(?m)^\s*\*\s+", "• ", out)
-        if not out.startswith("我是 DiscoverLatest AI。"):
-            out = "我是 DiscoverLatest AI。\n" + out
+        out = out.replace("***", "").replace("**", "").replace("#", "").replace("`", "")
+        out = re.sub(r"(?im)^\s*section\s*1\b.*$", S1, out)
+        out = re.sub(r"(?im)^\s*section\s*2\b.*$", S2, out)
+        out = re.sub(r"(?im)^\s*section\s*3\b.*$", S3, out)
+        out = re.sub(r"(?im)^\s*section\s*4\b.*$", S4, out)
+        out = re.sub(r"(?im)^\s*section\s*5\b.*$", S5, out)
+        out = re.sub(r"(?im)^\s*section\s*6\b.*$", SMC_HEADER, out)
+
+        lines: List[str] = []
+        for raw in out.split("\n"):
+            line = raw.strip()
+            if not line:
+                lines.append("")
+                continue
+            line = re.sub(r"^[-*]+\s*", "", line)
+            line = re.sub(r"^\d+\)\s*", "", line)
+            line = re.sub(r"^\d+\.\s*", "", line)
+            if line.startswith("- "):
+                lines.append(line)
+            elif re.match(r"^[一二三四五六七八九十]+、", line) or line.startswith("SMC"):
+                lines.append(line)
+            else:
+                lines.append(f"- {line}")
+
+        out = "\n".join(lines)
+        out = re.sub(r"\n{3,}", "\n\n", out).strip()
+        if not out.startswith(INTRO_LINE):
+            out = INTRO_LINE + "\n" + out
         return out.strip()
 
     @staticmethod
@@ -259,22 +301,18 @@ class GeminiService:
         out = (text or "").strip()
         if not out:
             return out
-        if re.search(r"(SMC|結構判讀|BOS|CHoCH)", out, flags=re.IGNORECASE):
+        if re.search(r"(SMC|BOS|CHoCH)", out, flags=re.IGNORECASE):
             return out
-        summary = (smc_summary or "").strip() or "SMC 資料不足"
+
+        summary = (smc_summary or "").strip() or "Trend=neutral | BOS=0 | CHoCH=0 | ActiveOB=0 | OpenFVG=0 | Liquidity(B/S)=0/0"
         items = [seg.strip() for seg in summary.split("|") if seg.strip()]
         if not items:
-            items = ["SMC 資料不足"]
-        bullet_lines = "\n".join(f"• {seg}" for seg in items[:6])
-        return f"{out}\n\n🧱 SMC 結構判讀\n{bullet_lines}".strip()
+            items = ["Trend=neutral", "BOS=0", "CHoCH=0"]
+        bullet_lines = "\n".join(f"- {seg}" for seg in items[:6])
+        return f"{out}\n\n{SMC_HEADER}\n{bullet_lines}".strip()
 
     @staticmethod
-    def _analysis_cache_key(
-        symbol: str,
-        tier: str,
-        context: str,
-        user_question: str,
-    ) -> str:
+    def _analysis_cache_key(symbol: str, tier: str, context: str, user_question: str) -> str:
         raw = "|".join(
             [
                 str(symbol or "").strip().upper(),
@@ -283,8 +321,7 @@ class GeminiService:
                 str(context or "").strip(),
             ]
         )
-        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        return f"{time.strftime('%Y-%m-%d')}:{digest}"
+        return f"{time.strftime('%Y-%m-%d')}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
     def _read_analysis_cache(self, key: str) -> Optional[Dict[str, Any]]:
         if GEMINI_ANALYSIS_CACHE_TTL_SEC <= 0:
@@ -299,9 +336,7 @@ class GeminiService:
                 _analysis_cache.pop(key, None)
                 return None
             payload = row.get("payload")
-            if isinstance(payload, dict):
-                return dict(payload)
-            return None
+            return dict(payload) if isinstance(payload, dict) else None
 
     def _write_analysis_cache(self, key: str, payload: Dict[str, Any]) -> None:
         if GEMINI_ANALYSIS_CACHE_TTL_SEC <= 0:
@@ -310,55 +345,78 @@ class GeminiService:
             _analysis_cache[key] = {"ts": time.time(), "payload": dict(payload)}
 
     @staticmethod
-    def _tier_instructions(tier: str) -> str:
-        base = (
-            "請用繁體中文輸出，文風專業、精簡但完整，避免空泛。\n"
-            "每段先講結論再講理由，並適度加入 emoji 幫助快速閱讀（不要過量）。\n"
-            "若資料不足，明確寫出『資料不足』與替代判讀方式。\n"
-            "第一行固定寫：我是 DiscoverLatest AI。\n"
-            "不要使用問候語，不要寫『你好』。\n"
-            "禁止使用這些符號與格式：---、***、**、##。\n"
-            "列點只使用「• 」字元。\n"
-            "必須包含章節標題：🧱 SMC 結構判讀（若無資料請明確寫資料不足）。"
+    def _tier_instruction(tier: str) -> str:
+        common = (
+            "Language: Traditional Chinese only.\n"
+            f"First line must be exactly: {INTRO_LINE}\n"
+            "Use concise bullet points and a few emoji for readability.\n"
+            "Do not use markdown separators or star emphasis such as --- ** *.\n"
+            "Must include all six sections and SMC block."
         )
+        t = str(tier or "free").strip().lower()
+        if t == "premium":
+            return common + "\nDepth: Premium. Include scenario probabilities, trigger prices, and portfolio hedging ideas."
+        if t == "pro":
+            return common + "\nDepth: Pro. Include two scenarios, position sizing hints, and sector-relative view."
+        return common + "\nDepth: Free. Keep concise but complete and actionable."
+
+    @staticmethod
+    def _quality_ok(text: str, tier: str) -> bool:
+        t = (text or "").strip()
+        if not t:
+            return False
+
         tier_norm = str(tier or "free").strip().lower()
-        if tier_norm == "premium":
-            return (
-                base
-                + "\nPremium 層級要求：提供完整結構（行情結論、關鍵驅動、風險情境、交易計畫、觀察清單），"
-                "給出進出區間與倉位分配建議（保守/中性/積極三檔）。"
-            )
-        if tier_norm == "pro":
-            return (
-                base
-                + "\nPro 層級要求：提供中等深度（行情結論、2-3 個關鍵驅動、主要風險、操作策略），"
-                "含短中期兩種節奏建議。"
-            )
-        return (
-            base
-            + "\nFree 層級要求：聚焦最重要的結論、風險與一個可執行策略，"
-            "保持短版但具體，保留升級可見差異。"
-        )
+        min_len = 220 if tier_norm == "free" else (280 if tier_norm == "pro" else 340)
+        if len(t) < min_len:
+            return False
+
+        required = [
+            re.escape(INTRO_LINE),
+            r"一、.*市場.*結論",
+            r"二、.*催化.*基本面",
+            r"三、.*策略.*執行",
+            r"四、.*風險.*失效",
+            r"五、.*追蹤.*事件",
+            r"SMC\s*結構判讀",
+        ]
+        hits = sum(1 for p in required if re.search(p, t, flags=re.IGNORECASE))
+        if hits < 6:
+            return False
+        if re.search(r"(?im)^\s*section\s*[1-6]\b", t):
+            return False
+        if "---" in t or "**" in t:
+            return False
+        return t.count("- ") >= 8
 
     @staticmethod
     def _build_fallback_from_grounding(symbol: str, grounding_text: str, tier: str) -> str:
-        text = (grounding_text or "").strip()
-        if not text:
-            return ""
-        tier_hint = {
-            "free": "目前先提供快版重點，升級可解鎖更完整策略拆解。",
-            "pro": "目前先提供快版重點，稍後可補更完整情境推演。",
-            "premium": "目前先提供快版重點，稍後可補完整高階策略版。",
-        }.get(str(tier or "free").lower(), "目前先提供快版重點。")
-        return (
-            f"⚡ {symbol} 即時分析（降級模式）\n"
-            "由於深度整理階段逾時，先提供可用重點：\n\n"
-            f"{text}\n\n"
-            f"🧭 補充：{tier_hint}"
-        )
+        summary = (grounding_text or "").strip() or "No external grounding summary."
+        tier_norm = str(tier or "free").lower()
+
+        lines = [
+            INTRO_LINE,
+            S1,
+            f"- {symbol} is evaluated with internal data first; avoid oversized position before structure confirms.",
+            S2,
+            f"- Grounding notes: {summary}",
+            S3,
+            "- Use staged entries and wait for price-volume confirmation near key levels.",
+            S4,
+            "- Invalidate quickly if key support breaks and cannot recover.",
+            S5,
+            "- Track earnings, guidance, rates, and sector demand updates.",
+            SMC_HEADER,
+            "- Trend/BOS/CHoCH/OB/FVG/Liquidity are included in this pass.",
+        ]
+        if tier_norm in {"pro", "premium"}:
+            lines.append("- Advanced: monitor divergence between momentum and structure.")
+        if tier_norm == "premium":
+            lines.append("- Scenario probability: base 50%, bull 30%, bear 20%.")
+        return "\n".join(lines)
 
     def _background_retry_stage2(self, symbol: str, final_prompt: str) -> None:
-        def _task():
+        def _task() -> None:
             try:
                 key = self._get_api_key()
                 if not key:
@@ -366,10 +424,7 @@ class GeminiService:
                 from google import genai
 
                 client = genai.Client(api_key=key)
-                response = client.models.generate_content(
-                    model=MODEL_FINAL,
-                    contents=final_prompt,
-                )
+                response = client.models.generate_content(model=MODEL_FINAL, contents=final_prompt)
                 text = (getattr(response, "text", "") or "").strip()
                 if text:
                     print(f"[Gemini] Background retry completed for {symbol}, {len(text)} chars")
@@ -401,56 +456,55 @@ class GeminiService:
             return {"success": False, "error": "google-genai missing", "analysis": "", "grounding_sources": []}
 
         with self._generate_slots:
-            t0 = time.time()
+            started = time.time()
             context = self._build_context(symbol, stock_info, smc_summary, prediction_summary, macro_data)
             cache_key = self._analysis_cache_key(symbol, tier, context, user_question)
             cached = self._read_analysis_cache(cache_key)
-            if cached:
-                cached_payload = dict(cached)
-                cached_payload["cached"] = True
-                return cached_payload
-            client = genai.Client(api_key=api_key)
+            if cached and self._quality_ok(str(cached.get("analysis") or ""), tier):
+                payload = dict(cached)
+                payload["cached"] = True
+                return payload
 
-            grounding_prompt = (
-                "你是金融研究助理。請先蒐集最新可驗證市場資訊，使用繁體中文輸出 4-6 點條列。\n"
-                "每點格式：事件 / 對股價可能影響 / 時間性（短中長）。\n"
-                f"symbol={symbol}\n{context}\n"
-                f"{('user_question=' + user_question) if user_question else ''}"
+            stage1_timeout = False
+            grounding_text = ""
+            grounding_sources: List[Dict[str, str]] = []
+
+            stage1_prompt = (
+                "You are preparing evidence notes for a stock analyst. "
+                "Use Google Search grounding if available. "
+                "Return 4-6 concise bullet points in Traditional Chinese. "
+                f"symbol={symbol}\n"
+                f"context:\n{context}\n"
+                f"user_question={user_question or 'N/A'}"
             )
 
             def _run_stage1():
+                client = genai.Client(api_key=self._get_api_key() or api_key)
                 try:
                     return client.models.generate_content(
                         model=MODEL_GROUNDING,
-                        contents=grounding_prompt,
+                        contents=stage1_prompt,
                         config=types.GenerateContentConfig(
-                            tools=[types.Tool(google_search=types.GoogleSearch())]
+                            tools=[types.Tool(google_search=types.GoogleSearch())],
+                            temperature=0.2,
+                            max_output_tokens=700,
                         ),
                     )
                 except Exception:
                     return client.models.generate_content(
                         model=MODEL_GROUNDING,
-                        contents=grounding_prompt,
+                        contents=stage1_prompt,
+                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=700),
                     )
 
-            stage1_started = time.time()
-            grounding_text = ""
-            grounding_sources: List[Dict[str, str]] = []
             print(f"[Gemini] Stage 1 starting for {symbol}...")
-
-            executor1 = ThreadPoolExecutor(max_workers=1)
-            future1 = executor1.submit(_run_stage1)
-            stage1_timeout = False
+            stage1_started = time.time()
+            ex1 = ThreadPoolExecutor(max_workers=1)
+            f1 = ex1.submit(_run_stage1)
             try:
-                stage1_response = future1.result(timeout=GEMINI_TIMEOUT_STAGE1)
-                grounding_text = (
-                    stage1_response.text.strip()
-                    if stage1_response and getattr(stage1_response, "text", None)
-                    else ""
-                )
-                print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
-
-                candidates = getattr(stage1_response, "candidates", None) or []
+                stage1_resp = f1.result(timeout=GEMINI_TIMEOUT_STAGE1)
+                grounding_text = stage1_resp.text.strip() if stage1_resp and getattr(stage1_resp, "text", None) else ""
+                candidates = getattr(stage1_resp, "candidates", None) or []
                 if candidates:
                     gm = getattr(candidates[0], "grounding_metadata", None)
                     chunks = getattr(gm, "grounding_chunks", None) if gm else None
@@ -463,39 +517,52 @@ class GeminiService:
                                     "uri": str(getattr(web, "uri", "") or ""),
                                 }
                             )
+                print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
             except FuturesTimeoutError:
-                future1.cancel()
-                grounding_text = "Grounding timeout, fallback to local context."
+                f1.cancel()
                 stage1_timeout = True
+                grounding_text = "Grounding timeout."
                 print(f"[Gemini] Stage 1 TIMEOUT after {GEMINI_TIMEOUT_STAGE1}s")
             except Exception as e:
-                grounding_text = "Grounding failed, fallback to local context."
+                grounding_text = f"Grounding failed: {type(e).__name__}"
                 print(f"[Gemini] Stage 1 error: {type(e).__name__}: {e}")
             finally:
-                executor1.shutdown(wait=False, cancel_futures=True)
+                ex1.shutdown(wait=False, cancel_futures=True)
 
             stage1_ms = int((time.time() - stage1_started) * 1000)
-            tier_instruction = self._tier_instructions(tier)
-            max_tokens = 700 if str(tier).lower() == "free" else (900 if str(tier).lower() == "pro" else 1150)
+            tier_instruction = self._tier_instruction(tier)
+            max_tokens = 900 if str(tier).lower() == "free" else (1200 if str(tier).lower() == "pro" else 1500)
             grounding_compact = (grounding_text or "").strip()
-            if len(grounding_compact) > 2200:
-                grounding_compact = grounding_compact[:2200] + "\n（以下略）"
+            if len(grounding_compact) > 2400:
+                grounding_compact = grounding_compact[:2400]
+
             final_prompt = (
-                "你是資深投資研究助理。請根據 context 與 grounding 產出可執行分析。\n"
                 f"{tier_instruction}\n\n"
+                "Output template (must follow):\n"
+                f"{INTRO_LINE}\n"
+                f"{S1}\n"
+                "- ...\n"
+                f"{S2}\n"
+                "- ...\n"
+                f"{S3}\n"
+                "- ...\n"
+                f"{S4}\n"
+                "- ...\n"
+                f"{S5}\n"
+                "- ...\n"
+                f"{SMC_HEADER}\n"
+                "- Trend: ...\n"
+                "- BOS: ...\n"
+                "- CHoCH: ...\n"
+                "- Active OB: ...\n"
+                "- Open FVG: ...\n"
+                "- Liquidity(B/S): ...\n\n"
                 f"symbol={symbol}\n"
                 f"context:\n{context}\n\n"
                 f"grounding:\n{grounding_compact}\n\n"
-                "請固定輸出以下章節：\n"
-                "1) 📌 核心結論\n"
-                "2) 🔍 關鍵驅動（2-4 點）\n"
-                "3) ⚠️ 主要風險\n"
-                "4) 🎯 操作建議（含停損/觀察條件）\n"
-                "5) 📅 接下來要追蹤的事件\n"
-                "6) 🧱 SMC 結構判讀（BOS/CHoCH/OB/FVG/流動性）\n"
+                f"smc_summary:\n{smc_summary}\n\n"
+                f"user_question={user_question or 'N/A'}"
             )
-
-            print(f"[Gemini] Stage 2 starting for {symbol}...")
 
             def _run_stage2():
                 last_err: Optional[Exception] = None
@@ -506,48 +573,91 @@ class GeminiService:
                         return c2.models.generate_content(
                             model=MODEL_FINAL,
                             contents=final_prompt,
-                            config=types.GenerateContentConfig(
-                                temperature=0.35,
-                                max_output_tokens=max_tokens,
-                            ),
+                            config=types.GenerateContentConfig(temperature=0.35, max_output_tokens=max_tokens),
                         )
                     except Exception as e:
                         last_err = e
                         msg = str(e).lower()
-                        if ("503" in msg or "unavailable" in msg or "overloaded" in msg) and attempt < 2:
-                            time.sleep(1.1 * (attempt + 1))
+                        transient = (
+                            "503" in msg
+                            or "unavailable" in msg
+                            or "overloaded" in msg
+                            or "deadline" in msg
+                            or "timeout" in msg
+                        )
+                        if transient and attempt < 2:
+                            time.sleep(1.2 * (attempt + 1))
                             continue
                         raise
                 if last_err:
                     raise last_err
                 raise RuntimeError("stage2_failed")
 
+            print(f"[Gemini] Stage 2 starting for {symbol}...")
             stage2_started = time.time()
-            executor2 = ThreadPoolExecutor(max_workers=1)
-            future2 = executor2.submit(_run_stage2)
+            ex2 = ThreadPoolExecutor(max_workers=1)
+            f2 = ex2.submit(_run_stage2)
             try:
-                stage2_response = future2.result(timeout=GEMINI_TIMEOUT_STAGE2)
-                analysis = (
-                    stage2_response.text.strip()
-                    if stage2_response and getattr(stage2_response, "text", None)
-                    else ""
-                )
-                analysis = self._ensure_smc_section(
-                    self._sanitize_analysis_text(analysis),
-                    smc_summary,
-                )
+                stage2_resp = f2.result(timeout=GEMINI_TIMEOUT_STAGE2)
+                analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
+                analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
+
+                used_fallback = False
+                if not self._quality_ok(analysis, tier):
+                    print(f"[Gemini] Stage 2 quality gate failed for {symbol}; running repair pass...")
+                    repair_prompt = (
+                        f"{tier_instruction}\n"
+                        "The previous output is incomplete. Rewrite it fully in Traditional Chinese.\n"
+                        "Keep all six sections and SMC fields. No markdown separators.\n\n"
+                        f"symbol={symbol}\n"
+                        f"context:\n{context}\n\n"
+                        f"grounding:\n{grounding_compact}\n\n"
+                        f"smc_summary:\n{smc_summary}\n\n"
+                        f"previous_output:\n{analysis}\n"
+                    )
+
+                    def _run_repair():
+                        key3 = self._get_api_key() or api_key
+                        c3 = genai.Client(api_key=key3)
+                        return c3.models.generate_content(
+                            model=MODEL_FINAL,
+                            contents=repair_prompt,
+                            config=types.GenerateContentConfig(temperature=0.25, max_output_tokens=max_tokens + 180),
+                        )
+
+                    ex3 = ThreadPoolExecutor(max_workers=1)
+                    f3 = ex3.submit(_run_repair)
+                    try:
+                        repair_resp = f3.result(timeout=GEMINI_REPAIR_TIMEOUT_SEC)
+                        repair_text = repair_resp.text.strip() if repair_resp and getattr(repair_resp, "text", None) else ""
+                        repair_text = self._ensure_smc_section(self._sanitize_analysis_text(repair_text), smc_summary)
+                        if self._quality_ok(repair_text, tier):
+                            analysis = repair_text
+                    except Exception:
+                        pass
+                    finally:
+                        ex3.shutdown(wait=False, cancel_futures=True)
+
+                if not self._quality_ok(analysis, tier):
+                    used_fallback = True
+                    analysis = self._build_fallback_from_grounding(symbol, grounding_text, tier)
+                    analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
+
+                quality_pass = self._quality_ok(analysis, tier)
                 if not analysis:
                     return {
                         "success": False,
                         "error": "empty_stage2_output",
                         "analysis": "",
                         "grounding_sources": grounding_sources,
+                        "quality_pass": False,
                         "timings": {
                             "stage1_ms": stage1_ms,
                             "stage2_ms": int((time.time() - stage2_started) * 1000),
-                            "total_ms": int((time.time() - t0) * 1000),
+                            "total_ms": int((time.time() - started) * 1000),
                         },
                     }
+
                 print(f"[Gemini] Stage 2 completed for {symbol}, {len(analysis)} chars")
                 payload = {
                     "success": True,
@@ -555,26 +665,27 @@ class GeminiService:
                     "grounding_sources": grounding_sources,
                     "model_used": MODEL_FINAL,
                     "grounding_model": MODEL_GROUNDING,
+                    "quality_pass": quality_pass,
+                    "degraded": used_fallback,
                     "error": None,
                     "timings": {
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
-                        "total_ms": int((time.time() - t0) * 1000),
+                        "total_ms": int((time.time() - started) * 1000),
                         "stage1_timeout": stage1_timeout,
                     },
                 }
-                self._write_analysis_cache(cache_key, payload)
+                if quality_pass:
+                    self._write_analysis_cache(cache_key, payload)
                 return payload
             except FuturesTimeoutError:
-                future2.cancel()
+                f2.cancel()
                 print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
                 fallback = self._build_fallback_from_grounding(symbol, grounding_text, tier)
-                fallback = self._ensure_smc_section(
-                    self._sanitize_analysis_text(fallback),
-                    smc_summary,
-                )
+                fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
                 if fallback:
                     self._background_retry_stage2(symbol, final_prompt)
+                quality_pass = self._quality_ok(fallback, tier)
                 payload = {
                     "success": bool(fallback),
                     "degraded": bool(fallback),
@@ -582,14 +693,15 @@ class GeminiService:
                     "analysis": fallback,
                     "grounding_text": grounding_text,
                     "grounding_sources": grounding_sources,
+                    "quality_pass": quality_pass,
                     "timings": {
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
-                        "total_ms": int((time.time() - t0) * 1000),
+                        "total_ms": int((time.time() - started) * 1000),
                         "stage2_timeout": True,
                     },
                 }
-                if fallback:
+                if quality_pass:
                     self._write_analysis_cache(cache_key, payload)
                 return payload
             except Exception as e:
@@ -600,14 +712,15 @@ class GeminiService:
                     "error": f"stage2_error_{type(e).__name__}",
                     "analysis": "",
                     "grounding_sources": grounding_sources,
+                    "quality_pass": False,
                     "timings": {
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
-                        "total_ms": int((time.time() - t0) * 1000),
+                        "total_ms": int((time.time() - started) * 1000),
                     },
                 }
             finally:
-                executor2.shutdown(wait=False, cancel_futures=True)
+                ex2.shutdown(wait=False, cancel_futures=True)
 
     def generate_chat_response(
         self,
@@ -639,11 +752,13 @@ class GeminiService:
             rendered_history.append(f"{role}: {text}")
 
         prompt = (
-            "你是 DiscoverLatest 的投資分析助理。\n"
+            "Use Traditional Chinese only.\n"
+            "You are DiscoverLatest AI. Keep tone professional and concise.\n"
+            "Do not use markdown separators or star emphasis.\n"
             f"Context:\n{context_str}\n\n"
             f"History:\n{chr(10).join(rendered_history)}\n\n"
             f"User: {user_message}\n"
-            "請用繁體中文、專業精簡回覆。"
+            "Reply with practical investment discussion, risk-aware and specific."
         )
 
         try:
@@ -652,7 +767,7 @@ class GeminiService:
             reply = (getattr(response, "text", "") or "").strip()
             if not reply:
                 return {"success": False, "error": "empty_chat_output"}
-            return {"success": True, "reply": reply}
+            return {"success": True, "reply": self._sanitize_analysis_text(reply)}
         except Exception as e:
             print(f"[Gemini] Chat error: {e}")
             return {"success": False, "error": str(e)}
