@@ -133,7 +133,7 @@ export class ApiClient {
     private token: string | null = null;
     private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
     private authLimitsInFlight: Promise<AuthLimits> | null = null;
-    private readonly authLimitsTtlMs = 3_000;
+    private readonly authLimitsTtlMs = 20_000;
 
     setToken(token: string | null) {
         this.token = token;
@@ -404,7 +404,8 @@ export class ApiClient {
 
         this.authLimitsInFlight = (async () => {
             try {
-                const data = await this.fetch<AuthLimits>('/api/auth/limits', { skipProgress: true });
+                const endpoint = forceRefresh ? '/api/auth/limits?force=1' : '/api/auth/limits';
+                const data = await this.fetch<AuthLimits>(endpoint, { skipProgress: true });
                 this.authLimitsCache = {
                     token,
                     expiresAt: Date.now() + this.authLimitsTtlMs,

@@ -12,9 +12,11 @@ from typing import Optional
 router = APIRouter()
 
 
-# Short-lived in-memory cache for auth limits to reduce hot-path DB calls/log spam.
-_AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "5"))
+# In-memory cache to reduce hot-path DB calls/log spam.
+_AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "20"))
+_AUTH_LIMITS_COUNTS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_COUNTS_CACHE_TTL_SEC", "30"))
 _auth_limits_cache: dict[str, dict] = {}
+_auth_limits_counts_cache: dict[str, dict] = {}
 
 
 def _get_cached_limits(user_id: str) -> Optional[dict]:
@@ -38,6 +40,31 @@ def _set_cached_limits(user_id: str, payload: dict) -> None:
         return
     _auth_limits_cache[user_id] = {
         "expires_at": datetime.now(timezone.utc).timestamp() + max(3, _AUTH_LIMITS_CACHE_TTL_SEC),
+        "payload": payload,
+    }
+
+
+def _get_cached_counts(user_id: str) -> Optional[dict]:
+    if not user_id:
+        return None
+    cached = _auth_limits_counts_cache.get(user_id)
+    if not isinstance(cached, dict):
+        return None
+    expires_at = cached.get("expires_at")
+    payload = cached.get("payload")
+    if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
+        return None
+    if expires_at <= datetime.now(timezone.utc).timestamp():
+        _auth_limits_counts_cache.pop(user_id, None)
+        return None
+    return payload
+
+
+def _set_cached_counts(user_id: str, payload: dict) -> None:
+    if not user_id or not isinstance(payload, dict):
+        return
+    _auth_limits_counts_cache[user_id] = {
+        "expires_at": datetime.now(timezone.utc).timestamp() + max(5, _AUTH_LIMITS_COUNTS_CACHE_TTL_SEC),
         "payload": payload,
     }
 
@@ -248,7 +275,9 @@ async def get_auth_limits(request: Request):
     if not auth_header.startswith("Bearer "):
         return _free_limits_payload()
     token = auth_header.split(" ", 1)[1]
+    force_refresh = str(request.query_params.get("force") or "").strip().lower() in {"1", "true", "yes", "on"}
 
+    user_id = ""
     try:
         from services.auth_service import auth_service
         from services.rate_limiter import rate_limiter
@@ -264,18 +293,30 @@ async def get_auth_limits(request: Request):
             raise HTTPException(status_code=401, detail="使用者資訊無效")
 
         cached_payload = _get_cached_limits(user_id)
-        if cached_payload:
+        if (not force_refresh) and cached_payload:
             return cached_payload
 
         supabase_adapter.ensure_public_user_record(user_id)
         info = rate_limiter.get_user_limits_info(user_id)
         tier = info.get("tier", "free")
-        watchlist = supabase_adapter.get_user_watchlist(user_id) or []
-        alerts = supabase_adapter.get_user_alerts(user_id) or []
+        counts_cached = _get_cached_counts(user_id) if not force_refresh else None
+        if counts_cached:
+            watchlist_used = int(counts_cached.get("watchlist_used") or 0)
+            alerts_used = int(counts_cached.get("alerts_used") or 0)
+        else:
+            watchlist = supabase_adapter.get_user_watchlist(user_id) or []
+            alerts = supabase_adapter.get_user_alerts(user_id) or []
+            watchlist_used = len(watchlist)
+            alerts_used = len(alerts)
+            _set_cached_counts(
+                user_id,
+                {
+                    "watchlist_used": watchlist_used,
+                    "alerts_used": alerts_used,
+                },
+            )
         watchlist_max = int(get_limit(tier, "watchlist_max") or 0)
         alerts_max = int(get_limit(tier, "price_alert_max") or 0)
-        watchlist_used = len(watchlist)
-        alerts_used = len(alerts)
         payload = {
             "tier": tier,
             "ai": {
@@ -297,9 +338,17 @@ async def get_auth_limits(request: Request):
         _set_cached_limits(user_id, payload)
         return payload
     except HTTPException:
+        if user_id:
+            cached_payload = _get_cached_limits(user_id)
+            if cached_payload:
+                return cached_payload
         return _free_limits_payload()
     except Exception as e:
         print(f"[Auth] 取得額度失敗，改回傳 free fallback: {type(e).__name__}: {e}")
+        if user_id:
+            cached_payload = _get_cached_limits(user_id)
+            if cached_payload:
+                return cached_payload
         return _free_limits_payload()
 
 

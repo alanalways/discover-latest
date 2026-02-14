@@ -137,6 +137,22 @@ const FALLBACK_NEWS_BRIEF = [
 
 let dashboardMemoryCache: DashboardCachePayload | null = null;
 
+function hasUsableNews(payload: NewsBrief | null | undefined): boolean {
+  if (!payload) return false;
+  const items = Array.isArray(payload.items) ? payload.items.filter((item) => Boolean(item?.title || item?.url)) : [];
+  const brief = Array.isArray(payload.brief) ? payload.brief.filter(Boolean) : [];
+  const oneMinute = String(payload.one_minute_brief || '').trim();
+  return items.length > 0 || brief.length > 0 || oneMinute.length > 20;
+}
+
+function pickStableNewsPayload(nextPayload: NewsBrief | null | undefined, prevPayload: NewsBrief | null | undefined): NewsBrief {
+  const fallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
+  if (!nextPayload) return hasUsableNews(prevPayload) ? (prevPayload as NewsBrief) : fallback;
+  if (hasUsableNews(nextPayload)) return nextPayload;
+  if (hasUsableNews(prevPayload)) return prevPayload as NewsBrief;
+  return nextPayload;
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -203,6 +219,7 @@ export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const hydratedFromCacheRef = useRef(false);
+  const newsRef = useRef<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
 
   const [indices, setIndices] = useState<MarketItem[]>(FALLBACK_INDICES);
   const [etfs, setEtfs] = useState<MarketItem[]>(FALLBACK_ETFS);
@@ -216,6 +233,10 @@ export default function Dashboard() {
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
   const [lastUpdate, setLastUpdate] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    newsRef.current = news;
+  }, [news]);
 
   const hydrateFromPayload = useCallback((payload: DashboardCachePayload) => {
     if (Array.isArray(payload.indices) && payload.indices.length > 0) setIndices(payload.indices);
@@ -279,7 +300,9 @@ export default function Dashboard() {
       const tw = normalizeTop20Bucket((top20Res as Top20Response)?.tw, FALLBACK_TOP20_TW);
       const us = normalizeTop20Bucket((top20Res as Top20Response)?.us, FALLBACK_TOP20_US);
       const meta = ((top20Res as Top20Response)?.meta || {}) as Top20Meta;
-      setNews(newsRes || newsFallback);
+      const stableNews = pickStableNewsPayload(newsRes || newsFallback, newsRef.current);
+      setNews(stableNews);
+      newsRef.current = stableNews;
       setTop20Tw(tw);
       setTop20Us(us);
       setTop20Meta(meta);
@@ -291,7 +314,7 @@ export default function Dashboard() {
         top20Tw: tw,
         top20Us: us,
         top20Meta: meta,
-        news: newsRes || newsFallback,
+        news: stableNews,
         lastUpdate: updatedAt,
       };
 

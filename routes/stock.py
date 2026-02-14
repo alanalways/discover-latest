@@ -162,10 +162,26 @@ async def get_stock_fundamentals(symbol: str):
 
 @router.get("/stock/{symbol}/chips")
 async def get_stock_chips(symbol: str):
-    """Get chips data (institutional/margin)."""
+    """Get chips data (institutional/margin) with safe fallback."""
+    fallback = {
+        "institutional": [],
+        "margin": [],
+    }
     try:
-        return await stock_service.get_stock_chips(symbol)
-    except HTTPException:
-        raise
+        data = await asyncio.wait_for(stock_service.get_stock_chips(symbol), timeout=12)
+        if not isinstance(data, dict):
+            return fallback
+        payload = {
+            "institutional": data.get("institutional") or [],
+            "margin": data.get("margin") or [],
+        }
+        try:
+            return _json_safe(payload)
+        except Exception:
+            return fallback
+    except TimeoutError:
+        print(f"[Stock] chips timeout fallback for {symbol}")
+        return fallback
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Stock] chips fallback for {symbol}: {type(e).__name__}: {e}")
+        return fallback

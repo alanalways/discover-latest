@@ -8,7 +8,8 @@ import time
 import threading
 import httpx
 from typing import Optional, Dict, Any, List
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 class SupabaseAdapter:
@@ -28,6 +29,13 @@ class SupabaseAdapter:
             "AI_USAGE_FALLBACK_FILE",
             os.path.join(os.getcwd(), ".cache", "ai_usage_fallback.json"),
         )
+
+    def _ai_usage_today(self) -> str:
+        tz_name = str(os.environ.get("AI_USAGE_TIMEZONE", "Asia/Taipei") or "Asia/Taipei").strip()
+        try:
+            return datetime.now(ZoneInfo(tz_name)).date().isoformat()
+        except Exception:
+            return datetime.now(timezone.utc).date().isoformat()
     
     def _get_config(self):
         """??? Supabase ???"""
@@ -1250,7 +1258,7 @@ class SupabaseAdapter:
     
     def get_ai_usage_today(self, user_id: str) -> int:
         """????????? AI ???????????count / usage_count / logs??"""
-        today = date.today().isoformat()
+        today = self._ai_usage_today()
         if not user_id:
             return 0
 
@@ -1314,7 +1322,7 @@ class SupabaseAdapter:
     
     def increment_ai_usage(self, user_id: str) -> bool:
         """?????? AI ???????????RPC??? 409 ????????"""
-        today = date.today().isoformat()
+        today = self._ai_usage_today()
         url, _, _ = self._get_config()
         if not url or not user_id:
             return False

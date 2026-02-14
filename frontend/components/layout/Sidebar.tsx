@@ -86,7 +86,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         }
 
         try {
-            const limits = await api.getAuthLimits();
+            const limits = await api.getAuthLimits(force);
             const serverTier = (limits.tier || user.tier || 'free') as 'free' | 'pro' | 'premium';
             setEffectiveTier(serverTier);
             setDailyLimit(limits.ai.daily_limit);
@@ -118,7 +118,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             if (document.visibilityState === 'visible') {
                 void guardedLoad();
             }
-        }, 180000);
+        }, 300000);
 
         return () => {
             mounted = false;

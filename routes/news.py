@@ -34,6 +34,9 @@ router = APIRouter()
 _DEFAULT_NEWS_CACHE_TTL_SEC = int((os.environ.get("NEWS_CACHE_TTL_SEC") or "600").strip() or "600")
 _NEWS_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
 _NEWS_LOCK = asyncio.Lock()
+_NEWS_REFRESH_TASK: asyncio.Task | None = None
+_NEWS_REFRESH_LAST_START_TS = 0.0
+_NEWS_BG_MIN_INTERVAL_SEC = int((os.environ.get("NEWS_BG_REFRESH_MIN_INTERVAL_SEC") or "20").strip() or "20")
 _NEWS_CACHE_FILE = os.path.join(os.getcwd(), ".cache", "news_brief_cache.json")
 _NEWS_DISK_LOADED = False
 
@@ -1026,21 +1029,82 @@ async def _fetch_news_uncached() -> dict[str, Any]:
     return await _fetch_news_rss_fallback()
 
 
+def _news_cache_fresh(now_ts: float, ttl_sec: int) -> bool:
+    return bool(_NEWS_CACHE.get("data")) and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < ttl_sec)
+
+
+def _store_news_payload(payload: dict[str, Any], now_ts: float | None = None) -> None:
+    ts = float(now_ts if now_ts is not None else datetime.now(timezone.utc).timestamp())
+    _NEWS_CACHE["data"] = payload
+    _NEWS_CACHE["ts"] = ts
+    _save_news_cache_to_disk(payload, ts)
+
+
+async def _refresh_news_cache_once() -> None:
+    ttl_sec = _news_cache_ttl_sec()
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if _news_cache_fresh(now_ts, ttl_sec):
+        return
+
+    async with _NEWS_LOCK:
+        ttl_sec = _news_cache_ttl_sec()
+        now_ts = datetime.now(timezone.utc).timestamp()
+        if _news_cache_fresh(now_ts, ttl_sec):
+            return
+        try:
+            payload = await _fetch_news_uncached()
+            _store_news_payload(payload, now_ts=now_ts)
+        except Exception as e:
+            if str(os.environ.get("NEWS_DEBUG", "")).strip().lower() in {"1", "true", "yes", "on"}:
+                print(f"[News] background refresh failed: {type(e).__name__}: {e}")
+
+
+def _schedule_news_refresh() -> None:
+    global _NEWS_REFRESH_TASK, _NEWS_REFRESH_LAST_START_TS
+    try:
+        running = _NEWS_REFRESH_TASK is not None and not _NEWS_REFRESH_TASK.done()
+        if running:
+            return
+        now_ts = time.time()
+        if now_ts - _NEWS_REFRESH_LAST_START_TS < max(5, _NEWS_BG_MIN_INTERVAL_SEC):
+            return
+        _NEWS_REFRESH_LAST_START_TS = now_ts
+        loop = asyncio.get_running_loop()
+        _NEWS_REFRESH_TASK = loop.create_task(_refresh_news_cache_once())
+
+        def _on_done(task: asyncio.Task) -> None:
+            try:
+                task.result()
+            except Exception:
+                return
+
+        _NEWS_REFRESH_TASK.add_done_callback(_on_done)
+    except RuntimeError:
+        # No running loop in current context.
+        return
+
+
 @router.get("/news/brief")
 async def get_news_brief():
     """Unified financial news brief with session-aware cache TTL."""
     _load_news_cache_from_disk()
     ttl_sec = _news_cache_ttl_sec()
     now_ts = datetime.now(timezone.utc).timestamp()
-    if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < ttl_sec):
+    if _news_cache_fresh(now_ts, ttl_sec):
         if isinstance(_NEWS_CACHE.get("data"), dict):
             _sanitize_payload_inplace(_NEWS_CACHE["data"])
+        return _NEWS_CACHE["data"]
+
+    # Stale-while-revalidate: return latest available payload immediately, then refresh in background.
+    if isinstance(_NEWS_CACHE.get("data"), dict):
+        _sanitize_payload_inplace(_NEWS_CACHE["data"])
+        _schedule_news_refresh()
         return _NEWS_CACHE["data"]
 
     async with _NEWS_LOCK:
         ttl_sec = _news_cache_ttl_sec()
         now_ts = datetime.now(timezone.utc).timestamp()
-        if _NEWS_CACHE.get("data") and (now_ts - float(_NEWS_CACHE.get("ts") or 0.0) < ttl_sec):
+        if _news_cache_fresh(now_ts, ttl_sec):
             if isinstance(_NEWS_CACHE.get("data"), dict):
                 _sanitize_payload_inplace(_NEWS_CACHE["data"])
             return _NEWS_CACHE["data"]
@@ -1061,7 +1125,5 @@ async def get_news_brief():
                 session_tag="error",
             )
 
-        _NEWS_CACHE["data"] = payload
-        _NEWS_CACHE["ts"] = now_ts
-        _save_news_cache_to_disk(payload, now_ts)
+        _store_news_payload(payload, now_ts=now_ts)
         return payload
