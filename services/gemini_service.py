@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -16,6 +17,7 @@ from config.models import MODEL_FINAL, MODEL_GROUNDING
 GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "30"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "45"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
+GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
 
 _key_pool: List[str] = []
 _key_index = 0
@@ -23,6 +25,8 @@ _key_lock = threading.Lock()
 
 _metrics_cache: Dict[str, Dict[str, Any]] = {}
 _metrics_cache_lock = threading.Lock()
+_analysis_cache: Dict[str, Dict[str, Any]] = {}
+_analysis_cache_lock = threading.Lock()
 
 
 def _load_key_pool() -> List[str]:
@@ -237,11 +241,56 @@ class GeminiService:
         return "\n".join(parts)
 
     @staticmethod
+    def _analysis_cache_key(
+        symbol: str,
+        tier: str,
+        context: str,
+        user_question: str,
+    ) -> str:
+        raw = "|".join(
+            [
+                str(symbol or "").strip().upper(),
+                str(tier or "free").strip().lower(),
+                str(user_question or "").strip(),
+                str(context or "").strip(),
+            ]
+        )
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        return f"{time.strftime('%Y-%m-%d')}:{digest}"
+
+    def _read_analysis_cache(self, key: str) -> Optional[Dict[str, Any]]:
+        if GEMINI_ANALYSIS_CACHE_TTL_SEC <= 0:
+            return None
+        now = time.time()
+        with _analysis_cache_lock:
+            row = _analysis_cache.get(key)
+            if not isinstance(row, dict):
+                return None
+            ts = float(row.get("ts") or 0.0)
+            if ts <= 0 or (now - ts) > GEMINI_ANALYSIS_CACHE_TTL_SEC:
+                _analysis_cache.pop(key, None)
+                return None
+            payload = row.get("payload")
+            if isinstance(payload, dict):
+                return dict(payload)
+            return None
+
+    def _write_analysis_cache(self, key: str, payload: Dict[str, Any]) -> None:
+        if GEMINI_ANALYSIS_CACHE_TTL_SEC <= 0:
+            return
+        with _analysis_cache_lock:
+            _analysis_cache[key] = {"ts": time.time(), "payload": dict(payload)}
+
+    @staticmethod
     def _tier_instructions(tier: str) -> str:
         base = (
             "請用繁體中文輸出，文風專業、精簡但完整，避免空泛。\n"
             "每段先講結論再講理由，並適度加入 emoji 幫助快速閱讀（不要過量）。\n"
-            "若資料不足，明確寫出『資料不足』與替代判讀方式。"
+            "若資料不足，明確寫出『資料不足』與替代判讀方式。\n"
+            "第一行固定寫：我是 DiscoverLatest AI。\n"
+            "不要使用問候語，不要寫『你好』。\n"
+            "禁止使用這些符號與格式：---、***、**、##。\n"
+            "列點只使用「• 」字元。"
         )
         tier_norm = str(tier or "free").strip().lower()
         if tier_norm == "premium":
@@ -325,10 +374,16 @@ class GeminiService:
         with self._generate_slots:
             t0 = time.time()
             context = self._build_context(symbol, stock_info, smc_summary, prediction_summary, macro_data)
+            cache_key = self._analysis_cache_key(symbol, tier, context, user_question)
+            cached = self._read_analysis_cache(cache_key)
+            if cached:
+                cached_payload = dict(cached)
+                cached_payload["cached"] = True
+                return cached_payload
             client = genai.Client(api_key=api_key)
 
             grounding_prompt = (
-                "你是金融研究助理。請先蒐集最新可驗證市場資訊，使用繁體中文輸出 5-8 點條列。\n"
+                "你是金融研究助理。請先蒐集最新可驗證市場資訊，使用繁體中文輸出 4-6 點條列。\n"
                 "每點格式：事件 / 對股價可能影響 / 時間性（短中長）。\n"
                 f"symbol={symbol}\n{context}\n"
                 f"{('user_question=' + user_question) if user_question else ''}"
@@ -364,7 +419,7 @@ class GeminiService:
                     if stage1_response and getattr(stage1_response, "text", None)
                     else ""
                 )
-                print(f"[Gemini] Stage 1 completed for {symbol}")
+                print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
 
                 candidates = getattr(stage1_response, "candidates", None) or []
                 if candidates:
@@ -392,12 +447,16 @@ class GeminiService:
 
             stage1_ms = int((time.time() - stage1_started) * 1000)
             tier_instruction = self._tier_instructions(tier)
+            max_tokens = 700 if str(tier).lower() == "free" else (900 if str(tier).lower() == "pro" else 1150)
+            grounding_compact = (grounding_text or "").strip()
+            if len(grounding_compact) > 2200:
+                grounding_compact = grounding_compact[:2200] + "\n（以下略）"
             final_prompt = (
                 "你是資深投資研究助理。請根據 context 與 grounding 產出可執行分析。\n"
                 f"{tier_instruction}\n\n"
                 f"symbol={symbol}\n"
                 f"context:\n{context}\n\n"
-                f"grounding:\n{grounding_text}\n\n"
+                f"grounding:\n{grounding_compact}\n\n"
                 "請固定輸出以下章節：\n"
                 "1) 📌 核心結論\n"
                 "2) 🔍 關鍵驅動（2-4 點）\n"
@@ -417,6 +476,10 @@ class GeminiService:
                         return c2.models.generate_content(
                             model=MODEL_FINAL,
                             contents=final_prompt,
+                            config=types.GenerateContentConfig(
+                                temperature=0.35,
+                                max_output_tokens=max_tokens,
+                            ),
                         )
                     except Exception as e:
                         last_err = e
@@ -452,7 +515,7 @@ class GeminiService:
                         },
                     }
                 print(f"[Gemini] Stage 2 completed for {symbol}, {len(analysis)} chars")
-                return {
+                payload = {
                     "success": True,
                     "analysis": analysis,
                     "grounding_sources": grounding_sources,
@@ -466,13 +529,15 @@ class GeminiService:
                         "stage1_timeout": stage1_timeout,
                     },
                 }
+                self._write_analysis_cache(cache_key, payload)
+                return payload
             except FuturesTimeoutError:
                 future2.cancel()
                 print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
                 fallback = self._build_fallback_from_grounding(symbol, grounding_text, tier)
                 if fallback:
                     self._background_retry_stage2(symbol, final_prompt)
-                return {
+                payload = {
                     "success": bool(fallback),
                     "degraded": bool(fallback),
                     "error": f"stage2_timeout_{GEMINI_TIMEOUT_STAGE2}s",
@@ -486,6 +551,9 @@ class GeminiService:
                         "stage2_timeout": True,
                     },
                 }
+                if fallback:
+                    self._write_analysis_cache(cache_key, payload)
+                return payload
             except Exception as e:
                 print(f"[Gemini] Stage 2 error: {e}")
                 traceback.print_exc()
