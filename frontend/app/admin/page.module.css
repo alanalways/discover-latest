@@ -60,6 +60,16 @@
     font-size: 14px;
 }
 
+.success {
+    background: rgba(46, 204, 113, 0.12);
+    color: #2ecc71;
+    padding: 12px 16px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    border: 1px solid rgba(46, 204, 113, 0.25);
+}
+
 .noticeBanner {
     display: flex;
     align-items: center;

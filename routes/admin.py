@@ -137,7 +137,7 @@ async def list_upgrade_pending(request: Request):
 @router.post("/admin/upgrade-pending/approve")
 async def approve_upgrade_pending(req: PendingModerateRequest, request: Request):
     """Approve pending upgrade and apply tier immediately."""
-    _require_admin(request)
+    actor = _require_admin(request)
     user_id = (req.user_id or "").strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
@@ -145,6 +145,11 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
     try:
         from adapters.supabase_adapter import supabase_adapter
         from services.auth_service import auth_service
+
+        print(
+            f"[AdminModeration] approve requested "
+            f"by={actor.get('email') or actor.get('id')} target={user_id} tier={req.tier or ''}"
+        )
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
         if not pending:
@@ -184,13 +189,18 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
 @router.post("/admin/upgrade-pending/reject")
 async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
     """Reject pending upgrade request."""
-    _require_admin(request)
+    actor = _require_admin(request)
     user_id = (req.user_id or "").strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id is required")
 
     try:
         from adapters.supabase_adapter import supabase_adapter
+
+        print(
+            f"[AdminModeration] reject requested "
+            f"by={actor.get('email') or actor.get('id')} target={user_id}"
+        )
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
         if not pending:

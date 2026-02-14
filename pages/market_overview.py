@@ -4,6 +4,7 @@ DiscoverLatest 洞察運算 - 市場總覽頁面
 """
 import time
 import traceback
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -15,7 +16,7 @@ from components.i18n import t
 # ──────────────────────────────────────
 _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
 _CACHE_TTL = 300  # 5 分鐘（原 60s → 降低 80% API 呼叫）
-_first_load = True  # Skip network on first load for instant startup
+_first_load = str((os.environ.get("MARKET_FIRST_LOAD_FALLBACK", "0") or "").strip()).lower() in {"1", "true", "yes", "on"}
 
 # Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}

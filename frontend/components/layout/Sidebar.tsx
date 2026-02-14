@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { api } from '@/lib/api';
 import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
@@ -45,7 +45,6 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
-    const router = useRouter();
     const { user } = useAuth();
 
     const [effectiveTier, setEffectiveTier] = useState<'free' | 'pro' | 'premium'>('free');
@@ -128,22 +127,6 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         };
     }, [loadLimits]);
 
-    useEffect(() => {
-        const targets = [
-            '/',
-            '/watchlist',
-            '/analysis',
-            '/backtest',
-            '/market',
-            '/compare',
-            '/portfolio',
-            '/pricing',
-            '/settings',
-            '/help',
-        ];
-        targets.forEach((path) => router.prefetch(path));
-    }, [router]);
-
     return (
         <aside className={`${styles.sidebar} ${isOpen ? styles.mobileOpen : ''}`}>
             <div className={styles.logo}>
@@ -167,6 +150,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         <Link
                             key={item.href}
                             href={item.href}
+                            prefetch={false}
                             onClick={handleNavClick}
                             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                         >
@@ -179,6 +163,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 {isAdmin && (
                     <Link
                         href="/admin"
+                        prefetch={false}
                         onClick={handleNavClick}
                         className={`${styles.navItem} ${pathname === '/admin' ? styles.navItemActive : ''}`}
                     >
@@ -191,7 +176,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className={styles.usageCard}>
                 <div className={styles.usageHeader}>
                     <span className={styles.tierBadge}>{tierLabel[tier]}</span>
-                    <Link href="/pricing" onClick={handleNavClick} className={styles.upgradeLink}>升級</Link>
+                    <Link href="/pricing" prefetch={false} onClick={handleNavClick} className={styles.upgradeLink}>升級</Link>
                 </div>
                 <div className={styles.usageCount}>{dailyUsed}/{dailyLimit}</div>
                 <div className={styles.usageLabel}>今日 AI 次數</div>
@@ -201,7 +186,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
 
             <div className={styles.upgradeSection}>
-                <Link href="/pricing" onClick={handleNavClick} className={styles.upgradeBtn}>
+                <Link href="/pricing" prefetch={false} onClick={handleNavClick} className={styles.upgradeBtn}>
                     <Gem size={14} />
                     <span>升級至 Pro 版</span>
                 </Link>
@@ -209,7 +194,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
             <nav className={styles.nav}>
                 {BOTTOM_ITEMS.map((item) => (
-                    <Link key={item.href} href={item.href} onClick={handleNavClick} className={styles.navItem}>
+                    <Link key={item.href} href={item.href} prefetch={false} onClick={handleNavClick} className={styles.navItem}>
                         <item.icon className={styles.navIcon} />
                         <span>{item.label}</span>
                     </Link>

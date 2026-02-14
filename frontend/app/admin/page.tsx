@@ -62,6 +62,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [moderatingUserId, setModeratingUserId] = useState<string | null>(null);
 
   const adminEmails = useMemo(() => {
@@ -111,6 +112,7 @@ export default function AdminPage() {
         method: 'POST',
         body: JSON.stringify({ user_id: userId, tier: newTier }),
       });
+      setSuccess('方案已更新。');
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, tier: newTier } : u)));
       if (user?.id === userId) {
         await refreshUser();
@@ -127,6 +129,7 @@ export default function AdminPage() {
     if (!row?.user_id) return;
     setModeratingUserId(row.user_id);
     setError('');
+    setSuccess('');
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/approve', {
@@ -136,6 +139,7 @@ export default function AdminPage() {
           tier: row.plan || 'pro',
         }),
       });
+      setSuccess(`已核准 ${row.email || row.user_id} 的升級申請。`);
       await loadData();
       window.dispatchEvent(new Event('dl:usage-refresh'));
       if (user?.id === row.user_id) {
@@ -154,12 +158,14 @@ export default function AdminPage() {
     if (!row?.user_id) return;
     setModeratingUserId(row.user_id);
     setError('');
+    setSuccess('');
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/reject', {
         method: 'POST',
         body: JSON.stringify({ user_id: row.user_id }),
       });
+      setSuccess(`已退回 ${row.email || row.user_id} 的升級申請。`);
       await loadData();
     } catch (e) {
       console.error('[Admin] reject pending failed:', e);
@@ -220,6 +226,7 @@ export default function AdminPage() {
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
+      {success && <div className={styles.success}>{success}</div>}
 
       {pending.length > 0 && (
         <div className={styles.noticeBanner}>
@@ -314,7 +321,11 @@ export default function AdminPage() {
                   <button
                     className={styles.approveBtn}
                     type="button"
-                    onClick={() => void handleApprovePending(p)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleApprovePending(p);
+                    }}
                     disabled={moderatingUserId === p.user_id}
                   >
                     核准
@@ -322,7 +333,11 @@ export default function AdminPage() {
                   <button
                     className={styles.rejectBtn}
                     type="button"
-                    onClick={() => void handleRejectPending(p)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void handleRejectPending(p);
+                    }}
                     disabled={moderatingUserId === p.user_id}
                   >
                     退回
