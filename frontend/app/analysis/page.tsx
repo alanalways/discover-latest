@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useMemo, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import CandlestickChart from '@/components/charts/CandlestickChart';
+import PrimeBrokerFlowGraph from '@/components/charts/PrimeBrokerFlowGraph';
+import IndustryChainGraph from '@/components/charts/IndustryChainGraph';
 import { ApiClient } from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
@@ -93,6 +95,15 @@ interface IndustryChainData {
     symbol?: string;
     nodes?: Array<{ id: string; label: string; group: 'upstream' | 'core' | 'downstream' | string }>;
     edges?: Array<{ source: string; target: string; label?: string }>;
+}
+
+interface PrimeFlowData {
+    symbol?: string;
+    snapshot?: { score?: number; label?: string; confidence?: number };
+    nodes?: Array<{ id: string; label: string; group: string }>;
+    edges?: Array<{ source: string; target: string; label?: string; signal?: number }>;
+    factors?: Array<{ id: string; label: string; signal: number; weight: number; contribution: number }>;
+    suggestions?: string[];
 }
 
 function getErrorStatus(err: unknown): number | undefined {
@@ -194,6 +205,8 @@ function AnalysisContent() {
         margin?: MarginRow[];
     } | null>(null);
     const [industryChain, setIndustryChain] = useState<IndustryChainData | null>(null);
+    const [primeFlow, setPrimeFlow] = useState<PrimeFlowData | null>(null);
+    const [primeFlowLoading, setPrimeFlowLoading] = useState(false);
     const [extraLoading, setExtraLoading] = useState(false);
 
     // Tab 控制
@@ -221,18 +234,29 @@ function AnalysisContent() {
         const startedAt = Date.now();
         const timer = window.setInterval(() => {
             const elapsed = Date.now() - startedAt;
-            setAiProgress((prev) => Math.min(92, prev + Math.max(1, Math.round((92 - prev) * 0.12))));
+            setAiProgress((prev) => Math.min(96, prev + Math.max(1, Math.round((96 - prev) * 0.1))));
 
-            if (elapsed > 9000) {
-                setAiStage('Generating final summary');
-            } else if (elapsed > 6000) {
-                setAiStage('Consolidating key points');
+            if (elapsed > 12000) {
+                setAiStage('🧠 正在整理最終重點');
+            } else if (elapsed > 7000) {
+                setAiStage('📊 正在彙整市場訊號');
             } else if (elapsed > 2500) {
-                setAiStage('Collecting market data');
+                setAiStage('🔎 正在蒐集關鍵資料');
             }
         }, 350);
 
         return () => window.clearInterval(timer);
+    }, [aiLoading]);
+
+    useEffect(() => {
+        if (!aiLoading) return;
+        const watchdog = window.setTimeout(() => {
+            setAiLoading(false);
+            setAiProgress(0);
+            setAiStage('');
+            setAiResult('AI 分析逾時，這次不會扣次數，請稍後再試。');
+        }, 80_000);
+        return () => window.clearTimeout(watchdog);
     }, [aiLoading]);
 
     const periodOptions = useMemo<Array<'1y' | '3y' | '5y'>>(() => {
@@ -249,7 +273,7 @@ function AnalysisContent() {
         }
     }, [period, periodOptions]);
 
-    const fetchData = async (sym: string) => {
+    const fetchData = useCallback(async (sym: string) => {
         const cacheKey = `dl:analysis:${sym.toUpperCase()}:${period}`;
         let hasHydratedCache = false;
         try {
@@ -267,12 +291,14 @@ function AnalysisContent() {
                         margin?: MarginRow[];
                     } | null;
                     industryChain?: IndustryChainData | null;
+                    primeFlow?: PrimeFlowData | null;
                 };
                 if (cached?.data) {
                     setData(cached.data);
                     setFundamentals(cached.fundamentals || null);
                     setChips(cached.chips || null);
                     setIndustryChain(cached.industryChain || null);
+                    setPrimeFlow(cached.primeFlow || null);
                     hasHydratedCache = true;
                 }
             }
@@ -285,6 +311,7 @@ function AnalysisContent() {
             setFundamentals(null);
             setChips(null);
             setIndustryChain(null);
+            setPrimeFlow(null);
         }
         setError('');
         setAiResult('');
@@ -294,10 +321,12 @@ function AnalysisContent() {
 
             // 並行取得基本面+籌碼面資料
             setExtraLoading(true);
-            const [fundRes, chipRes, chainRes] = await Promise.allSettled([
+            setPrimeFlowLoading(true);
+            const [fundRes, chipRes, chainRes, primeRes] = await Promise.allSettled([
                 api.getStockFundamentals(sym),
                 api.getStockChips(sym),
                 api.getIndustryChain(sym),
+                api.getPrimeFlow(sym),
             ]);
             if (fundRes.status === 'fulfilled') {
                 setFundamentals(fundRes.value as {
@@ -315,7 +344,11 @@ function AnalysisContent() {
             if (chainRes.status === 'fulfilled') {
                 setIndustryChain(chainRes.value as IndustryChainData);
             }
+            if (primeRes.status === 'fulfilled') {
+                setPrimeFlow(primeRes.value as PrimeFlowData);
+            }
             setExtraLoading(false);
+            setPrimeFlowLoading(false);
             try {
                 sessionStorage.setItem(
                     cacheKey,
@@ -324,6 +357,7 @@ function AnalysisContent() {
                         fundamentals: fundRes.status === 'fulfilled' ? fundRes.value : null,
                         chips: chipRes.status === 'fulfilled' ? chipRes.value : null,
                         industryChain: chainRes.status === 'fulfilled' ? chainRes.value : null,
+                        primeFlow: primeRes.status === 'fulfilled' ? primeRes.value : null,
                     })
                 );
             } catch {
@@ -341,8 +375,9 @@ function AnalysisContent() {
             }
         } finally {
             setLoading(false);
+            setPrimeFlowLoading(false);
         }
-    };
+    }, [period]);
 
     // 當 URL 的 symbol 參數變化時自動載入
     useEffect(() => {
@@ -358,7 +393,7 @@ function AnalysisContent() {
             setSymbolInput(symbol);
             void fetchData(symbol);
         }
-    }, [symbol, period]);
+    }, [symbol, fetchData]);
 
     const handleSymbolSubmit = (e: React.FormEvent) => {
         e.preventDefault();
@@ -379,26 +414,26 @@ function AnalysisContent() {
         setAiResult('');
         setTypedAiResult('');
         setAiProgress(10);
-        setAiStage('Preparing analysis task');
+        setAiStage('🚀 正在建立分析任務');
         setAiLoading(true);
         try {
             const result = await api.getAiAnalysis(symbol) as AiAnalysisPayload;
             const text = extractAiText(result);
-            setAiResult(text || 'AI 分析未回傳有效結果。');
+            setAiResult(text || 'AI 暫時無法產出分析，請稍後再試。');
             window.dispatchEvent(new Event('dl:usage-refresh'));
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);
             if (status === 403) {
-                setAiResult('請先登入並確認方案權限，再使用 AI 分析。');
+                setAiResult('目前方案尚未開通 AI 分析功能。');
             } else if (status === 429) {
-                setAiResult('今日 AI 分析次數已達上限，明天再試吧！');
+                setAiResult('今日 AI 次數已達上限，請稍後再試。');
             } else {
-                setAiResult('AI 分析暫時無法使用，請稍後再試。');
+                setAiResult('AI 分析暫時失敗，這次不會扣次數，請稍後重試。');
             }
         } finally {
             setAiProgress(100);
-            setAiStage('Done');
+            setAiStage('✅ 完成');
             setAiLoading(false);
             window.setTimeout(() => {
                 setAiProgress(0);
@@ -860,7 +895,17 @@ function AnalysisContent() {
                             </div>
                         )}
 
-                        {/* ── AI 分析區塊 ── */}
+                        <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                            <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                <PieChartIcon size={20} className="text-[var(--accent)]" />
+                                Prime Broker Flow（Beta）
+                            </h2>
+                            <p className="text-sm text-[var(--text-3)] mb-4">
+                                以價格動能、主力資金、槓桿籌碼、估值壓力與波動風險合成「機構代理流向」視圖。
+                            </p>
+                            <PrimeBrokerFlowGraph data={primeFlow} loading={primeFlowLoading || extraLoading} />
+                        </div>
+
                         {industryChain?.nodes && industryChain.nodes.length > 0 && (
                             <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
                                 <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
@@ -870,38 +915,10 @@ function AnalysisContent() {
                                 <p className="text-sm text-[var(--text-3)] mb-4">
                                     以目前標的為核心，整理上游供應、核心公司與下游應用，協助快速判讀主題連動風險。
                                 </p>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
-                                        <div className="text-xs text-[var(--text-3)] mb-2">上游供應</div>
-                                        <div className="space-y-1 text-sm text-[var(--text-2)]">
-                                            {industryChain.nodes
-                                                .filter((n) => n.group === 'upstream')
-                                                .map((n) => (
-                                                    <div key={n.id}>• {n.label}</div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
-                                        <div className="text-xs text-[var(--text-3)] mb-2">核心標的</div>
-                                        <div className="space-y-1 text-sm font-semibold text-[var(--text-1)]">
-                                            {industryChain.nodes
-                                                .filter((n) => n.group === 'core')
-                                                .map((n) => (
-                                                    <div key={n.id}>• {n.label}</div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 p-3">
-                                        <div className="text-xs text-[var(--text-3)] mb-2">下游應用</div>
-                                        <div className="space-y-1 text-sm text-[var(--text-2)]">
-                                            {industryChain.nodes
-                                                .filter((n) => n.group === 'downstream')
-                                                .map((n) => (
-                                                    <div key={n.id}>• {n.label}</div>
-                                                ))}
-                                        </div>
-                                    </div>
-                                </div>
+                                <IndustryChainGraph
+                                    nodes={industryChain.nodes || []}
+                                    edges={industryChain.edges || []}
+                                />
                             </div>
                         )}
 
@@ -929,7 +946,7 @@ function AnalysisContent() {
                             {aiLoading && (
                                 <div className="mt-6 p-4 bg-black/30 rounded-xl border border-indigo-400/25">
                                     <div className="flex items-center justify-between text-sm text-indigo-200 mb-2">
-                                        <span>{aiStage || 'Analyzing...'}</span>
+                                        <span>{aiStage || '🤖 AI 正在分析中'}</span>
                                         <span>{aiProgress}%</span>
                                     </div>
                                     <div className="h-2 w-full rounded-full bg-indigo-950/70 overflow-hidden">
@@ -939,7 +956,7 @@ function AnalysisContent() {
                                         />
                                     </div>
                                     <div className="mt-2 text-xs text-indigo-200/80 animate-pulse">
-                                        AI is processing. Result will appear automatically.
+                                        系統正在處理，完成後會自動顯示結果。
                                     </div>
                                 </div>
                             )}
@@ -965,3 +982,4 @@ export default function AnalysisPage() {
         </Suspense>
     );
 }
+

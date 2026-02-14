@@ -107,7 +107,7 @@ export default function AdminPage() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const hidePendingTemporarily = (userId: string, sec: number = 90) => {
+  const hidePendingTemporarily = (userId: string, sec: number = 900) => {
     const until = Date.now() + sec * 1000;
     setHiddenPendingUntil((prev) => ({ ...prev, [userId]: until }));
   };
@@ -160,7 +160,7 @@ export default function AdminPage() {
     setModeratingUserId(row.user_id);
     setError('');
     setSuccess('');
-    hidePendingTemporarily(row.user_id);
+    hidePendingTemporarily(row.user_id, 900);
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/approve', {
@@ -170,6 +170,7 @@ export default function AdminPage() {
           tier: row.plan || 'pro',
         }),
       });
+      hidePendingTemporarily(row.user_id, 1800);
       setSuccess(`已核准 ${row.email || row.user_id} 的升級申請。`);
       await loadData();
       window.dispatchEvent(new Event('dl:usage-refresh'));
@@ -179,6 +180,11 @@ export default function AdminPage() {
     } catch (e) {
       console.error('[Admin] approve pending failed:', e);
       setError(getErrorMessage(e, '核准升級申請失敗，請稍後重試。'));
+      setHiddenPendingUntil((prev) => {
+        const next = { ...prev };
+        delete next[row.user_id];
+        return next;
+      });
       await loadData();
     } finally {
       setModeratingUserId(null);
@@ -190,18 +196,24 @@ export default function AdminPage() {
     setModeratingUserId(row.user_id);
     setError('');
     setSuccess('');
-    hidePendingTemporarily(row.user_id);
+    hidePendingTemporarily(row.user_id, 900);
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/reject', {
         method: 'POST',
         body: JSON.stringify({ user_id: row.user_id }),
       });
+      hidePendingTemporarily(row.user_id, 1800);
       setSuccess(`已退回 ${row.email || row.user_id} 的升級申請。`);
       await loadData();
     } catch (e) {
       console.error('[Admin] reject pending failed:', e);
       setError(getErrorMessage(e, '退回升級申請失敗，請稍後重試。'));
+      setHiddenPendingUntil((prev) => {
+        const next = { ...prev };
+        delete next[row.user_id];
+        return next;
+      });
       await loadData();
     } finally {
       setModeratingUserId(null);

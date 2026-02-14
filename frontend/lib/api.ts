@@ -129,6 +129,42 @@ interface AiAnalysisResponse {
     result?: AiAnalysisResultPayload | string;
 }
 
+interface PrimeFlowNode {
+    id: string;
+    label: string;
+    group: 'core' | 'factor' | string;
+    score?: number;
+}
+
+interface PrimeFlowEdge {
+    source: string;
+    target: string;
+    label?: string;
+    signal?: number;
+}
+
+interface PrimeFlowResponse {
+    symbol: string;
+    market?: string;
+    snapshot?: {
+        score?: number;
+        label?: string;
+        confidence?: number;
+        last_close?: number | null;
+    };
+    factors?: Array<{
+        id: string;
+        label: string;
+        signal: number;
+        weight: number;
+        contribution: number;
+        value?: Record<string, unknown>;
+    }>;
+    nodes?: PrimeFlowNode[];
+    edges?: PrimeFlowEdge[];
+    suggestions?: string[];
+}
+
 export class ApiClient {
     private token: string | null = null;
     private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
@@ -253,6 +289,10 @@ export class ApiClient {
 
     async getIndustryChain(symbol: string) {
         return this.fetch(`/api/analysis/industry-chain/${encodeURIComponent(symbol)}`, { skipAuth: true });
+    }
+
+    async getPrimeFlow(symbol: string) {
+        return this.fetch<PrimeFlowResponse>(`/api/analysis/prime-flow/${encodeURIComponent(symbol)}`, { skipAuth: true });
     }
 
     // ── Analysis ──

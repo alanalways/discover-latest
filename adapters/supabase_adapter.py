@@ -22,6 +22,7 @@ class SupabaseAdapter:
         self._client: Optional[httpx.Client] = None
         self._error_log_throttle: Dict[str, float] = {}
         self._pending_upgrade_mem: Dict[str, Dict[str, Any]] = {}
+        self._pending_upgrade_resolved_until: Dict[str, float] = {}
         self._ai_usage_mem: Dict[str, Dict[str, Any]] = {}
         self._ai_usage_fk_blocked: Dict[str, str] = {}
         self._ai_usage_file_lock = threading.Lock()
@@ -974,15 +975,38 @@ class SupabaseAdapter:
             # If verification path fails, keep conservative behavior.
             return True
 
+    def _mark_pending_resolved(self, user_id: str, ttl_sec: int = 900) -> None:
+        if not user_id:
+            return
+        self._pending_upgrade_resolved_until[user_id] = time.time() + max(60, int(ttl_sec))
+
+    def _is_pending_suppressed(self, user_id: str) -> bool:
+        if not user_id:
+            return False
+        until = float(self._pending_upgrade_resolved_until.get(user_id) or 0.0)
+        if until <= 0:
+            return False
+        if until <= time.time():
+            self._pending_upgrade_resolved_until.pop(user_id, None)
+            return False
+        return True
+
     def _clear_pending_upgrade_request_metadata(self, user_id: str) -> bool:
         if not user_id:
             return False
         for _ in range(2):
             try:
                 auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+                # If auth admin fetch fails transiently, do not treat it as successful clear.
+                if not auth_user or not auth_user.get("id"):
+                    time.sleep(0.15)
+                    continue
                 metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
                 if "pending_upgrade" not in metadata:
-                    return True
+                    if not self._is_pending_still_visible(user_id):
+                        return True
+                    time.sleep(0.15)
+                    continue
                 new_metadata = dict(metadata)
                 new_metadata.pop("pending_upgrade", None)
                 res = self._auth_admin_request(
@@ -1055,6 +1079,7 @@ class SupabaseAdapter:
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
         request_id = f"UPG-{int(time.time())}"
+        self._pending_upgrade_resolved_until.pop(user_id, None)
         try:
             # Primary storage: auth.users.user_metadata.pending_upgrade
             if self._set_pending_upgrade_request_metadata(
@@ -1119,8 +1144,13 @@ class SupabaseAdapter:
         """Clear pending upgrade request after manual approval."""
         if not user_id:
             return False
+        # Prevent immediate stale reappearance while auth metadata propagates.
+        self._mark_pending_resolved(user_id, ttl_sec=900)
         self._pending_upgrade_mem.pop(user_id, None)
-        return self._clear_pending_upgrade_request_metadata(user_id)
+        ok = self._clear_pending_upgrade_request_metadata(user_id)
+        if ok:
+            self._mark_pending_resolved(user_id, ttl_sec=1800)
+        return ok
 
     def list_pending_upgrade_requests(self) -> List[Dict[str, Any]]:
         """List all pending upgrade requests for admin moderation."""
@@ -1140,6 +1170,8 @@ class SupabaseAdapter:
             uid = str(row.get("id") or "").strip()
             if not uid:
                 continue
+            if self._is_pending_suppressed(uid):
+                continue
             metadata = row.get("user_metadata") if isinstance(row.get("user_metadata"), dict) else {}
             pending = self._extract_pending_from_metadata(uid, metadata)
             if not pending:
@@ -1151,6 +1183,8 @@ class SupabaseAdapter:
         # Fallback source: in-process memory
         for uid, row in self._pending_upgrade_mem.items():
             if uid in pending_rows:
+                continue
+            if self._is_pending_suppressed(uid):
                 continue
             if isinstance(row, dict):
                 pending_rows[uid] = dict(row)

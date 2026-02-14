@@ -5,6 +5,7 @@ DiscoverLatest 洞察運算 - 市場總覽頁面
 import time
 import traceback
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
@@ -429,31 +430,36 @@ def _fetch_top20_data() -> Dict:
         tw_pool = list(dict.fromkeys(candidate_symbols))
         tw_batch_size = 28 if tw_open else 16
         tw_symbols = _rotate_pool(tw_pool, tw_batch_size, "tw")
+        tw_workers = max(4, min(12, len(tw_symbols)))
 
-        for sym in tw_symbols:
-            try:
-                if not (sym.isdigit() and len(sym) == 4):
+        def _fetch_tw_row(sym: str) -> Optional[Dict]:
+            if not (sym.isdigit() and len(sym) == 4):
+                return None
+            fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+            picked = _pick_latest_and_prev(fm_data or [])
+            if not picked:
+                return None
+            price = float(picked["price"])
+            if price <= 0:
+                return None
+            return {
+                "symbol": sym,
+                "name": tw_name_map.get(sym, sym),
+                "price": price,
+                "change": float(picked["change"]),
+                "change_pct": float(picked["change_pct"]),
+                "volume": int(picked["volume"]),
+            }
+
+        with ThreadPoolExecutor(max_workers=tw_workers) as pool:
+            futures = [pool.submit(_fetch_tw_row, sym) for sym in tw_symbols]
+            for f in as_completed(futures):
+                try:
+                    row = f.result()
+                    if row:
+                        tw_data.append(row)
+                except Exception:
                     continue
-                fm_data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
-                picked = _pick_latest_and_prev(fm_data or [])
-                if not picked:
-                    continue
-                price = float(picked["price"])
-                if price <= 0:
-                    continue
-                volume = int(picked["volume"])
-                chg = float(picked["change"])
-                pct = float(picked["change_pct"])
-                tw_data.append({
-                    "symbol": sym,
-                    "name": tw_name_map.get(sym, sym),
-                    "price": price,
-                    "change": chg,
-                    "change_pct": pct,
-                    "volume": volume,
-                })
-            except Exception:
-                continue
     except Exception as e:
         print(f"[Top20] TW error: {e}")
 
@@ -465,26 +471,31 @@ def _fetch_top20_data() -> Dict:
         # Keep enough symbols to avoid sparse Top20 output while still respecting rate limits.
         us_batch_size = 20 if us_open else 12
         us_symbols = _rotate_pool(_US_TOP_SYMBOLS, us_batch_size, "us")
+        us_workers = max(4, min(10, len(us_symbols)))
 
-        for sym in us_symbols:
-            try:
-                fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
-                picked = _pick_latest_and_prev(fm_data or [])
-                if picked:
-                    price = picked["price"]
-                    chg = picked["change"]
-                    pct = picked["change_pct"]
-                    vol = picked["volume"]
-                    us_data.append({
-                        "symbol": sym,
-                        "name": _US_STOCK_NAMES.get(sym, sym),
-                        "price": price,
-                        "change": chg,
-                        "change_pct": pct,
-                        "volume": vol,
-                    })
-            except Exception:
-                continue
+        def _fetch_us_row(sym: str) -> Optional[Dict]:
+            fm_data = finmind_adapter.get_us_stock_price_sync(sym, start, end)
+            picked = _pick_latest_and_prev(fm_data or [])
+            if not picked:
+                return None
+            return {
+                "symbol": sym,
+                "name": _US_STOCK_NAMES.get(sym, sym),
+                "price": float(picked["price"]),
+                "change": float(picked["change"]),
+                "change_pct": float(picked["change_pct"]),
+                "volume": float(picked["volume"]),
+            }
+
+        with ThreadPoolExecutor(max_workers=us_workers) as pool:
+            futures = [pool.submit(_fetch_us_row, sym) for sym in us_symbols]
+            for f in as_completed(futures):
+                try:
+                    row = f.result()
+                    if row:
+                        us_data.append(row)
+                except Exception:
+                    continue
     except Exception as e:
         print(f"[Top20] US FinMind error: {e}")
 
