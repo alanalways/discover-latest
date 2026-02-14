@@ -169,9 +169,10 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
 
         cleared = supabase_adapter.clear_pending_upgrade_request(user_id)
         if not cleared:
-            # Keep action idempotent; only fail if pending is still present.
-            pending_after_clear = supabase_adapter.get_pending_upgrade_request(user_id)
-            if pending_after_clear:
+            # Keep action idempotent; only fail if pending is still visible in listing source.
+            pending_rows = supabase_adapter.list_pending_upgrade_requests() or []
+            still_visible = any(str((row or {}).get("user_id") or "").strip() == user_id for row in pending_rows)
+            if still_visible:
                 raise HTTPException(status_code=500, detail="清除待審核申請失敗")
 
         return {
@@ -212,8 +213,9 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
 
         ok = supabase_adapter.clear_pending_upgrade_request(user_id)
         if not ok:
-            pending_after_clear = supabase_adapter.get_pending_upgrade_request(user_id)
-            if pending_after_clear:
+            pending_rows = supabase_adapter.list_pending_upgrade_requests() or []
+            still_visible = any(str((row or {}).get("user_id") or "").strip() == user_id for row in pending_rows)
+            if still_visible:
                 raise HTTPException(status_code=500, detail="清除待審核申請失敗")
 
         return {

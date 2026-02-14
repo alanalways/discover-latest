@@ -67,6 +67,7 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 150ms;
   --duration-normal: 250ms;
+  --user-font-scale: 1;
 }
 
 [data-theme='light'] {
@@ -103,7 +104,7 @@
 }
 
 html {
-  font-size: 14px;
+  font-size: calc(14px * var(--user-font-scale, 1));
   scroll-behavior: smooth;
   color-scheme: dark;
 }
@@ -297,6 +298,22 @@ a:hover {
   margin-top: var(--topbar-h);
   padding: 16px;
   overflow-x: hidden;
+}
+
+.dl-content-view {
+  animation: dl-content-enter 170ms var(--ease-out);
+  will-change: opacity, transform;
+}
+
+@keyframes dl-content-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .dl-mobile-overlay {

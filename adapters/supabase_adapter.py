@@ -938,16 +938,22 @@ class SupabaseAdapter:
         except Exception:
             return False
 
-    def _clear_pending_upgrade_request_metadata(self, user_id: str) -> bool:
+    def _set_pending_upgrade_request_status_metadata(self, user_id: str, status: str) -> bool:
+        """Mark pending upgrade as non-pending status to hide from moderation list."""
         if not user_id:
             return False
+        safe_status = str(status or "").strip().lower() or "resolved"
         try:
             auth_user = self.auth_admin_get_user_by_id(user_id) or {}
             metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
-            if "pending_upgrade" not in metadata:
+            raw = metadata.get("pending_upgrade")
+            details = self._parse_upgrade_request_details(raw)
+            if not details:
                 return True
+            details["status"] = safe_status
+            details["resolved_at"] = datetime.now(timezone.utc).isoformat()
             new_metadata = dict(metadata)
-            new_metadata.pop("pending_upgrade", None)
+            new_metadata["pending_upgrade"] = details
             res = self._auth_admin_request(
                 "PUT",
                 f"admin/users/{user_id}",
@@ -956,6 +962,44 @@ class SupabaseAdapter:
             return res is not None
         except Exception:
             return False
+
+    def _is_pending_still_visible(self, user_id: str) -> bool:
+        """Verify if pending request still appears in source-of-truth listing."""
+        if not user_id:
+            return False
+        try:
+            rows = self.list_pending_upgrade_requests() or []
+            return any(str((row or {}).get("user_id") or "").strip() == user_id for row in rows)
+        except Exception:
+            # If verification path fails, keep conservative behavior.
+            return True
+
+    def _clear_pending_upgrade_request_metadata(self, user_id: str) -> bool:
+        if not user_id:
+            return False
+        for _ in range(2):
+            try:
+                auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+                metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+                if "pending_upgrade" not in metadata:
+                    return True
+                new_metadata = dict(metadata)
+                new_metadata.pop("pending_upgrade", None)
+                res = self._auth_admin_request(
+                    "PUT",
+                    f"admin/users/{user_id}",
+                    json={"user_metadata": new_metadata},
+                )
+                if res is not None and not self._is_pending_still_visible(user_id):
+                    return True
+                # Fallback: mark as non-pending status so list extractor will ignore it.
+                if self._set_pending_upgrade_request_status_metadata(user_id, status="rejected"):
+                    if not self._is_pending_still_visible(user_id):
+                        return True
+            except Exception:
+                pass
+            time.sleep(0.15)
+        return False
 
     def get_pending_upgrade_request(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Read pending upgrade request for a user.

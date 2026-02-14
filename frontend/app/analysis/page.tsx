@@ -180,6 +180,8 @@ function AnalysisContent() {
     const [aiResult, setAiResult] = useState('');
     const [typedAiResult, setTypedAiResult] = useState('');
     const [aiLoading, setAiLoading] = useState(false);
+    const [aiProgress, setAiProgress] = useState(0);
+    const [aiStage, setAiStage] = useState('');
 
     // 基本面 + 籌碼面
     const [fundamentals, setFundamentals] = useState<{
@@ -213,6 +215,25 @@ function AnalysisContent() {
         }, 12);
         return () => window.clearInterval(timer);
     }, [aiResult]);
+
+    useEffect(() => {
+        if (!aiLoading) return;
+        const startedAt = Date.now();
+        const timer = window.setInterval(() => {
+            const elapsed = Date.now() - startedAt;
+            setAiProgress((prev) => Math.min(92, prev + Math.max(1, Math.round((92 - prev) * 0.12))));
+
+            if (elapsed > 9000) {
+                setAiStage('Generating final summary');
+            } else if (elapsed > 6000) {
+                setAiStage('Consolidating key points');
+            } else if (elapsed > 2500) {
+                setAiStage('Collecting market data');
+            }
+        }, 350);
+
+        return () => window.clearInterval(timer);
+    }, [aiLoading]);
 
     const periodOptions = useMemo<Array<'1y' | '3y' | '5y'>>(() => {
         const tier = user?.tier || 'free';
@@ -355,6 +376,10 @@ function AnalysisContent() {
             setShowLoginModal(true);
             return;
         }
+        setAiResult('');
+        setTypedAiResult('');
+        setAiProgress(10);
+        setAiStage('Preparing analysis task');
         setAiLoading(true);
         try {
             const result = await api.getAiAnalysis(symbol) as AiAnalysisPayload;
@@ -372,7 +397,13 @@ function AnalysisContent() {
                 setAiResult('AI 分析暫時無法使用，請稍後再試。');
             }
         } finally {
+            setAiProgress(100);
+            setAiStage('Done');
             setAiLoading(false);
+            window.setTimeout(() => {
+                setAiProgress(0);
+                setAiStage('');
+            }, 1200);
         }
     };
 
@@ -894,6 +925,24 @@ function AnalysisContent() {
                                     {aiLoading ? '分析中...' : '開始分析'}
                                 </button>
                             </div>
+
+                            {aiLoading && (
+                                <div className="mt-6 p-4 bg-black/30 rounded-xl border border-indigo-400/25">
+                                    <div className="flex items-center justify-between text-sm text-indigo-200 mb-2">
+                                        <span>{aiStage || 'Analyzing...'}</span>
+                                        <span>{aiProgress}%</span>
+                                    </div>
+                                    <div className="h-2 w-full rounded-full bg-indigo-950/70 overflow-hidden">
+                                        <div
+                                            className="h-2 rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500 transition-all duration-300"
+                                            style={{ width: `${Math.max(8, aiProgress)}%` }}
+                                        />
+                                    </div>
+                                    <div className="mt-2 text-xs text-indigo-200/80 animate-pulse">
+                                        AI is processing. Result will appear automatically.
+                                    </div>
+                                </div>
+                            )}
 
                             {aiResult && (
                                 <div className="mt-8 p-6 bg-black/40 rounded-xl border border-indigo-500/20 leading-relaxed text-[var(--text-2)] whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-4 duration-500">

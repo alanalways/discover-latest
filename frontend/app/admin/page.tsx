@@ -64,6 +64,7 @@ export default function AdminPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [moderatingUserId, setModeratingUserId] = useState<string | null>(null);
+  const [hiddenPendingUntil, setHiddenPendingUntil] = useState<Record<string, number>>({});
 
   const adminEmails = useMemo(() => {
     return getAdminEmailsFromEnv();
@@ -71,16 +72,45 @@ export default function AdminPage() {
 
   const isAdmin = isAdminUser(user, adminEmails);
 
+  const visiblePending = useMemo(
+    () => pending.filter((p) => (hiddenPendingUntil[p.user_id] || 0) <= Date.now()),
+    [pending, hiddenPendingUntil],
+  );
+
   const pendingSummary = useMemo(() => {
-    const top = pending.slice(0, 3).map((p) => p.email || p.user_id);
-    const extra = pending.length > 3 ? ` +${pending.length - 3}` : '';
+    const top = visiblePending.slice(0, 3).map((p) => p.email || p.user_id);
+    const extra = visiblePending.length > 3 ? ` +${visiblePending.length - 3}` : '';
     return `${top.join('、')}${extra}`;
-  }, [pending]);
+  }, [visiblePending]);
 
   useEffect(() => {
     if (!isAdmin) return;
     void loadData();
   }, [isAdmin]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setHiddenPendingUntil((prev) => {
+        let changed = false;
+        const next: Record<string, number> = {};
+        for (const [uid, until] of Object.entries(prev)) {
+          if (until > now) {
+            next[uid] = until;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const hidePendingTemporarily = (userId: string, sec: number = 90) => {
+    const until = Date.now() + sec * 1000;
+    setHiddenPendingUntil((prev) => ({ ...prev, [userId]: until }));
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -130,6 +160,7 @@ export default function AdminPage() {
     setModeratingUserId(row.user_id);
     setError('');
     setSuccess('');
+    hidePendingTemporarily(row.user_id);
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/approve', {
@@ -159,6 +190,7 @@ export default function AdminPage() {
     setModeratingUserId(row.user_id);
     setError('');
     setSuccess('');
+    hidePendingTemporarily(row.user_id);
     setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/reject', {
@@ -228,12 +260,12 @@ export default function AdminPage() {
       {error && <div className={styles.error}>{error}</div>}
       {success && <div className={styles.success}>{success}</div>}
 
-      {pending.length > 0 && (
+      {visiblePending.length > 0 && (
         <div className={styles.noticeBanner}>
           <div className={styles.noticeLeft}>
             <Bell size={16} />
             <div>
-              <div className={styles.noticeTitle}>有新的升級申請待審核（{pending.length}）</div>
+              <div className={styles.noticeTitle}>有新的升級申請待審核（{visiblePending.length}）</div>
               <div className={styles.noticeSub}>{pendingSummary}</div>
             </div>
           </div>
@@ -280,7 +312,7 @@ export default function AdminPage() {
           <div className={styles.statCard}>
             <Activity size={20} />
             <div>
-              <div className={styles.statValue}>{stats.pending_upgrade_count || pending.length}</div>
+              <div className={styles.statValue}>{visiblePending.length}</div>
               <div className={styles.statLabel}>待審升級</div>
             </div>
           </div>
@@ -293,7 +325,7 @@ export default function AdminPage() {
         </div>
         {loading ? (
           <div className={styles.loadingText}>載入中...</div>
-        ) : pending.length === 0 ? (
+        ) : visiblePending.length === 0 ? (
           <div className={styles.emptyRow}>目前沒有待審升級申請。</div>
         ) : (
           <div className={styles.userTable}>
@@ -303,7 +335,7 @@ export default function AdminPage() {
               <span>申請時間</span>
               <span>操作</span>
             </div>
-            {pending.map((p) => (
+            {visiblePending.map((p) => (
               <div key={`${p.user_id}-${p.id || 'pending'}`} className={styles.tableRow}>
                 <span className={styles.email}>
                   <span className={styles.mobileLabel}>Email</span>

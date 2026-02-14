@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { api } from '@/lib/api';
 import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
@@ -45,6 +45,7 @@ interface SidebarProps {
 
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
+    const router = useRouter();
     const { user } = useAuth();
 
     const [effectiveTier, setEffectiveTier] = useState<'free' | 'pro' | 'premium'>('free');
@@ -53,6 +54,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
     const loadingLimitsRef = useRef(false);
     const lastLoadAtRef = useRef(0);
+    const prefetchedRef = useRef<Set<string>>(new Set());
 
     const tier = effectiveTier;
     const tierLabel: Record<string, string> = { free: 'Free', pro: 'Pro', premium: 'Premium' };
@@ -69,6 +71,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         startRouteProgress();
         onClose?.();
     };
+
+    const prefetchRoute = useCallback((href: string) => {
+        if (!href || prefetchedRef.current.has(href)) return;
+        prefetchedRef.current.add(href);
+        try {
+            router.prefetch(href);
+        } catch {
+            // ignore prefetch errors
+        }
+    }, [router]);
 
     const loadLimits = useCallback(async (force = false) => {
         const now = Date.now();
@@ -152,6 +164,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                             href={item.href}
                             prefetch={false}
                             onClick={handleNavClick}
+                            onMouseEnter={() => prefetchRoute(item.href)}
+                            onTouchStart={() => prefetchRoute(item.href)}
+                            onFocus={() => prefetchRoute(item.href)}
                             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
                         >
                             <item.icon className={styles.navIcon} />
@@ -165,6 +180,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         href="/admin"
                         prefetch={false}
                         onClick={handleNavClick}
+                        onMouseEnter={() => prefetchRoute('/admin')}
+                        onTouchStart={() => prefetchRoute('/admin')}
+                        onFocus={() => prefetchRoute('/admin')}
                         className={`${styles.navItem} ${pathname === '/admin' ? styles.navItemActive : ''}`}
                     >
                         <Shield className={styles.navIcon} />
@@ -176,7 +194,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className={styles.usageCard}>
                 <div className={styles.usageHeader}>
                     <span className={styles.tierBadge}>{tierLabel[tier]}</span>
-                    <Link href="/pricing" prefetch={false} onClick={handleNavClick} className={styles.upgradeLink}>升級</Link>
+                    <Link
+                        href="/pricing"
+                        prefetch={false}
+                        onClick={handleNavClick}
+                        onMouseEnter={() => prefetchRoute('/pricing')}
+                        onTouchStart={() => prefetchRoute('/pricing')}
+                        onFocus={() => prefetchRoute('/pricing')}
+                        className={styles.upgradeLink}
+                    >
+                        升級
+                    </Link>
                 </div>
                 <div className={styles.usageCount}>{dailyUsed}/{dailyLimit}</div>
                 <div className={styles.usageLabel}>今日 AI 次數</div>
@@ -186,7 +214,15 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
 
             <div className={styles.upgradeSection}>
-                <Link href="/pricing" prefetch={false} onClick={handleNavClick} className={styles.upgradeBtn}>
+                <Link
+                    href="/pricing"
+                    prefetch={false}
+                    onClick={handleNavClick}
+                    onMouseEnter={() => prefetchRoute('/pricing')}
+                    onTouchStart={() => prefetchRoute('/pricing')}
+                    onFocus={() => prefetchRoute('/pricing')}
+                    className={styles.upgradeBtn}
+                >
                     <Gem size={14} />
                     <span>升級至 Pro 版</span>
                 </Link>
@@ -194,7 +230,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
             <nav className={styles.nav}>
                 {BOTTOM_ITEMS.map((item) => (
-                    <Link key={item.href} href={item.href} prefetch={false} onClick={handleNavClick} className={styles.navItem}>
+                    <Link
+                        key={item.href}
+                        href={item.href}
+                        prefetch={false}
+                        onClick={handleNavClick}
+                        onMouseEnter={() => prefetchRoute(item.href)}
+                        onTouchStart={() => prefetchRoute(item.href)}
+                        onFocus={() => prefetchRoute(item.href)}
+                        className={styles.navItem}
+                    >
                         <item.icon className={styles.navIcon} />
                         <span>{item.label}</span>
                     </Link>
