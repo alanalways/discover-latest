@@ -241,6 +241,34 @@ class GeminiService:
         return "\n".join(parts)
 
     @staticmethod
+    def _sanitize_analysis_text(text: str) -> str:
+        out = (text or "").replace("\r\n", "\n").strip()
+        if not out:
+            return ""
+        out = re.sub(r"(?m)^\s*[-*]{3,}\s*$", "", out)
+        out = out.replace("***", "").replace("**", "")
+        out = re.sub(r"(?m)^\s*#{1,6}\s*", "", out)
+        out = re.sub(r"(?m)^\s*-\s+", "• ", out)
+        out = re.sub(r"(?m)^\s*\*\s+", "• ", out)
+        if not out.startswith("我是 DiscoverLatest AI。"):
+            out = "我是 DiscoverLatest AI。\n" + out
+        return out.strip()
+
+    @staticmethod
+    def _ensure_smc_section(text: str, smc_summary: str) -> str:
+        out = (text or "").strip()
+        if not out:
+            return out
+        if re.search(r"(SMC|結構判讀|BOS|CHoCH)", out, flags=re.IGNORECASE):
+            return out
+        summary = (smc_summary or "").strip() or "SMC 資料不足"
+        items = [seg.strip() for seg in summary.split("|") if seg.strip()]
+        if not items:
+            items = ["SMC 資料不足"]
+        bullet_lines = "\n".join(f"• {seg}" for seg in items[:6])
+        return f"{out}\n\n🧱 SMC 結構判讀\n{bullet_lines}".strip()
+
+    @staticmethod
     def _analysis_cache_key(
         symbol: str,
         tier: str,
@@ -290,7 +318,8 @@ class GeminiService:
             "第一行固定寫：我是 DiscoverLatest AI。\n"
             "不要使用問候語，不要寫『你好』。\n"
             "禁止使用這些符號與格式：---、***、**、##。\n"
-            "列點只使用「• 」字元。"
+            "列點只使用「• 」字元。\n"
+            "必須包含章節標題：🧱 SMC 結構判讀（若無資料請明確寫資料不足）。"
         )
         tier_norm = str(tier or "free").strip().lower()
         if tier_norm == "premium":
@@ -463,6 +492,7 @@ class GeminiService:
                 "3) ⚠️ 主要風險\n"
                 "4) 🎯 操作建議（含停損/觀察條件）\n"
                 "5) 📅 接下來要追蹤的事件\n"
+                "6) 🧱 SMC 結構判讀（BOS/CHoCH/OB/FVG/流動性）\n"
             )
 
             print(f"[Gemini] Stage 2 starting for {symbol}...")
@@ -502,6 +532,10 @@ class GeminiService:
                     if stage2_response and getattr(stage2_response, "text", None)
                     else ""
                 )
+                analysis = self._ensure_smc_section(
+                    self._sanitize_analysis_text(analysis),
+                    smc_summary,
+                )
                 if not analysis:
                     return {
                         "success": False,
@@ -535,6 +569,10 @@ class GeminiService:
                 future2.cancel()
                 print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
                 fallback = self._build_fallback_from_grounding(symbol, grounding_text, tier)
+                fallback = self._ensure_smc_section(
+                    self._sanitize_analysis_text(fallback),
+                    smc_summary,
+                )
                 if fallback:
                     self._background_retry_stage2(symbol, final_prompt)
                 payload = {

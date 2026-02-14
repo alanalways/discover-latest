@@ -156,21 +156,56 @@ def _build_technical_snapshot(history: list[dict]) -> str:
     return " | ".join(lines)
 
 
-def _summarize_smc(result: Optional[dict]) -> str:
+def _summarize_smc(result: Optional[dict], tier: str = "free") -> str:
     if not isinstance(result, dict) or result.get("error"):
-        return ""
-    trend = result.get("trend", "neutral")
-    structures = result.get("structures") or []
-    order_blocks = result.get("order_blocks") or []
-    fvg = result.get("fvg") or []
-    liquidity = result.get("liquidity") or []
-    return (
-        f"Trend: {trend}; "
-        f"Structures {len(structures)}; "
-        f"Order Blocks {len(order_blocks)}; "
-        f"FVG {len(fvg)}; "
-        f"Liquidity Zones {len(liquidity)}"
-    )
+        return "SMC 資料不足"
+
+    trend = str(result.get("trend") or "neutral")
+    structures = [s for s in (result.get("structures") or []) if isinstance(s, dict)]
+    order_blocks = [o for o in (result.get("order_blocks") or []) if isinstance(o, dict)]
+    fvg = [g for g in (result.get("fvg") or []) if isinstance(g, dict)]
+    liquidity = [l for l in (result.get("liquidity") or []) if isinstance(l, dict)]
+
+    bos_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "BOS")
+    choch_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "CHOCH")
+    active_ob = [o for o in order_blocks if not bool(o.get("mitigated"))]
+    open_fvg = [g for g in fvg if not bool(g.get("filled"))]
+    buy_liq = [l for l in liquidity if str(l.get("type") or "") == "buy_side_liquidity"]
+    sell_liq = [l for l in liquidity if str(l.get("type") or "") == "sell_side_liquidity"]
+
+    lines = [
+        f"Trend={trend}",
+        f"BOS={bos_count}",
+        f"CHoCH={choch_count}",
+        f"ActiveOB={len(active_ob)}",
+        f"OpenFVG={len(open_fvg)}",
+        f"Liquidity(B/S)={len(buy_liq)}/{len(sell_liq)}",
+    ]
+
+    if str(tier or "free").lower() in {"pro", "premium"}:
+        latest_struct = structures[-3:]
+        for s in latest_struct:
+            st = str(s.get("type") or "").upper() or "NA"
+            direction = str(s.get("direction") or "").lower() or "neutral"
+            price = _safe_num(s.get("price"))
+            dt = str(s.get("to_date") or s.get("date") or "")
+            lines.append(f"{st}({direction})@{price:.2f} {dt}".strip())
+        latest_ob = active_ob[-2:]
+        for ob in latest_ob:
+            ob_type = str(ob.get("type") or "ob")
+            low = _safe_num(ob.get("low"))
+            high = _safe_num(ob.get("high"))
+            dt = str(ob.get("date") or "")
+            lines.append(f"{ob_type}[{low:.2f}-{high:.2f}] {dt}".strip())
+        latest_fvg = open_fvg[-2:]
+        for gap in latest_fvg:
+            gt = str(gap.get("type") or "fvg")
+            bottom = _safe_num(gap.get("bottom"))
+            top = _safe_num(gap.get("top"))
+            dt = str(gap.get("date") or "")
+            lines.append(f"{gt}[{bottom:.2f}-{top:.2f}] {dt}".strip())
+
+    return " | ".join(lines)
 
 
 @router.post("/analysis/ai")
@@ -208,18 +243,17 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         history_payload = stock_data.get("history", []) if isinstance(stock_data, dict) else []
         tech_snapshot = _build_technical_snapshot(history_payload)
 
-        smc_summary = ""
-        if tier in ("pro", "premium"):
-            try:
-                from services.smc_service import smc_service
+        smc_summary = "SMC 資料不足"
+        try:
+            from services.smc_service import smc_service
 
-                smc_result = await asyncio.to_thread(
-                    smc_service.analyze,
-                    history_payload[-260:] if history_payload else [],
-                )
-                smc_summary = _summarize_smc(smc_result)
-            except Exception:
-                smc_summary = ""
+            smc_result = await asyncio.to_thread(
+                smc_service.analyze,
+                history_payload[-220:] if history_payload else [],
+            )
+            smc_summary = _summarize_smc(smc_result, tier=tier)
+        except Exception:
+            smc_summary = "SMC 資料不足"
 
         result = await asyncio.to_thread(
             gemini_service.generate_analysis,
