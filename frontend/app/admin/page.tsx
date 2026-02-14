@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { ApiClient } from '@/lib/api';
+import { ApiClient, ApiError } from '@/lib/api';
+import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
 import {
   Activity,
   Bell,
@@ -17,8 +18,6 @@ import {
 import styles from './page.module.css';
 
 const apiClient = new ApiClient();
-const DEFAULT_ADMIN_EMAIL = 'cmshj30326@gmail.com';
-
 interface UserItem {
   id: string;
   email: string;
@@ -44,6 +43,16 @@ interface Stats {
   pending_upgrade_count?: number;
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return '登入已失效，請重新登入後再試。';
+    if (error.status === 403) return '你目前帳號沒有後端管理員權限（請確認 ADMIN_EMAILS 設定）。';
+    if (error.message) return error.message;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return fallback;
+}
+
 export default function AdminPage() {
   const { user, refreshUser } = useAuth();
 
@@ -56,14 +65,10 @@ export default function AdminPage() {
   const [moderatingUserId, setModeratingUserId] = useState<string | null>(null);
 
   const adminEmails = useMemo(() => {
-    const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMIN_EMAIL;
-    return raw
-      .split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
+    return getAdminEmailsFromEnv();
   }, []);
 
-  const isAdmin = !!user?.email && adminEmails.includes(user.email.toLowerCase());
+  const isAdmin = isAdminUser(user, adminEmails);
 
   const pendingSummary = useMemo(() => {
     const top = pending.slice(0, 3).map((p) => p.email || p.user_id);
@@ -94,7 +99,7 @@ export default function AdminPage() {
       setPending(pendingRes?.pending || []);
     } catch (e) {
       console.error('[Admin] loadData failed:', e);
-      setError('載入管理資料失敗，請稍後再試。');
+      setError(getErrorMessage(e, '載入管理資料失敗，請稍後再試。'));
     } finally {
       setLoading(false);
     }
@@ -114,7 +119,7 @@ export default function AdminPage() {
       await loadData();
     } catch (e) {
       console.error('[Admin] update tier failed:', e);
-      setError('更新方案失敗，請稍後重試。');
+      setError(getErrorMessage(e, '更新方案失敗，請稍後重試。'));
     }
   };
 
@@ -122,6 +127,7 @@ export default function AdminPage() {
     if (!row?.user_id) return;
     setModeratingUserId(row.user_id);
     setError('');
+    setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/approve', {
         method: 'POST',
@@ -137,7 +143,8 @@ export default function AdminPage() {
       }
     } catch (e) {
       console.error('[Admin] approve pending failed:', e);
-      setError('核准升級申請失敗，請稍後重試。');
+      setError(getErrorMessage(e, '核准升級申請失敗，請稍後重試。'));
+      await loadData();
     } finally {
       setModeratingUserId(null);
     }
@@ -147,6 +154,7 @@ export default function AdminPage() {
     if (!row?.user_id) return;
     setModeratingUserId(row.user_id);
     setError('');
+    setPending((prev) => prev.filter((p) => p.user_id !== row.user_id));
     try {
       await apiClient.fetch('/api/admin/upgrade-pending/reject', {
         method: 'POST',
@@ -155,7 +163,8 @@ export default function AdminPage() {
       await loadData();
     } catch (e) {
       console.error('[Admin] reject pending failed:', e);
-      setError('退回升級申請失敗，請稍後重試。');
+      setError(getErrorMessage(e, '退回升級申請失敗，請稍後重試。'));
+      await loadData();
     } finally {
       setModeratingUserId(null);
     }
@@ -289,14 +298,22 @@ export default function AdminPage() {
             </div>
             {pending.map((p) => (
               <div key={`${p.user_id}-${p.id || 'pending'}`} className={styles.tableRow}>
-                <span className={styles.email}>{p.email || p.user_id}</span>
+                <span className={styles.email}>
+                  <span className={styles.mobileLabel}>Email</span>
+                  {p.email || p.user_id}
+                </span>
                 <span className={styles.tierCell}>
+                  <span className={styles.mobileLabel}>方案</span>
                   {getTierIcon(p.plan || 'free')} {(p.plan || 'free').toUpperCase()}
                 </span>
-                <span>{p.created_at ? new Date(p.created_at).toLocaleString('zh-TW') : '-'}</span>
+                <span className={styles.tableMeta}>
+                  <span className={styles.mobileLabel}>申請時間</span>
+                  {p.created_at ? new Date(p.created_at).toLocaleString('zh-TW') : '-'}
+                </span>
                 <div className={styles.pendingActions}>
                   <button
                     className={styles.approveBtn}
+                    type="button"
                     onClick={() => void handleApprovePending(p)}
                     disabled={moderatingUserId === p.user_id}
                   >
@@ -304,6 +321,7 @@ export default function AdminPage() {
                   </button>
                   <button
                     className={styles.rejectBtn}
+                    type="button"
                     onClick={() => void handleRejectPending(p)}
                     disabled={moderatingUserId === p.user_id}
                   >
@@ -342,9 +360,16 @@ export default function AdminPage() {
             </div>
             {filteredUsers.map((u) => (
               <div key={u.id} className={styles.tableRow}>
-                <span className={styles.email}>{u.email}</span>
-                <span>{u.name || '-'}</span>
+                <span className={styles.email}>
+                  <span className={styles.mobileLabel}>Email</span>
+                  {u.email}
+                </span>
+                <span className={styles.tableMeta}>
+                  <span className={styles.mobileLabel}>名稱</span>
+                  {u.name || '-'}
+                </span>
                 <span className={styles.tierCell}>
+                  <span className={styles.mobileLabel}>方案</span>
                   {getTierIcon(u.tier)} {u.tier}
                 </span>
                 <select

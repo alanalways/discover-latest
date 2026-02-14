@@ -119,6 +119,10 @@ body {
   overflow-x: hidden;
 }
 
+body.dl-sidebar-open {
+  overflow: hidden;
+}
+
 /* ─── Typography ─── */
 h1,
 h2,
@@ -284,6 +288,10 @@ a:hover {
   margin-left: 0;
 }
 
+.dl-main-locked {
+  pointer-events: none;
+}
+
 .dl-content {
   flex: 1;
   margin-top: var(--topbar-h);
@@ -296,7 +304,14 @@ a:hover {
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(2px);
-  z-index: 80;
+  z-index: 95;
+  touch-action: none;
+}
+
+button,
+a,
+[role='button'] {
+  touch-action: manipulation;
 }
 
 @media (min-width: 768px) {

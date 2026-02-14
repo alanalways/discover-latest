@@ -14,6 +14,14 @@ interface User {
         full_name?: string;
         avatar_url?: string;
         tier?: 'free' | 'pro' | 'premium';
+        is_admin?: boolean;
+        role?: string;
+        roles?: string[];
+    };
+    appMetadata?: {
+        is_admin?: boolean;
+        role?: string;
+        roles?: string[];
     };
 }
 
@@ -31,12 +39,21 @@ function normalizeUser(raw: unknown): User | null {
             full_name?: string;
             avatar_url?: string;
             tier?: 'free' | 'pro' | 'premium';
+            is_admin?: boolean;
+            role?: string;
+            roles?: string[];
+        };
+        app_metadata?: {
+            is_admin?: boolean;
+            role?: string;
+            roles?: string[];
         };
     };
 
     if (!data.id) return null;
 
     const metadata = data.user_metadata || {};
+    const appMetadata = data.app_metadata || {};
     const tier = data.tier || metadata.tier || 'free';
     const name = data.name || metadata.full_name || data.email || '使用者';
     const picture = data.picture || data.avatar_url || metadata.avatar_url;
@@ -49,6 +66,7 @@ function normalizeUser(raw: unknown): User | null {
         tier,
         createdAt: data.created_at,
         userMetadata: metadata,
+        appMetadata,
     };
 }
 

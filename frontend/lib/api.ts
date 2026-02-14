@@ -158,6 +158,8 @@ export class ApiClient {
 
     async fetch<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
         const { skipAuth, skipProgress, ...fetchOpts } = options;
+        const method = String(fetchOpts.method || 'GET').toUpperCase();
+        const shouldTrackProgress = !skipProgress && !['GET', 'HEAD', 'OPTIONS'].includes(method);
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...(fetchOpts.headers as Record<string, string>),
@@ -167,7 +169,7 @@ export class ApiClient {
             headers['Authorization'] = `Bearer ${this.getToken()}`;
         }
 
-        if (!skipProgress) {
+        if (shouldTrackProgress) {
             startRouteProgress();
         }
 
@@ -175,7 +177,7 @@ export class ApiClient {
             ...fetchOpts,
             headers,
         }).finally(() => {
-            if (!skipProgress) {
+            if (shouldTrackProgress) {
                 doneRouteProgress();
             }
         });

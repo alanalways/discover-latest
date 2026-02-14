@@ -231,12 +231,25 @@
 .email {
     color: var(--text-1);
     font-weight: 500;
+    word-break: break-word;
 }
 
 .tierCell {
     display: flex;
     align-items: center;
     gap: 4px;
+}
+
+.tableMeta {
+    color: var(--text-2);
+}
+
+.mobileLabel {
+    display: none;
+    color: var(--text-3);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .iconPremium {
@@ -276,6 +289,8 @@
     padding: 4px 10px;
     font-size: 12px;
     cursor: pointer;
+    min-height: 32px;
+    touch-action: manipulation;
 }
 
 .approveBtn {
@@ -318,9 +333,67 @@
         align-items: flex-start;
     }
 
-    .tableHeader,
+    .sectionHeader {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .searchBox {
+        width: 100%;
+    }
+
+    .searchBox input {
+        width: 100%;
+    }
+
+    .tableHeader {
+        display: none;
+    }
+
+    .userTable {
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
     .tableRow {
-        grid-template-columns: 1.8fr 1fr 1fr 100px;
-        gap: 8px;
+        grid-template-columns: 1fr;
+        gap: 10px;
+        border: 1px solid var(--border-subtle);
+        border-radius: 10px;
+        padding: 12px;
+        background: var(--bg-elevated);
+    }
+
+    .mobileLabel {
+        display: inline-block;
+    }
+
+    .email,
+    .tableMeta,
+    .tierCell {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .pendingActions {
+        width: 100%;
+        gap: 10px;
+    }
+
+    .approveBtn,
+    .rejectBtn {
+        flex: 1;
+        min-height: 38px;
+        font-size: 13px;
+    }
+
+    .tierSelect {
+        width: 100%;
+        min-height: 38px;
+        font-size: 13px;
     }
 }

@@ -122,8 +122,6 @@ const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [
   'JPM','V','MA','WMT','PG','COST','KO','PEP','QCOM','TXN',
 ].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
-const EMPTY_TOP20: Top20Bucket = { gainers: [], losers: [], volume: [] };
-
 const toBucket = (rows: Top20Stock[]): Top20Bucket => ({
   gainers: [...rows].sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0)).slice(0, 20),
   losers: [...rows].sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0)).slice(0, 20),
@@ -316,8 +314,16 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const rafIds: number[] = [];
+    const scheduleHydrate = (payload: DashboardCachePayload) => {
+      const rafId = window.requestAnimationFrame(() => {
+        hydrateFromPayload(payload);
+      });
+      rafIds.push(rafId);
+    };
+
     if (dashboardMemoryCache) {
-      hydrateFromPayload(dashboardMemoryCache);
+      scheduleHydrate(dashboardMemoryCache);
     }
 
     try {
@@ -325,15 +331,21 @@ export default function Dashboard() {
       if (raw) {
         const parsed = JSON.parse(raw) as DashboardCachePayload;
         dashboardMemoryCache = parsed;
-        hydrateFromPayload(parsed);
+        scheduleHydrate(parsed);
       }
     } catch {
       // Ignore invalid cache payload.
     }
+
+    return () => {
+      rafIds.forEach((id) => window.cancelAnimationFrame(id));
+    };
   }, [hydrateFromPayload]);
 
   useEffect(() => {
-    void fetchData();
+    const bootstrapTimer = window.setTimeout(() => {
+      void fetchData();
+    }, 0);
 
     const tier = user?.tier || 'free';
     const refreshMs: Record<string, number> = {
@@ -346,7 +358,10 @@ export default function Dashboard() {
       void fetchData();
     }, refreshMs[tier] || refreshMs.free);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(bootstrapTimer);
+      clearInterval(interval);
+    };
   }, [fetchData, user?.tier]);
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
@@ -534,15 +549,14 @@ export default function Dashboard() {
             <span className={styles.colValue}>{activeTab === 'volume' ? '成交量' : '漲跌幅'}</span>
           </div>
           {top20Data[activeTab].slice(0, 20).map((stock, i) => (
-            <div
+            <button
+              type="button"
               key={`${stock.symbol}-${i}`}
-              className={styles.tableRow}
-              onMouseDown={() => startRouteProgress()}
+              className={`${styles.tableRow} ${styles.tableRowButton}`}
               onClick={() => {
                 startRouteProgress();
                 router.push(`/analysis?symbol=${stock.symbol}`);
               }}
-              style={{ cursor: 'pointer' }}
               title={`前往 ${stock.name} (${stock.symbol}) 深度分析`}
             >
               <span className={styles.colRank}>{i + 1}</span>
@@ -559,7 +573,7 @@ export default function Dashboard() {
                       : `${(stock.change_pct || 0) >= 0 ? '+' : ''}${(stock.change_pct || 0).toFixed(2)}%`
                   )}
               </span>
-            </div>
+            </button>
           ))}
 
           {top20Data[activeTab].length === 0 && (
@@ -605,15 +619,6 @@ function isNoiseNewsItem(item: NewsItem): boolean {
   if (!title && !reason) return true;
   if (title === 'tavily' || title === 'tavly') return true;
   return false;
-}
-
-function cleanNewsTag(tag?: string): string {
-  const text = String(tag || '')
-    .replace(/\b(tavily|tavly|news|unknown)\b/gi, '')
-    .replace(/(來源|source)\s*[:：]?\s*/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return text;
 }
 
 function buildNewsImpactLine(item: NewsItem): string {

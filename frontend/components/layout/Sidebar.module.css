@@ -11,6 +11,8 @@
     z-index: 100;
     padding: 0;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     transition: width 0.3s ease, transform 0.25s ease;
 }
 

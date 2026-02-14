@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { api } from '@/lib/api';
+import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
 import {
     Activity,
@@ -37,8 +38,6 @@ const BOTTOM_ITEMS = [
     { icon: HelpCircle, label: '幫助中心', href: '/help' },
 ];
 
-const DEFAULT_ADMIN_EMAIL = 'cmshj30326@gmail.com';
-
 interface SidebarProps {
     isOpen?: boolean;
     onClose?: () => void;
@@ -63,10 +62,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'v2.2.0';
 
     const adminEmails = useMemo(() => {
-        const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMIN_EMAIL;
-        return raw.split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+        return getAdminEmailsFromEnv();
     }, []);
-    const isAdmin = !!user?.email && adminEmails.includes(user.email.toLowerCase());
+    const isAdmin = isAdminUser(user, adminEmails);
 
     const handleNavClick = () => {
         startRouteProgress();

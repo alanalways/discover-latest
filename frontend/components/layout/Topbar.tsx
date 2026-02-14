@@ -38,6 +38,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
     const [effectiveTier, setEffectiveTier] = useState<'free' | 'pro' | 'premium'>('free');
     const loadingTierRef = useRef(false);
     const lastLoadAtRef = useRef(0);
+    const userMenuRef = useRef<HTMLDivElement | null>(null);
 
     const pageTitle = PAGE_TITLES[pathname] || '儀表板';
     const tier = effectiveTier;
@@ -88,6 +89,32 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
         };
     }, [loadTier]);
 
+    useEffect(() => {
+        if (!showUserMenu) return;
+        const onPointerDown = (event: PointerEvent) => {
+            const root = userMenuRef.current;
+            if (!root) return;
+            if (!root.contains(event.target as Node)) {
+                setShowUserMenu(false);
+            }
+        };
+        const onEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setShowUserMenu(false);
+            }
+        };
+        window.addEventListener('pointerdown', onPointerDown);
+        window.addEventListener('keydown', onEscape);
+        return () => {
+            window.removeEventListener('pointerdown', onPointerDown);
+            window.removeEventListener('keydown', onEscape);
+        };
+    }, [showUserMenu]);
+
+    useEffect(() => {
+        setShowUserMenu(false);
+    }, [pathname]);
+
     const handleSearch = (e: FormEvent) => {
         e.preventDefault();
         const symbol = searchQuery.trim().toUpperCase();
@@ -133,7 +160,7 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
                         <>
                             <span className={tierClassName}>{tierLabel}</span>
 
-                            <div className={styles.userMenuWrap}>
+                            <div className={styles.userMenuWrap} ref={userMenuRef}>
                                 <button
                                     onClick={() => setShowUserMenu((prev) => !prev)}
                                     className={styles.avatarBtn}

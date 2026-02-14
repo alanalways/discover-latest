@@ -25,6 +25,45 @@ class PendingModerateRequest(BaseModel):
     expires_at: Optional[str] = None
 
 
+def _collect_admin_emails() -> set[str]:
+    raw_values = [
+        os.environ.get("ADMIN_EMAILS", ""),
+        os.environ.get("NEXT_PUBLIC_ADMIN_EMAILS", ""),
+        _DEFAULT_ADMIN_EMAIL,
+    ]
+    emails: set[str] = set()
+    for raw in raw_values:
+        for item in str(raw or "").split(","):
+            email = item.strip().lower()
+            if email:
+                emails.add(email)
+    return emails
+
+
+def _is_admin_user(user: dict[str, Any], admin_emails: set[str]) -> bool:
+    user_email = str(user.get("email") or "").strip().lower()
+    if user_email and user_email in admin_emails:
+        return True
+
+    metadata = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
+    app_metadata = user.get("app_metadata") if isinstance(user.get("app_metadata"), dict) else {}
+
+    if bool(metadata.get("is_admin")) or bool(app_metadata.get("is_admin")):
+        return True
+
+    role = str(metadata.get("role") or app_metadata.get("role") or "").strip().lower()
+    if role in {"admin", "owner"}:
+        return True
+
+    roles = metadata.get("roles") if isinstance(metadata.get("roles"), list) else app_metadata.get("roles")
+    if isinstance(roles, list):
+        for item in roles:
+            if str(item or "").strip().lower() in {"admin", "owner"}:
+                return True
+
+    return False
+
+
 @router.get("/admin/users")
 async def list_users(request: Request):
     """List users for admin dashboard."""
@@ -109,7 +148,11 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
         if not pending:
-            raise HTTPException(status_code=404, detail="找不到待審核申請")
+            return {
+                "success": True,
+                "user_id": user_id,
+                "message": "待審申請已不存在，可能已被其他管理員處理",
+            }
 
         tier = (req.tier or pending.get("plan") or "").strip().lower()
         if tier not in {"free", "pro", "premium"}:
@@ -119,7 +162,12 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
         if not ok:
             raise HTTPException(status_code=500, detail="升級方案寫入失敗")
 
-        supabase_adapter.clear_pending_upgrade_request(user_id)
+        cleared = supabase_adapter.clear_pending_upgrade_request(user_id)
+        if not cleared:
+            # Keep action idempotent; only fail if pending is still present.
+            pending_after_clear = supabase_adapter.get_pending_upgrade_request(user_id)
+            if pending_after_clear:
+                raise HTTPException(status_code=500, detail="清除待審核申請失敗")
 
         return {
             "success": True,
@@ -146,11 +194,17 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
         if not pending:
-            raise HTTPException(status_code=404, detail="找不到待審核申請")
+            return {
+                "success": True,
+                "user_id": user_id,
+                "message": "待審申請已不存在，可能已被其他管理員處理",
+            }
 
         ok = supabase_adapter.clear_pending_upgrade_request(user_id)
         if not ok:
-            raise HTTPException(status_code=500, detail="清除待審核申請失敗")
+            pending_after_clear = supabase_adapter.get_pending_upgrade_request(user_id)
+            if pending_after_clear:
+                raise HTTPException(status_code=500, detail="清除待審核申請失敗")
 
         return {
             "success": True,
@@ -177,10 +231,8 @@ def _require_admin(request: Request) -> dict[str, Any]:
         if not user:
             raise HTTPException(status_code=401, detail="Session 已失效")
 
-        raw_admins = os.environ.get("ADMIN_EMAILS", _DEFAULT_ADMIN_EMAIL)
-        admin_emails = {e.strip().lower() for e in raw_admins.split(",") if e.strip()}
-        user_email = (user.get("email") or "").strip().lower()
-        if user_email not in admin_emails:
+        admin_emails = _collect_admin_emails()
+        if not _is_admin_user(user, admin_emails):
             raise HTTPException(status_code=403, detail="你不是管理員")
         return user
     except HTTPException:

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import Topbar from '@/components/layout/Topbar';
 import RouteProgress from '@/components/layout/RouteProgress';
@@ -10,6 +10,17 @@ import ThemeProvider from '@/components/theme/ThemeProvider';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    useEffect(() => {
+        if (sidebarOpen) {
+            document.body.classList.add('dl-sidebar-open');
+        } else {
+            document.body.classList.remove('dl-sidebar-open');
+        }
+        return () => {
+            document.body.classList.remove('dl-sidebar-open');
+        };
+    }, [sidebarOpen]);
 
     return (
         <AuthProvider>
@@ -28,12 +39,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
                         />
                     )}
 
-                    <div className="dl-main">
+                    <div className={`dl-main ${sidebarOpen ? 'dl-main-locked' : ''}`}>
                         <Topbar
                             onMenuClick={() => setSidebarOpen(true)}
                         />
 
-                        <main className="dl-content" onClick={() => sidebarOpen && setSidebarOpen(false)}>
+                        <main className="dl-content">
                             {children}
                         </main>
                     </div>
