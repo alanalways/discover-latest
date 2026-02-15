@@ -106,12 +106,13 @@ interface IndustryChainData {
         listed_market?: string;
         relation?: string;
         relation_score?: number;
+        relation_reason?: string;
         price?: number;
         change_pct?: number;
         change_5d_pct?: number;
         flow_light?: string;
     }>;
-    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string; relation_score?: number; flow_light?: string }>;
+    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string; relation_score?: number; relation_reason?: string; flow_light?: string }>;
     relations?: Array<{
         company: string;
         ticker: string;
@@ -120,6 +121,7 @@ interface IndustryChainData {
         relation?: string;
         relation_group?: string;
         relation_score?: number;
+        relation_reason?: string;
         price?: number;
         change_pct?: number;
         change_5d_pct?: number;

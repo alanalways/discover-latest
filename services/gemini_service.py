@@ -306,12 +306,15 @@ class GeminiService:
         prompt = (
             "Use Google Search grounding and return strict JSON only. "
             "Return object schema: "
-            '{"upstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"上游","weight":number|null}],'
-            '"downstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"下游","weight":number|null}],'
-            '"peer":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"同業","weight":number|null}],'
-            '"competitor":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"競爭","weight":number|null}]}. '
-            "Each list should have 3 to 6 companies. prefer listed companies with ticker. "
-            "weight range 0 to 1. no markdown.\n"
+            '{"upstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"上游","weight":number|null,"reason":string|null,"confidence":number|null}],'
+            '"downstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"下游","weight":number|null,"reason":string|null,"confidence":number|null}],'
+            '"peer":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"同業","weight":number|null,"reason":string|null,"confidence":number|null}],'
+            '"competitor":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"競爭","weight":number|null,"reason":string|null,"confidence":number|null}]}. '
+            "Rule: only include direct and defensible industry-chain relationships. "
+            "Do not include generic mega-cap names unless there is a clear supply-chain or direct competition relation. "
+            "Do not include the core company itself. no duplicates across groups. "
+            "Each list target 3 to 5 companies, prefer listed companies with ticker. "
+            "weight and confidence range 0 to 1. reason must be short Traditional Chinese text. no markdown.\n"
             f"symbol={normalized_symbol}\n"
             f"company={company_name or normalized_symbol}\n"
             f"industry={industry_hint or 'unknown'}"
@@ -377,6 +380,8 @@ class GeminiService:
                             "listed_market": None,
                             "relation_type": {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key],
                             "weight": None,
+                            "confidence": None,
+                            "reason": "",
                         }
                     )
                     continue
@@ -395,6 +400,16 @@ class GeminiService:
                 weight = self._safe_float(row.get("weight"))
                 if weight is not None:
                     weight = max(0.0, min(1.0, weight))
+                confidence = self._safe_float(row.get("confidence"))
+                if confidence is not None:
+                    confidence = max(0.0, min(1.0, confidence))
+                reason = str(
+                    row.get("reason")
+                    or row.get("relation_reason")
+                    or row.get("why")
+                    or row.get("evidence")
+                    or ""
+                ).strip()
 
                 chain[key].append(
                     {
@@ -404,6 +419,8 @@ class GeminiService:
                         "listed_market": listed_market,
                         "relation_type": str(row.get("relation_type") or {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key]),
                         "weight": weight,
+                        "confidence": confidence,
+                        "reason": reason,
                     }
                 )
 

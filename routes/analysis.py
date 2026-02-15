@@ -530,8 +530,18 @@ async def get_industry_chain(symbol: str):
         "competitor": 0.62,
     }
 
+    def _normalize_ticker(raw: Any) -> str:
+        text = str(raw or "").strip().upper().replace(" ", "")
+        if not text or text in {"NONE", "NULL", "N/A", "-", "--"}:
+            return "NA"
+        return text
+
+    def _text_key(raw: Any) -> str:
+        text = str(raw or "").strip().lower()
+        return "".join(ch for ch in text if ch.isalnum() or ("\u4e00" <= ch <= "\u9fff"))
+
     def _infer_market_from_ticker(ticker: str, fallback_market: str = "\u672a\u77e5") -> str:
-        t = str(ticker or "").strip().upper()
+        t = _normalize_ticker(ticker)
         if not t or t in {"NA", "PRIVATE", "NONE", "NULL"}:
             return fallback_market
         if t.endswith(".HK"):
@@ -550,11 +560,7 @@ async def get_industry_chain(symbol: str):
 
     def _normalize_item(group: str, row: Any, idx: int, fallback_market: str) -> dict[str, Any]:
         raw = row if isinstance(row, dict) else {"name": str(row)}
-        ticker = str(raw.get("ticker") or "").strip().upper()
-        if not ticker:
-            ticker = "NA"
-        if ticker in {"NONE", "NULL"}:
-            ticker = "NA"
+        ticker = _normalize_ticker(raw.get("ticker"))
         name = str(raw.get("name") or "").strip() or (
             ticker if ticker != "NA" else f"{relation_label_map[group]}\u516c\u53f8{idx + 1}"
         )
@@ -571,8 +577,19 @@ async def get_industry_chain(symbol: str):
 
         weight = _safe_num(raw.get("weight"))
         if weight <= 0:
-            weight = default_weight[group]
+            confidence = _safe_num(raw.get("confidence"))
+            if confidence > 0:
+                weight = confidence
+            else:
+                weight = default_weight[group]
         weight = float(_clamp(weight, 0.0, 1.0))
+        relation_reason = str(
+            raw.get("reason")
+            or raw.get("relation_reason")
+            or raw.get("why")
+            or raw.get("evidence")
+            or ""
+        ).strip()
 
         return {
             "name": name,
@@ -580,14 +597,101 @@ async def get_industry_chain(symbol: str):
             "listed": listed,
             "listed_market": listed_market,
             "weight": round(weight, 4),
+            "reason": relation_reason,
         }
 
-    def _fallback_profile(company_name: str, market_hint: str, industry_hint: str) -> dict[str, Any]:
-        payment_hit = any(k in industry_hint for k in ("payment", "card", "credit", "fintech", "financial"))
-        semis_hit = any(k in industry_hint for k in ("semiconductor", "chip", "foundry"))
-        software_hit = any(k in industry_hint for k in ("software", "cloud", "saas", "internet"))
+    def _profile_quality(profile_data: dict[str, Any], require_reason: bool = False) -> bool:
+        groups = ("upstream", "downstream", "peer", "competitor")
+        total = 0
+        non_na_ticker = 0
+        non_empty_groups = 0
+        reason_cnt = 0
+        for grp in groups:
+            rows = profile_data.get(grp) or []
+            if rows:
+                non_empty_groups += 1
+            total += len(rows)
+            for row in rows:
+                ticker = _normalize_ticker((row or {}).get("ticker"))
+                if ticker != "NA":
+                    non_na_ticker += 1
+                if str((row or {}).get("reason") or "").strip():
+                    reason_cnt += 1
+        if non_empty_groups < 2:
+            return False
+        if total < 6:
+            return False
+        if non_na_ticker < max(4, int(total * 0.5)):
+            return False
+        if require_reason and reason_cnt < max(3, int(total * 0.4)):
+            return False
+        return True
 
-        if payment_hit:
+    def _dedupe_profile(profile_data: dict[str, Any], core_symbol: str, core_name: str) -> dict[str, Any]:
+        groups = ("upstream", "downstream", "peer", "competitor")
+        cleaned = {
+            "name": profile_data.get("name") or core_name,
+            "ticker": profile_data.get("ticker") or core_symbol,
+            "listed": bool(profile_data.get("listed", True)),
+            "listed_market": profile_data.get("listed_market") or market_hint,
+        }
+        seen_global: set[str] = set()
+        core_name_key = _text_key(core_name)
+        core_ticker = _normalize_ticker(core_symbol)
+        for grp in groups:
+            rows = profile_data.get(grp) or []
+            kept: list[dict[str, Any]] = []
+            for idx, raw in enumerate(rows):
+                item = _normalize_item(grp, raw, idx, cleaned.get("listed_market") or market_hint or "\u672a\u77e5")
+                ticker = _normalize_ticker(item.get("ticker"))
+                name_key = _text_key(item.get("name"))
+                if ticker == core_ticker:
+                    continue
+                if core_name_key and name_key and (core_name_key in name_key or name_key == core_name_key):
+                    continue
+                dedupe_key = ticker if ticker != "NA" else f"name:{name_key}"
+                if dedupe_key in seen_global:
+                    continue
+                seen_global.add(dedupe_key)
+                kept.append(item)
+                if len(kept) >= 4:
+                    break
+            cleaned[grp] = kept
+        return cleaned
+
+    def _infer_profile_kind(symbol_hint: str, company_name: str, industry_hint: str, type_hint: str) -> str:
+        combo = " ".join([symbol_hint, company_name, industry_hint, type_hint]).lower()
+        if symbol_hint in {"TSLA", "RIVN", "LI", "NIO", "XPEV", "GM", "F"}:
+            return "auto_ev"
+        if symbol_hint in {"COST", "WMT", "TGT", "BJ", "KR", "DG"}:
+            return "retail"
+        if symbol_hint in {"V", "MA", "AXP", "PYPL", "DFS", "XYZ"}:
+            return "payment"
+        if symbol_hint in {"NVDA", "AMD", "AVGO", "INTC", "QCOM", "ASML", "TSM", "2330", "2303", "2454"}:
+            return "semiconductor"
+        if "etf" in combo or symbol_hint.startswith("00"):
+            return "etf"
+        if any(k in combo for k in ("vehicle", "automotive", "auto", "ev", "electric", "tesla", "motor")):
+            return "auto_ev"
+        if any(k in combo for k in ("retail", "wholesale", "grocery", "consumer staples", "costco", "walmart", "target")):
+            return "retail"
+        if any(k in combo for k in ("payment", "card", "credit", "fintech", "merchant", "digital wallet")):
+            return "payment"
+        if any(k in combo for k in ("semiconductor", "chip", "foundry", "gpu", "fabless")):
+            return "semiconductor"
+        if any(k in combo for k in ("software", "cloud", "saas", "internet", "platform")):
+            return "software"
+        return "generic"
+
+    def _fallback_profile(
+        company_name: str,
+        market_hint: str,
+        industry_hint: str,
+        type_hint: str,
+    ) -> dict[str, Any]:
+        profile_kind = _infer_profile_kind(sym, company_name, industry_hint, type_hint)
+
+        if profile_kind == "payment":
             return {
                 "name": company_name,
                 "ticker": sym,
@@ -598,7 +702,7 @@ async def get_industry_chain(symbol: str):
                 "peer": [{"name": "Visa", "ticker": "V"}, {"name": "Mastercard", "ticker": "MA"}, {"name": "PayPal", "ticker": "PYPL"}],
                 "competitor": [{"name": "American Express", "ticker": "AXP"}, {"name": "Discover", "ticker": "DFS"}, {"name": "Block", "ticker": "XYZ"}],
             }
-        if semis_hit:
+        if profile_kind == "semiconductor":
             return {
                 "name": company_name,
                 "ticker": sym,
@@ -609,7 +713,7 @@ async def get_industry_chain(symbol: str):
                 "peer": [{"name": "NVIDIA", "ticker": "NVDA"}, {"name": "AMD", "ticker": "AMD"}, {"name": "Broadcom", "ticker": "AVGO"}],
                 "competitor": [{"name": "Intel", "ticker": "INTC"}, {"name": "Qualcomm", "ticker": "QCOM"}, {"name": "Marvell", "ticker": "MRVL"}],
             }
-        if software_hit:
+        if profile_kind == "software":
             return {
                 "name": company_name,
                 "ticker": sym,
@@ -619,6 +723,82 @@ async def get_industry_chain(symbol: str):
                 "downstream": [{"name": "Salesforce", "ticker": "CRM"}, {"name": "Adobe", "ticker": "ADBE"}, {"name": "Intuit", "ticker": "INTU"}],
                 "peer": [{"name": "Microsoft", "ticker": "MSFT"}, {"name": "Adobe", "ticker": "ADBE"}, {"name": "Salesforce", "ticker": "CRM"}],
                 "competitor": [{"name": "Google", "ticker": "GOOGL"}, {"name": "Amazon", "ticker": "AMZN"}, {"name": "IBM", "ticker": "IBM"}],
+            }
+        if profile_kind == "auto_ev":
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "NASDAQ" if market_hint == "US" else market_hint,
+                "upstream": [
+                    {"name": "Panasonic Holdings", "ticker": "6752.T"},
+                    {"name": "CATL", "ticker": "300750.SZ"},
+                    {"name": "Albemarle", "ticker": "ALB"},
+                ],
+                "downstream": [
+                    {"name": "Hertz Global", "ticker": "HTZ"},
+                    {"name": "Avis Budget", "ticker": "CAR"},
+                    {"name": "UPS", "ticker": "UPS"},
+                ],
+                "peer": [
+                    {"name": "BYD", "ticker": "1211.HK"},
+                    {"name": "Li Auto", "ticker": "LI"},
+                    {"name": "NIO", "ticker": "NIO"},
+                ],
+                "competitor": [
+                    {"name": "Ford", "ticker": "F"},
+                    {"name": "General Motors", "ticker": "GM"},
+                    {"name": "Rivian", "ticker": "RIVN"},
+                ],
+            }
+        if profile_kind == "retail":
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "NASDAQ" if market_hint == "US" else market_hint,
+                "upstream": [
+                    {"name": "Procter & Gamble", "ticker": "PG"},
+                    {"name": "PepsiCo", "ticker": "PEP"},
+                    {"name": "Mondelez", "ticker": "MDLZ"},
+                ],
+                "downstream": [
+                    {"name": "Visa", "ticker": "V"},
+                    {"name": "Mastercard", "ticker": "MA"},
+                    {"name": "Instacart", "ticker": "CART"},
+                ],
+                "peer": [
+                    {"name": "Walmart", "ticker": "WMT"},
+                    {"name": "Target", "ticker": "TGT"},
+                    {"name": "BJ's Wholesale Club", "ticker": "BJ"},
+                ],
+                "competitor": [
+                    {"name": "Amazon", "ticker": "AMZN"},
+                    {"name": "Kroger", "ticker": "KR"},
+                    {"name": "Dollar General", "ticker": "DG"},
+                ],
+            }
+        if profile_kind == "etf":
+            if market_hint in {"TWSE", "TPEX"}:
+                return {
+                    "name": company_name,
+                    "ticker": sym,
+                    "listed": True,
+                    "listed_market": market_hint,
+                    "upstream": [{"name": "TSMC", "ticker": "2330"}, {"name": "MediaTek", "ticker": "2454"}, {"name": "Quanta", "ticker": "2382"}],
+                    "downstream": [{"name": "CTBC Securities", "ticker": "2891"}, {"name": "Fubon Financial", "ticker": "2881"}, {"name": "Cathay Financial", "ticker": "2882"}],
+                    "peer": [{"name": "\u5143\u5927\u53f0\u706350", "ticker": "0050"}, {"name": "\u5143\u5927MSCI\u53f0\u7063", "ticker": "006203"}, {"name": "\u570b\u6cf0\u6c38\u7e8c\u9ad8\u80a1\u606f", "ticker": "00878"}],
+                    "competitor": [{"name": "\u570b\u6cf0\u53f0\u706350", "ticker": "006208"}, {"name": "\u7fa4\u76ca\u53f0\u7063\u7cbe\u9078\u9ad8\u606f", "ticker": "00919"}, {"name": "\u5143\u5927\u9ad8\u80a1\u606f", "ticker": "0056"}],
+                }
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "US",
+                "upstream": [{"name": "Nasdaq", "ticker": "NDAQ"}, {"name": "S&P Global", "ticker": "SPGI"}, {"name": "MSCI", "ticker": "MSCI"}],
+                "downstream": [{"name": "Charles Schwab", "ticker": "SCHW"}, {"name": "Robinhood", "ticker": "HOOD"}, {"name": "Interactive Brokers", "ticker": "IBKR"}],
+                "peer": [{"name": "SPDR S&P 500 ETF", "ticker": "SPY"}, {"name": "Vanguard S&P 500 ETF", "ticker": "VOO"}, {"name": "Invesco QQQ", "ticker": "QQQ"}],
+                "competitor": [{"name": "Vanguard Information Tech ETF", "ticker": "VGT"}, {"name": "Technology Select Sector SPDR", "ticker": "XLK"}, {"name": "VanEck Semiconductor ETF", "ticker": "SMH"}],
             }
         if market_hint in {"TWSE", "TPEX"}:
             return {
@@ -636,10 +816,10 @@ async def get_industry_chain(symbol: str):
             "ticker": sym,
             "listed": True,
             "listed_market": "US",
-            "upstream": [{"name": "Microsoft", "ticker": "MSFT"}, {"name": "NVIDIA", "ticker": "NVDA"}, {"name": "Oracle", "ticker": "ORCL"}],
-            "downstream": [{"name": "Amazon", "ticker": "AMZN"}, {"name": "Walmart", "ticker": "WMT"}, {"name": "Costco", "ticker": "COST"}],
-            "peer": [{"name": "Apple", "ticker": "AAPL"}, {"name": "Alphabet", "ticker": "GOOGL"}, {"name": "Meta", "ticker": "META"}],
-            "competitor": [{"name": "Tesla", "ticker": "TSLA"}, {"name": "Netflix", "ticker": "NFLX"}, {"name": "Salesforce", "ticker": "CRM"}],
+            "upstream": [],
+            "downstream": [],
+            "peer": [],
+            "competitor": [],
         }
 
     async def _quote_snapshot(ticker: str) -> dict[str, Any]:
@@ -698,9 +878,10 @@ async def get_industry_chain(symbol: str):
     company_name = str(info.get("name") or sym)
     market_hint = str(info.get("market") or ("TWSE" if sym.isdigit() else "US")).upper()
     industry_hint = str(info.get("industry") or "").lower()
+    type_hint = str(info.get("type") or "").lower()
 
     grounded_sources: list[dict[str, str]] = []
-    profile = None
+    profile: dict[str, Any] | None = None
     if gemini_service.is_available():
         try:
             grounded = await asyncio.wait_for(
@@ -713,7 +894,7 @@ async def get_industry_chain(symbol: str):
             grounded_sources = grounded.get("sources") or []
             chain = grounded.get("chain") or {}
             if grounded.get("success") and isinstance(chain, dict):
-                profile = {
+                grounded_profile = {
                     "name": company_name,
                     "ticker": sym,
                     "listed": True,
@@ -723,16 +904,13 @@ async def get_industry_chain(symbol: str):
                     "peer": chain.get("peer") or [],
                     "competitor": chain.get("competitor") or [],
                 }
+                grounded_profile = _dedupe_profile(grounded_profile, sym, company_name)
+                if _profile_quality(grounded_profile, require_reason=True):
+                    profile = grounded_profile
 
     if not profile:
-        profile = _fallback_profile(company_name, market_hint, industry_hint)
-
-    for group in ("upstream", "downstream", "peer", "competitor"):
-        rows = profile.get(group) or []
-        profile[group] = [
-            _normalize_item(group, row, idx, profile.get("listed_market") or market_hint or "\u672a\u77e5")
-            for idx, row in enumerate(rows)
-        ]
+        profile = _fallback_profile(company_name, market_hint, industry_hint, type_hint)
+        profile = _dedupe_profile(profile, sym, company_name)
 
     ticker_set = {sym}
     for group in ("upstream", "downstream", "peer", "competitor"):
@@ -783,6 +961,7 @@ async def get_industry_chain(symbol: str):
             listed_market = str(item.get("listed_market") or "\u672a\u77e5")
             relation = relation_label_map[group]
             relation_score = float(item.get("weight") or default_weight[group])
+            relation_reason = str(item.get("reason") or edge_label_map[group])
             live = live_map.get(ticker, {})
             flow_light = str(live.get("flow_light") or "na")
 
@@ -797,6 +976,7 @@ async def get_industry_chain(symbol: str):
                     "listed_market": listed_market,
                     "relation": relation,
                     "relation_score": round(relation_score, 4),
+                    "relation_reason": relation_reason,
                     "price": live.get("price"),
                     "change_pct": live.get("change_pct"),
                     "flow_light": flow_light,
@@ -818,6 +998,7 @@ async def get_industry_chain(symbol: str):
                     "listed": listed,
                     "listed_market": listed_market,
                     "relation_score": round(relation_score, 4),
+                    "relation_reason": relation_reason,
                     "flow_light": flow_light,
                 }
             )
@@ -830,6 +1011,7 @@ async def get_industry_chain(symbol: str):
                     "relation": relation,
                     "relation_group": group,
                     "relation_score": round(relation_score, 4),
+                    "relation_reason": relation_reason,
                     "price": live.get("price"),
                     "change_pct": live.get("change_pct"),
                     "flow_light": flow_light,

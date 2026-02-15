@@ -10,6 +10,7 @@ type Node = {
   listed_market?: string;
   relation?: string;
   relation_score?: number;
+  relation_reason?: string;
   price?: number | null;
   change_pct?: number | null;
   change_5d_pct?: number | null;
@@ -22,6 +23,7 @@ type Edge = {
   label?: string;
   relation?: string;
   relation_score?: number;
+  relation_reason?: string;
   flow_light?: string;
 };
 
@@ -33,6 +35,7 @@ type Relation = {
   relation?: string;
   relation_group?: string;
   relation_score?: number;
+  relation_reason?: string;
   price?: number | null;
   change_pct?: number | null;
   change_5d_pct?: number | null;
@@ -134,6 +137,7 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
         relation: n.relation || (n.group === 'upstream' ? '上游' : n.group === 'downstream' ? '下游' : n.group === 'peer' ? '同業' : n.group === 'competitor' ? '競爭' : '其他'),
         relation_group: n.group,
         relation_score: n.relation_score,
+        relation_reason: n.relation_reason,
         price: n.price,
         change_pct: n.change_pct,
         change_5d_pct: n.change_5d_pct,
@@ -230,6 +234,7 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
           </div>
           <div>代號 {selectedNode.ticker || 'NA'} {selectedNode.price !== undefined ? `｜現價 ${fmtNum(selectedNode.price)}` : ''}</div>
           <div>關係 {selectedNode.relation || '未標示'} ｜關聯分數 {fmtNum(selectedNode.relation_score, 2)}</div>
+          {selectedNode.relation_reason && <div>依據 {selectedNode.relation_reason}</div>}
           <div>當日 {fmtPct(selectedNode.change_pct)} ｜近5日 {fmtPct(selectedNode.change_5d_pct)} ｜資金燈號 <span style={{ color: flowColor(selectedNode.flow_light) }}>●</span></div>
           <div>{listedText(selectedNode.listed, selectedNode.listed_market)}</div>
         </div>
@@ -250,6 +255,7 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
                   </button>
                 </div>
                 <div style={{ color: 'var(--text-2)' }}>關係 {r.relation || '未標示'} ｜分數 {fmtNum(r.relation_score, 2)}</div>
+                {r.relation_reason && <div style={{ color: 'var(--text-3)' }}>依據 {r.relation_reason}</div>}
                 <div style={{ color: 'var(--text-2)' }}>現價 {fmtNum(r.price)} ｜當日 {fmtPct(r.change_pct)} ｜近5日 {fmtPct(r.change_5d_pct)} <span style={{ color: flowColor(r.flow_light) }}>●</span></div>
                 <div style={{ color: 'var(--text-3)' }}>{listedText(r.listed, r.listed_market)}</div>
               </div>
