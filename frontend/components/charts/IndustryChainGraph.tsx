@@ -43,6 +43,7 @@ interface Props {
   nodes: Node[];
   edges: Edge[];
   relations?: Relation[];
+  alerts?: string[];
 }
 
 type Pos = { x: number; y: number };
@@ -94,7 +95,7 @@ function slotBand(count: number, xStart: number, xEnd: number, yStart: number, y
   return pos;
 }
 
-export default function IndustryChainGraph({ nodes, edges, relations = [] }: Props) {
+export default function IndustryChainGraph({ nodes, edges, relations = [], alerts = [] }: Props) {
   const core = nodes.find((n) => n.group === 'core') || nodes[0];
   const upstream = nodes.filter((n) => n.group === 'upstream');
   const downstream = nodes.filter((n) => n.group === 'downstream');
@@ -163,6 +164,13 @@ export default function IndustryChainGraph({ nodes, edges, relations = [] }: Pro
       <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 8 }}>
         固定槽位布局 上游在上 下游在下 同業在左 競爭在右 點擊節點可看詳情
       </div>
+      {alerts.length > 0 && (
+        <div style={{ marginBottom: 8, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', fontSize: 12, display: 'grid', gap: 4 }}>
+          {alerts.slice(0, 4).map((a, i) => (
+            <div key={`${a}-${i}`}>• {a}</div>
+          ))}
+        </div>
+      )}
 
       <svg viewBox="0 0 100 100" style={{ width: '100%', height: 440, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))' }}>
         {edges.map((e, idx) => {

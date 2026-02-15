@@ -95,6 +95,7 @@ interface IndustryChainData {
     symbol?: string;
     grounded?: boolean;
     grounding_sources?: Array<{ title?: string; uri?: string }>;
+    flow_alerts?: string[];
     nodes?: Array<{
         id: string;
         label: string;
@@ -143,6 +144,8 @@ interface PrimeFlowData {
     factors?: Array<{ id: string; label: string; signal: number; weight: number; contribution: number }>;
     suggestions?: string[];
     waterfall?: Array<{ label: string; start: number; end: number; delta: number }>;
+    factor_history?: Array<{ date: string; score: number; whale_entry?: boolean; factors?: Record<string, number> }>;
+    factor_correlation?: { labels?: string[]; matrix?: number[][] };
 }
 
 function getErrorStatus(err: unknown): number | undefined {
@@ -284,6 +287,7 @@ function AnalysisContent() {
     const [primeFlow, setPrimeFlow] = useState<PrimeFlowData | null>(null);
     const [primeFlowLoading, setPrimeFlowLoading] = useState(false);
     const [extraLoading, setExtraLoading] = useState(false);
+    const [showAdvancedInsights, setShowAdvancedInsights] = useState(false);
 
     // Tab 控制
     const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals' | 'chips'>('chart');
@@ -359,6 +363,7 @@ function AnalysisContent() {
             setChips(null);
             setIndustryChain(null);
             setPrimeFlow(null);
+            setShowAdvancedInsights(false);
         }
         setError('');
         setAiResult('');
@@ -368,12 +373,9 @@ function AnalysisContent() {
 
             // 並行取得基本面+籌碼面資料
             setExtraLoading(true);
-            setPrimeFlowLoading(true);
-            const [fundRes, chipRes, chainRes, primeRes] = await Promise.allSettled([
+            const [fundRes, chipRes] = await Promise.allSettled([
                 api.getStockFundamentals(sym),
                 api.getStockChips(sym),
-                api.getIndustryChain(sym),
-                api.getPrimeFlow(sym),
             ]);
             if (fundRes.status === 'fulfilled') {
                 setFundamentals(fundRes.value as {
@@ -388,14 +390,7 @@ function AnalysisContent() {
                     margin?: MarginRow[];
                 });
             }
-            if (chainRes.status === 'fulfilled') {
-                setIndustryChain(chainRes.value as IndustryChainData);
-            }
-            if (primeRes.status === 'fulfilled') {
-                setPrimeFlow(primeRes.value as PrimeFlowData);
-            }
             setExtraLoading(false);
-            setPrimeFlowLoading(false);
             try {
                 sessionStorage.setItem(
                     cacheKey,
@@ -403,8 +398,8 @@ function AnalysisContent() {
                         data: result,
                         fundamentals: fundRes.status === 'fulfilled' ? fundRes.value : null,
                         chips: chipRes.status === 'fulfilled' ? chipRes.value : null,
-                        industryChain: chainRes.status === 'fulfilled' ? chainRes.value : null,
-                        primeFlow: primeRes.status === 'fulfilled' ? primeRes.value : null,
+                        industryChain: null,
+                        primeFlow: null,
                     })
                 );
             } catch {
@@ -422,9 +417,30 @@ function AnalysisContent() {
             }
         } finally {
             setLoading(false);
-            setPrimeFlowLoading(false);
         }
     }, [period]);
+
+    const loadAdvancedInsights = useCallback(async (sym: string) => {
+        setPrimeFlowLoading(true);
+        try {
+            const [chainRes, primeRes] = await Promise.allSettled([
+                api.getIndustryChain(sym),
+                api.getPrimeFlow(sym),
+            ]);
+            if (chainRes.status === 'fulfilled') {
+                setIndustryChain(chainRes.value as IndustryChainData);
+            } else {
+                setIndustryChain(null);
+            }
+            if (primeRes.status === 'fulfilled') {
+                setPrimeFlow(primeRes.value as PrimeFlowData);
+            } else {
+                setPrimeFlow(null);
+            }
+        } finally {
+            setPrimeFlowLoading(false);
+        }
+    }, []);
 
     // 當 URL 的 symbol 參數變化時自動載入
     useEffect(() => {
@@ -457,11 +473,13 @@ function AnalysisContent() {
             setShowLoginModal(true);
             return;
         }
+        setShowAdvancedInsights(true);
         setAiResult('');
         setTypedAiResult('');
         setAiProgress(2);
         setAiStage('初始化中...');
         setAiLoading(true);
+        const advancedTask = loadAdvancedInsights(symbol);
         try {
             const result = await api.streamAiAnalysis(symbol, period, {
                 onProgress: (event) => {
@@ -482,8 +500,10 @@ function AnalysisContent() {
             const text = extractAiText(result);
             setAiResult(text || 'AI 回傳內容為空，請重試。');
             window.dispatchEvent(new Event('dl:usage-refresh'));
+            await advancedTask;
         } catch (err: unknown) {
             console.error(err);
+            await advancedTask;
             const status = getErrorStatus(err);
             if (status === 403) {
                 setAiResult('目前方案不支援 AI 深度分析。');
@@ -1031,32 +1051,35 @@ function AnalysisContent() {
                             </div>
                         )}
 
-                        <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
-                            <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
-                                <PieChartIcon size={20} className="text-[var(--accent)]" />
-                                主力資金流向圖（β）
-                            </h2>
-                            <p className="text-sm text-[var(--text-3)] mb-4">
-                                以價格動能、主力資金、槓桿籌碼、估值壓力與波動風險合成「機構代理流向」視圖。
-                            </p>
-                            <PrimeBrokerFlowGraph data={primeFlow} loading={primeFlowLoading || extraLoading} />
-                        </div>
+                        {showAdvancedInsights && (
+                            <>
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <PieChartIcon size={20} className="text-[var(--accent)]" />
+                                        主力資金流向圖（β）
+                                    </h2>
+                                    <p className="text-sm text-[var(--text-3)] mb-4">
+                                        點擊 AI 深度分析後載入 因子條 瀑布拆解 與主力訊號
+                                    </p>
+                                    <PrimeBrokerFlowGraph data={primeFlow} loading={primeFlowLoading || aiLoading} tier={user?.tier} />
+                                </div>
 
-                        {industryChain?.nodes && industryChain.nodes.length > 0 && (
-                            <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
-                                <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
-                                    <BarChart3 size={20} className="text-[var(--accent)]" />
-                                    產業關聯圖（β）
-                                </h2>
-                                <p className="text-sm text-[var(--text-3)] mb-4">
-                                    直接標示關聯公司、是否上市、上市市場與關係類別，包含同業、競爭、上游、下游。
-                                </p>
-                                <IndustryChainGraph
-                                    nodes={industryChain.nodes || []}
-                                    edges={industryChain.edges || []}
-                                    relations={industryChain.relations || []}
-                                />
-                            </div>
+                                <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
+                                    <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
+                                        <BarChart3 size={20} className="text-[var(--accent)]" />
+                                        產業關聯圖（β）
+                                    </h2>
+                                    <p className="text-sm text-[var(--text-3)] mb-4">
+                                        點擊 AI 深度分析後載入 含關聯分數 即時股價與資金流燈號
+                                    </p>
+                                    <IndustryChainGraph
+                                        nodes={industryChain?.nodes || []}
+                                        edges={industryChain?.edges || []}
+                                        relations={industryChain?.relations || []}
+                                        alerts={industryChain?.flow_alerts || []}
+                                    />
+                                </div>
+                            </>
                         )}
 
                         <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">

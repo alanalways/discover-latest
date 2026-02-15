@@ -842,6 +842,21 @@ async def get_industry_chain(symbol: str):
     append_group("peer", source_first=False)
     append_group("competitor", source_first=False)
 
+    flow_alerts: list[str] = []
+    for row in relations:
+        group = str(row.get("relation_group") or "")
+        company = str(row.get("company") or "")
+        flow = str(row.get("flow_light") or "")
+        chg5 = _safe_num(row.get("change_5d_pct"))
+        if group == "upstream" and flow == "outflow":
+            flow_alerts.append(f"上游 {company} 近五日資金偏流出 供應鏈情緒可能轉弱。")
+        elif group == "competitor" and flow == "inflow" and chg5 >= 2.0:
+            flow_alerts.append(f"競爭方 {company} 資金轉強 需留意相對強弱壓力。")
+        elif group == "downstream" and flow == "inflow" and chg5 >= 1.5:
+            flow_alerts.append(f"下游 {company} 需求端偏強 有利訂單動能延續。")
+    if not flow_alerts:
+        flow_alerts.append("目前關聯節點資金流燈號未出現明確共振訊號。")
+
     return {
         "symbol": sym,
         "nodes": nodes,
@@ -849,6 +864,7 @@ async def get_industry_chain(symbol: str):
         "relations": relations,
         "grounded": bool(grounded_sources),
         "grounding_sources": grounded_sources[:8],
+        "flow_alerts": flow_alerts[:5],
     }
 
 
@@ -876,8 +892,10 @@ async def get_prime_flow(symbol: str):
     fundamentals_data = fundamentals_res if isinstance(fundamentals_res, dict) else {}
 
     history = stock_data.get("history") or []
-    closes = [_safe_num(r.get("close")) for r in history if _safe_num(r.get("close")) > 0]
-    volumes = [_safe_num(r.get("volume")) for r in history if _safe_num(r.get("volume")) >= 0]
+    aligned_rows = [r for r in history if _safe_num(r.get("close")) > 0]
+    closes = [_safe_num(r.get("close")) for r in aligned_rows]
+    volumes = [_safe_num(r.get("volume")) for r in aligned_rows]
+    dates = [str(r.get("date") or r.get("time") or "") for r in aligned_rows]
     last_close = closes[-1] if closes else 0.0
     last_volume = volumes[-1] if volumes else 0.0
 
@@ -1059,6 +1077,114 @@ async def get_prime_flow(symbol: str):
         },
     ]
 
+    def _score_from_signals(
+        momentum_v: float,
+        flow_v: float,
+        leverage_v: float,
+        valuation_v: float,
+        risk_v: float,
+    ) -> int:
+        composite_v = (
+            momentum_v * weights["momentum"]
+            + flow_v * weights["flow"]
+            + leverage_v * weights["leverage"]
+            + valuation_v * weights["valuation"]
+            + risk_v * weights["risk"]
+        )
+        return int(round(_clamp(50 + composite_v * 50, 1, 99)))
+
+    margin_bias_map: dict[str, float] = {}
+    if isinstance(margin_rows, list):
+        for row in margin_rows:
+            dt = str(row.get("date") or "")
+            if not dt:
+                continue
+            mb = _safe_num(row.get("MarginPurchaseChange") or row.get("margin_change"))
+            mb -= _safe_num(row.get("ShortSaleChange") or row.get("short_change"))
+            margin_bias_map[dt] = margin_bias_map.get(dt, 0.0) + mb
+
+    factor_history: list[dict[str, Any]] = []
+    if len(closes) >= 25:
+        start_idx = max(20, len(closes) - 30)
+        for i in range(start_idx, len(closes)):
+            c_now = closes[i]
+            c_prev = closes[i - 1] if i >= 1 else 0.0
+            c_20 = closes[i - 20] if i >= 20 else 0.0
+            c_60 = closes[i - 60] if i >= 60 else 0.0
+
+            m20_i = ((c_now - c_20) / c_20 * 100.0) if c_20 > 0 else 0.0
+            m60_i = ((c_now - c_60) / c_60 * 100.0) if c_60 > 0 else m20_i * 0.6
+            momentum_i = _clamp((m20_i * 0.7 + m60_i * 0.3) / 18.0, -1.0, 1.0)
+
+            avg20_i = 0.0
+            if i >= 19:
+                avg20_i = sum(volumes[i - 19 : i + 1]) / 20.0
+            vol_ratio_i = (volumes[i] / avg20_i) if avg20_i > 0 else 1.0
+            price_impulse = ((c_now - c_prev) / c_prev) if c_prev > 0 else 0.0
+            flow_i = _clamp((vol_ratio_i - 1.0) * 0.85 + price_impulse * 6.0, -1.0, 1.0)
+
+            dt_i = dates[i] if i < len(dates) else ""
+            mb_i = margin_bias_map.get(dt_i, 0.0)
+            leverage_i = _clamp((mb_i / max(1.0, volumes[i] * 3.0)) * 2.0, -1.0, 1.0)
+            valuation_i = valuation_signal
+
+            lookback_returns = []
+            rb = max(1, i - 20)
+            for j in range(rb, i + 1):
+                prev_c = closes[j - 1]
+                if prev_c <= 0:
+                    continue
+                lookback_returns.append((closes[j] - prev_c) / prev_c * 100.0)
+            vol_i = pstdev(lookback_returns) if len(lookback_returns) >= 8 else volatility
+            risk_i = _clamp(-vol_i / 5.5, -1.0, 1.0)
+
+            score_i = _score_from_signals(momentum_i, flow_i, leverage_i, valuation_i, risk_i)
+            whale_i = bool(flow_i >= 0.18 and momentum_i > -0.15)
+            factor_history.append(
+                {
+                    "date": dt_i,
+                    "score": score_i,
+                    "whale_entry": whale_i,
+                    "factors": {
+                        "momentum": round(momentum_i, 4),
+                        "flow": round(flow_i, 4),
+                        "leverage": round(leverage_i, 4),
+                        "valuation": round(valuation_i, 4),
+                        "risk": round(risk_i, 4),
+                    },
+                }
+            )
+
+    def _corr(xs: list[float], ys: list[float]) -> float:
+        if len(xs) < 3 or len(ys) < 3 or len(xs) != len(ys):
+            return 0.0
+        mean_x = sum(xs) / len(xs)
+        mean_y = sum(ys) / len(ys)
+        cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+        var_x = sum((x - mean_x) ** 2 for x in xs)
+        var_y = sum((y - mean_y) ** 2 for y in ys)
+        if var_x <= 0 or var_y <= 0:
+            return 0.0
+        return float(_clamp(cov / math.sqrt(var_x * var_y), -1.0, 1.0))
+
+    corr_labels = ["動能", "資金流", "槓桿", "估值", "風險"]
+    corr_keys = ["momentum", "flow", "leverage", "valuation", "risk"]
+    corr_series: dict[str, list[float]] = {k: [] for k in corr_keys}
+    for row in factor_history:
+        f = row.get("factors") or {}
+        for k in corr_keys:
+            corr_series[k].append(float(f.get(k) or 0.0))
+
+    corr_matrix: list[list[float]] = []
+    for i, ki in enumerate(corr_keys):
+        r: list[float] = []
+        for j, kj in enumerate(corr_keys):
+            if i == j:
+                r.append(1.0)
+            else:
+                r.append(round(_corr(corr_series.get(ki, []), corr_series.get(kj, [])), 4))
+        corr_matrix.append(r)
+
     def edge_level(signal: float) -> int:
         a = abs(signal)
         if a >= 0.66:
@@ -1177,4 +1303,6 @@ async def get_prime_flow(symbol: str):
         "edges": edges,
         "suggestions": suggestions[:5],
         "waterfall": waterfall,
+        "factor_history": factor_history,
+        "factor_correlation": {"labels": corr_labels, "matrix": corr_matrix},
     }

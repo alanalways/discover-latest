@@ -193,6 +193,16 @@ interface PrimeFlowResponse {
         end: number;
         delta: number;
     }>;
+    factor_history?: Array<{
+        date: string;
+        score: number;
+        whale_entry?: boolean;
+        factors?: Record<string, number>;
+    }>;
+    factor_correlation?: {
+        labels?: string[];
+        matrix?: number[][];
+    };
 }
 
 export class ApiClient {
