@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 type PrimeFlowNode = {
   id: string;
@@ -107,6 +107,32 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
     for (const f of factors) m.set(f.id, f);
     return m;
   }, [factors]);
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const next = e.deltaY < 0 ? zoom + 0.12 : zoom - 0.12;
+    setZoom(Math.max(0.82, Math.min(2.4, next)));
+  };
+  const onMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    dragRef.current = { x: e.clientX, y: e.clientY };
+  };
+  const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragRef.current) return;
+    const dx = (e.clientX - dragRef.current.x) * 0.08;
+    const dy = (e.clientY - dragRef.current.y) * 0.08;
+    dragRef.current = { x: e.clientX, y: e.clientY };
+    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+  const onMouseUp = () => {
+    dragRef.current = null;
+  };
+  const resetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
 
   if (loading) {
     return (
@@ -166,7 +192,24 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
         )}
       </div>
 
-      <svg viewBox="0 0 100 90" style={{ width: '100%', height: 360, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 55%, rgba(10,30,80,0.28), rgba(2,6,24,0.95))' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>操作方式 滾輪縮放 左鍵拖曳</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" onClick={() => setZoom((z) => Math.max(0.82, z - 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>-</button>
+          <button type="button" onClick={resetView} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>重置</button>
+          <button type="button" onClick={() => setZoom((z) => Math.min(2.4, z + 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>+</button>
+        </div>
+      </div>
+
+      <svg
+        viewBox="0 0 100 90"
+        style={{ width: '100%', height: 420, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 55%, rgba(10,30,80,0.28), rgba(2,6,24,0.95))', cursor: dragRef.current ? 'grabbing' : 'grab', userSelect: 'none' }}
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+      >
         <defs>
           <filter id="neonGlow">
             <feGaussianBlur stdDeviation="0.9" result="blur" />
@@ -186,6 +229,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
           </marker>
         </defs>
 
+        <g transform={`translate(${offset.x} ${offset.y}) translate(50 45) scale(${zoom}) translate(-50 -45)`}>
         {data.edges?.map((edge) => {
           const from = nodePosition(edge.source);
           const to = nodePosition(edge.target);
@@ -220,11 +264,11 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
           if (node.id === 'core') {
             return (
               <g key={node.id}>
-                <circle cx={CORE_POS.x} cy={CORE_POS.y} r={8.2} fill="rgba(255,212,71,0.22)" stroke="#ffd447" strokeWidth={1.2} style={{ filter: 'drop-shadow(0 0 16px rgba(255,212,71,0.8))' }} />
-                <text x={CORE_POS.x} y={50.5} textAnchor="middle" fontSize={4.6} fill="#ffe89a" fontWeight={700}>
+                <circle cx={CORE_POS.x} cy={CORE_POS.y} r={9.2} fill="rgba(255,212,71,0.22)" stroke="#ffd447" strokeWidth={1.35} style={{ filter: 'drop-shadow(0 0 16px rgba(255,212,71,0.8))' }} />
+                <text x={CORE_POS.x} y={50.5} textAnchor="middle" fontSize={5.2} fill="#ffe89a" fontWeight={700}>
                   {data.symbol || node.label}
                 </text>
-                <text x={CORE_POS.x} y={55.3} textAnchor="middle" fontSize={3.2} fill="#ffd447" fontWeight={700}>
+                <text x={CORE_POS.x} y={56.1} textAnchor="middle" fontSize={3.8} fill="#ffd447" fontWeight={700}>
                   分數 {score}
                 </text>
               </g>
@@ -238,13 +282,14 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
           const c = lineColor(signal);
           return (
             <g key={node.id}>
-              <circle cx={pos.x} cy={pos.y} r={5.8} fill="rgba(27, 122, 255, 0.36)" stroke={c} strokeWidth={1.1} style={{ filter: nodeGlow(signal) }} />
-              <text x={pos.x} y={pos.y + 0.8} textAnchor="middle" fontSize={2.7} fill="#d6f8ff" fontWeight={700}>
+              <circle cx={pos.x} cy={pos.y} r={6.6} fill="rgba(27, 122, 255, 0.36)" stroke={c} strokeWidth={1.25} style={{ filter: nodeGlow(signal) }} />
+              <text x={pos.x} y={pos.y + 1.2} textAnchor="middle" fontSize={3.4} fill="#d6f8ff" fontWeight={700}>
                 {node.label}
               </text>
             </g>
           );
         })}
+        </g>
       </svg>
 
       {factors.length > 0 && (

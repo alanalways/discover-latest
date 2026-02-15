@@ -293,6 +293,32 @@ async def _run_ai_analysis_pipeline(
     history_payload = stock_data.get("history", []) if isinstance(stock_data, dict) else []
     tech_snapshot = _build_technical_snapshot(history_payload)
 
+    # Enrich key valuation fields for AI fallback quality.
+    try:
+        fundamentals = await stock_service.get_stock_fundamentals(req.symbol)
+    except Exception:
+        fundamentals = {}
+
+    if isinstance(info_payload, dict) and isinstance(fundamentals, dict):
+        per_rows = fundamentals.get("per_pbr") if isinstance(fundamentals.get("per_pbr"), list) else []
+        latest_row = per_rows[-1] if per_rows else {}
+        if isinstance(latest_row, dict):
+            if not _safe_num(info_payload.get("pe_ratio")) and _safe_num(latest_row.get("PER")):
+                info_payload["pe_ratio"] = round(_safe_num(latest_row.get("PER")), 4)
+            if not _safe_num(info_payload.get("pb_ratio")) and _safe_num(latest_row.get("PBR")):
+                info_payload["pb_ratio"] = round(_safe_num(latest_row.get("PBR")), 4)
+            if not _safe_num(info_payload.get("dividend_yield")) and _safe_num(latest_row.get("dividend_yield")):
+                info_payload["dividend_yield"] = round(_safe_num(latest_row.get("dividend_yield")), 4)
+
+        if not _safe_num(info_payload.get("high_52w")) and history_payload:
+            highs = [_safe_num(r.get("high")) for r in history_payload if _safe_num(r.get("high")) > 0]
+            if highs:
+                info_payload["high_52w"] = round(max(highs[-250:]), 4)
+        if not _safe_num(info_payload.get("low_52w")) and history_payload:
+            lows = [_safe_num(r.get("low")) for r in history_payload if _safe_num(r.get("low")) > 0]
+            if lows:
+                info_payload["low_52w"] = round(min(lows[-250:]), 4)
+
     emit(16, "smc", "building_smc_snapshot")
     smc_summary = "SMC summary unavailable"
     try:

@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 from config.models import MODEL_FINAL, MODEL_GROUNDING
 
 GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "30"))
-GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "45"))
+GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "60"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
 GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "12")))
@@ -490,22 +490,33 @@ class GeminiService:
             m = re.search(pattern, text, flags=re.IGNORECASE)
             return m.group(1).strip() if m else "N/A"
 
-        k_match = re.search(r"KDJ(?:\(9,3,3\))?:\s*K=([\-\d.]+)\s*D=([\-\d.]+)\s*J=([\-\d.]+)", text, flags=re.IGNORECASE)
+        k_match = re.search(
+            r"KDJ(?:\(9,3,3\))?[:：=\s]*K[:：=]?([\-\d.]+)\s*D[:：=]?([\-\d.]+)\s*J[:：=]?([\-\d.]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
         if k_match:
             kdj = f"K={k_match.group(1)} D={k_match.group(2)} J={k_match.group(3)}"
         else:
             kdj = "N/A"
 
+        boll = _pick(r"Bollinger\(20,2\)[:：=\s]*([^|\n]+)")
+        if boll == "N/A":
+            upper = _pick(r"BOLL(?: UP| Upper)?[:：=]?\s*([\-\d.]+)")
+            lower = _pick(r"BOLL(?: DN| Lower)?[:：=]?\s*([\-\d.]+)")
+            if upper != "N/A" and lower != "N/A":
+                boll = f"{upper}/{lower}"
+
         return {
-            "price": _pick(r"Price:\s*([\-\d.]+)"),
-            "rsi": _pick(r"RSI14:\s*([\-\d.]+)"),
-            "macd": _pick(r"MACD:\s*([\-\d.]+)"),
-            "macd_signal": _pick(r"MACD Signal:\s*([\-\d.]+)"),
-            "boll": _pick(r"Bollinger\(20,2\):\s*([^|\n]+)"),
+            "price": _pick(r"Price[:：=]?\s*([\-\d.]+)"),
+            "rsi": _pick(r"RSI(?:14)?[:：=]?\s*([\-\d.]+)"),
+            "macd": _pick(r"MACD[:：=]?\s*([\-\d.]+)"),
+            "macd_signal": _pick(r"MACD(?: Signal| 訊號)?[:：=]?\s*([\-\d.]+)"),
+            "boll": boll,
             "kdj": kdj,
-            "ema20": _pick(r"EMA20:\s*([\-\d.]+)"),
-            "ema50": _pick(r"EMA50:\s*([\-\d.]+)"),
-            "ema200": _pick(r"EMA200:\s*([\-\d.]+)"),
+            "ema20": _pick(r"EMA20[:：=]?\s*([\-\d.]+)"),
+            "ema50": _pick(r"EMA50[:：=]?\s*([\-\d.]+)"),
+            "ema200": _pick(r"EMA200[:：=]?\s*([\-\d.]+)"),
         }
 
     @staticmethod
@@ -544,11 +555,28 @@ class GeminiService:
         smc = GeminiService._parse_smc_summary(smc_summary)
         tech = GeminiService._parse_technical_snapshot(prediction_summary)
 
-        price = GeminiService._fmt_num((stock_info or {}).get("price"))
-        change_pct = GeminiService._fmt_num((stock_info or {}).get("change_percent"))
-        pe = GeminiService._fmt_num((stock_info or {}).get("pe_ratio"))
-        pb = GeminiService._fmt_num((stock_info or {}).get("pb_ratio"))
-        dy = GeminiService._fmt_num((stock_info or {}).get("dividend_yield"))
+        info = stock_info or {}
+
+        def _pick_info(*keys: str) -> Any:
+            for k in keys:
+                if k in info and info.get(k) not in (None, "", "N/A"):
+                    return info.get(k)
+            return None
+
+        price_raw = _pick_info("price", "last_close", "close")
+        change_pct_raw = _pick_info("change_percent", "change_pct")
+        pe_raw = _pick_info("pe_ratio", "PER", "pe")
+        pb_raw = _pick_info("pb_ratio", "PBR", "pb")
+        dy_raw = _pick_info("dividend_yield", "DividendYield", "yield")
+
+        if price_raw is None and tech.get("price") not in (None, "", "N/A"):
+            price_raw = tech.get("price")
+
+        price = GeminiService._fmt_num(price_raw)
+        change_pct = GeminiService._fmt_num(change_pct_raw)
+        pe = GeminiService._fmt_num(pe_raw)
+        pb = GeminiService._fmt_num(pb_raw)
+        dy = GeminiService._fmt_num(dy_raw)
 
         trend_raw = str(smc.get("trend") or "neutral").lower()
         if trend_raw in {"bullish", "up", "uptrend"}:
@@ -767,7 +795,7 @@ class GeminiService:
 
             tier_instruction = self._tier_instruction(tier)
             tier_norm = str(tier or "free").strip().lower()
-            max_tokens = 900 if tier_norm == "free" else (1250 if tier_norm == "pro" else 1650)
+            max_tokens = 760 if tier_norm == "free" else (1020 if tier_norm == "pro" else 1320)
             grounding_compact = (grounding_text or "").strip()
             if len(grounding_compact) > 2600:
                 grounding_compact = grounding_compact[:2600]
@@ -922,6 +950,62 @@ class GeminiService:
                 f2.cancel()
                 print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
                 emit(86, "timeout", "stage2_timeout_compose_guaranteed")
+
+                rescue_text = ""
+                try:
+                    rescue_prompt = (
+                        f"{tier_instruction}\n"
+                        "主模型逾時 請輸出精簡但完整版本。\n"
+                        f"第一行固定 {INTRO_LINE}\n"
+                        f"章節固定 {S1} {S2} {S3} {S4} {S5} {S6} {S7}\n"
+                        "全文使用繁體中文 技術縮寫可保留。\n"
+                        "禁止 markdown 裝飾符號。\n\n"
+                        f"標的={symbol}\n"
+                        f"背景資料:\n{context}\n\n"
+                        f"grounding 搜尋結果:\n{grounding_compact}\n\n"
+                        f"SMC 結構:\n{smc_summary}\n\n"
+                        f"技術快照:\n{prediction_summary}\n"
+                    )
+                    ex_timeout = ThreadPoolExecutor(max_workers=1)
+                    f_timeout = ex_timeout.submit(_run_stage2, rescue_prompt, 0.24, max(620, max_tokens - 180))
+                    try:
+                        timeout_resp = f_timeout.result(timeout=min(16, GEMINI_REPAIR_TIMEOUT_SEC + 4))
+                        rescue_text = timeout_resp.text.strip() if timeout_resp and getattr(timeout_resp, "text", None) else ""
+                        rescue_text = self._ensure_smc_section(self._sanitize_analysis_text(rescue_text), smc_summary)
+                    finally:
+                        ex_timeout.shutdown(wait=False, cancel_futures=True)
+                except Exception:
+                    rescue_text = ""
+
+                if rescue_text and self._quality_ok(rescue_text, tier):
+                    rescue_text = self._pad_to_min_chars(rescue_text, tier)
+                    payload = {
+                        "success": True,
+                        "degraded": False,
+                        "error": None,
+                        "analysis": rescue_text,
+                        "grounding_text": grounding_text,
+                        "grounding_sources": grounding_sources,
+                        "quality_pass": True,
+                        "timings": {
+                            "stage1_ms": stage1_ms,
+                            "stage2_ms": int((time.time() - stage2_started) * 1000),
+                            "total_ms": int((time.time() - started) * 1000),
+                            "stage2_timeout": True,
+                            "timeout_rescued": True,
+                        },
+                    }
+                    self._write_analysis_cache(cache_key, payload)
+                    emit(
+                        100,
+                        "done",
+                        "analysis_completed_after_timeout_rescue",
+                        char_count=len(rescue_text),
+                        min_chars=self._tier_min_chars(tier),
+                        total_ms=payload["timings"]["total_ms"],
+                    )
+                    return payload
+
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
                     grounding_text=grounding_text,

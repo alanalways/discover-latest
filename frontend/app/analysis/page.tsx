@@ -181,9 +181,9 @@ function toAiStageText(stage?: string, message?: string, progress?: number, char
 
 // ── 格式化工具函數 ──
 const formatNumber = (val: number | string | null | undefined, decimals = 2): string => {
-    if (val === null || val === undefined || val === '') return 'N/A';
+    if (val === null || val === undefined || val === '') return '—';
     const num = Number(String(val).replace(/,/g, '').trim());
-    if (!Number.isFinite(num)) return 'N/A';
+    if (!Number.isFinite(num)) return '—';
     return num.toLocaleString('zh-TW', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 };
 
@@ -205,20 +205,32 @@ const formatVolume = (vol: number | string | null | undefined): string => {
     return `${sign}${Math.round(abs)}`;
 };
 
-const formatMarketCap = (val?: number | string) => {
+const formatMarketCap = (val?: number | string | null) => {
     const num = Number(String(val ?? '').replace(/,/g, '').trim());
-    if (!Number.isFinite(num) || num <= 0) return 'N/A';
+    if (!Number.isFinite(num) || num <= 0) return '—';
     return (num / 100000000).toFixed(2) + ' 億';
 };
 
 const formatPercentValue = (val: number | string | null | undefined): string => {
-    if (val === null || val === undefined || val === '') return 'N/A';
+    if (val === null || val === undefined || val === '') return '—';
     const num = Number(val);
     if (Number.isFinite(num)) return `${num.toFixed(2)}%`;
     const text = String(val).trim();
-    if (!text) return 'N/A';
+    if (!text) return '—';
     return text.includes('%') ? text : `${text}%`;
 };
+
+const firstValidNumber = (...values: Array<unknown>): number | null => {
+    for (const value of values) {
+        const text = String(value ?? '').replace(/,/g, '').trim();
+        if (!text || text === 'N/A' || text === '—') continue;
+        const num = Number(text);
+        if (Number.isFinite(num)) return num;
+    }
+    return null;
+};
+
+const pickDateKey = (row: { date?: string; revenue_date?: string }): string => String(row.date || row.revenue_date || '').trim();
 
 // ── 內部組件：使用 useSearchParams 必須包裹在 Suspense 內 ──
 function AnalysisContent() {
@@ -421,14 +433,14 @@ function AnalysisContent() {
     const handleAiAnalysis = async () => {
         if (!symbol || aiLoading) return;
         if (!isLoggedIn) {
-            setAiResult('Please sign in to use AI analysis.');
+            setAiResult('請先登入才能使用 AI 深度分析。');
             setShowLoginModal(true);
             return;
         }
         setAiResult('');
         setTypedAiResult('');
         setAiProgress(2);
-        setAiStage('Initializing...');
+        setAiStage('初始化中...');
         setAiLoading(true);
         try {
             const result = await api.streamAiAnalysis(symbol, period, {
@@ -448,21 +460,21 @@ function AnalysisContent() {
                 },
             }) as AiAnalysisPayload;
             const text = extractAiText(result);
-            setAiResult(text || 'AI returned empty content. Please retry.');
+            setAiResult(text || 'AI 回傳內容為空，請重試。');
             window.dispatchEvent(new Event('dl:usage-refresh'));
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);
             if (status === 403) {
-                setAiResult('Current plan does not support AI analysis.');
+                setAiResult('目前方案不支援 AI 深度分析。');
             } else if (status === 429) {
-                setAiResult('Daily AI quota reached.');
+                setAiResult('今日 AI 額度已用完。');
             } else {
-                setAiResult('AI analysis failed. Please retry.');
+                setAiResult('AI 分析失敗，請稍後重試。');
             }
         } finally {
             setAiProgress(100);
-            setAiStage('Completed');
+            setAiStage('完成');
             setAiLoading(false);
             window.setTimeout(() => {
                 setAiProgress(0);
@@ -492,6 +504,71 @@ function AnalysisContent() {
     const latestRevenues = revenueData.slice(-12); // 最近 12 個月
     const perPbrData = fundamentals?.per_pbr || [];
     const dividendData = fundamentals?.dividend || [];
+
+    const latestPerPbrRow = useMemo(() => {
+        if (!perPbrData.length) return null;
+        for (let i = perPbrData.length - 1; i >= 0; i -= 1) {
+            const row = perPbrData[i];
+            const hasData = firstValidNumber(row.PER, row.PBR, row.dividend_yield) !== null;
+            if (hasData) return row;
+        }
+        return perPbrData[perPbrData.length - 1] || null;
+    }, [perPbrData]);
+
+    const derivedPe = firstValidNumber(info.pe_ratio, latestPerPbrRow?.PER);
+    const derivedPb = firstValidNumber(info.pb_ratio, latestPerPbrRow?.PBR);
+    const derivedDy = firstValidNumber(info.dividend_yield, latestPerPbrRow?.dividend_yield);
+
+    const derivedHigh52 = useMemo(() => {
+        const fromInfo = firstValidNumber(info.high_52w);
+        if (fromInfo !== null) return fromInfo;
+        const highs = history.map((h) => Number(h.high)).filter((v) => Number.isFinite(v) && v > 0);
+        return highs.length ? Math.max(...highs.slice(-250)) : null;
+    }, [history, info.high_52w]);
+
+    const derivedLow52 = useMemo(() => {
+        const fromInfo = firstValidNumber(info.low_52w);
+        if (fromInfo !== null) return fromInfo;
+        const lows = history.map((h) => Number(h.low)).filter((v) => Number.isFinite(v) && v > 0);
+        return lows.length ? Math.min(...lows.slice(-250)) : null;
+    }, [history, info.low_52w]);
+
+    const derivedMarketCap = useMemo(() => {
+        const direct = firstValidNumber(info.market_cap);
+        if (direct !== null) return direct;
+        const shares = firstValidNumber(
+            (info as Record<string, unknown>).shares_outstanding,
+            (info as Record<string, unknown>).sharesOutstanding,
+            (info as Record<string, unknown>).shares,
+            (info as Record<string, unknown>).issued_shares,
+            (info as Record<string, unknown>).number_of_shares,
+        );
+        const px = firstValidNumber(lastPrice);
+        if (shares !== null && px !== null) return shares * px;
+        return null;
+    }, [info, lastPrice]);
+
+    const revenueDeltaMap = useMemo(() => {
+        const map = new Map<string, { mom?: number; yoy?: number }>();
+        const normalized = revenueData
+            .map((r) => ({
+                key: pickDateKey(r),
+                rev: firstValidNumber(r.revenue),
+                raw: r,
+            }))
+            .filter((r) => r.key && r.rev !== null)
+            .sort((a, b) => a.key.localeCompare(b.key));
+
+        for (let i = 0; i < normalized.length; i += 1) {
+            const current = normalized[i];
+            const prev = i > 0 ? normalized[i - 1] : null;
+            const prev12 = i >= 12 ? normalized[i - 12] : null;
+            const mom = prev && prev.rev && current.rev ? ((current.rev - prev.rev) / prev.rev) * 100 : undefined;
+            const yoy = prev12 && prev12.rev && current.rev ? ((current.rev - prev12.rev) / prev12.rev) * 100 : undefined;
+            map.set(current.key, { mom, yoy });
+        }
+        return map;
+    }, [revenueData]);
 
     // ── 籌碼面計算 ──
     const institutionalData = chips?.institutional || [];
@@ -601,31 +678,31 @@ function AnalysisContent() {
                             <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl grid grid-cols-2 gap-4">
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">市值</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatMarketCap(info.market_cap)}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatMarketCap(derivedMarketCap)}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">殖利率</div>
-                                    <div className="text-lg font-bold text-green-400">{formatPercentValue(info.dividend_yield as number | string | undefined)}</div>
+                                    <div className="text-lg font-bold text-green-400">{formatPercentValue(derivedDy)}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/E 本益比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(info.pe_ratio as number | string | undefined)}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(derivedPe)}</div>
                                 </div>
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">P/B 股淨比</div>
-                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(info.pb_ratio as number | string | undefined)}</div>
+                                    <div className="text-lg font-bold text-[var(--text-1)]">{formatNumber(derivedPb)}</div>
                                 </div>
                             </div>
 
                             <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl space-y-4">
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">52週 最高</div>
-                                    <div className="text-xl font-bold text-red-400">{info.high_52w ?? 'N/A'}</div>
+                                    <div className="text-xl font-bold text-red-400">{formatNumber(derivedHigh52)}</div>
                                 </div>
                                 <div className="h-px bg-[var(--border-subtle)] w-full" />
                                 <div>
                                     <div className="text-[var(--text-3)] text-sm">52週 最低</div>
-                                    <div className="text-xl font-bold text-green-400">{info.low_52w ?? 'N/A'}</div>
+                                    <div className="text-xl font-bold text-green-400">{formatNumber(derivedLow52)}</div>
                                 </div>
                             </div>
                         </div>
@@ -700,17 +777,25 @@ function AnalysisContent() {
                                                         <tr key={i} className="hover:bg-[var(--bg-hover)] transition">
                                                             <td className="py-2 px-3 text-[var(--text-2)]">{r.date || r.revenue_date}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">
-                                                                {formatNumber((Number(String(r.revenue ?? 0).replace(/,/g, '')) || 0) / 1000, 0)}K
+                                                                {(() => {
+                                                                    const revenue = firstValidNumber(r.revenue);
+                                                                    if (revenue === null) return '—';
+                                                                    return `${formatNumber(revenue / 1000, 0)}K`;
+                                                                })()}
                                                             </td>
-                                                            <td className={`py-2 px-3 text-right font-mono ${(Number(String(r.revenue_month_over_month ?? 0).replace(/,/g, '')) || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                                                {r.revenue_month_over_month !== null && r.revenue_month_over_month !== undefined && r.revenue_month_over_month !== ''
-                                                                    ? `${(Number(String(r.revenue_month_over_month).replace(/,/g, '')) || 0) > 0 ? '+' : ''}${formatNumber(r.revenue_month_over_month)}%`
-                                                                    : 'N/A'}
+                                                            <td className={`py-2 px-3 text-right font-mono ${((firstValidNumber(r.revenue_month_over_month) ?? revenueDeltaMap.get(pickDateKey(r))?.mom ?? 0) >= 0) ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {(() => {
+                                                                    const v = firstValidNumber(r.revenue_month_over_month) ?? revenueDeltaMap.get(pickDateKey(r))?.mom;
+                                                                    if (v === undefined || v === null) return '—';
+                                                                    return `${v > 0 ? '+' : ''}${formatNumber(v)}%`;
+                                                                })()}
                                                             </td>
-                                                            <td className={`py-2 px-3 text-right font-mono ${(Number(String(r.revenue_year_over_year ?? 0).replace(/,/g, '')) || 0) >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                                                                {r.revenue_year_over_year !== null && r.revenue_year_over_year !== undefined && r.revenue_year_over_year !== ''
-                                                                    ? `${(Number(String(r.revenue_year_over_year).replace(/,/g, '')) || 0) > 0 ? '+' : ''}${formatNumber(r.revenue_year_over_year)}%`
-                                                                    : 'N/A'}
+                                                            <td className={`py-2 px-3 text-right font-mono ${((firstValidNumber(r.revenue_year_over_year) ?? revenueDeltaMap.get(pickDateKey(r))?.yoy ?? 0) >= 0) ? 'text-red-400' : 'text-green-400'}`}>
+                                                                {(() => {
+                                                                    const v = firstValidNumber(r.revenue_year_over_year) ?? revenueDeltaMap.get(pickDateKey(r))?.yoy;
+                                                                    if (v === undefined || v === null) return '—';
+                                                                    return `${v > 0 ? '+' : ''}${formatNumber(v)}%`;
+                                                                })()}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -748,9 +833,11 @@ function AnalysisContent() {
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PER)}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-[var(--text-1)]">{formatNumber(r.PBR)}</td>
                                                             <td className="py-2 px-3 text-right font-mono text-green-400">
-                                                                {r.dividend_yield !== null && r.dividend_yield !== undefined && r.dividend_yield !== ''
-                                                                    ? `${formatNumber(r.dividend_yield)}%`
-                                                                    : 'N/A'}
+                                                                {(() => {
+                                                                    const v = firstValidNumber(r.dividend_yield, derivedDy);
+                                                                    if (v === null) return '—';
+                                                                    return `${formatNumber(v)}%`;
+                                                                })()}
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -806,7 +893,7 @@ function AnalysisContent() {
                                 )}
 
                                 <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 px-4 py-3 text-xs text-[var(--text-3)]">
-                                    欄位說明：`N/A` 代表資料源暫時未提供；`+` 代表相較前一期增加；`-` 代表相較前一期減少；若顯示 `+-` 代表原始來源無法判定方向，系統以 0 處理避免誤導。
+                                    欄位說明：`—` 代表資料源暫時未提供；`+` 代表相較前一期增加；`-` 代表相較前一期減少；若顯示 `+-` 代表原始來源無法判定方向，系統以 0 處理避免誤導。
                                 </div>
                             </div>
                         )}

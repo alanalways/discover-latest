@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 
 type Node = {
   id: string;
@@ -50,6 +50,10 @@ export default function IndustryChainGraph({ nodes, edges, relations = [] }: Pro
   const downstream = nodes.filter((n) => n.group === 'downstream');
   const peer = nodes.filter((n) => n.group === 'peer');
   const competitor = nodes.filter((n) => n.group === 'competitor');
+  const [zoom, setZoom] = useState(1);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [selectedId, setSelectedId] = useState<string>('');
+  const dragRef = useRef<{ x: number; y: number } | null>(null);
 
   const positions = useMemo(() => {
     const map = new Map<string, Pos>();
@@ -92,55 +96,121 @@ export default function IndustryChainGraph({ nodes, edges, relations = [] }: Pro
       }));
   }, [nodes, relations]);
 
+  const selectedNode = useMemo(() => {
+    if (!selectedId) return null;
+    return nodes.find((n) => n.id === selectedId) || null;
+  }, [nodes, selectedId]);
+
+  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const next = e.deltaY < 0 ? zoom + 0.12 : zoom - 0.12;
+    setZoom(Math.max(0.8, Math.min(2.6, next)));
+  };
+
+  const onMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+    dragRef.current = { x: e.clientX, y: e.clientY };
+  };
+  const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!dragRef.current) return;
+    const dx = (e.clientX - dragRef.current.x) * 0.08;
+    const dy = (e.clientY - dragRef.current.y) * 0.08;
+    dragRef.current = { x: e.clientX, y: e.clientY };
+    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
+  };
+  const onMouseUp = () => {
+    dragRef.current = null;
+  };
+
+  const resetView = () => {
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+  };
+
+  const nodeLabel = (text: string, max = 18) => {
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
+  };
+
   return (
     <div style={{ border: '1px solid rgba(99,102,241,0.26)', borderRadius: 16, padding: 14, background: 'linear-gradient(180deg, rgba(3,7,25,0.95), rgba(12,15,40,0.82))' }}>
-      <svg viewBox="0 0 100 100" style={{ width: '100%', height: 360, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))' }}>
-        {edges.map((e, idx) => {
-          const s = positions.get(e.source);
-          const t = positions.get(e.target);
-          if (!s || !t) return null;
-          const c1x = s.x < t.x ? s.x + 18 : s.x - 18;
-          const c2x = t.x > s.x ? t.x - 18 : t.x + 18;
-          return (
-            <path
-              key={`${e.source}-${e.target}-${idx}`}
-              d={`M ${s.x},${s.y} C ${c1x},${s.y} ${c2x},${t.y} ${t.x},${t.y}`}
-              fill="none"
-              stroke={edgeColor(e.relation)}
-              strokeWidth={1.25}
-              opacity={0.88}
-            >
-              <animate attributeName="stroke-dasharray" values="0 10;8 4;0 10" dur="2.2s" repeatCount="indefinite" />
-            </path>
-          );
-        })}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
+          操作方式 滾輪縮放 左鍵拖曳 節點點擊看詳情
+        </div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button type="button" onClick={() => setZoom((z) => Math.max(0.8, z - 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>-</button>
+          <button type="button" onClick={resetView} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>重置</button>
+          <button type="button" onClick={() => setZoom((z) => Math.min(2.6, z + 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>+</button>
+        </div>
+      </div>
 
-        {nodes.map((n) => {
-          const p = positions.get(n.id);
-          if (!p) return null;
-          const isCore = n.id === core.id;
-          const radius = isCore ? 8.4 : 5.5;
-          const fill = isCore ? 'rgba(255,212,71,0.24)' : 'rgba(30,64,175,0.42)';
-          const stroke = isCore
-            ? '#ffd447'
-            : n.group === 'upstream'
-              ? '#22d3ee'
-              : n.group === 'downstream'
-                ? '#a78bfa'
-                : n.group === 'peer'
-                  ? '#34d399'
-                  : '#fb7185';
-          const textColor = isCore ? '#ffe8a4' : '#dbeafe';
-          return (
-            <g key={n.id}>
-              <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={1.1} />
-              <text x={p.x} y={p.y + 0.8} textAnchor="middle" fontSize={isCore ? 3.4 : 2.4} fill={textColor} fontWeight={700}>
-                {n.label}
-              </text>
-            </g>
-          );
-        })}
+      <svg
+        viewBox="0 0 100 100"
+        style={{ width: '100%', height: 420, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))', cursor: dragRef.current ? 'grabbing' : 'grab', userSelect: 'none' }}
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+      >
+        <g transform={`translate(${offset.x} ${offset.y}) translate(50 50) scale(${zoom}) translate(-50 -50)`}>
+          {edges.map((e, idx) => {
+            const s = positions.get(e.source);
+            const t = positions.get(e.target);
+            if (!s || !t) return null;
+            const c1x = s.x < t.x ? s.x + 18 : s.x - 18;
+            const c2x = t.x > s.x ? t.x - 18 : t.x + 18;
+            return (
+              <path
+                key={`${e.source}-${e.target}-${idx}`}
+                d={`M ${s.x},${s.y} C ${c1x},${s.y} ${c2x},${t.y} ${t.x},${t.y}`}
+                fill="none"
+                stroke={edgeColor(e.relation)}
+                strokeWidth={1.35}
+                opacity={0.92}
+              >
+                <animate attributeName="stroke-dasharray" values="0 10;8 4;0 10" dur="2.2s" repeatCount="indefinite" />
+              </path>
+            );
+          })}
+
+          {nodes.map((n) => {
+            const p = positions.get(n.id);
+            if (!p) return null;
+            const isCore = n.id === core.id;
+            const isSelected = n.id === selectedId;
+            const radius = isCore ? 9.6 : isSelected ? 6.8 : 6.1;
+            const fill = isCore ? 'rgba(255,212,71,0.24)' : 'rgba(30,64,175,0.42)';
+            const stroke = isCore
+              ? '#ffd447'
+              : n.group === 'upstream'
+                ? '#22d3ee'
+                : n.group === 'downstream'
+                  ? '#a78bfa'
+                  : n.group === 'peer'
+                    ? '#34d399'
+                    : '#fb7185';
+            const textColor = isCore ? '#ffe8a4' : '#dbeafe';
+            return (
+              <g key={n.id} onClick={() => setSelectedId((prev) => (prev === n.id ? '' : n.id))} style={{ cursor: 'pointer' }}>
+                <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={isSelected ? 1.8 : 1.3} />
+                <text x={p.x} y={p.y + 1.1} textAnchor="middle" fontSize={isCore ? 4.3 : 3.0} fill={textColor} fontWeight={700}>
+                  {nodeLabel(n.label)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
       </svg>
+
+      {selectedNode && (
+        <div style={{ marginTop: 8, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '8px 10px', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', fontSize: 12 }}>
+          <div style={{ color: 'var(--text-1)', fontWeight: 700 }}>{selectedNode.name || selectedNode.label}</div>
+          <div>代號 {selectedNode.ticker || 'NA'}</div>
+          <div>關係 {selectedNode.relation || '未標示'}</div>
+          <div>{listedText(selectedNode.listed, selectedNode.listed_market)}</div>
+        </div>
+      )}
 
       <div style={{ marginTop: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 10px', background: 'rgba(7,13,40,0.45)' }}>
         <div style={{ color: 'var(--text-2)', fontSize: 12, marginBottom: 8 }}>關聯公司摘要</div>
