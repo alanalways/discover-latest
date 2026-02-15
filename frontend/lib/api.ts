@@ -127,6 +127,24 @@ interface AiAnalysisResultPayload {
 interface AiAnalysisResponse {
     analysis?: string | AiAnalysisResultPayload;
     result?: AiAnalysisResultPayload | string;
+    charged?: boolean;
+    quality_pass?: boolean;
+    min_chars?: number;
+}
+
+interface AiAnalysisStreamProgress {
+    type: 'progress';
+    progress: number;
+    stage?: string;
+    message?: string;
+    char_count?: number;
+    min_chars?: number;
+    total_ms?: number;
+    [key: string]: unknown;
+}
+
+interface AiAnalysisStreamResult extends AiAnalysisResponse {
+    type: 'result';
 }
 
 interface PrimeFlowNode {
@@ -141,6 +159,7 @@ interface PrimeFlowEdge {
     target: string;
     label?: string;
     signal?: number;
+    direction?: 'inflow' | 'outflow' | string;
 }
 
 interface PrimeFlowResponse {
@@ -151,6 +170,10 @@ interface PrimeFlowResponse {
         label?: string;
         confidence?: number;
         last_close?: number | null;
+        whale_entry?: boolean;
+        whale_confidence?: number;
+        whale_flow?: string;
+        whale_reasons?: string[];
     };
     factors?: Array<{
         id: string;
@@ -307,6 +330,107 @@ export class ApiClient {
             });
         } finally {
             if (timer) clearTimeout(timer);
+        }
+    }
+
+    async streamAiAnalysis(
+        symbol: string,
+        period: string = '1y',
+        handlers: {
+            onProgress?: (event: AiAnalysisStreamProgress) => void;
+            onResult?: (event: AiAnalysisStreamResult) => void;
+        } = {},
+    ): Promise<AiAnalysisResponse> {
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 90_000) : null;
+        startRouteProgress();
+        try {
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (this.getToken()) {
+                headers['Authorization'] = `Bearer ${this.getToken()}`;
+            }
+
+            const res = await fetch(`${API_BASE}/api/analysis/ai/stream`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({ symbol, period }),
+                ...(controller ? { signal: controller.signal } : {}),
+            });
+
+            if (!res.ok) {
+                const error = await res.json().catch(() => ({ detail: res.statusText }));
+                const detail = (error as { detail?: unknown }).detail;
+                const message = typeof detail === 'string' ? detail : JSON.stringify(detail ?? res.statusText);
+                throw new ApiError(res.status, message);
+            }
+
+            if (!res.body) {
+                throw new ApiError(500, 'Empty stream body');
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalResult: AiAnalysisResponse | null = null;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const rawLine of lines) {
+                    const line = rawLine.trim();
+                    if (!line) continue;
+                    let event: Record<string, unknown>;
+                    try {
+                        event = JSON.parse(line) as Record<string, unknown>;
+                    } catch {
+                        continue;
+                    }
+                    const type = String(event.type || '');
+                    if (type === 'progress') {
+                        handlers.onProgress?.(event as AiAnalysisStreamProgress);
+                    } else if (type === 'result') {
+                        const resultEvent = event as unknown as AiAnalysisStreamResult;
+                        finalResult = resultEvent;
+                        handlers.onResult?.(resultEvent);
+                    } else if (type === 'error') {
+                        const statusRaw = event.status;
+                        const status = typeof statusRaw === 'number' ? statusRaw : 500;
+                        const message = String(event.message || 'AI stream error');
+                        throw new ApiError(status, message);
+                    }
+                }
+            }
+
+            if (buffer.trim()) {
+                try {
+                    const event = JSON.parse(buffer) as Record<string, unknown>;
+                    const type = String(event.type || '');
+                    if (type === 'result') {
+                        const resultEvent = event as unknown as AiAnalysisStreamResult;
+                        finalResult = resultEvent;
+                        handlers.onResult?.(resultEvent);
+                    } else if (type === 'error') {
+                        const statusRaw = event.status;
+                        const status = typeof statusRaw === 'number' ? statusRaw : 500;
+                        const message = String(event.message || 'AI stream error');
+                        throw new ApiError(status, message);
+                    }
+                } catch (err) {
+                    if (err instanceof ApiError) throw err;
+                }
+            }
+
+            if (!finalResult) {
+                throw new ApiError(500, 'AI stream ended without final result');
+            }
+            return finalResult;
+        } finally {
+            if (timer) clearTimeout(timer);
+            doneRouteProgress();
         }
     }
 

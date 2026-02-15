@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from statistics import pstdev
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -53,6 +55,15 @@ def _extract_user_id(auth_header: str) -> Optional[str]:
         return user.get("id") if user else None
     except Exception:
         return None
+
+
+def _tier_min_chars(tier: str) -> int:
+    t = str(tier or "free").strip().lower()
+    if t == "premium":
+        return 500
+    if t == "pro":
+        return 250
+    return 100
 
 
 def _ema(values: list[float], period: int) -> Optional[float]:
@@ -115,6 +126,25 @@ def _build_technical_snapshot(history: list[dict]) -> str:
             macd_hist.append(e12 - e26)
     macd_signal = _ema(macd_hist, 9) if len(macd_hist) >= 9 else None
 
+    k_value: Optional[float] = None
+    d_value: Optional[float] = None
+    j_value: Optional[float] = None
+    if len(closes) >= 9:
+        k_prev = 50.0
+        d_prev = 50.0
+        for i in range(8, len(closes)):
+            window_high = max(highs[max(0, i - 8) : i + 1]) if highs else closes[i]
+            window_low = min(lows[max(0, i - 8) : i + 1]) if lows else closes[i]
+            if window_high <= window_low:
+                rsv = 50.0
+            else:
+                rsv = ((closes[i] - window_low) / (window_high - window_low)) * 100.0
+            k_prev = (2.0 / 3.0) * k_prev + (1.0 / 3.0) * rsv
+            d_prev = (2.0 / 3.0) * d_prev + (1.0 / 3.0) * k_prev
+        k_value = k_prev
+        d_value = d_prev
+        j_value = 3.0 * k_prev - 2.0 * d_prev
+
     recent20 = closes[-20:]
     sma20 = sum(recent20) / len(recent20) if recent20 else None
     std20 = math.sqrt(sum((x - sma20) ** 2 for x in recent20) / len(recent20)) if sma20 is not None else None
@@ -147,6 +177,8 @@ def _build_technical_snapshot(history: list[dict]) -> str:
         lines.append(f"MACD: {macd:.4f}")
     if macd_signal is not None:
         lines.append(f"MACD Signal: {macd_signal:.4f}")
+    if k_value is not None and d_value is not None and j_value is not None:
+        lines.append(f"KDJ(9,3,3): K={k_value:.2f} D={d_value:.2f} J={j_value:.2f}")
     if boll_up is not None and boll_dn is not None:
         lines.append(f"Bollinger(20,2): {boll_up:.2f}/{boll_dn:.2f}")
     if keltner_up is not None and keltner_dn is not None:
@@ -208,108 +240,200 @@ def _summarize_smc(result: Optional[dict], tier: str = "free") -> str:
     return " | ".join(lines)
 
 
-@router.post("/analysis/ai")
-async def ai_analysis(req: AnalysisRequest, request: Request):
-    """Run AI analysis with quota check and charge only on usable output."""
+async def _run_ai_analysis_pipeline(
+    req: AnalysisRequest,
+    request: Request,
+    progress_cb: Optional[Callable[[dict[str, Any]], None]] = None,
+) -> dict[str, Any]:
+    def emit(progress: int, stage: str, message: str, **extra: Any) -> None:
+        if not callable(progress_cb):
+            return
+        payload: dict[str, Any] = {
+            "type": "progress",
+            "progress": max(0, min(100, int(progress))),
+            "stage": stage,
+            "message": message,
+        }
+        if extra:
+            payload.update(extra)
+        try:
+            progress_cb(payload)
+        except Exception:
+            pass
+
     auth_header = request.headers.get("Authorization", "")
     user_id = _extract_user_id(auth_header)
 
+    from services.feature_gate import can_access
+    from services.rate_limiter import rate_limiter
+    from services.stock_service import stock_service
+    from services.gemini_service import gemini_service
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Please log in before using AI analysis.")
+
+    tier = rate_limiter.check_and_downgrade(user_id)
+    if not can_access(tier, "ai_analysis"):
+        raise HTTPException(status_code=403, detail="Current plan does not allow AI analysis.")
+
+    allowed, reason = rate_limiter.can_make_request(user_id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=reason or "Daily AI quota reached.")
+
+    emit(6, "prepare", "validating_request")
+
+    stock_data = await stock_service.get_stock_data_for_analysis(req.symbol, req.period)
+    if not stock_data:
+        raise HTTPException(status_code=404, detail=f"No analysis data for {req.symbol}.")
+
+    info_payload = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
+    if isinstance(info_payload, dict):
+        info_payload = dict(info_payload)
+        info_payload["symbol"] = req.symbol.upper()
+    history_payload = stock_data.get("history", []) if isinstance(stock_data, dict) else []
+    tech_snapshot = _build_technical_snapshot(history_payload)
+
+    emit(16, "smc", "building_smc_snapshot")
+    smc_summary = "SMC summary unavailable"
     try:
-        from services.feature_gate import can_access
-        from services.rate_limiter import rate_limiter
-        from services.stock_service import stock_service
-        from services.gemini_service import gemini_service
+        from services.smc_service import smc_service
 
-        if not user_id:
-            raise HTTPException(status_code=401, detail="請先登入才能使用 AI 分析")
-
-        tier = rate_limiter.check_and_downgrade(user_id)
-        if not can_access(tier, "ai_analysis"):
-            raise HTTPException(status_code=403, detail="你的方案尚未開通 AI 分析")
-
-        # Pre-check quota, but do not consume yet.
-        allowed, reason = rate_limiter.can_make_request(user_id)
-        if not allowed:
-            raise HTTPException(status_code=429, detail=reason or "今日 AI 次數已達上限")
-
-        stock_data = await stock_service.get_stock_data_for_analysis(req.symbol, req.period)
-        if not stock_data:
-            raise HTTPException(status_code=404, detail=f"找不到股票資料：{req.symbol}")
-
-        info_payload = stock_data.get("info", {}) if isinstance(stock_data, dict) else {}
-        if isinstance(info_payload, dict):
-            info_payload = dict(info_payload)
-            info_payload["symbol"] = req.symbol.upper()
-        history_payload = stock_data.get("history", []) if isinstance(stock_data, dict) else []
-        tech_snapshot = _build_technical_snapshot(history_payload)
-
-        smc_summary = "SMC 資料不足"
-        try:
-            from services.smc_service import smc_service
-
-            smc_result = await asyncio.to_thread(
-                smc_service.analyze,
-                history_payload[-220:] if history_payload else [],
-            )
-            smc_summary = _summarize_smc(smc_result, tier=tier)
-        except Exception:
-            smc_summary = "SMC 資料不足"
-
-        result = await asyncio.to_thread(
-            gemini_service.generate_analysis,
-            req.symbol,
-            info_payload,
-            smc_summary,
-            tech_snapshot,
-            None,
-            "",
-            tier,
+        smc_result = await asyncio.to_thread(
+            smc_service.analyze,
+            history_payload[-220:] if history_payload else [],
         )
+        smc_summary = _summarize_smc(smc_result, tier=tier)
+    except Exception:
+        smc_summary = "SMC summary unavailable"
 
-        analysis_text = ""
-        degraded = False
-        success = False
-        error_text = ""
+    last_progress = 24
 
-        if isinstance(result, dict):
-            raw_analysis = result.get("analysis", "")
-            if isinstance(raw_analysis, str):
-                analysis_text = raw_analysis.strip()
-            elif raw_analysis is not None:
-                analysis_text = str(raw_analysis).strip()
-
-            degraded = bool(result.get("degraded"))
-            success = bool(result.get("success"))
-            raw_error = result.get("error")
-            if isinstance(raw_error, str):
-                error_text = raw_error.strip()
-        elif result is not None:
-            analysis_text = str(result).strip()
-
-        quality_pass = bool(result.get("quality_pass")) if isinstance(result, dict) else False
-        has_usable_text = len(analysis_text) >= 120
-        should_charge = quality_pass and has_usable_text and (success or degraded)
-
-        if should_charge:
-            rate_limiter.record_request(user_id)
+    def on_model_progress(event: dict[str, Any]) -> None:
+        nonlocal last_progress
+        if not callable(progress_cb):
+            return
+        mapped = dict(event or {})
+        mapped.setdefault("type", "progress")
+        try:
+            p = int(mapped.get("progress", 0))
+        except Exception:
+            p = 0
+        p = max(20, min(100, p))
+        if p < last_progress:
+            p = last_progress
         else:
-            detail = "AI analysis is incomplete. Please retry in a moment."
-            if error_text:
-                detail = f"{detail} error={error_text}"
-            raise HTTPException(status_code=503, detail=detail)
+            last_progress = p
+        mapped["progress"] = p
+        try:
+            progress_cb(mapped)
+        except Exception:
+            pass
 
-        return {
-            "analysis": analysis_text,
-            "result": result,
-            "charged": bool(should_charge),
-            "degraded": degraded,
-            "success": success,
-            "quality_pass": quality_pass,
-        }
+    emit(24, "stage1", "grounding_and_synthesis_started")
+    result = await asyncio.to_thread(
+        gemini_service.generate_analysis,
+        req.symbol,
+        info_payload,
+        smc_summary,
+        tech_snapshot,
+        None,
+        "",
+        tier,
+        on_model_progress,
+    )
+
+    analysis_text = ""
+    success = False
+    error_text = ""
+    quality_pass = False
+
+    if isinstance(result, dict):
+        raw_analysis = result.get("analysis", "")
+        if isinstance(raw_analysis, str):
+            analysis_text = raw_analysis.strip()
+        elif raw_analysis is not None:
+            analysis_text = str(raw_analysis).strip()
+        success = bool(result.get("success"))
+        quality_pass = bool(result.get("quality_pass"))
+        raw_error = result.get("error")
+        if isinstance(raw_error, str):
+            error_text = raw_error.strip()
+    elif result is not None:
+        analysis_text = str(result).strip()
+
+    min_chars = _tier_min_chars(tier)
+    has_usable_text = len(analysis_text) >= min_chars
+    should_charge = quality_pass and has_usable_text and success
+
+    if should_charge:
+        rate_limiter.record_request(user_id)
+        emit(100, "done", "analysis_completed", char_count=len(analysis_text), min_chars=min_chars)
+    else:
+        detail = "AI analysis is incomplete. Please retry in a moment."
+        if error_text:
+            detail = f"{detail} error={error_text}"
+        emit(100, "error", "analysis_quality_failed", char_count=len(analysis_text), min_chars=min_chars)
+        raise HTTPException(status_code=503, detail=detail)
+
+    return {
+        "analysis": analysis_text,
+        "result": result,
+        "charged": bool(should_charge),
+        "degraded": False,
+        "success": success,
+        "quality_pass": quality_pass,
+        "min_chars": min_chars,
+    }
+
+
+@router.post("/analysis/ai")
+async def ai_analysis(req: AnalysisRequest, request: Request):
+    """Run AI analysis with quota check and charge only on usable output."""
+    try:
+        return await _run_ai_analysis_pipeline(req, request, progress_cb=None)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/analysis/ai/stream")
+async def ai_analysis_stream(req: AnalysisRequest, request: Request):
+    """Run AI analysis with NDJSON progress stream."""
+    loop = asyncio.get_running_loop()
+    events: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    def push_event(event: dict[str, Any]) -> None:
+        payload = dict(event or {})
+        payload.setdefault("type", "progress")
+        loop.call_soon_threadsafe(events.put_nowait, payload)
+
+    async def runner() -> None:
+        try:
+            result = await _run_ai_analysis_pipeline(req, request, progress_cb=push_event)
+            await events.put({"type": "result", **result})
+        except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else json.dumps(e.detail, ensure_ascii=False)
+            await events.put({"type": "error", "status": e.status_code, "message": detail})
+        except Exception as e:
+            await events.put({"type": "error", "status": 500, "message": str(e)})
+        finally:
+            await events.put({"type": "end"})
+
+    task = asyncio.create_task(runner())
+
+    async def event_stream():
+        try:
+            while True:
+                event = await events.get()
+                if event.get("type") == "end":
+                    break
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.post("/analysis/smc")
@@ -321,7 +445,7 @@ async def smc_analysis(req: SmcRequest):
 
         history = await stock_service.get_stock_history(req.symbol, period=req.period)
         if not history:
-            raise HTTPException(status_code=404, detail=f"找不到 {req.symbol} 的歷史資料")
+            raise HTTPException(status_code=404, detail=f"No history data for {req.symbol}.")
 
         smc = SmcService()
         records = history.to_dict("records") if hasattr(history, "to_dict") else history
@@ -335,45 +459,45 @@ async def smc_analysis(req: SmcRequest):
 
 @router.get("/analysis/industry-chain/{symbol}")
 async def get_industry_chain(symbol: str):
-    """Get lightweight industry chain graph."""
+    """Get lightweight industry chain graph with ticker codes in labels."""
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
 
     templates = {
         "2330": {
-            "name": "台積電",
-            "upstream": ["ASML", "EDA/IP", "矽晶圓"],
-            "downstream": ["NVIDIA", "Apple", "AMD", "Qualcomm"],
+            "name": "TSMC (2330)",
+            "upstream": ["ASML (ASML)", "Synopsys (SNPS)", "Tokyo Electron (8035.T)"],
+            "downstream": ["NVIDIA (NVDA)", "Apple (AAPL)", "AMD (AMD)", "Qualcomm (QCOM)"],
         },
         "2454": {
-            "name": "聯發科",
-            "upstream": ["晶圓代工", "IP 授權", "封測"],
-            "downstream": ["手機品牌", "IoT 裝置", "車用電子"],
+            "name": "MediaTek (2454)",
+            "upstream": ["TSMC (2330)", "ARM (ARM)", "ASE (3711)"],
+            "downstream": ["Xiaomi (1810.HK)", "Samsung (005930.KS)", "OPPO (private)"],
         },
         "NVDA": {
-            "name": "NVIDIA",
-            "upstream": ["台積電", "HBM 供應鏈", "封測代工"],
-            "downstream": ["雲端資料中心", "AI SaaS", "邊緣運算"],
+            "name": "NVIDIA (NVDA)",
+            "upstream": ["TSMC (2330)", "SK Hynix (000660.KS)", "ASML (ASML)"],
+            "downstream": ["Microsoft (MSFT)", "Amazon (AMZN)", "Meta (META)"],
         },
         "TSLA": {
-            "name": "Tesla",
-            "upstream": ["電池材料", "車用晶片", "自駕供應鏈"],
-            "downstream": ["電動車終端", "儲能產品", "充電生態"],
+            "name": "Tesla (TSLA)",
+            "upstream": ["Panasonic (6752.T)", "NVIDIA (NVDA)", "CATL (300750.SZ)"],
+            "downstream": ["EV End-Market", "Energy Storage", "Charging Ecosystem"],
         },
         "AAPL": {
-            "name": "Apple",
-            "upstream": ["台積電", "組裝代工", "鏡頭模組"],
-            "downstream": ["iPhone 生態", "服務營收", "穿戴裝置"],
+            "name": "Apple (AAPL)",
+            "upstream": ["TSMC (2330)", "Foxconn (2317)", "Largan (3008)"],
+            "downstream": ["iPhone Ecosystem", "Services", "Wearables"],
         },
     }
 
     profile = templates.get(
         sym,
         {
-            "name": sym,
-            "upstream": ["關鍵零組件", "原材料供應", "設備供應商"],
-            "downstream": ["終端品牌商", "通路渠道", "應用服務商"],
+            "name": f"{sym}",
+            "upstream": ["Core Component Supplier", "Raw Material", "Equipment Vendor"],
+            "downstream": ["Brand OEM", "Distribution", "Application Services"],
         },
     )
 
@@ -384,19 +508,19 @@ async def get_industry_chain(symbol: str):
     for i, up in enumerate(profile["upstream"]):
         node_id = f"up_{i}"
         nodes.append({"id": node_id, "label": up, "group": "upstream"})
-        edges.append({"source": node_id, "target": center_id, "label": "供應"})
+        edges.append({"source": node_id, "target": center_id, "label": "supply"})
 
     for i, down in enumerate(profile["downstream"]):
         node_id = f"down_{i}"
         nodes.append({"id": node_id, "label": down, "group": "downstream"})
-        edges.append({"source": center_id, "target": node_id, "label": "需求"})
+        edges.append({"source": center_id, "target": node_id, "label": "demand"})
 
     return {"symbol": sym, "nodes": nodes, "edges": edges}
 
 
 @router.get("/analysis/prime-flow/{symbol}")
 async def get_prime_flow(symbol: str):
-    """Prime Broker proxy flow: synthesize momentum, flow, leverage and valuation pressure."""
+    """Prime Broker flow: synthesize momentum, flow, leverage and valuation pressure."""
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
@@ -429,6 +553,7 @@ async def get_prime_flow(symbol: str):
     m60 = 0.0
     if len(closes) >= 61 and closes[-61] > 0:
         m60 = (closes[-1] - closes[-61]) / closes[-61] * 100.0
+
     vol_ratio = 1.0
     if len(volumes) >= 20:
         avg20 = sum(volumes[-20:]) / max(1, len(volumes[-20:]))
@@ -493,15 +618,15 @@ async def get_prime_flow(symbol: str):
     score = int(round(_clamp(50 + composite * 50, 1, 99)))
 
     if score >= 75:
-        label = "強偏多"
+        label = "Strong Bullish"
     elif score >= 60:
-        label = "偏多"
+        label = "Bullish"
     elif score >= 40:
-        label = "中性"
+        label = "Neutral"
     elif score >= 25:
-        label = "偏空"
+        label = "Bearish"
     else:
-        label = "強偏空"
+        label = "Strong Bearish"
 
     data_points = 0
     if closes:
@@ -514,10 +639,50 @@ async def get_prime_flow(symbol: str):
         data_points += 1
     confidence = int(round(_clamp(38 + data_points * 15 + (12 if len(closes) >= 60 else 0), 25, 95)))
 
+    whale_score = (
+        flow_signal * 0.55
+        + leverage_signal * 0.20
+        + momentum_signal * 0.15
+        + _clamp((vol_ratio - 1.0), -1.0, 1.0) * 0.10
+    )
+    whale_entry = bool(whale_score >= 0.18 and inst_net > 0 and vol_ratio >= 1.05)
+    whale_confidence = int(
+        round(
+            _clamp(
+                50
+                + whale_score * 40
+                + (8 if inst_net > 0 else -8)
+                + _clamp((vol_ratio - 1.0) * 20, -12, 12),
+                5,
+                95,
+            )
+        )
+    )
+    if whale_score > 0.08:
+        whale_flow = "inflow"
+    elif whale_score < -0.08:
+        whale_flow = "outflow"
+    else:
+        whale_flow = "neutral"
+
+    whale_reasons: list[str] = []
+    if inst_net > 0:
+        whale_reasons.append("Institutional net buying remains positive")
+    else:
+        whale_reasons.append("Institutional net flow is weak/negative")
+    if vol_ratio >= 1.05:
+        whale_reasons.append("Volume is above 20-day average")
+    else:
+        whale_reasons.append("Volume confirmation is not strong")
+    if leverage_signal > 0:
+        whale_reasons.append("Leverage signal supports risk-on participation")
+    else:
+        whale_reasons.append("Leverage signal is not yet supportive")
+
     factors = [
         {
             "id": "momentum",
-            "label": "價格動能",
+            "label": "Momentum",
             "signal": round(momentum_signal, 4),
             "weight": weights["momentum"],
             "contribution": round(momentum_signal * weights["momentum"], 4),
@@ -525,7 +690,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "flow",
-            "label": "主力資金",
+            "label": "Flow",
             "signal": round(flow_signal, 4),
             "weight": weights["flow"],
             "contribution": round(flow_signal * weights["flow"], 4),
@@ -533,7 +698,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "leverage",
-            "label": "槓桿籌碼",
+            "label": "Leverage",
             "signal": round(leverage_signal, 4),
             "weight": weights["leverage"],
             "contribution": round(leverage_signal * weights["leverage"], 4),
@@ -541,7 +706,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "valuation",
-            "label": "估值壓力",
+            "label": "Valuation",
             "signal": round(valuation_signal, 4),
             "weight": weights["valuation"],
             "contribution": round(valuation_signal * weights["valuation"], 4),
@@ -549,7 +714,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "risk",
-            "label": "波動風險",
+            "label": "Risk",
             "signal": round(risk_signal, 4),
             "weight": weights["risk"],
             "contribution": round(risk_signal * weights["risk"], 4),
@@ -567,59 +732,49 @@ async def get_prime_flow(symbol: str):
 
     nodes = [
         {"id": "core", "label": f"{sym}", "group": "core", "score": score},
-        {"id": "momentum", "label": "價格動能", "group": "factor"},
-        {"id": "flow", "label": "主力資金", "group": "factor"},
-        {"id": "leverage", "label": "槓桿籌碼", "group": "factor"},
-        {"id": "valuation", "label": "估值壓力", "group": "factor"},
-        {"id": "risk", "label": "波動風險", "group": "factor"},
+        {"id": "momentum", "label": "Momentum", "group": "factor"},
+        {"id": "flow", "label": "Flow", "group": "factor"},
+        {"id": "leverage", "label": "Leverage", "group": "factor"},
+        {"id": "valuation", "label": "Valuation", "group": "factor"},
+        {"id": "risk", "label": "Risk", "group": "factor"},
     ]
+
+    def build_edge(node_id: str, signal: float) -> dict[str, Any]:
+        direction = "inflow" if signal >= 0 else "outflow"
+        if direction == "inflow":
+            source, target = node_id, "core"
+        else:
+            source, target = "core", node_id
+        return {
+            "source": source,
+            "target": target,
+            "label": f"L{edge_level(signal)}",
+            "signal": round(signal, 4),
+            "direction": direction,
+        }
+
     edges = [
-        {
-            "source": "momentum",
-            "target": "core",
-            "label": f"L{edge_level(momentum_signal)}",
-            "signal": round(momentum_signal, 4),
-        },
-        {
-            "source": "flow",
-            "target": "core",
-            "label": f"L{edge_level(flow_signal)}",
-            "signal": round(flow_signal, 4),
-        },
-        {
-            "source": "leverage",
-            "target": "core",
-            "label": f"L{edge_level(leverage_signal)}",
-            "signal": round(leverage_signal, 4),
-        },
-        {
-            "source": "valuation",
-            "target": "core",
-            "label": f"L{edge_level(valuation_signal)}",
-            "signal": round(valuation_signal, 4),
-        },
-        {
-            "source": "risk",
-            "target": "core",
-            "label": f"L{edge_level(risk_signal)}",
-            "signal": round(risk_signal, 4),
-        },
+        build_edge("momentum", momentum_signal),
+        build_edge("flow", flow_signal),
+        build_edge("leverage", leverage_signal),
+        build_edge("valuation", valuation_signal),
+        build_edge("risk", risk_signal),
     ]
 
     if score >= 60:
         suggestions = [
-            "趨勢偏多，可分批布局；若跌破短期關鍵均線需降倉。",
-            "觀察成交量是否延續放大，若量縮價漲需防追高風險。",
+            "Trend and flow are constructive; use staged entries instead of chasing.",
+            "Increase only after price-volume confirmation near key levels.",
         ]
     elif score >= 40:
         suggestions = [
-            "趨勢中性，建議等待明確突破或回檔支撐後再進場。",
-            "短線可採小倉位試單，優先風險控管。",
+            "Mixed signals; keep position sizing moderate and wait for confirmation.",
+            "Focus on reaction around support/resistance before adding risk.",
         ]
     else:
         suggestions = [
-            "偏空格局，優先防守，避免在弱勢區間重倉抄底。",
-            "若要介入，建議只做反彈交易並設定嚴格停損。",
+            "Defensive posture preferred; reduce exposure on weak rebounds.",
+            "Wait for flow recovery and lower volatility before re-risking.",
         ]
 
     return {
@@ -630,6 +785,10 @@ async def get_prime_flow(symbol: str):
             "label": label,
             "confidence": confidence,
             "last_close": round(last_close, 4) if last_close else None,
+            "whale_entry": whale_entry,
+            "whale_confidence": whale_confidence,
+            "whale_flow": whale_flow,
+            "whale_reasons": whale_reasons,
         },
         "factors": factors,
         "nodes": nodes,

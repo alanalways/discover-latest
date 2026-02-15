@@ -14,6 +14,7 @@ type PrimeFlowEdge = {
   target: string;
   label?: string;
   signal?: number;
+  direction?: 'inflow' | 'outflow' | string;
 };
 
 type PrimeFlowFactor = {
@@ -30,6 +31,10 @@ type PrimeFlowPayload = {
     score?: number;
     label?: string;
     confidence?: number;
+    whale_entry?: boolean;
+    whale_confidence?: number;
+    whale_flow?: string;
+    whale_reasons?: string[];
   };
   nodes?: PrimeFlowNode[];
   edges?: PrimeFlowEdge[];
@@ -43,6 +48,8 @@ interface Props {
 }
 
 type Point = { x: number; y: number };
+
+const CORE_POS: Point = { x: 50, y: 52 };
 
 const FACTOR_POSITIONS: Record<string, Point> = {
   momentum: { x: 18, y: 24 },
@@ -69,10 +76,25 @@ function formatSignal(v: number): string {
   return `${sign}${(v * 100).toFixed(1)}%`;
 }
 
+function nodePosition(id: string): Point | null {
+  if (id === 'core') return CORE_POS;
+  return FACTOR_POSITIONS[id] || null;
+}
+
+function markerIdBySignal(signal = 0): string {
+  if (signal >= 0.2) return 'arrow-cyan';
+  if (signal <= -0.2) return 'arrow-red';
+  return 'arrow-purple';
+}
+
 export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   const score = Math.round(Number(data?.snapshot?.score || 0));
-  const label = String(data?.snapshot?.label || '中性');
+  const label = String(data?.snapshot?.label || 'Neutral');
   const confidence = Math.round(Number(data?.snapshot?.confidence || 0));
+  const whaleEntry = Boolean(data?.snapshot?.whale_entry);
+  const whaleConfidence = Math.round(Number(data?.snapshot?.whale_confidence || 0));
+  const whaleFlow = String(data?.snapshot?.whale_flow || 'neutral');
+  const whaleReasons = Array.isArray(data?.snapshot?.whale_reasons) ? data?.snapshot?.whale_reasons.slice(0, 3) : [];
   const factors = useMemo(
     () => (Array.isArray(data?.factors) ? data.factors : []),
     [data],
@@ -86,7 +108,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   if (loading) {
     return (
       <div style={{ border: '1px solid rgba(0,229,255,0.24)', borderRadius: 16, padding: 20 }}>
-        <div style={{ color: 'var(--text-2)' }}>載入 Prime Broker Flow...</div>
+        <div style={{ color: 'var(--text-2)' }}>Loading Prime Broker Flow...</div>
       </div>
     );
   }
@@ -94,7 +116,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   if (!data || !data.nodes?.length) {
     return (
       <div style={{ border: '1px solid var(--border)', borderRadius: 16, padding: 20, color: 'var(--text-3)' }}>
-        Prime Broker Flow 暫無資料
+        Prime Broker Flow data unavailable.
       </div>
     );
   }
@@ -104,13 +126,41 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ color: 'var(--text-1)', fontWeight: 800 }}>
           Prime Broker Flow
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#00e5ff' }}>科技霓虹圖</span>
+          <span style={{ marginLeft: 8, fontSize: 12, color: '#00e5ff' }}>Capital direction</span>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--text-2)', fontSize: 12 }}>
-          <span>分數：<b style={{ color: '#ffd447' }}>{score}</b></span>
-          <span>傾向：<b style={{ color: '#c8b6ff' }}>{label}</b></span>
-          <span>信心：<b style={{ color: '#8ee3ff' }}>{confidence}%</b></span>
+          <span>Score: <b style={{ color: '#ffd447' }}>{score}</b></span>
+          <span>State: <b style={{ color: '#c8b6ff' }}>{label}</b></span>
+          <span>Confidence: <b style={{ color: '#8ee3ff' }}>{confidence}%</b></span>
         </div>
+      </div>
+
+      <div style={{ marginBottom: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 10px', background: 'rgba(7,13,40,0.45)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', color: 'var(--text-2)', fontSize: 12 }}>
+          <span>
+            Whale Entry:
+            <b style={{ marginLeft: 6, color: whaleEntry ? '#4ade80' : '#fca5a5' }}>
+              {whaleEntry ? 'Yes' : 'No'}
+            </b>
+          </span>
+          <span>
+            Flow:
+            <b style={{ marginLeft: 6, color: whaleFlow === 'inflow' ? '#22d3ee' : whaleFlow === 'outflow' ? '#fb7185' : '#c4b5fd' }}>
+              {whaleFlow}
+            </b>
+          </span>
+          <span>
+            Whale Confidence:
+            <b style={{ marginLeft: 6, color: '#8ee3ff' }}>{whaleConfidence}%</b>
+          </span>
+        </div>
+        {whaleReasons.length > 0 && (
+          <div style={{ marginTop: 6, color: 'var(--text-3)', fontSize: 12 }}>
+            {whaleReasons.map((reason) => (
+              <div key={reason}>- {reason}</div>
+            ))}
+          </div>
+        )}
       </div>
 
       <svg viewBox="0 0 100 90" style={{ width: '100%', height: 360, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 55%, rgba(10,30,80,0.28), rgba(2,6,24,0.95))' }}>
@@ -122,26 +172,40 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <marker id="arrow-cyan" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L6,3 z" fill="#00e5ff" />
+          </marker>
+          <marker id="arrow-red" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L6,3 z" fill="#ff6a88" />
+          </marker>
+          <marker id="arrow-purple" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L6,3 z" fill="#9f7aea" />
+          </marker>
         </defs>
 
         {data.edges?.map((edge) => {
-          const from = FACTOR_POSITIONS[edge.source] || { x: 10, y: 10 };
-          const to = { x: 50, y: 52 };
-          const cx = (from.x + to.x) / 2 + (from.x < 50 ? -7 : 7);
+          const from = nodePosition(edge.source);
+          const to = nodePosition(edge.target);
+          if (!from || !to) return null;
           const signal = Number(edge.signal || 0);
           const color = lineColor(signal);
           const width = Math.max(1.2, Math.abs(signal) * 2.8 + 1.2);
-          const dashed = signal < 0;
+          const dashed = edge.direction === 'outflow';
+          const dx = to.x - from.x;
+          const bend = dx === 0 ? (from.y < to.y ? -10 : 10) : (dx > 0 ? 7 : -7);
+          const cx = (from.x + to.x) / 2 + bend;
+          const cy = (from.y + to.y) / 2 - 3;
           return (
-            <g key={`${edge.source}-${edge.target}`}>
+            <g key={`${edge.source}-${edge.target}-${edge.label || ''}`}>
               <path
-                d={`M ${from.x},${from.y} Q ${cx},${(from.y + to.y) / 2} ${to.x},${to.y}`}
+                d={`M ${from.x},${from.y} Q ${cx},${cy} ${to.x},${to.y}`}
                 fill="none"
                 stroke={color}
                 strokeWidth={width}
                 strokeDasharray={dashed ? '2.6 1.2' : '0'}
-                opacity={0.86}
+                opacity={0.9}
                 filter="url(#neonGlow)"
+                markerEnd={`url(#${markerIdBySignal(signal)})`}
               >
                 <animate attributeName="stroke-dashoffset" from="0" to="-20" dur={dashed ? '1.3s' : '0s'} repeatCount="indefinite" />
               </path>
@@ -153,11 +217,11 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
           if (node.id === 'core') {
             return (
               <g key={node.id}>
-                <circle cx={50} cy={52} r={8.2} fill="rgba(255,212,71,0.22)" stroke="#ffd447" strokeWidth={1.2} style={{ filter: 'drop-shadow(0 0 16px rgba(255,212,71,0.8))' }} />
-                <text x={50} y={50.5} textAnchor="middle" fontSize={4.6} fill="#ffe89a" fontWeight={700}>
+                <circle cx={CORE_POS.x} cy={CORE_POS.y} r={8.2} fill="rgba(255,212,71,0.22)" stroke="#ffd447" strokeWidth={1.2} style={{ filter: 'drop-shadow(0 0 16px rgba(255,212,71,0.8))' }} />
+                <text x={CORE_POS.x} y={50.5} textAnchor="middle" fontSize={4.6} fill="#ffe89a" fontWeight={700}>
                   {data.symbol || node.label}
                 </text>
-                <text x={50} y={55.3} textAnchor="middle" fontSize={3.2} fill="#ffd447" fontWeight={700}>
+                <text x={CORE_POS.x} y={55.3} textAnchor="middle" fontSize={3.2} fill="#ffd447" fontWeight={700}>
                   Score {score}
                 </text>
               </g>
@@ -203,7 +267,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
       {Array.isArray(data.suggestions) && data.suggestions.length > 0 && (
         <div style={{ marginTop: 10, color: 'var(--text-2)', fontSize: 12 }}>
           {data.suggestions.slice(0, 2).map((s, i) => (
-            <div key={`${s}-${i}`} style={{ marginTop: 4 }}>• {s}</div>
+            <div key={`${s}-${i}`} style={{ marginTop: 4 }}>- {s}</div>
           ))}
         </div>
       )}

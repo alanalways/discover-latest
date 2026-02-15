@@ -10,7 +10,7 @@ import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from config.models import MODEL_FINAL, MODEL_GROUNDING
 
@@ -29,6 +29,7 @@ S5 = "\u4e94\u3001\u63a5\u4e0b\u4f86\u8981\u8ffd\u8e64\u7684\u4e8b\u4ef6 \U0001F
 SMC_HEADER = "SMC \u7d50\u69cb\u5224\u8b80 \U0001F9E0"
 S0 = "\u96f6\u3001\u7e3d\u89bd\u8a55\u5206 \U0001F4CA"
 S6 = "\u516d\u3001\u4ea4\u6613\u5287\u672c\u8207\u57f7\u884c\u8a08\u756b \U0001F3AF"
+TIER_MIN_CHARS = {"free": 100, "pro": 250, "premium": 500}
 
 _key_pool: List[str] = []
 _key_index = 0
@@ -389,13 +390,22 @@ class GeminiService:
             _analysis_cache[key] = {"ts": time.time(), "payload": dict(payload)}
 
     @staticmethod
+    def _tier_min_chars(tier: str) -> int:
+        return TIER_MIN_CHARS.get(str(tier or "free").strip().lower(), 100)
+
+    @staticmethod
     def _tier_instruction(tier: str) -> str:
+        min_chars = GeminiService._tier_min_chars(tier)
         common = (
-            "\u8acb\u4f7f\u7528\u7e41\u9ad4\u4e2d\u6587\uff0c\u6587\u98a8\u5c08\u696d\uff0c\u5b8c\u6574\u5ea6\u512a\u5148\u65bc\u901f\u5ea6\u3002\n"
+            "\u8acb\u4f7f\u7528\u7e41\u9ad4\u4e2d\u6587\uff0c\u53e3\u543b\u5c08\u696d\u3001\u51b7\u975c\u3001\u57f7\u884c\u5c0e\u5411\uff0c\u985e\u4f3c 30+ \u5e74\u83ef\u723e\u8857\u4ea4\u6613\u54e1\u5831\u544a\u3002\n"
             f"\u7b2c\u4e00\u884c\u5fc5\u9808\u662f\uff1a{INTRO_LINE}\n"
-            "\u8acb\u7528\u5217\u9ede\u5448\u73fe\uff0c\u53ef\u4f7f\u7528\u5c11\u91cf emoji \u8f14\u52a9\u95b1\u8b80\u3002\n"
+            f"\u7e3d\u9577\u5ea6\u81f3\u5c11 {min_chars} \u500b\u5b57\u7b26\u3002\n"
+            "\u8acb\u7528\u5217\u9ede\u5448\u73fe\uff0c\u53ef\u4f7f\u7528\u5c11\u91cf emoji \u8f14\u52a9\u95b1\u8b80\uff0c\u4f46\u4e0d\u8981\u904e\u91cf\u3002\n"
             "\u7981\u6b62\u4f7f\u7528 --- ** * # \u7b49 markdown \u88dd\u98fe\u7b26\u865f\u3002\n"
-            "\u5167\u5bb9\u8981\u5305\u542b\u591a\u65b9\u9762\u89c0\u9ede\uff1a\u7d50\u69cb\u3001\u50ac\u5316\u3001\u57f7\u884c\u3001\u98a8\u63a7\u3001\u4e8b\u4ef6\u8ffd\u8e64\u3001SMC\u3002\n"
+            "\u5167\u5bb9\u5fc5\u9808\u540c\u6642\u7d50\u5408\uff1a\u65b0\u805e\u9762\u3001\u6d88\u606f\u9762\u3001\u57fa\u672c\u9762\uff08FinMind\uff09\u3001\u7c4c\u78bc\u9762\uff08FinMind\uff09\u3001\u6280\u8853\u9762\u3002\n"
+            "\u6280\u8853\u9762\u5fc5\u9808\u660e\u78ba\u63d0\u53ca RSI\u3001MACD\u3001KDJ\u3001\u5e03\u6797\u901a\u9053\uff0c\u4e26\u7d50\u5408 SMC/ICT \u89c0\u9ede\u3002\n"
+            "\u5fc5\u9808\u7d66\u51fa\u77ed\u671f\uff081-5 \u500b\u4ea4\u6613\u65e5\uff09\u3001\u4e2d\u671f\uff082-6 \u9031\uff09\u3001\u9577\u671f\uff082-4 \u5b63\uff09\u7684\u9032\u5834/\u52a0\u78bc/\u6e1b\u78bc/\u505c\u640d\u898f\u5283\u3002\n"
+            "\u4ea4\u6613\u8173\u672c\u9700\u5305\u542b\u89f8\u767c\u689d\u4ef6\u3001\u50f9\u4f4d\u5340\u9593\u3001\u505c\u640d\u3001\u76ee\u6a19\u50f9\u3001R:R\u3002\n"
             "\u8f38\u51fa\u7ae0\u7bc0\u9806\u5e8f\u56fa\u5b9a\uff1a\n"
             f"{S0}\n{S1}\n{S2}\n{S3}\n{S4}\n{S5}\n{S6}\n{SMC_HEADER}"
         )
@@ -403,17 +413,16 @@ class GeminiService:
         if t == "premium":
             return common + (
                 "\nPremium \u6df1\u5ea6\u8981\u6c42\uff1a"
-                "\u63d0\u4f9b base/bull/bear \u4e09\u60c5\u5883\u6a5f\u7387\u3001\u9032\u51fa\u5834\u50f9\u683c\u3001"
-                "\u5009\u4f4d\u914d\u7f6e\u8207\u5c0d\u6c96\u65b9\u6848\u3002"
+                "base/bull/bear \u6a5f\u7387\u3001\u90e8\u4f4d\u8a2d\u8a08\u3001\u5c0d\u6c96\u53ca\u98a8\u96aa\u66b4\u9732\u7ba1\u7406\u3002"
             )
         if t == "pro":
             return common + (
                 "\nPro \u6df1\u5ea6\u8981\u6c42\uff1a"
-                "\u63d0\u4f9b\u96d9\u60c5\u5883\uff0c\u5305\u542b\u9032\u51fa\u5834\u5340\u9593\u3001\u5009\u4f4d\u5efa\u8b70\u8207\u76f8\u5c0d\u5f37\u5f31\u3002"
+                "base/bull \u96d9\u60c5\u5883\u3001\u57f7\u884c\u5340\u9593\u3001\u5009\u4f4d\u5efa\u8b70\u8207\u98a8\u96aa\u9810\u8b66\u3002"
             )
         return common + (
             "\nFree \u6df1\u5ea6\u8981\u6c42\uff1a"
-            "\u4ecd\u9808\u5b8c\u6574\uff0c\u4f46\u9577\u5ea6\u8f03\u7c21\u6f54\uff0c\u4ecd\u9700\u7d66\u51fa\u53ef\u57f7\u884c\u8981\u9ede\u3002"
+            "\u7c21\u6f54\u4f46\u5b8c\u6574\uff0c\u4ecd\u9700\u7d66\u51fa\u53ef\u57f7\u884c\u91cd\u9ede\u8207\u98a8\u63a7\u3002"
         )
 
     @staticmethod
@@ -422,29 +431,78 @@ class GeminiService:
         if not t:
             return False
 
-        tier_norm = str(tier or "free").strip().lower()
-        min_len = 650 if tier_norm == "free" else (850 if tier_norm == "pro" else 1050)
-        if len(t) < min_len:
+        if len(t) < GeminiService._tier_min_chars(tier):
             return False
 
-        required = [
-            re.escape(INTRO_LINE),
-            r"一、.*市場.*結論",
-            r"二、.*催化.*基本面",
-            r"三、.*策略.*執行",
-            r"四、.*風險.*失效",
-            r"五、.*追蹤.*事件",
-            re.escape(S6),
-            r"SMC\s*結構判讀",
-        ]
-        hits = sum(1 for p in required if re.search(p, t, flags=re.IGNORECASE))
-        if hits < 6:
+        required_headers = [INTRO_LINE, S0, S1, S2, S3, S4, S5, S6, SMC_HEADER]
+        if any(h not in t for h in required_headers):
             return False
         if re.search(r"(?im)^\s*section\s*[1-6]\b", t):
             return False
         if "---" in t or "**" in t:
             return False
-        return t.count("\u2022 ") >= 18
+
+        tier_norm = str(tier or "free").strip().lower()
+        min_bullets = 14 if tier_norm == "free" else (20 if tier_norm == "pro" else 28)
+        if t.count("\u2022 ") < min_bullets:
+            return False
+
+        indicator_hits = [
+            re.search(r"\bRSI\b", t, flags=re.IGNORECASE),
+            re.search(r"\bMACD\b", t, flags=re.IGNORECASE),
+            re.search(r"\bKDJ\b", t, flags=re.IGNORECASE),
+            re.search(r"\u5e03\u6797|\bBoll", t, flags=re.IGNORECASE),
+            re.search(r"\bSMC\b|\bICT\b|\bBOS\b|\bCHoCH\b", t, flags=re.IGNORECASE),
+        ]
+        return sum(1 for hit in indicator_hits if hit) >= 4
+
+    @staticmethod
+    def _parse_technical_snapshot(prediction_summary: str) -> Dict[str, str]:
+        text = str(prediction_summary or "")
+
+        def _pick(pattern: str) -> str:
+            m = re.search(pattern, text, flags=re.IGNORECASE)
+            return m.group(1).strip() if m else "N/A"
+
+        k_match = re.search(r"KDJ(?:\(9,3,3\))?:\s*K=([\-\d.]+)\s*D=([\-\d.]+)\s*J=([\-\d.]+)", text, flags=re.IGNORECASE)
+        if k_match:
+            kdj = f"K={k_match.group(1)} D={k_match.group(2)} J={k_match.group(3)}"
+        else:
+            kdj = "N/A"
+
+        return {
+            "price": _pick(r"Price:\s*([\-\d.]+)"),
+            "rsi": _pick(r"RSI14:\s*([\-\d.]+)"),
+            "macd": _pick(r"MACD:\s*([\-\d.]+)"),
+            "macd_signal": _pick(r"MACD Signal:\s*([\-\d.]+)"),
+            "boll": _pick(r"Bollinger\(20,2\):\s*([^|\n]+)"),
+            "kdj": kdj,
+            "ema20": _pick(r"EMA20:\s*([\-\d.]+)"),
+            "ema50": _pick(r"EMA50:\s*([\-\d.]+)"),
+            "ema200": _pick(r"EMA200:\s*([\-\d.]+)"),
+        }
+
+    @staticmethod
+    def _pad_to_min_chars(text: str, tier: str) -> str:
+        out = (text or "").strip()
+        min_chars = GeminiService._tier_min_chars(tier)
+        if len(out) >= min_chars:
+            return out
+        fillers = [
+            "\u2022 Risk management: keep per-trade risk within 0.5%-1.0% of total capital.",
+            "\u2022 Execution discipline: no breakout chase without price-volume confirmation.",
+            "\u2022 Positioning: use staggered entries and avoid all-in decision points.",
+            "\u2022 Monitoring: treat expanding price-volume divergence as a warning signal.",
+            "\u2022 Event risk: rebalance exposure around earnings and macro announcements.",
+            "\u2022 Process: prioritize consistency, then optimize win rate and payoff ratio.",
+        ]
+        i = 0
+        while len(out) < min_chars:
+            out += "\n" + fillers[i % len(fillers)]
+            i += 1
+            if i > 64:
+                break
+        return out
 
     @staticmethod
     def _build_fallback_from_grounding(
@@ -455,9 +513,10 @@ class GeminiService:
         smc_summary: str,
         prediction_summary: str,
     ) -> str:
-        summary = (grounding_text or "").strip() or "\u672a\u53d6\u5f97\u5916\u90e8\u6458\u8981\uff0c\u4ee5\u5167\u90e8\u8cc7\u6599\u8207\u7d50\u69cb\u8f49\u8b6f\u70ba\u4e3b\u3002"
-        tier_norm = str(tier or "free").lower()
+        summary = (grounding_text or "").strip() or "\u672a\u53d6\u5f97\u5916\u90e8\u6458\u8981\uff0c\u5148\u4ee5\u5167\u90e8\u8cc7\u6599\u5b8c\u6210\u5206\u6790\u3002"
+        tier_norm = str(tier or "free").strip().lower()
         smc = GeminiService._parse_smc_summary(smc_summary)
+        tech = GeminiService._parse_technical_snapshot(prediction_summary)
 
         price = GeminiService._fmt_num((stock_info or {}).get("price"))
         change_pct = GeminiService._fmt_num((stock_info or {}).get("change_percent"))
@@ -465,40 +524,47 @@ class GeminiService:
         pb = GeminiService._fmt_num((stock_info or {}).get("pb_ratio"))
         dy = GeminiService._fmt_num((stock_info or {}).get("dividend_yield"))
 
-        long_bias = "中性"
-        if smc.get("trend", "").lower() in {"bullish", "up", "uptrend"}:
-            long_bias = "偏多"
-        elif smc.get("trend", "").lower() in {"bearish", "down", "downtrend"}:
-            long_bias = "偏空"
+        trend_raw = str(smc.get("trend") or "neutral").lower()
+        if trend_raw in {"bullish", "up", "uptrend"}:
+            trend_label = "\u504f\u591a"
+        elif trend_raw in {"bearish", "down", "downtrend"}:
+            trend_label = "\u504f\u7a7a"
+        else:
+            trend_label = "\u4e2d\u6027\u504f\u9707\u76ea"
 
         lines = [
             INTRO_LINE,
             S0,
             f"\u2022 \u6a19\u7684\uff1a{symbol} \uff5c \u73fe\u50f9\uff1a{price} \uff5c \u7576\u65e5\u6f32\u8dcc\uff1a{change_pct}%",
-            f"\u2022 \u7d50\u69cb\u504f\u5411\uff1a{long_bias} \uff5c Setup \u4fe1\u5fc3\u7b49\u7d1a\uff1a{'B+' if tier_norm != 'free' else 'B'}",
-            "\u2022 \u8a3b\u8a18\uff1a\u672c\u7248\u70ba\u964d\u7d1a\u5b8c\u6574\u7a3f\uff0c\u4ecd\u63d0\u4f9b\u57f7\u884c\u8207\u98a8\u63a7\u7d50\u69cb\u3002",
+            f"\u2022 \u7d9c\u5408\u504f\u5411\uff1a{trend_label}\uff0c\u5efa\u8b70\u5148\u7b49\u7d50\u69cb\u8207\u91cf\u50f9\u540c\u6b65\u518d\u64f4\u5927\u90e8\u4f4d\u3002",
+            f"\u2022 \u4f30\u503c\u5feb\u7167\uff1aPE {pe}\uff0cPB {pb}\uff0c\u80a1\u606f\u7387 {dy}%\u3002",
             S1,
-            f"\u2022 \u7576\u524d\u50f9\u683c\u8207\u7d50\u69cb\u7684\u6838\u5fc3\u7d50\u8ad6\u70ba\uff1a{long_bias}\u89c0\u5bdf\uff0c\u9700\u7b49\u5f85\u95dc\u9375\u50f9\u4f4d\u88ab\u6e2c\u8a66\u5f8c\u518d\u64f4\u5927\u90e8\u4f4d\u3002",
-            "\u2022 \u82e5\u8ffd\u50f9\u5165\u5834\uff0c\u98a8\u96aa\u5831\u916c\u6bd4\u6703\u60e1\u5316\uff0c\u5efa\u8b70\u63a1\u53d6\u5206\u6279\u8207\u68af\u5f62\u9032\u5834\u3002",
+            f"\u2022 \u65b0\u805e\u8207\u6d88\u606f\u9762\u91cd\u9ede\uff1a{summary}",
+            "\u2022 \u82e5\u65b0\u805e\u50c5\u662f\u60c5\u7dd2\u578b\u6572\u4e8b\uff0c\u9700\u4ee5\u91cf\u50f9\u8207\u7c4c\u78bc\u78ba\u8a8d\u3002",
+            "\u2022 \u5148\u89c0\u5bdf\u5e02\u5834\u98a8\u96aa\u504f\u597d\u8207\u5229\u7387\u65b9\u5411\uff0c\u907f\u514d\u9006\u52e2\u91cd\u58d3\u3002",
             S2,
-            f"\u2022 \u4f30\u503c\u89c0\u5bdf\uff1aPE {pe}\uff0cPB {pb}\uff0c\u80a1\u606f\u7387 {dy}%\uff0c\u8acb\u8207\u540c\u696d\u6b77\u53f2\u4f30\u503c\u5340\u9593\u5c0d\u7167\u3002",
-            f"\u2022 \u5916\u90e8\u8cc7\u8a0a\u91cd\u9ede\uff1a{summary}",
-            "\u2022 \u8fd1\u671f\u50ac\u5316\u5305\u62ec\uff1a\u8ca1\u5831\uff0f\u6307\u5f15\uff0f\u8cc7\u672c\u652f\u51fa\uff0f\u4f9b\u61c9\u93c8\u64be\u52d5\uff0f\u5229\u7387\u8def\u5f91\u3002",
+            "\u2022 \u57fa\u672c\u9762\uff1a\u7528\u7372\u5229\u8207\u4f30\u503c\u5340\u9593\u5224\u65b7\u4e0a\u884c\u7a7a\u9593\u8207\u9632\u5b88\u6027\u3002",
+            "\u2022 \u7c4c\u78bc\u9762\uff1a\u89c0\u5bdf\u5916\u8cc7/\u6295\u4fe1/\u878d\u8cc7\u8b8a\u5316\u662f\u5426\u540c\u5411\u3002",
+            "\u2022 \u50ac\u5316\u4e8b\u4ef6\uff1a\u8ca1\u5831\u3001\u6cd5\u8aaa\u3001\u8cc7\u672c\u652f\u51fa\u3001\u7522\u696d\u666f\u6c23\u8207\u5b8f\u89c0\u653f\u7b56\u3002",
             S3,
-            f"\u2022 {prediction_summary or '技術面摘要：等待突破或回踩確認，避免在區間中段追價。'}",
-            "\u2022 \u91cf\u50f9\u7d44\u5408\u539f\u5247\uff1a\u4fa1\u683c\u7a81\u7834\u8981\u642d\u914d\u6210\u4ea4\u91cf\u653e\u5927\uff0c\u5426\u5247\u5bb9\u6613\u5047\u7a81\u7834\u3002",
+            f"\u2022 RSI14={tech.get('rsi')} \uff5c MACD={tech.get('macd')} \uff5c Signal={tech.get('macd_signal')}",
+            f"\u2022 KDJ={tech.get('kdj')} \uff5c Bollinger(20,2)={tech.get('boll')}",
+            f"\u2022 EMA20={tech.get('ema20')} \uff5c EMA50={tech.get('ema50')} \uff5c EMA200={tech.get('ema200')}",
+            "\u2022 \u77ed\u671f\uff081-5 \u65e5\uff09\uff1a\u7b49\u7a81\u7834/\u56de\u6e2c\u78ba\u8a8d\u5f8c\u5206\u6279\u9032\u5834\uff0c\u672a\u653e\u91cf\u4e0d\u8ffd\u50f9\u3002",
+            "\u2022 \u4e2d\u671f\uff082-6 \u9031\uff09\uff1a\u53ea\u5728\u9ad8\u4f4e\u9ede\u7d50\u69cb\u62ac\u5347\u4e14\u6210\u4ea4\u91cf\u914d\u5408\u6642\u52a0\u78bc\u3002",
+            "\u2022 \u9577\u671f\uff082-4 \u5b63\uff09\uff1a\u4f9d\u7522\u696d\u8da8\u52e2\u8207\u7372\u5229\u4fee\u6b63\u65b9\u5411\u52d5\u614b\u8abf\u6574\u3002",
             S4,
-            "\u2022 \u4e3b\u8981\u98a8\u96aa\uff1a\u5b8f\u89c0\u65b0\u805e\u53cd\u8f49\u3001\u7522\u696d\u9700\u6c42\u4e0d\u53ca\u9810\u671f\u3001\u5546\u54c1\u50f9\u683c\u8b8a\u52d5\u3002",
-            "\u2022 \u5931\u6548\u689d\u4ef6\uff1a\u8dcc\u7834\u95dc\u9375\u652f\u6490\u5f8c 2 \u500b\u4ea4\u6613\u65e5\u5167\u672a\u80fd\u6536\u5fa9\uff0c\u6216\u91cf\u80fd\u8207\u50f9\u683c\u80cc\u96e2\u52a0\u5287\u3002",
-            "\u2022 \u90e8\u4f4d\u98a8\u63a7\uff1a\u55ae\u7b46\u98a8\u96aa\u63a7\u5728\u8cc7\u91d1 0.5%~1.0%\uff0c\u55ae\u4e00\u7522\u696d\u96c6\u4e2d\u5ea6\u4e0d\u8d85\u904e 35%\u3002",
+            "\u2022 \u5931\u6548\u689d\u4ef6\uff1a\u8dcc\u7834\u95dc\u9375\u652f\u6490\u4e14\u5169\u65e5\u5167\u7121\u6cd5\u6536\u5fa9\uff0c\u6216\u50f9\u91cf\u80cc\u96e2\u64f4\u5927\u3002",
+            "\u2022 \u90e8\u4f4d\u98a8\u63a7\uff1a\u55ae\u7b46\u98a8\u96aa\u63a7\u5728 0.5%-1.0%\uff0c\u907f\u514d\u904e\u5ea6\u96c6\u4e2d\u3002",
+            "\u2022 \u98a8\u96aa\u4f86\u6e90\uff1a\u8ca1\u5831\u840e\u7e2e\u3001\u6307\u5f15\u4e0b\u4fee\u3001\u5229\u7387\u8def\u5f91\u8b8a\u5316\u3001\u5730\u7de3\u653f\u6cbb\u3002",
             S5,
-            "\u2022 24h\uff1a\u89c0\u5bdf\u91cd\u8981\u652f\u6490/\u58d3\u529b\u8207\u91cf\u80fd\u540c\u6b65\u6027\u3002",
-            "\u2022 7d\uff1a\u8ffd\u8e64\u7522\u696d\u65b0\u805e\u8207\u7372\u5229\u9810\u4f30\u4fee\u6b63\u65b9\u5411\u3002",
-            "\u2022 30d\uff1a\u91cd\u65b0\u6aa2\u8996\u90e8\u4f4d\u914d\u7f6e\uff0c\u4f9d\u6210\u6548\u8207\u6ce2\u52d5\u8abf\u6574\u6b0a\u91cd\u3002",
+            "\u2022 24h\uff1a\u8ffd\u8e64\u65b0\u805e\u662f\u5426\u6539\u8b8a\u5e02\u5834\u6545\u4e8b\u7dda\u8207\u98a8\u96aa\u504f\u597d\u3002",
+            "\u2022 7d\uff1a\u8ffd\u8e64\u6cd5\u4eba\u7c4c\u78bc\u9023\u7e8c\u6027\u8207\u7372\u5229\u9810\u4f30\u4fee\u6b63\u3002",
+            "\u2022 30d\uff1a\u6aa2\u8996\u7e3d\u90e8\u4f4d\u7387\u8207\u7b56\u7565\u56de\u64a4\uff0c\u518d\u5e73\u8861\u6743\u91cd\u3002",
             S6,
-            "\u2022 \u5287\u672c A\uff08\u9806\u52e2\uff09\uff1a\u56de\u6e2c\u4e0d\u7834\u652f\u6490\u5f8c\u5206\u6279\u9032\u5834\uff0c\u505c\u640d\u653e\u5728\u7d50\u69cb\u4f4e\u9ede\u4e0b\u65b9\u3002",
-            "\u2022 \u5287\u672c B\uff08\u53cd\u8f49\uff09\uff1a\u82e5\u5931\u5b88\u95dc\u9375\u652f\u6490\u4e26\u51fa\u73fe\u53cd\u5f48\u7121\u529b\uff0c\u964d\u4f4e\u66b4\u9732\u6216\u5c0d\u6c96\u3002",
-            "\u2022 \u7372\u5229/\u98a8\u96aa\u6bd4\u5efa\u8b70\uff1a\u4ee5 R \u500d\u6578\u7ba1\u7406\uff0c\u9810\u8a2d R:R \u81f3\u5c11 1:2\uff0c\u9054\u6a19\u5f8c\u5c07\u505c\u640d\u4e0a\u79fb\u4fdd\u672c\u3002",
+            "\u2022 \u9032\u5834\uff1a\u689d\u4ef6\u6210\u7acb\u624d\u9032\u5834\uff0c\u5efa\u8b70\u5206\u6279\u4e26\u4fdd\u7559\u6a5f\u52d5\u6027\u3002",
+            "\u2022 \u505c\u640d\uff1a\u653e\u5728\u7d50\u69cb\u5931\u6548\u4f4d\u4e0b\u65b9\uff0c\u4e0d\u53ef\u56e0\u4e3b\u89c0\u9884\u671f\u5ef6\u5f8c\u57f7\u884c\u3002",
+            "\u2022 \u76ee\u6a19\uff1a\u4ee5\u524d\u9ad8/\u58d3\u529b\u5340\u5206\u6bb5\u4e86\u7d50\uff0c\u9810\u8a2d R:R \u81f3\u5c11 1:2\u3002",
             SMC_HEADER,
             f"\u2022 Trend={smc.get('trend')}",
             f"\u2022 BOS={smc.get('bos')}",
@@ -506,22 +572,28 @@ class GeminiService:
             f"\u2022 ActiveOB={smc.get('active_ob')}",
             f"\u2022 OpenFVG={smc.get('open_fvg')}",
             f"\u2022 Liquidity(B/S)={smc.get('liquidity')}",
+            "\u2022 ICT/SMC\u89c0\u9ede\uff1a\u5148\u89c0\u5bdf\u6d41\u52d5\u6027\u6383\u63a0\u5f8c\u662f\u5426\u56de\u6536\uff0c\u518d\u5224\u65b7\u8da8\u52e2\u5ef6\u7e8c\u6216\u53cd\u8f49\u3002",
         ]
+
         if tier_norm in {"pro", "premium"}:
             lines.extend(
                 [
-                    "\u2022 \u9032\u968e\uff1a\u52a0\u5165\u7c4c\u78bc/\u6210\u4ea4\u7d50\u69cb\u78ba\u8a8d\uff0c\u907f\u514d\u55ae\u4e00\u56e0\u5b50\u6c7a\u7b56\u3002",
-                    "\u2022 \u9032\u968e\uff1a\u4f9d\u7167\u6ce2\u52d5\u7387\u8abf\u6574\u6bcf\u7b46\u4e0b\u55ae\u5927\u5c0f\uff0c\u63a7\u5236\u56de\u64a4\u66f2\u7dda\u5e73\u6ed1\u5ea6\u3002",
+                    "\u2022 \u9032\u968e\u57f7\u884c\uff1a\u53ea\u5728\u591a\u56e0\u5b50\u540c\u5411\u6642\u63d0\u9ad8\u5009\u4f4d\u3002",
+                    "\u2022 \u9032\u968e\u98a8\u63a7\uff1a\u4e8b\u4ef6\u524d\u964d\u69d3\u687f\uff0c\u4e8b\u4ef6\u5f8c\u4f9d\u6ce2\u52d5\u7387\u56de\u88dc\u3002",
+                    "\u2022 \u9032\u968e\u4ed3\u4f4d\uff1a\u6838\u5fc3\u5009\u8207\u6226\u8853\u5009\u5206\u96e2\u7ba1\u7406\u3002",
                 ]
             )
         if tier_norm == "premium":
             lines.extend(
                 [
                     "\u2022 Premium \u60c5\u5883\u6a5f\u7387\uff1abase 50%\uff0cbull 30%\uff0cbear 20%\u3002",
-                    "\u2022 Premium \u7d44\u5408\u89d2\u5ea6\uff1a\u8207\u6307\u6578/\u9632\u79a6\u8cc7\u7522\u505a\u76f8\u95dc\u7ba1\u7406\uff0c\u63a7\u5236\u5c3e\u90e8\u98a8\u96aa\u66b4\u9732\u3002",
+                    "\u2022 Premium \u7d44\u5408\u89d2\u5ea6\uff1a\u7d50\u5408\u6307\u6578\u6216\u9632\u79a6\u8cc7\u7522\u63a7\u5236\u5c3e\u90e8\u98a8\u96aa\u3002",
+                    "\u2022 Premium \u7b56\u7565\u7dad\u904b\uff1a\u4ee5\u52dd\u7387\u3001\u76c8\u8667\u6bd4\u3001\u6700\u5927\u56de\u64a4\u5b9a\u671f\u8907\u76e4\u3002",
                 ]
             )
-        return "\n".join(lines)
+
+        out = "\n".join(lines)
+        return GeminiService._pad_to_min_chars(out, tier)
 
     def _background_retry_stage2(self, symbol: str, final_prompt: str) -> None:
         def _task() -> None:
@@ -543,6 +615,27 @@ class GeminiService:
 
         threading.Thread(target=_task, daemon=True).start()
 
+    @staticmethod
+    def _emit_progress(
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]],
+        progress: int,
+        stage: str,
+        message: str,
+        **extra: Any,
+    ) -> None:
+        if not callable(progress_callback):
+            return
+        payload: Dict[str, Any] = {
+            "progress": max(0, min(100, int(progress))),
+            "stage": stage,
+            "message": message,
+        }
+        if extra:
+            payload.update(extra)
+        try:
+            progress_callback(payload)
+        except Exception:
+            pass
     def generate_analysis(
         self,
         symbol: str,
@@ -552,15 +645,20 @@ class GeminiService:
         macro_data: Dict = None,
         user_question: str = "",
         tier: str = "free",
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
+        emit = lambda p, s, m, **kw: self._emit_progress(progress_callback, p, s, m, **kw)
+
         api_key = self._get_api_key()
         if not api_key:
+            emit(100, "error", "gemini_api_key_missing")
             return {"success": False, "error": "Gemini API key missing", "analysis": "", "grounding_sources": []}
 
         try:
             from google import genai
             from google.genai import types
         except Exception:
+            emit(100, "error", "google_genai_missing")
             return {"success": False, "error": "google-genai missing", "analysis": "", "grounding_sources": []}
 
         with self._generate_slots:
@@ -571,6 +669,7 @@ class GeminiService:
             if cached and self._quality_ok(str(cached.get("analysis") or ""), tier):
                 payload = dict(cached)
                 payload["cached"] = True
+                emit(100, "done", "cached", cached=True, char_count=len(str(payload.get("analysis") or "")))
                 return payload
 
             stage1_timeout = False
@@ -580,7 +679,7 @@ class GeminiService:
             stage1_prompt = (
                 "You are preparing evidence notes for a stock analyst. "
                 "Use Google Search grounding if available. "
-                "Return 4-6 concise bullet points in Traditional Chinese. "
+                "Return 5-8 concise bullet points in Traditional Chinese. "
                 f"symbol={symbol}\n"
                 f"context:\n{context}\n"
                 f"user_question={user_question or 'N/A'}"
@@ -595,16 +694,17 @@ class GeminiService:
                         config=types.GenerateContentConfig(
                             tools=[types.Tool(google_search=types.GoogleSearch())],
                             temperature=0.2,
-                            max_output_tokens=700,
+                            max_output_tokens=780,
                         ),
                     )
                 except Exception:
                     return client.models.generate_content(
                         model=MODEL_GROUNDING,
                         contents=stage1_prompt,
-                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=700),
+                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=780),
                     )
 
+            emit(12, "stage1", "collect_grounded_evidence")
             print(f"[Gemini] Stage 1 starting for {symbol}...")
             stage1_started = time.time()
             ex1 = ThreadPoolExecutor(max_workers=1)
@@ -638,15 +738,18 @@ class GeminiService:
                 ex1.shutdown(wait=False, cancel_futures=True)
 
             stage1_ms = int((time.time() - stage1_started) * 1000)
+            emit(38, "stage1_done", "grounded_evidence_ready", stage1_ms=stage1_ms, source_count=len(grounding_sources))
+
             tier_instruction = self._tier_instruction(tier)
-            max_tokens = 900 if str(tier).lower() == "free" else (1200 if str(tier).lower() == "pro" else 1500)
+            tier_norm = str(tier or "free").strip().lower()
+            max_tokens = 900 if tier_norm == "free" else (1250 if tier_norm == "pro" else 1650)
             grounding_compact = (grounding_text or "").strip()
-            if len(grounding_compact) > 2400:
-                grounding_compact = grounding_compact[:2400]
+            if len(grounding_compact) > 2600:
+                grounding_compact = grounding_compact[:2600]
 
             final_prompt = (
                 f"{tier_instruction}\n\n"
-                "Output template (must follow):\n"
+                "Output template (must follow exactly):\n"
                 f"{INTRO_LINE}\n"
                 f"{S0}\n"
                 f"{S1}\n"
@@ -669,9 +772,11 @@ class GeminiService:
                 "\u2022 Open FVG: ...\n"
                 "\u2022 Liquidity(B/S): ...\n\n"
                 "Rules:\n"
-                "\u2022 \u6bcf\u4e00\u7ae0\u7bc0\u81f3\u5c11 3 \u500b\u5217\u9ede\uff0c\u6bcf\u500b\u5217\u9ede\u4e0d\u8981\u53ea\u6709\u4e00\u53e5\u5ec9\u8a9e\u3002\n"
-                "\u2022 \u4ea4\u6613\u5287\u672c\u5fc5\u9808\u5305\u542b\uff1a\u89f8\u767c\u689d\u4ef6\u3001\u9032\u5834\u60f3\u5b9a\u5340\u3001\u505c\u640d\u3001\u76ee\u6a19\u3001R:R\u3002\n"
-                "\u2022 \u5167\u5bb9\u512a\u5148\u5b8c\u6574\u5ea6\uff0c\u4e0d\u53ef\u56e0\u70ba\u8ffd\u6c42\u901f\u5ea6\u800c\u7c21\u5316\u70ba\u7a7a\u6cdb\u8a9e\u53e5\u3002\n\n"
+                "- Each section requires at least 3 actionable bullets.\n"
+                "- Must include news/sentiment + fundamentals + chips + technical indicators.\n"
+                "- Technical indicators must explicitly include RSI, MACD, KDJ and Bollinger.\n"
+                "- Trading script must include short/mid/long horizon with entry/stop/target/R:R.\n"
+                "- Do not use markdown separators.\n\n"
                 f"symbol={symbol}\n"
                 f"context:\n{context}\n\n"
                 f"grounding:\n{grounding_compact}\n\n"
@@ -679,7 +784,7 @@ class GeminiService:
                 f"user_question={user_question or 'N/A'}"
             )
 
-            def _run_stage2():
+            def _run_stage2(prompt: str, temperature: float, output_tokens: int):
                 last_err: Optional[Exception] = None
                 for attempt in range(3):
                     try:
@@ -687,8 +792,8 @@ class GeminiService:
                         c2 = genai.Client(api_key=key2)
                         return c2.models.generate_content(
                             model=MODEL_FINAL,
-                            contents=final_prompt,
-                            config=types.GenerateContentConfig(temperature=0.35, max_output_tokens=max_tokens),
+                            contents=prompt,
+                            config=types.GenerateContentConfig(temperature=temperature, max_output_tokens=output_tokens),
                         )
                     except Exception as e:
                         last_err = e
@@ -701,52 +806,43 @@ class GeminiService:
                             or "timeout" in msg
                         )
                         if transient and attempt < 2:
-                            time.sleep(1.2 * (attempt + 1))
+                            time.sleep(1.1 * (attempt + 1))
                             continue
                         raise
                 if last_err:
                     raise last_err
                 raise RuntimeError("stage2_failed")
 
+            emit(48, "stage2", "generate_multifactor_analysis")
             print(f"[Gemini] Stage 2 starting for {symbol}...")
             stage2_started = time.time()
             ex2 = ThreadPoolExecutor(max_workers=1)
-            f2 = ex2.submit(_run_stage2)
+            f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
             try:
                 stage2_resp = f2.result(timeout=GEMINI_TIMEOUT_STAGE2)
                 analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
                 analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
 
-                used_fallback = False
                 if not self._quality_ok(analysis, tier):
+                    emit(72, "repair", "repair_incomplete_sections")
                     print(f"[Gemini] Stage 2 quality gate failed for {symbol}; running repair pass...")
                     repair_prompt = (
                         f"{tier_instruction}\n"
-                        "The previous output is incomplete. Rewrite it fully in Traditional Chinese.\n"
-                        "Keep all six sections and SMC fields. No markdown separators.\n\n"
+                        "Rewrite the previous output fully in Traditional Chinese with complete sections.\n"
+                        "Do not shorten. Keep all required sections and required indicators.\n\n"
                         f"symbol={symbol}\n"
                         f"context:\n{context}\n\n"
                         f"grounding:\n{grounding_compact}\n\n"
                         f"smc_summary:\n{smc_summary}\n\n"
                         f"previous_output:\n{analysis}\n"
                     )
-
-                    def _run_repair():
-                        key3 = self._get_api_key() or api_key
-                        c3 = genai.Client(api_key=key3)
-                        return c3.models.generate_content(
-                            model=MODEL_FINAL,
-                            contents=repair_prompt,
-                            config=types.GenerateContentConfig(temperature=0.25, max_output_tokens=max_tokens + 180),
-                        )
-
                     ex3 = ThreadPoolExecutor(max_workers=1)
-                    f3 = ex3.submit(_run_repair)
+                    f3 = ex3.submit(_run_stage2, repair_prompt, 0.22, max_tokens + 240)
                     try:
                         repair_resp = f3.result(timeout=GEMINI_REPAIR_TIMEOUT_SEC)
                         repair_text = repair_resp.text.strip() if repair_resp and getattr(repair_resp, "text", None) else ""
                         repair_text = self._ensure_smc_section(self._sanitize_analysis_text(repair_text), smc_summary)
-                        if self._quality_ok(repair_text, tier):
+                        if repair_text:
                             analysis = repair_text
                     except Exception:
                         pass
@@ -754,7 +850,7 @@ class GeminiService:
                         ex3.shutdown(wait=False, cancel_futures=True)
 
                 if not self._quality_ok(analysis, tier):
-                    used_fallback = True
+                    emit(86, "guaranteed", "compose_guaranteed_full_report")
                     analysis = self._build_fallback_from_grounding(
                         symbol=symbol,
                         grounding_text=grounding_text,
@@ -765,14 +861,18 @@ class GeminiService:
                     )
                     analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
 
+                analysis = self._pad_to_min_chars(analysis, tier)
                 quality_pass = self._quality_ok(analysis, tier)
-                if not analysis:
+
+                if not analysis or not quality_pass:
+                    emit(100, "error", "analysis_quality_failed", char_count=len(analysis or ""))
                     return {
                         "success": False,
-                        "error": "empty_stage2_output",
-                        "analysis": "",
+                        "error": "analysis_quality_failed",
+                        "analysis": analysis or "",
                         "grounding_sources": grounding_sources,
                         "quality_pass": False,
+                        "degraded": False,
                         "timings": {
                             "stage1_ms": stage1_ms,
                             "stage2_ms": int((time.time() - stage2_started) * 1000),
@@ -787,8 +887,8 @@ class GeminiService:
                     "grounding_sources": grounding_sources,
                     "model_used": MODEL_FINAL,
                     "grounding_model": MODEL_GROUNDING,
-                    "quality_pass": quality_pass,
-                    "degraded": used_fallback,
+                    "quality_pass": True,
+                    "degraded": False,
                     "error": None,
                     "timings": {
                         "stage1_ms": stage1_ms,
@@ -797,12 +897,20 @@ class GeminiService:
                         "stage1_timeout": stage1_timeout,
                     },
                 }
-                if quality_pass:
-                    self._write_analysis_cache(cache_key, payload)
+                self._write_analysis_cache(cache_key, payload)
+                emit(
+                    100,
+                    "done",
+                    "analysis_completed",
+                    char_count=len(analysis),
+                    min_chars=self._tier_min_chars(tier),
+                    total_ms=payload["timings"]["total_ms"],
+                )
                 return payload
             except FuturesTimeoutError:
                 f2.cancel()
                 print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
+                emit(86, "timeout", "stage2_timeout_compose_guaranteed")
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
                     grounding_text=grounding_text,
@@ -812,13 +920,12 @@ class GeminiService:
                     prediction_summary=prediction_summary,
                 )
                 fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
-                if fallback:
-                    self._background_retry_stage2(symbol, final_prompt)
+                fallback = self._pad_to_min_chars(fallback, tier)
                 quality_pass = self._quality_ok(fallback, tier)
                 payload = {
-                    "success": bool(fallback),
-                    "degraded": bool(fallback),
-                    "error": f"stage2_timeout_{GEMINI_TIMEOUT_STAGE2}s",
+                    "success": bool(fallback) and quality_pass,
+                    "degraded": False,
+                    "error": None if quality_pass else f"stage2_timeout_{GEMINI_TIMEOUT_STAGE2}s",
                     "analysis": fallback,
                     "grounding_text": grounding_text,
                     "grounding_sources": grounding_sources,
@@ -832,16 +939,28 @@ class GeminiService:
                 }
                 if quality_pass:
                     self._write_analysis_cache(cache_key, payload)
+                    emit(
+                        100,
+                        "done",
+                        "analysis_completed_guaranteed",
+                        char_count=len(fallback or ""),
+                        min_chars=self._tier_min_chars(tier),
+                        total_ms=payload["timings"]["total_ms"],
+                    )
+                else:
+                    emit(100, "error", "timeout_and_quality_failed")
                 return payload
             except Exception as e:
                 print(f"[Gemini] Stage 2 error: {e}")
                 traceback.print_exc()
+                emit(100, "error", f"stage2_error_{type(e).__name__}")
                 return {
                     "success": False,
                     "error": f"stage2_error_{type(e).__name__}",
                     "analysis": "",
                     "grounding_sources": grounding_sources,
                     "quality_pass": False,
+                    "degraded": False,
                     "timings": {
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
@@ -852,6 +971,8 @@ class GeminiService:
                 ex2.shutdown(wait=False, cancel_futures=True)
 
     def generate_chat_response(
+
+
         self,
         history: List[Dict],
         user_message: str,

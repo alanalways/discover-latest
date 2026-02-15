@@ -969,7 +969,9 @@ class SupabaseAdapter:
         if not user_id:
             return False
         try:
-            rows = self.list_pending_upgrade_requests() or []
+            # Verification must bypass temporary suppression, otherwise
+            # a not-yet-cleared request can be falsely treated as removed.
+            rows = self.list_pending_upgrade_requests(include_suppressed=True) or []
             return any(str((row or {}).get("user_id") or "").strip() == user_id for row in rows)
         except Exception:
             # If verification path fails, keep conservative behavior.
@@ -1152,7 +1154,7 @@ class SupabaseAdapter:
             self._mark_pending_resolved(user_id, ttl_sec=1800)
         return ok
 
-    def list_pending_upgrade_requests(self) -> List[Dict[str, Any]]:
+    def list_pending_upgrade_requests(self, include_suppressed: bool = False) -> List[Dict[str, Any]]:
         """List all pending upgrade requests for admin moderation."""
         pending_rows: Dict[str, Dict[str, Any]] = {}
 
@@ -1170,7 +1172,7 @@ class SupabaseAdapter:
             uid = str(row.get("id") or "").strip()
             if not uid:
                 continue
-            if self._is_pending_suppressed(uid):
+            if not include_suppressed and self._is_pending_suppressed(uid):
                 continue
             metadata = row.get("user_metadata") if isinstance(row.get("user_metadata"), dict) else {}
             pending = self._extract_pending_from_metadata(uid, metadata)
@@ -1184,7 +1186,7 @@ class SupabaseAdapter:
         for uid, row in self._pending_upgrade_mem.items():
             if uid in pending_rows:
                 continue
-            if self._is_pending_suppressed(uid):
+            if not include_suppressed and self._is_pending_suppressed(uid):
                 continue
             if isinstance(row, dict):
                 pending_rows[uid] = dict(row)

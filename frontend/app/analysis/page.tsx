@@ -99,9 +99,17 @@ interface IndustryChainData {
 
 interface PrimeFlowData {
     symbol?: string;
-    snapshot?: { score?: number; label?: string; confidence?: number };
+    snapshot?: {
+        score?: number;
+        label?: string;
+        confidence?: number;
+        whale_entry?: boolean;
+        whale_confidence?: number;
+        whale_flow?: string;
+        whale_reasons?: string[];
+    };
     nodes?: Array<{ id: string; label: string; group: string }>;
-    edges?: Array<{ source: string; target: string; label?: string; signal?: number }>;
+    edges?: Array<{ source: string; target: string; label?: string; signal?: number; direction?: string }>;
     factors?: Array<{ id: string; label: string; signal: number; weight: number; contribution: number }>;
     suggestions?: string[];
 }
@@ -133,6 +141,31 @@ function extractAiText(payload: AiAnalysisPayload | null | undefined): string {
     if (fromTop) return fromTop;
 
     return pick(payload.result);
+}
+
+const AI_STAGE_LABELS: Record<string, string> = {
+    prepare: '初始化請求...',
+    smc: '整理 SMC 結構...',
+    stage1: '蒐集新聞與消息面...',
+    stage1_done: '新聞證據整理完成...',
+    stage2: '生成完整深度分析...',
+    repair: '補全章節細節...',
+    guaranteed: '主模型不足，改用完整保底稿...',
+    timeout: '模型逾時，切換保底稿...',
+    done: '分析完成',
+    error: '分析失敗',
+};
+
+function toAiStageText(stage?: string, message?: string, progress?: number, charCount?: number, minChars?: number): string {
+    const key = String(stage || '').trim();
+    const label = AI_STAGE_LABELS[key] || String(message || key || '分析中...');
+    if (typeof charCount === 'number' && typeof minChars === 'number' && minChars > 0) {
+        return `${label} (${charCount}/${minChars})`;
+    }
+    if (typeof progress === 'number' && Number.isFinite(progress)) {
+        return `${label}`;
+    }
+    return label;
 }
 
 // ── 格式化工具函數 ──
@@ -229,35 +262,6 @@ function AnalysisContent() {
         return () => window.clearInterval(timer);
     }, [aiResult]);
 
-    useEffect(() => {
-        if (!aiLoading) return;
-        const startedAt = Date.now();
-        const timer = window.setInterval(() => {
-            const elapsed = Date.now() - startedAt;
-            setAiProgress((prev) => Math.min(96, prev + Math.max(1, Math.round((96 - prev) * 0.1))));
-
-            if (elapsed > 12000) {
-                setAiStage('🧠 正在整理最終重點');
-            } else if (elapsed > 7000) {
-                setAiStage('📊 正在彙整市場訊號');
-            } else if (elapsed > 2500) {
-                setAiStage('🔎 正在蒐集關鍵資料');
-            }
-        }, 350);
-
-        return () => window.clearInterval(timer);
-    }, [aiLoading]);
-
-    useEffect(() => {
-        if (!aiLoading) return;
-        const watchdog = window.setTimeout(() => {
-            setAiLoading(false);
-            setAiProgress(0);
-            setAiStage('');
-            setAiResult('AI 分析逾時，這次不會扣次數，請稍後再試。');
-        }, 80_000);
-        return () => window.clearTimeout(watchdog);
-    }, [aiLoading]);
 
     const periodOptions = useMemo<Array<'1y' | '3y' | '5y'>>(() => {
         const tier = user?.tier || 'free';
@@ -403,37 +407,51 @@ function AnalysisContent() {
         startRouteProgress();
         router.push(`/analysis?symbol=${nextSymbol}`);
     };
-
     const handleAiAnalysis = async () => {
         if (!symbol || aiLoading) return;
         if (!isLoggedIn) {
-            setAiResult('請先登入後再使用 AI 分析。');
+            setAiResult('Please sign in to use AI analysis.');
             setShowLoginModal(true);
             return;
         }
         setAiResult('');
         setTypedAiResult('');
-        setAiProgress(10);
-        setAiStage('🚀 正在建立分析任務');
+        setAiProgress(2);
+        setAiStage('Initializing...');
         setAiLoading(true);
         try {
-            const result = await api.getAiAnalysis(symbol) as AiAnalysisPayload;
+            const result = await api.streamAiAnalysis(symbol, period, {
+                onProgress: (event) => {
+                    const p = Number(event.progress);
+                    const nextProgress = Number.isFinite(p) ? Math.max(1, Math.min(100, Math.round(p))) : 1;
+                    setAiProgress(nextProgress);
+                    setAiStage(
+                        toAiStageText(
+                            typeof event.stage === 'string' ? event.stage : '',
+                            typeof event.message === 'string' ? event.message : '',
+                            nextProgress,
+                            typeof event.char_count === 'number' ? event.char_count : undefined,
+                            typeof event.min_chars === 'number' ? event.min_chars : undefined,
+                        ),
+                    );
+                },
+            }) as AiAnalysisPayload;
             const text = extractAiText(result);
-            setAiResult(text || 'AI 暫時無法產出分析，請稍後再試。');
+            setAiResult(text || 'AI returned empty content. Please retry.');
             window.dispatchEvent(new Event('dl:usage-refresh'));
         } catch (err: unknown) {
             console.error(err);
             const status = getErrorStatus(err);
             if (status === 403) {
-                setAiResult('目前方案尚未開通 AI 分析功能。');
+                setAiResult('Current plan does not support AI analysis.');
             } else if (status === 429) {
-                setAiResult('今日 AI 次數已達上限，請稍後再試。');
+                setAiResult('Daily AI quota reached.');
             } else {
-                setAiResult('AI 分析暫時失敗，這次不會扣次數，請稍後重試。');
+                setAiResult('AI analysis failed. Please retry.');
             }
         } finally {
             setAiProgress(100);
-            setAiStage('✅ 完成');
+            setAiStage('Completed');
             setAiLoading(false);
             window.setTimeout(() => {
                 setAiProgress(0);
@@ -952,7 +970,7 @@ function AnalysisContent() {
                                     <div className="h-2 w-full rounded-full bg-indigo-950/70 overflow-hidden">
                                         <div
                                             className="h-2 rounded-full bg-gradient-to-r from-cyan-400 via-blue-500 to-violet-500 transition-all duration-300"
-                                            style={{ width: `${Math.max(8, aiProgress)}%` }}
+                                            style={{ width: `${Math.max(0, Math.min(100, aiProgress))}%` }}
                                         />
                                     </div>
                                     <div className="mt-2 text-xs text-indigo-200/80 animate-pulse">
