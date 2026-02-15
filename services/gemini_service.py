@@ -85,6 +85,9 @@ _key_lock = threading.Lock()
 _metrics_cache: Dict[str, Dict[str, Any]] = {}
 _metrics_cache_lock = threading.Lock()
 
+_industry_chain_cache: Dict[str, Dict[str, Any]] = {}
+_industry_chain_cache_lock = threading.Lock()
+
 _analysis_cache: Dict[str, Dict[str, Any]] = {}
 _analysis_cache_lock = threading.Lock()
 
@@ -279,6 +282,140 @@ class GeminiService:
         with _metrics_cache_lock:
             _metrics_cache[cache_key] = result
 
+        return result
+
+    def ground_industry_chain(self, symbol: str, company_name: str = "", industry_hint: str = "") -> Dict[str, Any]:
+        normalized_symbol = str(symbol or "").strip().upper()
+        cache_key = f"{time.strftime('%Y-%m-%d')}:{normalized_symbol}:industry-chain"
+
+        with _industry_chain_cache_lock:
+            cached = _industry_chain_cache.get(cache_key)
+            if isinstance(cached, dict):
+                return cached
+
+        api_key = self._get_api_key()
+        if not api_key:
+            return {"success": False, "chain": {}, "sources": [], "error": "no_api_key"}
+
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception:
+            return {"success": False, "chain": {}, "sources": [], "error": "google_genai_missing"}
+
+        prompt = (
+            "Use Google Search grounding and return strict JSON only. "
+            "Return object schema: "
+            '{"upstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"上游","weight":number|null}],'
+            '"downstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"下游","weight":number|null}],'
+            '"peer":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"同業","weight":number|null}],'
+            '"competitor":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"競爭","weight":number|null}]}. '
+            "Each list should have 3 to 6 companies. prefer listed companies with ticker. "
+            "weight range 0 to 1. no markdown.\n"
+            f"symbol={normalized_symbol}\n"
+            f"company={company_name or normalized_symbol}\n"
+            f"industry={industry_hint or 'unknown'}"
+        )
+
+        def _run():
+            client = genai.Client(api_key=api_key)
+            return client.models.generate_content(
+                model=MODEL_GROUNDING,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.1,
+                    max_output_tokens=1200,
+                ),
+            )
+
+        sources: List[Dict[str, str]] = []
+        ex = ThreadPoolExecutor(max_workers=1)
+        f = ex.submit(_run)
+        try:
+            response = f.result(timeout=20)
+        except FuturesTimeoutError:
+            f.cancel()
+            return {"success": False, "chain": {}, "sources": [], "error": "grounding_timeout"}
+        except Exception as e:
+            return {"success": False, "chain": {}, "sources": [], "error": type(e).__name__}
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
+
+        text_out = response.text if response and getattr(response, "text", None) else ""
+        candidates = getattr(response, "candidates", None) or []
+        if candidates:
+            gm = getattr(candidates[0], "grounding_metadata", None)
+            chunks = getattr(gm, "grounding_chunks", None) if gm else None
+            for chunk in (chunks or []):
+                web = getattr(chunk, "web", None)
+                if web:
+                    sources.append(
+                        {
+                            "title": str(getattr(web, "title", "") or ""),
+                            "uri": str(getattr(web, "uri", "") or ""),
+                        }
+                    )
+
+        parsed = self._extract_json_object(text_out)
+        relation_keys = ("upstream", "downstream", "peer", "competitor")
+        chain: Dict[str, List[Dict[str, Any]]] = {k: [] for k in relation_keys}
+        for key in relation_keys:
+            rows = parsed.get(key)
+            if not isinstance(rows, list):
+                continue
+            for row in rows[:8]:
+                if isinstance(row, str):
+                    name = row.strip()
+                    if not name:
+                        continue
+                    chain[key].append(
+                        {
+                            "name": name,
+                            "ticker": None,
+                            "listed": None,
+                            "listed_market": None,
+                            "relation_type": {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key],
+                            "weight": None,
+                        }
+                    )
+                    continue
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("name") or "").strip()
+                ticker = str(row.get("ticker") or "").strip() or None
+                if not name and not ticker:
+                    continue
+                listed_val = row.get("listed")
+                if isinstance(listed_val, bool):
+                    listed = listed_val
+                else:
+                    listed = None
+                listed_market = str(row.get("listed_market") or "").strip() or None
+                weight = self._safe_float(row.get("weight"))
+                if weight is not None:
+                    weight = max(0.0, min(1.0, weight))
+
+                chain[key].append(
+                    {
+                        "name": name or (ticker or ""),
+                        "ticker": ticker,
+                        "listed": listed,
+                        "listed_market": listed_market,
+                        "relation_type": str(row.get("relation_type") or {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key]),
+                        "weight": weight,
+                    }
+                )
+
+        valid_groups = sum(1 for k in relation_keys if len(chain.get(k) or []) > 0)
+        result = {
+            "success": valid_groups >= 2,
+            "chain": chain,
+            "sources": sources[:10],
+            "error": None if valid_groups >= 2 else "insufficient_grounded_chain",
+        }
+        with _industry_chain_cache_lock:
+            _industry_chain_cache[cache_key] = result
         return result
 
     def _build_context(

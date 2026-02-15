@@ -93,6 +93,8 @@ interface AiAnalysisPayload {
 
 interface IndustryChainData {
     symbol?: string;
+    grounded?: boolean;
+    grounding_sources?: Array<{ title?: string; uri?: string }>;
     nodes?: Array<{
         id: string;
         label: string;
@@ -102,9 +104,26 @@ interface IndustryChainData {
         listed?: boolean | null;
         listed_market?: string;
         relation?: string;
+        relation_score?: number;
+        price?: number;
+        change_pct?: number;
+        change_5d_pct?: number;
+        flow_light?: string;
     }>;
-    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string }>;
-    relations?: Array<{ company: string; ticker: string; listed?: boolean | null; listed_market?: string; relation?: string; relation_group?: string }>;
+    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string; relation_score?: number; flow_light?: string }>;
+    relations?: Array<{
+        company: string;
+        ticker: string;
+        listed?: boolean | null;
+        listed_market?: string;
+        relation?: string;
+        relation_group?: string;
+        relation_score?: number;
+        price?: number;
+        change_pct?: number;
+        change_5d_pct?: number;
+        flow_light?: string;
+    }>;
 }
 
 interface PrimeFlowData {
@@ -123,6 +142,7 @@ interface PrimeFlowData {
     edges?: Array<{ source: string; target: string; label?: string; signal?: number; direction?: string }>;
     factors?: Array<{ id: string; label: string; signal: number; weight: number; contribution: number }>;
     suggestions?: string[];
+    waterfall?: Array<{ label: string; start: number; end: number; delta: number }>;
 }
 
 function getErrorStatus(err: unknown): number | undefined {

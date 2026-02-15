@@ -187,6 +187,12 @@ interface PrimeFlowResponse {
     nodes?: PrimeFlowNode[];
     edges?: PrimeFlowEdge[];
     suggestions?: string[];
+    waterfall?: Array<{
+        label: string;
+        start: number;
+        end: number;
+        delta: number;
+    }>;
 }
 
 export class ApiClient {

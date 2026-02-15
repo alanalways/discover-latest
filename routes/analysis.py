@@ -503,12 +503,188 @@ async def smc_analysis(req: SmcRequest):
 
 @router.get("/analysis/industry-chain/{symbol}")
 async def get_industry_chain(symbol: str):
-    """Get industry chain graph with relationship and listing metadata."""
+    """Get industry chain graph with grounding + live quote enrich."""
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
 
     from services.stock_service import stock_service
+    from services.gemini_service import gemini_service
+
+    relation_label_map = {
+        "upstream": "\u4e0a\u6e38",
+        "downstream": "\u4e0b\u6e38",
+        "peer": "\u540c\u696d",
+        "competitor": "\u7af6\u722d",
+    }
+    edge_label_map = {
+        "upstream": "\u4e0a\u6e38\u4f9b\u61c9",
+        "downstream": "\u4e0b\u6e38\u5ba2\u6236",
+        "peer": "\u540c\u696d\u95dc\u806f",
+        "competitor": "\u7af6\u722d\u95dc\u4fc2",
+    }
+    default_weight = {
+        "upstream": 0.78,
+        "downstream": 0.78,
+        "peer": 0.65,
+        "competitor": 0.62,
+    }
+
+    def _infer_market_from_ticker(ticker: str, fallback_market: str = "\u672a\u77e5") -> str:
+        t = str(ticker or "").strip().upper()
+        if not t or t in {"NA", "PRIVATE", "NONE", "NULL"}:
+            return fallback_market
+        if t.endswith(".HK"):
+            return "HKEX"
+        if t.endswith(".KS"):
+            return "KRX"
+        if t.endswith(".SZ"):
+            return "SZSE"
+        if t.endswith(".SS"):
+            return "SSE"
+        if t.endswith(".T"):
+            return "TSE"
+        if t.isdigit() and len(t) in {4, 5, 6}:
+            return "TWSE"
+        return "US"
+
+    def _normalize_item(group: str, row: Any, idx: int, fallback_market: str) -> dict[str, Any]:
+        raw = row if isinstance(row, dict) else {"name": str(row)}
+        ticker = str(raw.get("ticker") or "").strip().upper()
+        if not ticker:
+            ticker = "NA"
+        if ticker in {"NONE", "NULL"}:
+            ticker = "NA"
+        name = str(raw.get("name") or "").strip() or (
+            ticker if ticker != "NA" else f"{relation_label_map[group]}\u516c\u53f8{idx + 1}"
+        )
+
+        listed_raw = raw.get("listed")
+        if isinstance(listed_raw, bool):
+            listed = listed_raw
+        else:
+            listed = ticker not in {"NA", "PRIVATE"}
+
+        listed_market = str(raw.get("listed_market") or "").strip()
+        if not listed_market:
+            listed_market = _infer_market_from_ticker(ticker, fallback_market if listed else "\u672a\u4e0a\u5e02")
+
+        weight = _safe_num(raw.get("weight"))
+        if weight <= 0:
+            weight = default_weight[group]
+        weight = float(_clamp(weight, 0.0, 1.0))
+
+        return {
+            "name": name,
+            "ticker": ticker,
+            "listed": listed,
+            "listed_market": listed_market,
+            "weight": round(weight, 4),
+        }
+
+    def _fallback_profile(company_name: str, market_hint: str, industry_hint: str) -> dict[str, Any]:
+        payment_hit = any(k in industry_hint for k in ("payment", "card", "credit", "fintech", "financial"))
+        semis_hit = any(k in industry_hint for k in ("semiconductor", "chip", "foundry"))
+        software_hit = any(k in industry_hint for k in ("software", "cloud", "saas", "internet"))
+
+        if payment_hit:
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "NYSE" if market_hint == "US" else market_hint,
+                "upstream": [{"name": "Fiserv", "ticker": "FI"}, {"name": "FIS", "ticker": "FIS"}, {"name": "Global Payments", "ticker": "GPN"}],
+                "downstream": [{"name": "JPMorgan Chase", "ticker": "JPM"}, {"name": "Bank of America", "ticker": "BAC"}, {"name": "Walmart", "ticker": "WMT"}],
+                "peer": [{"name": "Visa", "ticker": "V"}, {"name": "Mastercard", "ticker": "MA"}, {"name": "PayPal", "ticker": "PYPL"}],
+                "competitor": [{"name": "American Express", "ticker": "AXP"}, {"name": "Discover", "ticker": "DFS"}, {"name": "Block", "ticker": "XYZ"}],
+            }
+        if semis_hit:
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "NASDAQ" if market_hint == "US" else market_hint,
+                "upstream": [{"name": "ASML", "ticker": "ASML"}, {"name": "Applied Materials", "ticker": "AMAT"}, {"name": "Lam Research", "ticker": "LRCX"}],
+                "downstream": [{"name": "Microsoft", "ticker": "MSFT"}, {"name": "Amazon", "ticker": "AMZN"}, {"name": "Meta", "ticker": "META"}],
+                "peer": [{"name": "NVIDIA", "ticker": "NVDA"}, {"name": "AMD", "ticker": "AMD"}, {"name": "Broadcom", "ticker": "AVGO"}],
+                "competitor": [{"name": "Intel", "ticker": "INTC"}, {"name": "Qualcomm", "ticker": "QCOM"}, {"name": "Marvell", "ticker": "MRVL"}],
+            }
+        if software_hit:
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": "NASDAQ" if market_hint == "US" else market_hint,
+                "upstream": [{"name": "NVIDIA", "ticker": "NVDA"}, {"name": "Oracle", "ticker": "ORCL"}, {"name": "ServiceNow", "ticker": "NOW"}],
+                "downstream": [{"name": "Salesforce", "ticker": "CRM"}, {"name": "Adobe", "ticker": "ADBE"}, {"name": "Intuit", "ticker": "INTU"}],
+                "peer": [{"name": "Microsoft", "ticker": "MSFT"}, {"name": "Adobe", "ticker": "ADBE"}, {"name": "Salesforce", "ticker": "CRM"}],
+                "competitor": [{"name": "Google", "ticker": "GOOGL"}, {"name": "Amazon", "ticker": "AMZN"}, {"name": "IBM", "ticker": "IBM"}],
+            }
+        if market_hint in {"TWSE", "TPEX"}:
+            return {
+                "name": company_name,
+                "ticker": sym,
+                "listed": True,
+                "listed_market": market_hint,
+                "upstream": [{"name": "TSMC", "ticker": "2330"}, {"name": "Novatek", "ticker": "3034"}, {"name": "ASEH", "ticker": "3711"}],
+                "downstream": [{"name": "Foxconn", "ticker": "2317"}, {"name": "Quanta", "ticker": "2382"}, {"name": "Wistron", "ticker": "3231"}],
+                "peer": [{"name": "UMC", "ticker": "2303"}, {"name": "Realtek", "ticker": "2379"}, {"name": "MediaTek", "ticker": "2454"}],
+                "competitor": [{"name": "Alchip", "ticker": "3661"}, {"name": "GUC", "ticker": "3443"}, {"name": "eMemory", "ticker": "3529"}],
+            }
+        return {
+            "name": company_name,
+            "ticker": sym,
+            "listed": True,
+            "listed_market": "US",
+            "upstream": [{"name": "Microsoft", "ticker": "MSFT"}, {"name": "NVIDIA", "ticker": "NVDA"}, {"name": "Oracle", "ticker": "ORCL"}],
+            "downstream": [{"name": "Amazon", "ticker": "AMZN"}, {"name": "Walmart", "ticker": "WMT"}, {"name": "Costco", "ticker": "COST"}],
+            "peer": [{"name": "Apple", "ticker": "AAPL"}, {"name": "Alphabet", "ticker": "GOOGL"}, {"name": "Meta", "ticker": "META"}],
+            "competitor": [{"name": "Tesla", "ticker": "TSLA"}, {"name": "Netflix", "ticker": "NFLX"}, {"name": "Salesforce", "ticker": "CRM"}],
+        }
+
+    async def _quote_snapshot(ticker: str) -> dict[str, Any]:
+        t = str(ticker or "").strip().upper()
+        if not t or t in {"NA", "PRIVATE"}:
+            return {}
+        try:
+            quote_data = await stock_service.get_stock_data(t, period="3mo")
+        except Exception:
+            return {}
+        history = quote_data.get("history") if isinstance(quote_data, dict) else []
+        if not isinstance(history, list) or not history:
+            return {}
+
+        closes = [_safe_num(r.get("close")) for r in history if _safe_num(r.get("close")) > 0]
+        volumes = [_safe_num(r.get("volume")) for r in history if _safe_num(r.get("volume")) >= 0]
+        if not closes:
+            return {}
+
+        last = closes[-1]
+        prev = closes[-2] if len(closes) >= 2 else 0.0
+        base5 = closes[-6] if len(closes) >= 6 else 0.0
+        chg_pct = ((last - prev) / prev * 100.0) if prev > 0 else 0.0
+        chg5_pct = ((last - base5) / base5 * 100.0) if base5 > 0 else 0.0
+
+        vol_ratio = 1.0
+        if len(volumes) >= 20 and volumes[-1] > 0:
+            avg20 = sum(volumes[-20:]) / max(1, len(volumes[-20:]))
+            if avg20 > 0:
+                vol_ratio = volumes[-1] / avg20
+
+        if chg5_pct >= 1.2 and vol_ratio >= 1.0:
+            flow_light = "inflow"
+        elif chg5_pct <= -1.2 and vol_ratio >= 1.0:
+            flow_light = "outflow"
+        else:
+            flow_light = "neutral"
+
+        return {
+            "price": round(last, 4),
+            "change_pct": round(chg_pct, 4),
+            "change_5d_pct": round(chg5_pct, 4),
+            "volume_ratio_20d": round(vol_ratio, 4),
+            "flow_light": flow_light,
+        }
 
     snapshot: dict[str, Any] = {}
     info: dict[str, Any] = {}
@@ -523,369 +699,57 @@ async def get_industry_chain(symbol: str):
     market_hint = str(info.get("market") or ("TWSE" if sym.isdigit() else "US")).upper()
     industry_hint = str(info.get("industry") or "").lower()
 
-    def company_row(name: str, ticker: str, listed_market: str, listed: bool = True) -> dict[str, Any]:
-        return {
-            "name": name,
-            "ticker": ticker,
-            "listed": listed,
-            "listed_market": listed_market,
-        }
+    grounded_sources: list[dict[str, str]] = []
+    profile = None
+    if gemini_service.is_available():
+        try:
+            grounded = await asyncio.wait_for(
+                asyncio.to_thread(gemini_service.ground_industry_chain, sym, company_name, industry_hint),
+                timeout=24,
+            )
+        except Exception:
+            grounded = {}
+        if isinstance(grounded, dict):
+            grounded_sources = grounded.get("sources") or []
+            chain = grounded.get("chain") or {}
+            if grounded.get("success") and isinstance(chain, dict):
+                profile = {
+                    "name": company_name,
+                    "ticker": sym,
+                    "listed": True,
+                    "listed_market": market_hint if market_hint else "US",
+                    "upstream": chain.get("upstream") or [],
+                    "downstream": chain.get("downstream") or [],
+                    "peer": chain.get("peer") or [],
+                    "competitor": chain.get("competitor") or [],
+                }
 
-    templates = {
-        "2330": {
-            "name": "台積電",
-            "ticker": "2330",
-            "listed": True,
-            "listed_market": "TWSE",
-            "upstream": [
-                {"name": "ASML", "ticker": "ASML", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Synopsys", "ticker": "SNPS", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Tokyo Electron", "ticker": "8035.T", "listed": True, "listed_market": "TSE"},
-            ],
-            "downstream": [
-                {"name": "NVIDIA", "ticker": "NVDA", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Apple", "ticker": "AAPL", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "AMD", "ticker": "AMD", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Qualcomm", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "peer": [
-                {"name": "聯電", "ticker": "2303", "listed": True, "listed_market": "TWSE"},
-                {"name": "格羅方德", "ticker": "GFS", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
-                {"name": "Intel Foundry", "ticker": "INTC", "listed": True, "listed_market": "NASDAQ"},
-            ],
-        },
-        "2454": {
-            "name": "聯發科",
-            "ticker": "2454",
-            "listed": True,
-            "listed_market": "TWSE",
-            "upstream": [
-                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
-                {"name": "ARM", "ticker": "ARM", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "日月光投控", "ticker": "3711", "listed": True, "listed_market": "TWSE"},
-            ],
-            "downstream": [
-                {"name": "小米", "ticker": "1810.HK", "listed": True, "listed_market": "HKEX"},
-                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
-                {"name": "OPPO", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
-            ],
-            "peer": [
-                {"name": "高通", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "紫光展銳", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
-            ],
-            "competitor": [
-                {"name": "三星 LSI", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
-                {"name": "瑞昱", "ticker": "2379", "listed": True, "listed_market": "TWSE"},
-            ],
-        },
-        "NVDA": {
-            "name": "NVIDIA",
-            "ticker": "NVDA",
-            "listed": True,
-            "listed_market": "NASDAQ",
-            "upstream": [
-                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
-                {"name": "SK Hynix", "ticker": "000660.KS", "listed": True, "listed_market": "KRX"},
-                {"name": "ASML", "ticker": "ASML", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "downstream": [
-                {"name": "Microsoft", "ticker": "MSFT", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Amazon", "ticker": "AMZN", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Meta", "ticker": "META", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "peer": [
-                {"name": "AMD", "ticker": "AMD", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Broadcom", "ticker": "AVGO", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "Intel", "ticker": "INTC", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Qualcomm", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
-            ],
-        },
-        "TSLA": {
-            "name": "Tesla",
-            "ticker": "TSLA",
-            "listed": True,
-            "listed_market": "NASDAQ",
-            "upstream": [
-                {"name": "Panasonic", "ticker": "6752.T", "listed": True, "listed_market": "TSE"},
-                {"name": "NVIDIA", "ticker": "NVDA", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "CATL", "ticker": "300750.SZ", "listed": True, "listed_market": "SZSE"},
-            ],
-            "downstream": [
-                {"name": "Hertz", "ticker": "HTZ", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Uber", "ticker": "UBER", "listed": True, "listed_market": "NYSE"},
-                {"name": "Avis Budget", "ticker": "CAR", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "peer": [
-                {"name": "Rivian", "ticker": "RIVN", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Lucid", "ticker": "LCID", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "BYD", "ticker": "1211.HK", "listed": True, "listed_market": "HKEX"},
-                {"name": "小鵬汽車", "ticker": "9868.HK", "listed": True, "listed_market": "HKEX"},
-            ],
-        },
-        "AAPL": {
-            "name": "Apple",
-            "ticker": "AAPL",
-            "listed": True,
-            "listed_market": "NASDAQ",
-            "upstream": [
-                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
-                {"name": "鴻海", "ticker": "2317", "listed": True, "listed_market": "TWSE"},
-                {"name": "大立光", "ticker": "3008", "listed": True, "listed_market": "TWSE"},
-            ],
-            "downstream": [
-                {"name": "Best Buy", "ticker": "BBY", "listed": True, "listed_market": "NYSE"},
-                {"name": "T-Mobile US", "ticker": "TMUS", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "AT&T", "ticker": "T", "listed": True, "listed_market": "NYSE"},
-            ],
-            "peer": [
-                {"name": "Microsoft", "ticker": "MSFT", "listed": True, "listed_market": "NASDAQ"},
-                {"name": "Alphabet", "ticker": "GOOGL", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
-                {"name": "華為終端", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
-            ],
-        },
-        "V": {
-            "name": "Visa",
-            "ticker": "V",
-            "listed": True,
-            "listed_market": "NYSE",
-            "upstream": [
-                {"name": "Fiserv", "ticker": "FI", "listed": True, "listed_market": "NYSE"},
-                {"name": "FIS", "ticker": "FIS", "listed": True, "listed_market": "NYSE"},
-                {"name": "Jack Henry", "ticker": "JKHY", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "downstream": [
-                {"name": "JPMorgan Chase", "ticker": "JPM", "listed": True, "listed_market": "NYSE"},
-                {"name": "Bank of America", "ticker": "BAC", "listed": True, "listed_market": "NYSE"},
-                {"name": "Walmart", "ticker": "WMT", "listed": True, "listed_market": "NYSE"},
-            ],
-            "peer": [
-                {"name": "Mastercard", "ticker": "MA", "listed": True, "listed_market": "NYSE"},
-                {"name": "American Express", "ticker": "AXP", "listed": True, "listed_market": "NYSE"},
-                {"name": "PayPal", "ticker": "PYPL", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "Discover", "ticker": "DFS", "listed": True, "listed_market": "NYSE"},
-                {"name": "Block", "ticker": "XYZ", "listed": True, "listed_market": "NYSE"},
-                {"name": "Adyen", "ticker": "ADYEY", "listed": True, "listed_market": "OTC"},
-            ],
-        },
-        "MA": {
-            "name": "Mastercard",
-            "ticker": "MA",
-            "listed": True,
-            "listed_market": "NYSE",
-            "upstream": [
-                {"name": "Fiserv", "ticker": "FI", "listed": True, "listed_market": "NYSE"},
-                {"name": "FIS", "ticker": "FIS", "listed": True, "listed_market": "NYSE"},
-                {"name": "Amdocs", "ticker": "DOX", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "downstream": [
-                {"name": "Citigroup", "ticker": "C", "listed": True, "listed_market": "NYSE"},
-                {"name": "Capital One", "ticker": "COF", "listed": True, "listed_market": "NYSE"},
-                {"name": "Amazon", "ticker": "AMZN", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "peer": [
-                {"name": "Visa", "ticker": "V", "listed": True, "listed_market": "NYSE"},
-                {"name": "American Express", "ticker": "AXP", "listed": True, "listed_market": "NYSE"},
-                {"name": "PayPal", "ticker": "PYPL", "listed": True, "listed_market": "NASDAQ"},
-            ],
-            "competitor": [
-                {"name": "Discover", "ticker": "DFS", "listed": True, "listed_market": "NYSE"},
-                {"name": "Block", "ticker": "XYZ", "listed": True, "listed_market": "NYSE"},
-                {"name": "Global Payments", "ticker": "GPN", "listed": True, "listed_market": "NYSE"},
-            ],
-        },
-    }
+    if not profile:
+        profile = _fallback_profile(company_name, market_hint, industry_hint)
 
-    payment_profile = {
-        "name": company_name,
-        "ticker": sym,
-        "listed": True,
-        "listed_market": "NYSE" if sym in {"V", "MA", "AXP", "DFS", "XYZ"} else "NASDAQ",
-        "upstream": [
-            company_row("Fiserv", "FI", "NYSE"),
-            company_row("FIS", "FIS", "NYSE"),
-            company_row("Global Payments", "GPN", "NYSE"),
-        ],
-        "downstream": [
-            company_row("JPMorgan Chase", "JPM", "NYSE"),
-            company_row("Bank of America", "BAC", "NYSE"),
-            company_row("Walmart", "WMT", "NYSE"),
-        ],
-        "peer": [
-            company_row("Visa", "V", "NYSE"),
-            company_row("Mastercard", "MA", "NYSE"),
-            company_row("PayPal", "PYPL", "NASDAQ"),
-        ],
-        "competitor": [
-            company_row("American Express", "AXP", "NYSE"),
-            company_row("Discover", "DFS", "NYSE"),
-            company_row("Block", "XYZ", "NYSE"),
-        ],
-    }
+    for group in ("upstream", "downstream", "peer", "competitor"):
+        rows = profile.get(group) or []
+        profile[group] = [
+            _normalize_item(group, row, idx, profile.get("listed_market") or market_hint or "\u672a\u77e5")
+            for idx, row in enumerate(rows)
+        ]
 
-    software_profile = {
-        "name": company_name,
-        "ticker": sym,
-        "listed": True,
-        "listed_market": "NASDAQ",
-        "upstream": [
-            company_row("NVIDIA", "NVDA", "NASDAQ"),
-            company_row("Oracle", "ORCL", "NYSE"),
-            company_row("ServiceNow", "NOW", "NYSE"),
-        ],
-        "downstream": [
-            company_row("Salesforce", "CRM", "NYSE"),
-            company_row("Adobe", "ADBE", "NASDAQ"),
-            company_row("Intuit", "INTU", "NASDAQ"),
-        ],
-        "peer": [
-            company_row("Microsoft", "MSFT", "NASDAQ"),
-            company_row("Adobe", "ADBE", "NASDAQ"),
-            company_row("Salesforce", "CRM", "NYSE"),
-        ],
-        "competitor": [
-            company_row("Google", "GOOGL", "NASDAQ"),
-            company_row("Amazon", "AMZN", "NASDAQ"),
-            company_row("IBM", "IBM", "NYSE"),
-        ],
-    }
+    ticker_set = {sym}
+    for group in ("upstream", "downstream", "peer", "competitor"):
+        for row in profile.get(group) or []:
+            ticker = str(row.get("ticker") or "").upper()
+            if ticker and ticker not in {"NA", "PRIVATE"}:
+                ticker_set.add(ticker)
 
-    semiconductor_profile = {
-        "name": company_name,
-        "ticker": sym,
-        "listed": True,
-        "listed_market": "NASDAQ",
-        "upstream": [
-            company_row("ASML", "ASML", "NASDAQ"),
-            company_row("Applied Materials", "AMAT", "NASDAQ"),
-            company_row("Lam Research", "LRCX", "NASDAQ"),
-        ],
-        "downstream": [
-            company_row("Microsoft", "MSFT", "NASDAQ"),
-            company_row("Amazon", "AMZN", "NASDAQ"),
-            company_row("Meta", "META", "NASDAQ"),
-        ],
-        "peer": [
-            company_row("NVIDIA", "NVDA", "NASDAQ"),
-            company_row("AMD", "AMD", "NASDAQ"),
-            company_row("Broadcom", "AVGO", "NASDAQ"),
-        ],
-        "competitor": [
-            company_row("Intel", "INTC", "NASDAQ"),
-            company_row("Qualcomm", "QCOM", "NASDAQ"),
-            company_row("Marvell", "MRVL", "NASDAQ"),
-        ],
-    }
+    live_map: dict[str, dict[str, Any]] = {}
+    sorted_tickers = sorted(ticker_set)
+    tasks = [asyncio.create_task(_quote_snapshot(tk)) for tk in sorted_tickers]
+    results = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
+    for tk, res in zip(sorted_tickers, results):
+        if isinstance(res, dict):
+            live_map[tk] = res
 
-    us_generic_profile = {
-        "name": company_name,
-        "ticker": sym,
-        "listed": True,
-        "listed_market": "US",
-        "upstream": [
-            company_row("Microsoft", "MSFT", "NASDAQ"),
-            company_row("NVIDIA", "NVDA", "NASDAQ"),
-            company_row("Oracle", "ORCL", "NYSE"),
-        ],
-        "downstream": [
-            company_row("Amazon", "AMZN", "NASDAQ"),
-            company_row("Walmart", "WMT", "NYSE"),
-            company_row("Costco", "COST", "NASDAQ"),
-        ],
-        "peer": [
-            company_row("Apple", "AAPL", "NASDAQ"),
-            company_row("Alphabet", "GOOGL", "NASDAQ"),
-            company_row("Meta", "META", "NASDAQ"),
-        ],
-        "competitor": [
-            company_row("Tesla", "TSLA", "NASDAQ"),
-            company_row("Netflix", "NFLX", "NASDAQ"),
-            company_row("Salesforce", "CRM", "NYSE"),
-        ],
-    }
-
-    tw_generic_profile = {
-        "name": company_name,
-        "ticker": sym,
-        "listed": True,
-        "listed_market": market_hint if market_hint in {"TWSE", "TPEX"} else "TWSE",
-        "upstream": [
-            company_row("台積電", "2330", "TWSE"),
-            company_row("聯詠", "3034", "TWSE"),
-            company_row("日月光投控", "3711", "TWSE"),
-        ],
-        "downstream": [
-            company_row("鴻海", "2317", "TWSE"),
-            company_row("廣達", "2382", "TWSE"),
-            company_row("緯創", "3231", "TWSE"),
-        ],
-        "peer": [
-            company_row("聯電", "2303", "TWSE"),
-            company_row("瑞昱", "2379", "TWSE"),
-            company_row("聯發科", "2454", "TWSE"),
-        ],
-        "competitor": [
-            company_row("世芯", "3661", "TWSE"),
-            company_row("創意", "3443", "TWSE"),
-            company_row("力旺", "3529", "TWSE"),
-        ],
-    }
-
-    profile = templates.get(sym)
-    if profile is None:
-        payment_hit = (
-            sym in {"V", "MA", "AXP", "PYPL", "DFS", "COF", "XYZ", "GPN", "FIS", "FI"}
-            or any(k in industry_hint for k in ("payment", "card", "credit", "fintech", "financial"))
-        )
-        semis_hit = any(k in industry_hint for k in ("semiconductor", "chip", "foundry"))
-        software_hit = any(k in industry_hint for k in ("software", "cloud", "saas", "internet"))
-
-        if payment_hit:
-            profile = payment_profile
-        elif semis_hit:
-            profile = semiconductor_profile
-        elif software_hit:
-            profile = software_profile
-        elif market_hint in {"TWSE", "TPEX"}:
-            profile = tw_generic_profile
-        else:
-            profile = us_generic_profile
-
-    profile = {
-        "name": str(profile.get("name") or company_name or sym),
-        "ticker": str(profile.get("ticker") or sym),
-        "listed": profile.get("listed"),
-        "listed_market": str(profile.get("listed_market") or ("TWSE" if market_hint in {"TWSE", "TPEX"} else "US")),
-        "upstream": [dict(x) for x in (profile.get("upstream") or [])],
-        "downstream": [dict(x) for x in (profile.get("downstream") or [])],
-        "peer": [dict(x) for x in (profile.get("peer") or [])],
-        "competitor": [dict(x) for x in (profile.get("competitor") or [])],
-    }
-
-    relation_label_map = {
-        "upstream": "上游",
-        "downstream": "下游",
-        "peer": "同業",
-        "competitor": "競爭",
-    }
-    edge_label_map = {
-        "upstream": "上游供應",
-        "downstream": "下游客戶",
-        "peer": "同業關聯",
-        "competitor": "競爭關係",
-    }
-
+    center_live = live_map.get(sym, {})
     center_id = sym
     center_label = f"{profile['name']} ({profile.get('ticker') or sym})"
     nodes: list[dict[str, Any]] = [
@@ -896,8 +760,13 @@ async def get_industry_chain(symbol: str):
             "name": profile["name"],
             "ticker": profile.get("ticker") or sym,
             "listed": profile.get("listed"),
-            "listed_market": profile.get("listed_market") or "未知",
-            "relation": "核心",
+            "listed_market": profile.get("listed_market") or "\u672a\u77e5",
+            "relation": "\u6838\u5fc3",
+            "relation_score": 1.0,
+            "price": center_live.get("price"),
+            "change_pct": center_live.get("change_pct"),
+            "flow_light": center_live.get("flow_light"),
+            "change_5d_pct": center_live.get("change_5d_pct"),
         }
     ]
     edges: list[dict[str, Any]] = []
@@ -906,13 +775,16 @@ async def get_industry_chain(symbol: str):
     def append_group(group: str, source_first: bool) -> None:
         rows = profile.get(group) or []
         for i, row in enumerate(rows):
-            item = row if isinstance(row, dict) else {"name": str(row), "ticker": "NA", "listed": None, "listed_market": "未知"}
+            item = _normalize_item(group, row, i, profile.get("listed_market") or market_hint or "\u672a\u77e5")
             node_id = f"{group}_{i}"
-            ticker = str(item.get("ticker") or "NA")
+            ticker = str(item.get("ticker") or "NA").upper()
             name = str(item.get("name") or ticker)
             listed = item.get("listed")
-            listed_market = str(item.get("listed_market") or "未知")
+            listed_market = str(item.get("listed_market") or "\u672a\u77e5")
             relation = relation_label_map[group]
+            relation_score = float(item.get("weight") or default_weight[group])
+            live = live_map.get(ticker, {})
+            flow_light = str(live.get("flow_light") or "na")
 
             nodes.append(
                 {
@@ -924,6 +796,11 @@ async def get_industry_chain(symbol: str):
                     "listed": listed,
                     "listed_market": listed_market,
                     "relation": relation,
+                    "relation_score": round(relation_score, 4),
+                    "price": live.get("price"),
+                    "change_pct": live.get("change_pct"),
+                    "flow_light": flow_light,
+                    "change_5d_pct": live.get("change_5d_pct"),
                 }
             )
 
@@ -940,6 +817,8 @@ async def get_industry_chain(symbol: str):
                     "relation": relation,
                     "listed": listed,
                     "listed_market": listed_market,
+                    "relation_score": round(relation_score, 4),
+                    "flow_light": flow_light,
                 }
             )
             relations.append(
@@ -950,6 +829,11 @@ async def get_industry_chain(symbol: str):
                     "listed_market": listed_market,
                     "relation": relation,
                     "relation_group": group,
+                    "relation_score": round(relation_score, 4),
+                    "price": live.get("price"),
+                    "change_pct": live.get("change_pct"),
+                    "flow_light": flow_light,
+                    "change_5d_pct": live.get("change_5d_pct"),
                 }
             )
 
@@ -958,7 +842,14 @@ async def get_industry_chain(symbol: str):
     append_group("peer", source_first=False)
     append_group("competitor", source_first=False)
 
-    return {"symbol": sym, "nodes": nodes, "edges": edges, "relations": relations}
+    return {
+        "symbol": sym,
+        "nodes": nodes,
+        "edges": edges,
+        "relations": relations,
+        "grounded": bool(grounded_sources),
+        "grounding_sources": grounded_sources[:8],
+    }
 
 
 @router.get("/analysis/prime-flow/{symbol}")
@@ -1207,21 +1098,65 @@ async def get_prime_flow(symbol: str):
         build_edge("risk", risk_signal),
     ]
 
-    if score >= 60:
-        suggestions = [
-            "趨勢與資金流偏正向 採分批進場避免追高。",
-            "只在關鍵價位出現量價確認後再提高部位。",
-        ]
-    elif score >= 40:
-        suggestions = [
-            "訊號分歧 建議控制中性倉位等待確認。",
-            "先觀察支撐與壓力區反應 再決定是否加碼。",
-        ]
+    def _fmt_pct(v: float) -> str:
+        sign = "+" if v >= 0 else ""
+        return f"{sign}{v * 100:.1f}%"
+
+    suggestions: list[str] = []
+    top_pos = max(factors, key=lambda f: float(f.get("contribution") or 0.0))
+    top_neg = min(factors, key=lambda f: float(f.get("contribution") or 0.0))
+
+    if float(top_pos.get("contribution") or 0.0) > 0.05:
+        suggestions.append(
+            f"目前 {top_pos.get('label')} 是最強驅動力（{_fmt_pct(float(top_pos.get('signal') or 0.0))}）可作為進場信心的主要依據。"
+        )
+    if float(top_neg.get("contribution") or 0.0) < -0.05:
+        suggestions.append(
+            f"注意 {top_neg.get('label')} 呈現壓力（{_fmt_pct(float(top_neg.get('signal') or 0.0))}）建議控制部位並先設定停損。"
+        )
+
+    if whale_entry:
+        suggestions.append("主力資金訊號偏多 但仍需量價確認後再提高部位。")
     else:
-        suggestions = [
-            "防禦姿態優先 反彈無量時應降低曝險。",
-            "等待資金流回升與波動收斂後再提高風險部位。",
-        ]
+        suggestions.append("主力尚未明確進場 宜保持觀望或以小部位試單。")
+
+    pos_count = sum(1 for f in factors if float(f.get("signal") or 0.0) > 0.15)
+    neg_count = sum(1 for f in factors if float(f.get("signal") or 0.0) < -0.15)
+    if pos_count >= 2 and neg_count >= 2:
+        suggestions.append("多空因子分歧明顯 建議降低槓桿並等待方向確認。")
+
+    if len(suggestions) < 3:
+        if score >= 60:
+            suggestions.append("分數偏多 但建議分批進場避免追價。")
+        elif score >= 40:
+            suggestions.append("分數中性 訊號混合 先看關鍵支撐壓力再決策。")
+        else:
+            suggestions.append("分數偏弱 防禦姿態優先 反彈未放量不追高。")
+
+    running = 50.0
+    waterfall = [{"label": "基準", "start": 50.0, "end": 50.0, "delta": 0.0}]
+    for f in factors:
+        delta = float(f.get("contribution") or 0.0) * 50.0
+        start = running
+        running += delta
+        waterfall.append(
+            {
+                "label": str(f.get("label") or ""),
+                "start": round(start, 4),
+                "end": round(running, 4),
+                "delta": round(delta, 4),
+            }
+        )
+    if abs(score - running) > 0.2:
+        waterfall.append(
+            {
+                "label": "校正",
+                "start": round(running, 4),
+                "end": round(float(score), 4),
+                "delta": round(float(score) - running, 4),
+            }
+        )
+    waterfall.append({"label": "最終", "start": float(score), "end": float(score), "delta": 0.0})
 
     return {
         "symbol": sym,
@@ -1240,5 +1175,6 @@ async def get_prime_flow(symbol: str):
         "factors": factors,
         "nodes": nodes,
         "edges": edges,
-        "suggestions": suggestions,
+        "suggestions": suggestions[:5],
+        "waterfall": waterfall,
     }

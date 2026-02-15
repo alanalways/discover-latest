@@ -1,6 +1,4 @@
-'use client';
-
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 type Node = {
   id: string;
@@ -11,8 +9,22 @@ type Node = {
   listed?: boolean | null;
   listed_market?: string;
   relation?: string;
+  relation_score?: number;
+  price?: number | null;
+  change_pct?: number | null;
+  change_5d_pct?: number | null;
+  flow_light?: 'inflow' | 'outflow' | 'neutral' | 'na' | string;
 };
-type Edge = { source: string; target: string; label?: string; relation?: string };
+
+type Edge = {
+  source: string;
+  target: string;
+  label?: string;
+  relation?: string;
+  relation_score?: number;
+  flow_light?: string;
+};
+
 type Relation = {
   company: string;
   ticker: string;
@@ -20,6 +32,11 @@ type Relation = {
   listed_market?: string;
   relation?: string;
   relation_group?: string;
+  relation_score?: number;
+  price?: number | null;
+  change_pct?: number | null;
+  change_5d_pct?: number | null;
+  flow_light?: string;
 };
 
 interface Props {
@@ -44,43 +61,65 @@ function edgeColor(group?: string): string {
   return '#93c5fd';
 }
 
+function flowColor(flow?: string): string {
+  if (flow === 'inflow') return '#4ade80';
+  if (flow === 'outflow') return '#fb7185';
+  if (flow === 'neutral') return '#cbd5e1';
+  return '#64748b';
+}
+
+function fmtNum(v?: number | null, digits = 2): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+  return Number(v).toFixed(digits);
+}
+
+function fmtPct(v?: number | null): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
+  const n = Number(v);
+  return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
+}
+
+function slotBand(count: number, xStart: number, xEnd: number, yStart: number, yEnd: number): Pos[] {
+  if (count <= 0) return [];
+  const cols = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(count))));
+  const rows = Math.max(1, Math.ceil(count / cols));
+  const xStep = cols === 1 ? 0 : (xEnd - xStart) / (cols - 1);
+  const yStep = rows === 1 ? 0 : (yEnd - yStart) / (rows - 1);
+  const pos: Pos[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const r = Math.floor(i / cols);
+    const c = i % cols;
+    pos.push({ x: xStart + c * xStep, y: yStart + r * yStep });
+  }
+  return pos;
+}
+
 export default function IndustryChainGraph({ nodes, edges, relations = [] }: Props) {
   const core = nodes.find((n) => n.group === 'core') || nodes[0];
   const upstream = nodes.filter((n) => n.group === 'upstream');
   const downstream = nodes.filter((n) => n.group === 'downstream');
   const peer = nodes.filter((n) => n.group === 'peer');
   const competitor = nodes.filter((n) => n.group === 'competitor');
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [selectedId, setSelectedId] = useState<string>('');
-  const dragRef = useRef<{ x: number; y: number } | null>(null);
 
   const positions = useMemo(() => {
     const map = new Map<string, Pos>();
-    map.set(core.id, { x: 50, y: 50 });
+    if (core) map.set(core.id, { x: 50, y: 50 });
 
-    const upGap = 72 / Math.max(1, upstream.length);
-    upstream.forEach((n, i) => {
-      map.set(n.id, { x: 18, y: 14 + i * upGap });
-    });
+    const upstreamSlots = slotBand(upstream.length, 24, 76, 16, 28);
+    upstream.forEach((n, i) => map.set(n.id, upstreamSlots[i]));
 
-    const downGap = 72 / Math.max(1, downstream.length);
-    downstream.forEach((n, i) => {
-      map.set(n.id, { x: 82, y: 14 + i * downGap });
-    });
+    const downstreamSlots = slotBand(downstream.length, 24, 76, 72, 84);
+    downstream.forEach((n, i) => map.set(n.id, downstreamSlots[i]));
 
-    const peerGap = 40 / Math.max(1, peer.length);
-    peer.forEach((n, i) => {
-      map.set(n.id, { x: 30 + i * peerGap, y: 10 });
-    });
+    const peerSlots = slotBand(peer.length, 14, 28, 34, 66);
+    peer.forEach((n, i) => map.set(n.id, peerSlots[i]));
 
-    const compGap = 40 / Math.max(1, competitor.length);
-    competitor.forEach((n, i) => {
-      map.set(n.id, { x: 30 + i * compGap, y: 90 });
-    });
+    const competitorSlots = slotBand(competitor.length, 72, 86, 34, 66);
+    competitor.forEach((n, i) => map.set(n.id, competitorSlots[i]));
 
     return map;
-  }, [core.id, competitor, downstream, peer, upstream]);
+  }, [core, upstream, downstream, peer, competitor]);
 
   const relationRows = useMemo(() => {
     if (relations.length > 0) return relations;
@@ -93,6 +132,11 @@ export default function IndustryChainGraph({ nodes, edges, relations = [] }: Pro
         listed_market: n.listed_market,
         relation: n.relation || (n.group === 'upstream' ? '上游' : n.group === 'downstream' ? '下游' : n.group === 'peer' ? '同業' : n.group === 'competitor' ? '競爭' : '其他'),
         relation_group: n.group,
+        relation_score: n.relation_score,
+        price: n.price,
+        change_pct: n.change_pct,
+        change_5d_pct: n.change_5d_pct,
+        flow_light: n.flow_light,
       }));
   }, [nodes, relations]);
 
@@ -101,127 +145,104 @@ export default function IndustryChainGraph({ nodes, edges, relations = [] }: Pro
     return nodes.find((n) => n.id === selectedId) || null;
   }, [nodes, selectedId]);
 
-  const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
-    e.preventDefault();
-    const next = e.deltaY < 0 ? zoom + 0.12 : zoom - 0.12;
-    setZoom(Math.max(0.8, Math.min(2.6, next)));
+  const goAnalysis = (ticker?: string) => {
+    const t = String(ticker || '').trim().toUpperCase();
+    if (!t || t === 'NA' || t === 'PRIVATE') return;
+    if (typeof window !== 'undefined') {
+      window.location.href = `/analysis?symbol=${encodeURIComponent(t)}`;
+    }
   };
 
-  const onMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    dragRef.current = { x: e.clientX, y: e.clientY };
-  };
-  const onMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (!dragRef.current) return;
-    const dx = (e.clientX - dragRef.current.x) * 0.08;
-    const dy = (e.clientY - dragRef.current.y) * 0.08;
-    dragRef.current = { x: e.clientX, y: e.clientY };
-    setOffset((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
-  };
-  const onMouseUp = () => {
-    dragRef.current = null;
-  };
-
-  const resetView = () => {
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
-  };
-
-  const nodeLabel = (text: string, max = 18) => {
+  const nodeLabel = (text: string, max = 15) => {
     if (text.length <= max) return text;
     return `${text.slice(0, max - 1)}…`;
   };
 
   return (
     <div style={{ border: '1px solid rgba(99,102,241,0.26)', borderRadius: 16, padding: 14, background: 'linear-gradient(180deg, rgba(3,7,25,0.95), rgba(12,15,40,0.82))' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8, flexWrap: 'wrap' }}>
-        <div style={{ color: 'var(--text-3)', fontSize: 12 }}>
-          操作方式 滾輪縮放 左鍵拖曳 節點點擊看詳情
-        </div>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button type="button" onClick={() => setZoom((z) => Math.max(0.8, z - 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>-</button>
-          <button type="button" onClick={resetView} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>重置</button>
-          <button type="button" onClick={() => setZoom((z) => Math.min(2.6, z + 0.12))} style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px' }}>+</button>
-        </div>
+      <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 8 }}>
+        固定槽位布局 上游在上 下游在下 同業在左 競爭在右 點擊節點可看詳情
       </div>
 
-      <svg
-        viewBox="0 0 100 100"
-        style={{ width: '100%', height: 420, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))', cursor: dragRef.current ? 'grabbing' : 'grab', userSelect: 'none' }}
-        onWheel={onWheel}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-      >
-        <g transform={`translate(${offset.x} ${offset.y}) translate(50 50) scale(${zoom}) translate(-50 -50)`}>
-          {edges.map((e, idx) => {
-            const s = positions.get(e.source);
-            const t = positions.get(e.target);
-            if (!s || !t) return null;
-            const c1x = s.x < t.x ? s.x + 18 : s.x - 18;
-            const c2x = t.x > s.x ? t.x - 18 : t.x + 18;
-            return (
+      <svg viewBox="0 0 100 100" style={{ width: '100%', height: 440, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))' }}>
+        {edges.map((e, idx) => {
+          const s = positions.get(e.source);
+          const t = positions.get(e.target);
+          if (!s || !t) return null;
+          const midX = (s.x + t.x) / 2;
+          const midY = (s.y + t.y) / 2;
+          return (
+            <g key={`${e.source}-${e.target}-${idx}`}>
               <path
-                key={`${e.source}-${e.target}-${idx}`}
-                d={`M ${s.x},${s.y} C ${c1x},${s.y} ${c2x},${t.y} ${t.x},${t.y}`}
+                d={`M ${s.x},${s.y} Q ${midX},${midY} ${t.x},${t.y}`}
                 fill="none"
                 stroke={edgeColor(e.relation)}
-                strokeWidth={1.35}
+                strokeWidth={1.1 + Math.max(0, Math.min(1, Number(e.relation_score || 0.6))) * 1.4}
                 opacity={0.92}
-              >
-                <animate attributeName="stroke-dasharray" values="0 10;8 4;0 10" dur="2.2s" repeatCount="indefinite" />
-              </path>
-            );
-          })}
+              />
+            </g>
+          );
+        })}
 
-          {nodes.map((n) => {
-            const p = positions.get(n.id);
-            if (!p) return null;
-            const isCore = n.id === core.id;
-            const isSelected = n.id === selectedId;
-            const radius = isCore ? 9.6 : isSelected ? 6.8 : 6.1;
-            const fill = isCore ? 'rgba(255,212,71,0.24)' : 'rgba(30,64,175,0.42)';
-            const stroke = isCore
-              ? '#ffd447'
-              : n.group === 'upstream'
-                ? '#22d3ee'
-                : n.group === 'downstream'
-                  ? '#a78bfa'
-                  : n.group === 'peer'
-                    ? '#34d399'
-                    : '#fb7185';
-            const textColor = isCore ? '#ffe8a4' : '#dbeafe';
-            return (
-              <g key={n.id} onClick={() => setSelectedId((prev) => (prev === n.id ? '' : n.id))} style={{ cursor: 'pointer' }}>
-                <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={isSelected ? 1.8 : 1.3} />
-                <text x={p.x} y={p.y + 1.1} textAnchor="middle" fontSize={isCore ? 4.3 : 3.0} fill={textColor} fontWeight={700}>
-                  {nodeLabel(n.label)}
-                </text>
-              </g>
-            );
-          })}
-        </g>
+        {nodes.map((n) => {
+          const p = positions.get(n.id);
+          if (!p) return null;
+          const isCore = n.id === core?.id;
+          const isSelected = n.id === selectedId;
+          const radius = isCore ? 8.8 : 5.4;
+          const fill = isCore ? 'rgba(255,212,71,0.24)' : 'rgba(30,64,175,0.42)';
+          const stroke = isCore
+            ? '#ffd447'
+            : n.group === 'upstream'
+              ? '#22d3ee'
+              : n.group === 'downstream'
+                ? '#a78bfa'
+                : n.group === 'peer'
+                  ? '#34d399'
+                  : '#fb7185';
+          return (
+            <g key={n.id} onClick={() => setSelectedId((prev) => (prev === n.id ? '' : n.id))} style={{ cursor: 'pointer' }}>
+              <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={isSelected ? 2.0 : 1.2} />
+              <circle cx={p.x + radius - 0.6} cy={p.y - radius + 0.6} r={1.1} fill={flowColor(n.flow_light)} />
+              <text x={p.x} y={p.y + 0.9} textAnchor="middle" fontSize={isCore ? 4.0 : 2.7} fill={isCore ? '#ffe8a4' : '#dbeafe'} fontWeight={700}>
+                {nodeLabel(n.label)}
+              </text>
+            </g>
+          );
+        })}
       </svg>
 
       {selectedNode && (
         <div style={{ marginTop: 8, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, padding: '8px 10px', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', fontSize: 12 }}>
-          <div style={{ color: 'var(--text-1)', fontWeight: 700 }}>{selectedNode.name || selectedNode.label}</div>
-          <div>代號 {selectedNode.ticker || 'NA'}</div>
-          <div>關係 {selectedNode.relation || '未標示'}</div>
+          <div style={{ color: 'var(--text-1)', fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <span>{selectedNode.name || selectedNode.label}</span>
+            <button type="button" onClick={() => goAnalysis(selectedNode.ticker)} style={{ border: '1px solid rgba(255,255,255,0.24)', background: 'rgba(15,23,42,0.55)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px', fontSize: 11 }}>
+              查看分析
+            </button>
+          </div>
+          <div>代號 {selectedNode.ticker || 'NA'} {selectedNode.price !== undefined ? `｜現價 ${fmtNum(selectedNode.price)}` : ''}</div>
+          <div>關係 {selectedNode.relation || '未標示'} ｜關聯分數 {fmtNum(selectedNode.relation_score, 2)}</div>
+          <div>當日 {fmtPct(selectedNode.change_pct)} ｜近5日 {fmtPct(selectedNode.change_5d_pct)} ｜資金燈號 <span style={{ color: flowColor(selectedNode.flow_light) }}>●</span></div>
           <div>{listedText(selectedNode.listed, selectedNode.listed_market)}</div>
         </div>
       )}
 
       <div style={{ marginTop: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 10px', background: 'rgba(7,13,40,0.45)' }}>
-        <div style={{ color: 'var(--text-2)', fontSize: 12, marginBottom: 8 }}>關聯公司摘要</div>
+        <div style={{ color: 'var(--text-2)', fontSize: 12, marginBottom: 8 }}>關聯公司摘要 含即時股價與資金流燈號</div>
         {relationRows.length === 0 ? (
           <div style={{ color: 'var(--text-3)', fontSize: 12 }}>暫無可顯示的關聯公司資料。</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 8 }}>
             {relationRows.map((r, i) => (
               <div key={`${r.company}-${r.ticker}-${i}`} style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', fontSize: 12 }}>
-                <div style={{ color: 'var(--text-1)', fontWeight: 700 }}>{r.company} ({r.ticker})</div>
-                <div style={{ color: 'var(--text-2)' }}>關係: {r.relation || '未標示'}</div>
+                <div style={{ color: 'var(--text-1)', fontWeight: 700, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                  <span>{r.company} ({r.ticker})</span>
+                  <button type="button" onClick={() => goAnalysis(r.ticker)} style={{ border: '1px solid rgba(255,255,255,0.24)', background: 'rgba(15,23,42,0.55)', color: 'var(--text-2)', borderRadius: 6, padding: '2px 8px', fontSize: 11 }}>
+                    分析
+                  </button>
+                </div>
+                <div style={{ color: 'var(--text-2)' }}>關係 {r.relation || '未標示'} ｜分數 {fmtNum(r.relation_score, 2)}</div>
+                <div style={{ color: 'var(--text-2)' }}>現價 {fmtNum(r.price)} ｜當日 {fmtPct(r.change_pct)} ｜近5日 {fmtPct(r.change_5d_pct)} <span style={{ color: flowColor(r.flow_light) }}>●</span></div>
                 <div style={{ color: 'var(--text-3)' }}>{listedText(r.listed, r.listed_market)}</div>
               </div>
             ))}
