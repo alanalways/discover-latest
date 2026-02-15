@@ -523,8 +523,6 @@ function AnalysisContent() {
         }
     };
 
-    if (loading && !data) return <div className="p-20 text-center text-[var(--text-1)] text-xl">載入中...</div>;
-
     const info = data?.info || {};
     const history = data?.history || [];
 
@@ -621,6 +619,8 @@ function AnalysisContent() {
         { key: 'fundamentals' as const, label: '基本面', icon: <DollarSign size={16} /> },
         { key: 'chips' as const, label: '籌碼面', icon: <Users size={16} /> },
     ];
+
+    if (loading && !data) return <div className="p-20 text-center text-[var(--text-1)] text-xl">載入中...</div>;
 
     return (
         <div className="space-y-6">
