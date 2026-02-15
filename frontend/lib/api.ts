@@ -308,11 +308,13 @@ export class ApiClient {
 
     // ── Stock ──
     async getStock(symbol: string, period: string = '1y') {
-        return this.fetch(`/api/stock/${symbol}?period=${encodeURIComponent(period)}`, { skipAuth: true });
+        const sym = encodeURIComponent(String(symbol || '').trim().toUpperCase());
+        return this.fetch(`/api/stock/${sym}?period=${encodeURIComponent(period)}`, { skipAuth: true });
     }
 
     async getStockHistory(symbol: string, period: string = '1y') {
-        return this.fetch(`/api/stock/${symbol}/history?period=${period}`, { skipAuth: true });
+        const sym = encodeURIComponent(String(symbol || '').trim().toUpperCase());
+        return this.fetch(`/api/stock/${sym}/history?period=${encodeURIComponent(period)}`, { skipAuth: true });
     }
 
     async searchStocks(query: string) {
@@ -320,11 +322,13 @@ export class ApiClient {
     }
 
     async getStockFundamentals(symbol: string) {
-        return this.fetch(`/api/stock/${symbol}/fundamentals`, { skipAuth: true });
+        const sym = encodeURIComponent(String(symbol || '').trim().toUpperCase());
+        return this.fetch(`/api/stock/${sym}/fundamentals`, { skipAuth: true });
     }
 
     async getStockChips(symbol: string) {
-        return this.fetch(`/api/stock/${symbol}/chips`, { skipAuth: true });
+        const sym = encodeURIComponent(String(symbol || '').trim().toUpperCase());
+        return this.fetch(`/api/stock/${sym}/chips`, { skipAuth: true });
     }
 
     async getIndustryChain(symbol: string) {

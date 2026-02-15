@@ -260,6 +260,18 @@ export default function Dashboard() {
   const [lastUpdate, setLastUpdate] = useState('');
   const [error, setError] = useState('');
 
+  const navigateToAnalysis = useCallback((rawSymbol: string) => {
+    const symbol = String(rawSymbol || '').trim().toUpperCase();
+    if (!symbol) return;
+    const target = `/analysis?symbol=${encodeURIComponent(symbol)}`;
+    startRouteProgress();
+    if (typeof window !== 'undefined') {
+      window.location.href = target;
+      return;
+    }
+    router.push(target);
+  }, [router]);
+
   useEffect(() => {
     newsRef.current = news;
   }, [news]);
@@ -604,10 +616,7 @@ export default function Dashboard() {
               type="button"
               key={`${stock.symbol}-${i}`}
               className={`${styles.tableRow} ${styles.tableRowButton}`}
-              onClick={() => {
-                startRouteProgress();
-                router.push(`/analysis?symbol=${stock.symbol}`);
-              }}
+              onClick={() => navigateToAnalysis(stock.symbol)}
               title={`前往 ${stock.name} (${stock.symbol}) 深度分析`}
             >
               <span className={styles.colRank}>{i + 1}</span>
