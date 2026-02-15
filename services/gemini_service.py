@@ -18,7 +18,7 @@ GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "30"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "45"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
-GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "18")))
+GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "12")))
 
 INTRO_LINE = "\u6211\u662f DiscoverLatest AI\u3002"
 S1 = "\u4e00\u3001\u5e02\u5834\u60c5\u5883\u8207\u7d50\u8ad6 \U0001F50E"
@@ -349,10 +349,10 @@ class GeminiService:
         if re.search(r"(SMC|BOS|CHoCH)", out, flags=re.IGNORECASE):
             return out
 
-        summary = (smc_summary or "").strip() or "Trend=neutral | BOS=0 | CHoCH=0 | ActiveOB=0 | OpenFVG=0 | Liquidity(B/S)=0/0"
+        summary = (smc_summary or "").strip() or "趨勢方向=neutral | 結構突破(BOS)=0 | 特性轉換(CHoCH)=0 | 有效訂單塊(OB)=0 | 未填補缺口(FVG)=0 | 流動性(買/賣)=0/0"
         items = [seg.strip() for seg in summary.split("|") if seg.strip()]
         if not items:
-            items = ["Trend=neutral", "BOS=0", "CHoCH=0"]
+            items = ["趨勢方向=neutral", "結構突破(BOS)=0", "特性轉換(CHoCH)=0"]
         bullet_lines = "\n".join(f"\u2022 {seg}" for seg in items[:6])
         return f"{out}\n\n{SMC_HEADER}\n{bullet_lines}".strip()
 
@@ -489,12 +489,12 @@ class GeminiService:
         if len(out) >= min_chars:
             return out
         fillers = [
-            "\u2022 Risk management: keep per-trade risk within 0.5%-1.0% of total capital.",
-            "\u2022 Execution discipline: no breakout chase without price-volume confirmation.",
-            "\u2022 Positioning: use staggered entries and avoid all-in decision points.",
-            "\u2022 Monitoring: treat expanding price-volume divergence as a warning signal.",
-            "\u2022 Event risk: rebalance exposure around earnings and macro announcements.",
-            "\u2022 Process: prioritize consistency, then optimize win rate and payoff ratio.",
+            "\u2022 風控紀律：單筆風險控制在總資金的 0.5%-1.0%，嚴守停損。",
+            "\u2022 執行紀律：未經量價確認不追突破，避免情緒化操作。",
+            "\u2022 部位管理：分批進場、保留機動性，避免單點 all-in。",
+            "\u2022 監控重點：留意量價背離擴大，作為風險預警信號。",
+            "\u2022 事件風險：財報、法說會前後適度降低槓桿與部位。",
+            "\u2022 策略維運：優先追求一致性，再優化勝率與盈虧比。",
         ]
         i = 0
         while len(out) < min_chars:
@@ -566,12 +566,12 @@ class GeminiService:
             "\u2022 \u505c\u640d\uff1a\u653e\u5728\u7d50\u69cb\u5931\u6548\u4f4d\u4e0b\u65b9\uff0c\u4e0d\u53ef\u56e0\u4e3b\u89c0\u9884\u671f\u5ef6\u5f8c\u57f7\u884c\u3002",
             "\u2022 \u76ee\u6a19\uff1a\u4ee5\u524d\u9ad8/\u58d3\u529b\u5340\u5206\u6bb5\u4e86\u7d50\uff0c\u9810\u8a2d R:R \u81f3\u5c11 1:2\u3002",
             SMC_HEADER,
-            f"\u2022 Trend={smc.get('trend')}",
-            f"\u2022 BOS={smc.get('bos')}",
-            f"\u2022 CHoCH={smc.get('choch')}",
-            f"\u2022 ActiveOB={smc.get('active_ob')}",
-            f"\u2022 OpenFVG={smc.get('open_fvg')}",
-            f"\u2022 Liquidity(B/S)={smc.get('liquidity')}",
+            f"\u2022 趨勢方向={smc.get('trend')}",
+            f"\u2022 結構突破(BOS)={smc.get('bos')}",
+            f"\u2022 特性轉換(CHoCH)={smc.get('choch')}",
+            f"\u2022 有效訂單塊(OB)={smc.get('active_ob')}",
+            f"\u2022 未填補缺口(FVG)={smc.get('open_fvg')}",
+            f"\u2022 流動性(買/賣)={smc.get('liquidity')}",
             "\u2022 ICT/SMC\u89c0\u9ede\uff1a\u5148\u89c0\u5bdf\u6d41\u52d5\u6027\u6383\u63a0\u5f8c\u662f\u5426\u56de\u6536\uff0c\u518d\u5224\u65b7\u8da8\u52e2\u5ef6\u7e8c\u6216\u53cd\u8f49\u3002",
         ]
 
@@ -677,12 +677,13 @@ class GeminiService:
             grounding_sources: List[Dict[str, str]] = []
 
             stage1_prompt = (
-                "You are preparing evidence notes for a stock analyst. "
-                "Use Google Search grounding if available. "
-                "Return 5-8 concise bullet points in Traditional Chinese. "
-                f"symbol={symbol}\n"
-                f"context:\n{context}\n"
-                f"user_question={user_question or 'N/A'}"
+                "你是一位專業股票分析師的研究助理。"
+                "請使用 Google Search grounding 搜尋最新資訊。"
+                "以繁體中文回傳 5-8 條精簡重點，涵蓋：最新新聞、法人動向、產業趨勢、總經影響。"
+                "禁止使用任何英文句子，技術縮寫（如 RSI、PE）除外。\n"
+                f"標的={symbol}\n"
+                f"背景資料:\n{context}\n"
+                f"使用者提問={user_question or '無'}"
             )
 
             def _run_stage1():
@@ -694,7 +695,7 @@ class GeminiService:
                         config=types.GenerateContentConfig(
                             tools=[types.Tool(google_search=types.GoogleSearch())],
                             temperature=0.2,
-                            max_output_tokens=780,
+                            max_output_tokens=520,
                         ),
                     )
                 except Exception:
@@ -749,39 +750,18 @@ class GeminiService:
 
             final_prompt = (
                 f"{tier_instruction}\n\n"
-                "Output template (must follow exactly):\n"
-                f"{INTRO_LINE}\n"
-                f"{S0}\n"
-                f"{S1}\n"
-                "\u2022 ...\n"
-                f"{S2}\n"
-                "\u2022 ...\n"
-                f"{S3}\n"
-                "\u2022 ...\n"
-                f"{S4}\n"
-                "\u2022 ...\n"
-                f"{S5}\n"
-                "\u2022 ...\n"
-                f"{S6}\n"
-                "\u2022 ...\n"
-                f"{SMC_HEADER}\n"
-                "\u2022 Trend: ...\n"
-                "\u2022 BOS: ...\n"
-                "\u2022 CHoCH: ...\n"
-                "\u2022 Active OB: ...\n"
-                "\u2022 Open FVG: ...\n"
-                "\u2022 Liquidity(B/S): ...\n\n"
-                "Rules:\n"
-                "- Each section requires at least 3 actionable bullets.\n"
-                "- Must include news/sentiment + fundamentals + chips + technical indicators.\n"
-                "- Technical indicators must explicitly include RSI, MACD, KDJ and Bollinger.\n"
-                "- Trading script must include short/mid/long horizon with entry/stop/target/R:R.\n"
-                "- Do not use markdown separators.\n\n"
-                f"symbol={symbol}\n"
-                f"context:\n{context}\n\n"
-                f"grounding:\n{grounding_compact}\n\n"
-                f"smc_summary:\n{smc_summary}\n\n"
-                f"user_question={user_question or 'N/A'}"
+                "規則：\n"
+                "- 每個章節至少 3 條可執行的重點。\n"
+                "- 必須涵蓋：新聞消息面＋基本面＋籌碼面＋技術指標。\n"
+                "- 技術面必須明確提及 RSI、MACD、KDJ、布林通道的數值與判讀。\n"
+                "- 交易劇本必須包含短線(1-5日)/中線(2-6週)/長線(2-4季)的進場/停損/目標/風報比。\n"
+                "- 禁止使用 markdown 分隔線或裝飾符號。\n"
+                "- 全文必須使用繁體中文，禁止出現英文句子（技術縮寫除外）。\n\n"
+                f"標的={symbol}\n"
+                f"背景資料:\n{context}\n\n"
+                f"grounding 搜尋結果:\n{grounding_compact}\n\n"
+                f"SMC 結構:\n{smc_summary}\n\n"
+                f"使用者提問={user_question or '無'}"
             )
 
             def _run_stage2(prompt: str, temperature: float, output_tokens: int):
@@ -828,13 +808,14 @@ class GeminiService:
                     print(f"[Gemini] Stage 2 quality gate failed for {symbol}; running repair pass...")
                     repair_prompt = (
                         f"{tier_instruction}\n"
-                        "Rewrite the previous output fully in Traditional Chinese with complete sections.\n"
-                        "Do not shorten. Keep all required sections and required indicators.\n\n"
-                        f"symbol={symbol}\n"
-                        f"context:\n{context}\n\n"
-                        f"grounding:\n{grounding_compact}\n\n"
-                        f"smc_summary:\n{smc_summary}\n\n"
-                        f"previous_output:\n{analysis}\n"
+                        "請以繁體中文重新撰寫完整版本，所有章節必須完整。\n"
+                        "不可縮減篇幅，所有必要章節與技術指標都必須保留。\n"
+                        "全文禁止出現英文句子（技術縮寫除外）。\n\n"
+                        f"標的={symbol}\n"
+                        f"背景資料:\n{context}\n\n"
+                        f"grounding 搜尋結果:\n{grounding_compact}\n\n"
+                        f"SMC 結構:\n{smc_summary}\n\n"
+                        f"前次輸出:\n{analysis}\n"
                     )
                     ex3 = ThreadPoolExecutor(max_workers=1)
                     f3 = ex3.submit(_run_stage2, repair_prompt, 0.22, max_tokens + 240)
@@ -1002,13 +983,14 @@ class GeminiService:
             rendered_history.append(f"{role}: {text}")
 
         prompt = (
-            "Use Traditional Chinese only.\n"
-            "You are DiscoverLatest AI. Keep tone professional and concise.\n"
-            "Do not use markdown separators or star emphasis.\n"
-            f"Context:\n{context_str}\n\n"
-            f"History:\n{chr(10).join(rendered_history)}\n\n"
-            f"User: {user_message}\n"
-            "Reply with practical investment discussion, risk-aware and specific."
+            "你是 DiscoverLatest AI 投資分析助理。\n"
+            "請全程使用繁體中文回覆，語氣專業、冷靜、簡潔。\n"
+            "禁止使用 markdown 分隔線或星號強調。\n"
+            "禁止出現英文句子，技術縮寫（RSI、PE 等）除外。\n"
+            f"背景資料:\n{context_str}\n\n"
+            f"對話紀錄:\n{chr(10).join(rendered_history)}\n\n"
+            f"使用者: {user_message}\n"
+            "請提供實務導向的投資討論，注重風險意識與具體建議。"
         )
 
         try:
