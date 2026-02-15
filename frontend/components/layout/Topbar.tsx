@@ -120,7 +120,13 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
         const symbol = searchQuery.trim().toUpperCase();
         if (!symbol) return;
         startRouteProgress();
-        router.push(`/analysis?symbol=${symbol}`);
+        const target = `/analysis?symbol=${encodeURIComponent(symbol)}`;
+        if (pathname === '/analysis') {
+            router.push(target);
+        } else {
+            // Use full navigation for cross-page symbol jumps to avoid stale client state during first load.
+            window.location.href = target;
+        }
         setSearchQuery('');
     };
 
