@@ -8,17 +8,16 @@ import os
 import re
 import threading
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Callable, Dict, List, Optional
 
 from config.models import MODEL_FINAL, MODEL_GROUNDING
 
-GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "30"))
-GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "60"))
+GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "12"))
+GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "30"))
+GEMINI_TOTAL_TIMEOUT = int(os.environ.get("GEMINI_TOTAL_TIMEOUT", "42"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
-GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "12")))
 
 INTRO_LINE = "\u6211\u662f DiscoverLatest \u5c08\u5c6c AI \U0001F680"
 S1 = "1.\u5e02\u5834\u5feb\u5831 \U0001F4F0"
@@ -29,6 +28,55 @@ S5 = "5.\u7d50\u8ad6 \u2705"
 S6 = "6.\u60c5\u5883\u4ea4\u6613\u5730\u5716 \u504f\u591a \u504f\u7a7a \u9707\u76ea \U0001F5FA\uFE0F"
 S7 = "7.\u5b8f\u89c0\u9032\u968e\u5206\u6790 \U0001F30D"
 TIER_MIN_CHARS = {"free": 100, "pro": 250, "premium": 500}
+UNIFIED_SYSTEM_PROMPT = """你是 DiscoverLatest 專屬 AI 深度分析引擎
+身份 30 年經驗交易員 風格冷靜 執行導向 數據驅動
+語言 全文繁體中文 禁止英文句子 技術縮寫 RSI MACD SMC 等除外
+格式 純文字列點 禁止任何 markdown 符號 --- ** *** ## ### ``` __ ~~ >
+
+固定輸出結構 不可更改標題文字與順序
+
+我是 DiscoverLatest 專屬 AI 🚀
+1.市場快報 📰
+• 當前股價 當日漲跌幅 近五日走勢 成交量變化
+• 3-5 個最新驅動因子 財報 法說 產業消息 評級 資金輪動 每個註明偏多或偏空
+
+2.技術面分析 📈
+• SMC 結構 趨勢 BOS CHoCH 訂單塊 FVG 流動性
+• RSI14 數值與超買超賣判讀
+• MACD 數值 金叉死叉 柱狀體方向
+• KDJ(9,3,3) K D J 數值與交叉
+• 布林通道(20,2) 上軌 中軌 下軌與股價位置
+• EMA20 EMA50 EMA200 排列與支撐壓力
+• 多空結構結論
+
+3.進出場計劃 🎯
+• 短期 1-5日 進場區 停損 目標價 R:R
+• 中期 2-6週 進場區 停損 目標價 R:R
+• 長期 2-4季 進場區 停損 目標價 R:R
+• 每個週期附加碼 減碼觸發條件
+
+4.風險提示 ⚠️
+• 事件風險 財報 指引 利率 匯率 地緣政治
+• 交易風險 追價 槓桿 過度集中
+• 失效條件與停損執行原則
+
+5.結論 ✅
+• 2-3 句可執行總結 明確方向與優先動作
+
+6.情境交易地圖 偏多 偏空 震盪 🗺️
+• 偏多 觸發條件 關鍵價位 應對策略
+• 偏空 觸發條件 關鍵價位 應對策略
+• 震盪 觸發條件 關鍵價位 應對策略
+
+7.宏觀進階分析 🌍
+• 利率 美元 指數對本標的的傳導機制
+• 未來一季最需追蹤的 3 個宏觀變數
+"""
+TIER_EXTRA = {
+    "free": "篇幅要求 完整但精煉 每章節至少 3 條重點",
+    "pro": "篇幅要求 深入分析 每章節至少 4 到 5 條重點 補充 base bull 雙情境機率 倉位建議與風險預警",
+    "premium": "篇幅要求 全面深度 每章節至少 5 到 7 條重點 補充 base bull bear 三情境機率 部位設計 對沖策略 風險暴露管理 情境地圖含觸發機率",
+}
 
 _key_pool: List[str] = []
 _key_index = 0
@@ -491,7 +539,7 @@ class GeminiService:
             return False
 
         tier_norm = str(tier or "free").strip().lower()
-        min_bullets = 14 if tier_norm == "free" else (20 if tier_norm == "pro" else 28)
+        min_bullets = 12 if tier_norm == "free" else (16 if tier_norm == "pro" else 22)
         if t.count("\u2022 ") < min_bullets:
             return False
 
@@ -740,24 +788,21 @@ class GeminiService:
                 emit(100, "done", "cached", cached=True, char_count=len(str(payload.get("analysis") or "")))
                 return payload
 
-            stage1_timeout = False
+            total_deadline = started + GEMINI_TOTAL_TIMEOUT
+            stage1_timeout_hit = False
             grounding_text = ""
             grounding_sources: List[Dict[str, str]] = []
 
             stage1_prompt = (
-                "你是 DiscoverLatest 的市場情報研究員。"
-                "請務必使用 Google Search grounding 搜尋最新可驗證資訊。"
-                "請以繁體中文輸出 8-12 條重點，每條必須包含 日期 事件 對股價影響 來源。"
-                "必查資料包含 當前股價 當日漲跌幅 當日成交量 近五日漲跌幅。"
-                "必查漲跌原因包含 財報 法說 公司公告 訂單變化 評級調整 產業消息。"
-                "必查同分類與同產業近期消息 以及資金輪動。"
-                "必查宏觀變數包含 利率 匯率 油價 地緣政治 政策。"
-                "若找不到直接證據 必須明確寫出 尚無足夠證據。"
-                "最後補一段 新聞重點總結 字數 120 字內。"
-                "禁止使用英文句子 禁止使用 markdown 裝飾符號。\n"
-                f"標的={symbol}\n"
-                f"背景資料:\n{context}\n"
-                f"使用者提問={user_question or '無'}"
+                f"用 Google Search 搜尋 {symbol} 最新資訊 請用繁體中文輸出\n"
+                "必查 當前股價 當日漲跌幅 成交量 近五日走勢\n"
+                "必查 財報 法說 公司公告 訂單 評級 產業消息 同業動態\n"
+                "必查 利率 匯率 油價 地緣政治等宏觀因素\n"
+                "每條格式 日期｜事件｜對股價影響｜來源\n"
+                "若找不到證據請寫 尚無足夠證據 最後附 120 字新聞總結\n"
+                "禁止 markdown 裝飾符號\n"
+                f"背景資料 {context}\n"
+                f"提問 {user_question or '無'}"
             )
 
             def _run_stage1():
@@ -769,23 +814,27 @@ class GeminiService:
                         config=types.GenerateContentConfig(
                             tools=[types.Tool(google_search=types.GoogleSearch())],
                             temperature=0.2,
-                            max_output_tokens=520,
+                            max_output_tokens=800,
                         ),
                     )
                 except Exception:
                     return client.models.generate_content(
                         model=MODEL_GROUNDING,
                         contents=stage1_prompt,
-                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=780),
+                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
                     )
 
             emit(12, "stage1", "collect_grounded_evidence")
             print(f"[Gemini] Stage 1 starting for {symbol}...")
             stage1_started = time.time()
+            stage1_timeout_sec = min(
+                GEMINI_TIMEOUT_STAGE1,
+                max(6.0, total_deadline - time.time() - 20.0),
+            )
             ex1 = ThreadPoolExecutor(max_workers=1)
             f1 = ex1.submit(_run_stage1)
             try:
-                stage1_resp = f1.result(timeout=GEMINI_TIMEOUT_STAGE1)
+                stage1_resp = f1.result(timeout=stage1_timeout_sec)
                 grounding_text = stage1_resp.text.strip() if stage1_resp and getattr(stage1_resp, "text", None) else ""
                 candidates = getattr(stage1_resp, "candidates", None) or []
                 if candidates:
@@ -803,9 +852,9 @@ class GeminiService:
                 print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
             except FuturesTimeoutError:
                 f1.cancel()
-                stage1_timeout = True
+                stage1_timeout_hit = True
                 grounding_text = "Grounding timeout."
-                print(f"[Gemini] Stage 1 TIMEOUT after {GEMINI_TIMEOUT_STAGE1}s")
+                print(f"[Gemini] Stage 1 TIMEOUT after {stage1_timeout_sec:.1f}s")
             except Exception as e:
                 grounding_text = f"Grounding failed: {type(e).__name__}"
                 print(f"[Gemini] Stage 1 error: {type(e).__name__}: {e}")
@@ -815,61 +864,22 @@ class GeminiService:
             stage1_ms = int((time.time() - stage1_started) * 1000)
             emit(38, "stage1_done", "grounded_evidence_ready", stage1_ms=stage1_ms, source_count=len(grounding_sources))
 
-            tier_instruction = self._tier_instruction(tier)
             tier_norm = str(tier or "free").strip().lower()
-            max_tokens = 700 if tier_norm == "free" else (920 if tier_norm == "pro" else 1180)
+            max_tokens = 2048 if tier_norm == "free" else (3200 if tier_norm == "pro" else 4096)
             grounding_compact = (grounding_text or "").strip()
-            if len(grounding_compact) > 1900:
-                grounding_compact = grounding_compact[:1900]
-
-            style_template = (
-                "請完全依照以下版型輸出 不可更換標題文字與順序\n"
-                f"{INTRO_LINE}\n"
-                f"{S1}\n"
-                "• 先寫當前股價 當日漲跌幅 近五日走勢 成交量變化\n"
-                "• 再寫三到五個最新驅動因子 財報 法說 產業消息 評級 資金輪動\n"
-                "• 每個驅動因子都要寫對股價偏多或偏空的影響\n"
-                f"{S2}\n"
-                "• 必須同時寫 SMC RSI MACD KDJ 布林通道 EMA20 EMA50 EMA200\n"
-                "• 每個指標都要有數值與判讀 不可只寫方向\n"
-                "• 最後補一段多空結構結論\n"
-                f"{S3}\n"
-                "• 短期 1-5 日 進場區 停損 目標價 R:R\n"
-                "• 中期 2-6 週 進場區 停損 目標價 R:R\n"
-                "• 長期 2-4 季 進場區 停損 目標價 R:R\n"
-                f"{S4}\n"
-                "• 事件風險 財報 指引 利率 匯率 地緣政治\n"
-                "• 交易風險 追價 槓桿 過度集中\n"
-                f"{S5}\n"
-                "• 用兩到三句話給出可執行總結\n"
-                f"{S6}\n"
-                "• 偏多情境 觸發條件 關鍵價位 應對策略\n"
-                "• 偏空情境 觸發條件 關鍵價位 應對策略\n"
-                "• 震盪情境 觸發條件 關鍵價位 應對策略\n"
-                f"{S7}\n"
-                "• 寫利率 美元 指數與產業資金輪動對本標的的傳導\n"
-                "• 寫未來一季最需要追蹤的三個宏觀變數\n"
-            )
+            if len(grounding_compact) > 2200:
+                grounding_compact = grounding_compact[:2200]
+            tier_extra = TIER_EXTRA.get(tier_norm, TIER_EXTRA["free"])
 
             final_prompt = (
-                f"{tier_instruction}\n\n"
-                "規則：\n"
-                f"- 第一行固定 {INTRO_LINE}\n"
-                f"- 章節順序固定為 {S1} {S2} {S3} {S4} {S5} {S6} {S7}\n"
-                "- 每個章節至少 3 條可執行重點。\n"
-                "- 內容風格必須貼近 DiscoverLatest 深度分析卡片 文風簡潔 交易導向。\n"
-                "- 必須整合 stage1 的所有證據與來源脈絡。\n"
-                "- 技術面必須含 SMC RSI MACD KDJ 布林通道 EMA20 EMA50 EMA200 的數值與判讀。\n"
-                "- 進出場計劃必須給出短期 中期 長期的進場區 加碼區 減碼區 停損 目標與理由。\n"
-                "- 情境交易地圖必須分 偏多 偏空 震盪 三情境並說明觸發條件。\n"
-                "- 全文必須使用繁體中文 禁止英文句子 技術縮寫除外。\n"
-                "- 禁止使用任何 markdown 裝飾符號 例如 --- ** *** ## ### ``` __ ~~ >。\n\n"
-                f"固定輸出模板:\n{style_template}\n"
-                f"標的={symbol}\n"
-                f"背景資料:\n{context}\n\n"
-                f"grounding 搜尋結果:\n{grounding_compact}\n\n"
-                f"SMC 結構:\n{smc_summary}\n\n"
-                f"使用者提問={user_question or '無'}"
+                f"{UNIFIED_SYSTEM_PROMPT}\n"
+                f"{tier_extra}\n\n"
+                f"標的 {symbol}\n"
+                f"背景資料 {context}\n\n"
+                f"stage1 證據 {grounding_compact}\n\n"
+                f"SMC 結構 {smc_summary}\n\n"
+                f"技術快照 {prediction_summary}\n\n"
+                f"使用者提問 {user_question or '無'}"
             )
 
             def _run_stage2(prompt: str, temperature: float, output_tokens: int):
@@ -904,47 +914,61 @@ class GeminiService:
             emit(48, "stage2", "generate_multifactor_analysis")
             print(f"[Gemini] Stage 2 starting for {symbol}...")
             stage2_started = time.time()
+            remaining = total_deadline - stage2_started
+            if remaining <= 2.0:
+                emit(86, "fallback", "deadline_near_use_local_fallback")
+                fallback = self._build_fallback_from_grounding(
+                    symbol=symbol,
+                    grounding_text=grounding_text,
+                    tier=tier,
+                    stock_info=stock_info,
+                    smc_summary=smc_summary,
+                    prediction_summary=prediction_summary,
+                )
+                fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
+                fallback = self._pad_to_min_chars(fallback, tier)
+                quality_pass = self._quality_ok(fallback, tier)
+                payload = {
+                    "success": bool(fallback) and quality_pass,
+                    "degraded": False,
+                    "error": None if quality_pass else "total_deadline_exhausted",
+                    "analysis": fallback,
+                    "grounding_text": grounding_text,
+                    "grounding_sources": grounding_sources,
+                    "quality_pass": quality_pass,
+                    "timings": {
+                        "stage1_ms": stage1_ms,
+                        "stage2_ms": int((time.time() - stage2_started) * 1000),
+                        "total_ms": int((time.time() - started) * 1000),
+                        "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
+                        "deadline_fallback": True,
+                    },
+                }
+                if quality_pass:
+                    self._write_analysis_cache(cache_key, payload)
+                    emit(
+                        100,
+                        "done",
+                        "analysis_completed_deadline_fallback",
+                        char_count=len(fallback or ""),
+                        min_chars=self._tier_min_chars(tier),
+                        total_ms=payload["timings"]["total_ms"],
+                    )
+                else:
+                    emit(100, "error", "deadline_fallback_quality_failed")
+                return payload
+
+            stage2_timeout_sec = min(GEMINI_TIMEOUT_STAGE2, max(10.0, remaining - 2.0))
+            stage2_timeout_sec = min(stage2_timeout_sec, max(1.0, total_deadline - time.time() - 1.0))
             ex2 = ThreadPoolExecutor(max_workers=1)
             f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
             try:
-                stage2_resp = f2.result(timeout=GEMINI_TIMEOUT_STAGE2)
+                stage2_resp = f2.result(timeout=stage2_timeout_sec)
                 analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
                 analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
 
                 if not self._quality_ok(analysis, tier):
-                    emit(72, "repair", "repair_incomplete_sections")
-                    print(f"[Gemini] Stage 2 quality gate failed for {symbol}; running repair pass...")
-                    repair_prompt = (
-                        f"{tier_instruction}\n"
-                        f"請以繁體中文重寫完整版本 第一行固定 {INTRO_LINE}。\n"
-                        f"章節固定 {S1} {S2} {S3} {S4} {S5} {S6} {S7}。\n"
-                        "請嚴格套用固定輸出模板。\n"
-                        "不可縮減篇幅 所有必要章節與技術指標都必須保留。\n"
-                        "必須補齊 SMC RSI MACD KDJ 布林通道與長中短進出場策略。\n"
-                        "全文禁止英文句子 技術縮寫除外。\n"
-                        "全文禁止 markdown 裝飾符號 例如 --- ** *** ## ### ``` __ ~~ >。\n\n"
-                        f"固定輸出模板:\n{style_template}\n"
-                        f"標的={symbol}\n"
-                        f"背景資料:\n{context}\n\n"
-                        f"grounding 搜尋結果:\n{grounding_compact}\n\n"
-                        f"SMC 結構:\n{smc_summary}\n\n"
-                        f"前次輸出:\n{analysis}\n"
-                    )
-                    ex3 = ThreadPoolExecutor(max_workers=1)
-                    f3 = ex3.submit(_run_stage2, repair_prompt, 0.22, max_tokens + 240)
-                    try:
-                        repair_resp = f3.result(timeout=GEMINI_REPAIR_TIMEOUT_SEC)
-                        repair_text = repair_resp.text.strip() if repair_resp and getattr(repair_resp, "text", None) else ""
-                        repair_text = self._ensure_smc_section(self._sanitize_analysis_text(repair_text), smc_summary)
-                        if repair_text:
-                            analysis = repair_text
-                    except Exception:
-                        pass
-                    finally:
-                        ex3.shutdown(wait=False, cancel_futures=True)
-
-                if not self._quality_ok(analysis, tier):
-                    emit(86, "guaranteed", "compose_guaranteed_full_report")
+                    emit(86, "fallback", "stage2_quality_fallback_local")
                     analysis = self._build_fallback_from_grounding(
                         symbol=symbol,
                         grounding_text=grounding_text,
@@ -971,6 +995,7 @@ class GeminiService:
                             "stage1_ms": stage1_ms,
                             "stage2_ms": int((time.time() - stage2_started) * 1000),
                             "total_ms": int((time.time() - started) * 1000),
+                            "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
                         },
                     }
 
@@ -988,7 +1013,9 @@ class GeminiService:
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
                         "total_ms": int((time.time() - started) * 1000),
-                        "stage1_timeout": stage1_timeout,
+                        "stage1_timeout": stage1_timeout_hit,
+                        "stage2_timeout_sec": round(stage2_timeout_sec, 2),
+                        "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
                     },
                 }
                 self._write_analysis_cache(cache_key, payload)
@@ -1003,66 +1030,8 @@ class GeminiService:
                 return payload
             except FuturesTimeoutError:
                 f2.cancel()
-                print(f"[Gemini] Stage 2 TIMEOUT after {GEMINI_TIMEOUT_STAGE2}s")
-                emit(86, "timeout", "stage2_timeout_compose_guaranteed")
-
-                rescue_text = ""
-                try:
-                    rescue_prompt = (
-                        f"{tier_instruction}\n"
-                        "主模型逾時 請輸出精簡但完整版本。\n"
-                        f"第一行固定 {INTRO_LINE}\n"
-                        f"章節固定 {S1} {S2} {S3} {S4} {S5} {S6} {S7}\n"
-                        "請嚴格套用固定輸出模板。\n"
-                        "全文使用繁體中文 技術縮寫可保留。\n"
-                        "禁止 markdown 裝飾符號。\n\n"
-                        f"固定輸出模板:\n{style_template}\n"
-                        f"標的={symbol}\n"
-                        f"背景資料:\n{context}\n\n"
-                        f"grounding 搜尋結果:\n{grounding_compact}\n\n"
-                        f"SMC 結構:\n{smc_summary}\n\n"
-                        f"技術快照:\n{prediction_summary}\n"
-                    )
-                    ex_timeout = ThreadPoolExecutor(max_workers=1)
-                    f_timeout = ex_timeout.submit(_run_stage2, rescue_prompt, 0.24, max(620, max_tokens - 180))
-                    try:
-                        timeout_resp = f_timeout.result(timeout=min(16, GEMINI_REPAIR_TIMEOUT_SEC + 4))
-                        rescue_text = timeout_resp.text.strip() if timeout_resp and getattr(timeout_resp, "text", None) else ""
-                        rescue_text = self._ensure_smc_section(self._sanitize_analysis_text(rescue_text), smc_summary)
-                    finally:
-                        ex_timeout.shutdown(wait=False, cancel_futures=True)
-                except Exception:
-                    rescue_text = ""
-
-                if rescue_text and self._quality_ok(rescue_text, tier):
-                    rescue_text = self._pad_to_min_chars(rescue_text, tier)
-                    payload = {
-                        "success": True,
-                        "degraded": False,
-                        "error": None,
-                        "analysis": rescue_text,
-                        "grounding_text": grounding_text,
-                        "grounding_sources": grounding_sources,
-                        "quality_pass": True,
-                        "timings": {
-                            "stage1_ms": stage1_ms,
-                            "stage2_ms": int((time.time() - stage2_started) * 1000),
-                            "total_ms": int((time.time() - started) * 1000),
-                            "stage2_timeout": True,
-                            "timeout_rescued": True,
-                        },
-                    }
-                    self._write_analysis_cache(cache_key, payload)
-                    emit(
-                        100,
-                        "done",
-                        "analysis_completed_after_timeout_rescue",
-                        char_count=len(rescue_text),
-                        min_chars=self._tier_min_chars(tier),
-                        total_ms=payload["timings"]["total_ms"],
-                    )
-                    return payload
-
+                print(f"[Gemini] Stage 2 TIMEOUT after {stage2_timeout_sec:.1f}s")
+                emit(86, "timeout", "stage2_timeout_local_fallback")
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
                     grounding_text=grounding_text,
@@ -1087,6 +1056,8 @@ class GeminiService:
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
                         "total_ms": int((time.time() - started) * 1000),
                         "stage2_timeout": True,
+                        "stage2_timeout_sec": round(stage2_timeout_sec, 2),
+                        "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
                     },
                 }
                 if quality_pass:
@@ -1104,21 +1075,45 @@ class GeminiService:
                 return payload
             except Exception as e:
                 print(f"[Gemini] Stage 2 error: {e}")
-                traceback.print_exc()
-                emit(100, "error", f"stage2_error_{type(e).__name__}")
-                return {
-                    "success": False,
-                    "error": f"stage2_error_{type(e).__name__}",
-                    "analysis": "",
+                emit(86, "error", f"stage2_error_{type(e).__name__}_local_fallback")
+                fallback = self._build_fallback_from_grounding(
+                    symbol=symbol,
+                    grounding_text=grounding_text,
+                    tier=tier,
+                    stock_info=stock_info,
+                    smc_summary=smc_summary,
+                    prediction_summary=prediction_summary,
+                )
+                fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
+                fallback = self._pad_to_min_chars(fallback, tier)
+                quality_pass = self._quality_ok(fallback, tier)
+                payload = {
+                    "success": bool(fallback) and quality_pass,
+                    "error": None if quality_pass else f"stage2_error_{type(e).__name__}",
+                    "analysis": fallback,
                     "grounding_sources": grounding_sources,
-                    "quality_pass": False,
+                    "quality_pass": quality_pass,
                     "degraded": False,
                     "timings": {
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
                         "total_ms": int((time.time() - started) * 1000),
+                        "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
                     },
                 }
+                if quality_pass:
+                    self._write_analysis_cache(cache_key, payload)
+                    emit(
+                        100,
+                        "done",
+                        "analysis_completed_after_error_fallback",
+                        char_count=len(fallback or ""),
+                        min_chars=self._tier_min_chars(tier),
+                        total_ms=payload["timings"]["total_ms"],
+                    )
+                else:
+                    emit(100, "error", f"stage2_error_{type(e).__name__}")
+                return payload
             finally:
                 ex2.shutdown(wait=False, cancel_futures=True)
 
