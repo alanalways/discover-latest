@@ -173,6 +173,7 @@ interface PrimeFlowResponse {
         whale_entry?: boolean;
         whale_confidence?: number;
         whale_flow?: string;
+        whale_flow_key?: string;
         whale_reasons?: string[];
     };
     factors?: Array<{

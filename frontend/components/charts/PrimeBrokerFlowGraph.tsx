@@ -34,6 +34,7 @@ type PrimeFlowPayload = {
     whale_entry?: boolean;
     whale_confidence?: number;
     whale_flow?: string;
+    whale_flow_key?: string;
     whale_reasons?: string[];
   };
   nodes?: PrimeFlowNode[];
@@ -89,11 +90,13 @@ function markerIdBySignal(signal = 0): string {
 
 export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   const score = Math.round(Number(data?.snapshot?.score || 0));
-  const label = String(data?.snapshot?.label || 'Neutral');
+  const label = String(data?.snapshot?.label || '中性');
   const confidence = Math.round(Number(data?.snapshot?.confidence || 0));
   const whaleEntry = Boolean(data?.snapshot?.whale_entry);
   const whaleConfidence = Math.round(Number(data?.snapshot?.whale_confidence || 0));
-  const whaleFlow = String(data?.snapshot?.whale_flow || 'neutral');
+  const whaleFlow = String(data?.snapshot?.whale_flow || '中性');
+  const whaleFlowKeyRaw = String(data?.snapshot?.whale_flow_key || '').toLowerCase();
+  const whaleFlowKey = whaleFlowKeyRaw || (whaleFlow === '流入' ? 'inflow' : whaleFlow === '流出' ? 'outflow' : 'neutral');
   const whaleReasons = Array.isArray(data?.snapshot?.whale_reasons) ? data?.snapshot?.whale_reasons.slice(0, 3) : [];
   const factors = useMemo(
     () => (Array.isArray(data?.factors) ? data.factors : []),
@@ -108,7 +111,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   if (loading) {
     return (
       <div style={{ border: '1px solid rgba(0,229,255,0.24)', borderRadius: 16, padding: 20 }}>
-        <div style={{ color: 'var(--text-2)' }}>Loading Prime Broker Flow...</div>
+        <div style={{ color: 'var(--text-2)' }}>載入主力資金流向中...</div>
       </div>
     );
   }
@@ -116,7 +119,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
   if (!data || !data.nodes?.length) {
     return (
       <div style={{ border: '1px solid var(--border)', borderRadius: 16, padding: 20, color: 'var(--text-3)' }}>
-        Prime Broker Flow data unavailable.
+        目前無可用的主力資金流向資料。
       </div>
     );
   }
@@ -125,32 +128,32 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
     <div style={{ border: '1px solid rgba(0,229,255,0.24)', borderRadius: 16, padding: 14, background: 'linear-gradient(180deg, rgba(2,8,33,0.88), rgba(8,16,48,0.72))' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
         <div style={{ color: 'var(--text-1)', fontWeight: 800 }}>
-          Prime Broker Flow
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#00e5ff' }}>Capital direction</span>
+          主力資金流向
+          <span style={{ marginLeft: 8, fontSize: 12, color: '#00e5ff' }}>資金方向判讀</span>
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', color: 'var(--text-2)', fontSize: 12 }}>
-          <span>Score: <b style={{ color: '#ffd447' }}>{score}</b></span>
-          <span>State: <b style={{ color: '#c8b6ff' }}>{label}</b></span>
-          <span>Confidence: <b style={{ color: '#8ee3ff' }}>{confidence}%</b></span>
+          <span>分數: <b style={{ color: '#ffd447' }}>{score}</b></span>
+          <span>狀態: <b style={{ color: '#c8b6ff' }}>{label}</b></span>
+          <span>信心度: <b style={{ color: '#8ee3ff' }}>{confidence}%</b></span>
         </div>
       </div>
 
       <div style={{ marginBottom: 10, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '8px 10px', background: 'rgba(7,13,40,0.45)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', color: 'var(--text-2)', fontSize: 12 }}>
           <span>
-            Whale Entry:
+            主力進場:
             <b style={{ marginLeft: 6, color: whaleEntry ? '#4ade80' : '#fca5a5' }}>
-              {whaleEntry ? 'Yes' : 'No'}
+              {whaleEntry ? '是' : '否'}
             </b>
           </span>
           <span>
-            Flow:
-            <b style={{ marginLeft: 6, color: whaleFlow === 'inflow' ? '#22d3ee' : whaleFlow === 'outflow' ? '#fb7185' : '#c4b5fd' }}>
+            資金方向:
+            <b style={{ marginLeft: 6, color: whaleFlowKey === 'inflow' ? '#22d3ee' : whaleFlowKey === 'outflow' ? '#fb7185' : '#c4b5fd' }}>
               {whaleFlow}
             </b>
           </span>
           <span>
-            Whale Confidence:
+            主力信心度:
             <b style={{ marginLeft: 6, color: '#8ee3ff' }}>{whaleConfidence}%</b>
           </span>
         </div>
@@ -222,7 +225,7 @@ export default function PrimeBrokerFlowGraph({ data, loading = false }: Props) {
                   {data.symbol || node.label}
                 </text>
                 <text x={CORE_POS.x} y={55.3} textAnchor="middle" fontSize={3.2} fill="#ffd447" fontWeight={700}>
-                  Score {score}
+                  分數 {score}
                 </text>
               </g>
             );

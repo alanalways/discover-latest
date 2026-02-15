@@ -93,8 +93,18 @@ interface AiAnalysisPayload {
 
 interface IndustryChainData {
     symbol?: string;
-    nodes?: Array<{ id: string; label: string; group: 'upstream' | 'core' | 'downstream' | string }>;
-    edges?: Array<{ source: string; target: string; label?: string }>;
+    nodes?: Array<{
+        id: string;
+        label: string;
+        group: 'upstream' | 'core' | 'downstream' | 'peer' | 'competitor' | string;
+        name?: string;
+        ticker?: string;
+        listed?: boolean | null;
+        listed_market?: string;
+        relation?: string;
+    }>;
+    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string }>;
+    relations?: Array<{ company: string; ticker: string; listed?: boolean | null; listed_market?: string; relation?: string; relation_group?: string }>;
 }
 
 interface PrimeFlowData {
@@ -106,6 +116,7 @@ interface PrimeFlowData {
         whale_entry?: boolean;
         whale_confidence?: number;
         whale_flow?: string;
+        whale_flow_key?: string;
         whale_reasons?: string[];
     };
     nodes?: Array<{ id: string; label: string; group: string }>;
@@ -916,7 +927,7 @@ function AnalysisContent() {
                         <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
                             <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
                                 <PieChartIcon size={20} className="text-[var(--accent)]" />
-                                Prime Broker Flow（Beta）
+                                主力資金流向圖（β）
                             </h2>
                             <p className="text-sm text-[var(--text-3)] mb-4">
                                 以價格動能、主力資金、槓桿籌碼、估值壓力與波動風險合成「機構代理流向」視圖。
@@ -928,14 +939,15 @@ function AnalysisContent() {
                             <div className="bg-[var(--bg-card)] rounded-2xl p-6 border border-[var(--border)] shadow-xl">
                                 <h2 className="text-xl font-black text-[var(--text-1)] flex items-center gap-2 mb-4">
                                     <BarChart3 size={20} className="text-[var(--accent)]" />
-                                    產業鏈關聯圖（Beta）
+                                    產業關聯圖（β）
                                 </h2>
                                 <p className="text-sm text-[var(--text-3)] mb-4">
-                                    以目前標的為核心，整理上游供應、核心公司與下游應用，協助快速判讀主題連動風險。
+                                    直接標示關聯公司、是否上市、上市市場與關係類別，包含同業、競爭、上游、下游。
                                 </p>
                                 <IndustryChainGraph
                                     nodes={industryChain.nodes || []}
                                     edges={industryChain.edges || []}
+                                    relations={industryChain.relations || []}
                                 />
                             </div>
                         )}

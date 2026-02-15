@@ -459,36 +459,132 @@ async def smc_analysis(req: SmcRequest):
 
 @router.get("/analysis/industry-chain/{symbol}")
 async def get_industry_chain(symbol: str):
-    """Get lightweight industry chain graph with ticker codes in labels."""
+    """Get industry chain graph with relationship and listing metadata."""
     sym = (symbol or "").strip().upper()
     if not sym:
         raise HTTPException(status_code=400, detail="symbol is required")
 
     templates = {
         "2330": {
-            "name": "TSMC (2330)",
-            "upstream": ["ASML (ASML)", "Synopsys (SNPS)", "Tokyo Electron (8035.T)"],
-            "downstream": ["NVIDIA (NVDA)", "Apple (AAPL)", "AMD (AMD)", "Qualcomm (QCOM)"],
+            "name": "台積電",
+            "ticker": "2330",
+            "listed": True,
+            "listed_market": "TWSE",
+            "upstream": [
+                {"name": "ASML", "ticker": "ASML", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Synopsys", "ticker": "SNPS", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Tokyo Electron", "ticker": "8035.T", "listed": True, "listed_market": "TSE"},
+            ],
+            "downstream": [
+                {"name": "NVIDIA", "ticker": "NVDA", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Apple", "ticker": "AAPL", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "AMD", "ticker": "AMD", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Qualcomm", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "peer": [
+                {"name": "聯電", "ticker": "2303", "listed": True, "listed_market": "TWSE"},
+                {"name": "格羅方德", "ticker": "GFS", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "competitor": [
+                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
+                {"name": "Intel Foundry", "ticker": "INTC", "listed": True, "listed_market": "NASDAQ"},
+            ],
         },
         "2454": {
-            "name": "MediaTek (2454)",
-            "upstream": ["TSMC (2330)", "ARM (ARM)", "ASE (3711)"],
-            "downstream": ["Xiaomi (1810.HK)", "Samsung (005930.KS)", "OPPO (private)"],
+            "name": "聯發科",
+            "ticker": "2454",
+            "listed": True,
+            "listed_market": "TWSE",
+            "upstream": [
+                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
+                {"name": "ARM", "ticker": "ARM", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "日月光投控", "ticker": "3711", "listed": True, "listed_market": "TWSE"},
+            ],
+            "downstream": [
+                {"name": "小米", "ticker": "1810.HK", "listed": True, "listed_market": "HKEX"},
+                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
+                {"name": "OPPO", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
+            ],
+            "peer": [
+                {"name": "高通", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "紫光展銳", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
+            ],
+            "competitor": [
+                {"name": "三星 LSI", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
+                {"name": "瑞昱", "ticker": "2379", "listed": True, "listed_market": "TWSE"},
+            ],
         },
         "NVDA": {
-            "name": "NVIDIA (NVDA)",
-            "upstream": ["TSMC (2330)", "SK Hynix (000660.KS)", "ASML (ASML)"],
-            "downstream": ["Microsoft (MSFT)", "Amazon (AMZN)", "Meta (META)"],
+            "name": "NVIDIA",
+            "ticker": "NVDA",
+            "listed": True,
+            "listed_market": "NASDAQ",
+            "upstream": [
+                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
+                {"name": "SK Hynix", "ticker": "000660.KS", "listed": True, "listed_market": "KRX"},
+                {"name": "ASML", "ticker": "ASML", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "downstream": [
+                {"name": "Microsoft", "ticker": "MSFT", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Amazon", "ticker": "AMZN", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Meta", "ticker": "META", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "peer": [
+                {"name": "AMD", "ticker": "AMD", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Broadcom", "ticker": "AVGO", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "competitor": [
+                {"name": "Intel", "ticker": "INTC", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Qualcomm", "ticker": "QCOM", "listed": True, "listed_market": "NASDAQ"},
+            ],
         },
         "TSLA": {
-            "name": "Tesla (TSLA)",
-            "upstream": ["Panasonic (6752.T)", "NVIDIA (NVDA)", "CATL (300750.SZ)"],
-            "downstream": ["EV End-Market", "Energy Storage", "Charging Ecosystem"],
+            "name": "Tesla",
+            "ticker": "TSLA",
+            "listed": True,
+            "listed_market": "NASDAQ",
+            "upstream": [
+                {"name": "Panasonic", "ticker": "6752.T", "listed": True, "listed_market": "TSE"},
+                {"name": "NVIDIA", "ticker": "NVDA", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "CATL", "ticker": "300750.SZ", "listed": True, "listed_market": "SZSE"},
+            ],
+            "downstream": [
+                {"name": "電動車終端市場", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "儲能應用", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "充電生態系", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+            ],
+            "peer": [
+                {"name": "Rivian", "ticker": "RIVN", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Lucid", "ticker": "LCID", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "competitor": [
+                {"name": "BYD", "ticker": "1211.HK", "listed": True, "listed_market": "HKEX"},
+                {"name": "小鵬汽車", "ticker": "9868.HK", "listed": True, "listed_market": "HKEX"},
+            ],
         },
         "AAPL": {
-            "name": "Apple (AAPL)",
-            "upstream": ["TSMC (2330)", "Foxconn (2317)", "Largan (3008)"],
-            "downstream": ["iPhone Ecosystem", "Services", "Wearables"],
+            "name": "Apple",
+            "ticker": "AAPL",
+            "listed": True,
+            "listed_market": "NASDAQ",
+            "upstream": [
+                {"name": "台積電", "ticker": "2330", "listed": True, "listed_market": "TWSE"},
+                {"name": "鴻海", "ticker": "2317", "listed": True, "listed_market": "TWSE"},
+                {"name": "大立光", "ticker": "3008", "listed": True, "listed_market": "TWSE"},
+            ],
+            "downstream": [
+                {"name": "iPhone 生態系", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "服務營收", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "穿戴裝置", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+            ],
+            "peer": [
+                {"name": "Microsoft", "ticker": "MSFT", "listed": True, "listed_market": "NASDAQ"},
+                {"name": "Alphabet", "ticker": "GOOGL", "listed": True, "listed_market": "NASDAQ"},
+            ],
+            "competitor": [
+                {"name": "Samsung Electronics", "ticker": "005930.KS", "listed": True, "listed_market": "KRX"},
+                {"name": "華為終端", "ticker": "PRIVATE", "listed": False, "listed_market": "未上市"},
+            ],
         },
     }
 
@@ -496,26 +592,116 @@ async def get_industry_chain(symbol: str):
         sym,
         {
             "name": f"{sym}",
-            "upstream": ["Core Component Supplier", "Raw Material", "Equipment Vendor"],
-            "downstream": ["Brand OEM", "Distribution", "Application Services"],
+            "ticker": f"{sym}",
+            "listed": None,
+            "listed_market": "未知",
+            "upstream": [
+                {"name": "核心零組件供應商", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "原物料供應商", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "設備供應商", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+            ],
+            "downstream": [
+                {"name": "品牌 OEM", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "通路商", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+                {"name": "終端應用服務", "ticker": "NA", "listed": False, "listed_market": "產業節點"},
+            ],
+            "peer": [
+                {"name": "同業公司 A", "ticker": "NA", "listed": None, "listed_market": "未知"},
+                {"name": "同業公司 B", "ticker": "NA", "listed": None, "listed_market": "未知"},
+            ],
+            "competitor": [
+                {"name": "競爭公司 A", "ticker": "NA", "listed": None, "listed_market": "未知"},
+                {"name": "競爭公司 B", "ticker": "NA", "listed": None, "listed_market": "未知"},
+            ],
         },
     )
 
+    relation_label_map = {
+        "upstream": "上游",
+        "downstream": "下游",
+        "peer": "同業",
+        "competitor": "競爭",
+    }
+    edge_label_map = {
+        "upstream": "上游供應",
+        "downstream": "下游客戶",
+        "peer": "同業關聯",
+        "competitor": "競爭關係",
+    }
+
     center_id = sym
-    nodes = [{"id": center_id, "label": profile["name"], "group": "core"}]
-    edges = []
+    center_label = f"{profile['name']} ({profile.get('ticker') or sym})"
+    nodes: list[dict[str, Any]] = [
+        {
+            "id": center_id,
+            "label": center_label,
+            "group": "core",
+            "name": profile["name"],
+            "ticker": profile.get("ticker") or sym,
+            "listed": profile.get("listed"),
+            "listed_market": profile.get("listed_market") or "未知",
+            "relation": "核心",
+        }
+    ]
+    edges: list[dict[str, Any]] = []
+    relations: list[dict[str, Any]] = []
 
-    for i, up in enumerate(profile["upstream"]):
-        node_id = f"up_{i}"
-        nodes.append({"id": node_id, "label": up, "group": "upstream"})
-        edges.append({"source": node_id, "target": center_id, "label": "supply"})
+    def append_group(group: str, source_first: bool) -> None:
+        rows = profile.get(group) or []
+        for i, row in enumerate(rows):
+            item = row if isinstance(row, dict) else {"name": str(row), "ticker": "NA", "listed": None, "listed_market": "未知"}
+            node_id = f"{group}_{i}"
+            ticker = str(item.get("ticker") or "NA")
+            name = str(item.get("name") or ticker)
+            listed = item.get("listed")
+            listed_market = str(item.get("listed_market") or "未知")
+            relation = relation_label_map[group]
 
-    for i, down in enumerate(profile["downstream"]):
-        node_id = f"down_{i}"
-        nodes.append({"id": node_id, "label": down, "group": "downstream"})
-        edges.append({"source": center_id, "target": node_id, "label": "demand"})
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": f"{name} ({ticker})",
+                    "group": group,
+                    "name": name,
+                    "ticker": ticker,
+                    "listed": listed,
+                    "listed_market": listed_market,
+                    "relation": relation,
+                }
+            )
 
-    return {"symbol": sym, "nodes": nodes, "edges": edges}
+            if source_first:
+                source, target = node_id, center_id
+            else:
+                source, target = center_id, node_id
+
+            edges.append(
+                {
+                    "source": source,
+                    "target": target,
+                    "label": edge_label_map[group],
+                    "relation": relation,
+                    "listed": listed,
+                    "listed_market": listed_market,
+                }
+            )
+            relations.append(
+                {
+                    "company": name,
+                    "ticker": ticker,
+                    "listed": listed,
+                    "listed_market": listed_market,
+                    "relation": relation,
+                    "relation_group": group,
+                }
+            )
+
+    append_group("upstream", source_first=True)
+    append_group("downstream", source_first=False)
+    append_group("peer", source_first=False)
+    append_group("competitor", source_first=False)
+
+    return {"symbol": sym, "nodes": nodes, "edges": edges, "relations": relations}
 
 
 @router.get("/analysis/prime-flow/{symbol}")
@@ -618,15 +804,15 @@ async def get_prime_flow(symbol: str):
     score = int(round(_clamp(50 + composite * 50, 1, 99)))
 
     if score >= 75:
-        label = "Strong Bullish"
+        label = "強勢偏多"
     elif score >= 60:
-        label = "Bullish"
+        label = "偏多"
     elif score >= 40:
-        label = "Neutral"
+        label = "中性"
     elif score >= 25:
-        label = "Bearish"
+        label = "偏空"
     else:
-        label = "Strong Bearish"
+        label = "強勢偏空"
 
     data_points = 0
     if closes:
@@ -659,30 +845,33 @@ async def get_prime_flow(symbol: str):
         )
     )
     if whale_score > 0.08:
-        whale_flow = "inflow"
+        whale_flow = "流入"
+        whale_flow_key = "inflow"
     elif whale_score < -0.08:
-        whale_flow = "outflow"
+        whale_flow = "流出"
+        whale_flow_key = "outflow"
     else:
-        whale_flow = "neutral"
+        whale_flow = "中性"
+        whale_flow_key = "neutral"
 
     whale_reasons: list[str] = []
     if inst_net > 0:
-        whale_reasons.append("Institutional net buying remains positive")
+        whale_reasons.append("法人淨買超維持正值")
     else:
-        whale_reasons.append("Institutional net flow is weak/negative")
+        whale_reasons.append("法人淨流向偏弱或轉負")
     if vol_ratio >= 1.05:
-        whale_reasons.append("Volume is above 20-day average")
+        whale_reasons.append("成交量高於二十日均量")
     else:
-        whale_reasons.append("Volume confirmation is not strong")
+        whale_reasons.append("量能確認度不足")
     if leverage_signal > 0:
-        whale_reasons.append("Leverage signal supports risk-on participation")
+        whale_reasons.append("槓桿訊號支持風險偏好")
     else:
-        whale_reasons.append("Leverage signal is not yet supportive")
+        whale_reasons.append("槓桿訊號尚未支持風險偏好")
 
     factors = [
         {
             "id": "momentum",
-            "label": "Momentum",
+            "label": "動能",
             "signal": round(momentum_signal, 4),
             "weight": weights["momentum"],
             "contribution": round(momentum_signal * weights["momentum"], 4),
@@ -690,7 +879,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "flow",
-            "label": "Flow",
+            "label": "資金流",
             "signal": round(flow_signal, 4),
             "weight": weights["flow"],
             "contribution": round(flow_signal * weights["flow"], 4),
@@ -698,7 +887,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "leverage",
-            "label": "Leverage",
+            "label": "槓桿",
             "signal": round(leverage_signal, 4),
             "weight": weights["leverage"],
             "contribution": round(leverage_signal * weights["leverage"], 4),
@@ -706,7 +895,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "valuation",
-            "label": "Valuation",
+            "label": "估值",
             "signal": round(valuation_signal, 4),
             "weight": weights["valuation"],
             "contribution": round(valuation_signal * weights["valuation"], 4),
@@ -714,7 +903,7 @@ async def get_prime_flow(symbol: str):
         },
         {
             "id": "risk",
-            "label": "Risk",
+            "label": "風險",
             "signal": round(risk_signal, 4),
             "weight": weights["risk"],
             "contribution": round(risk_signal * weights["risk"], 4),
@@ -732,11 +921,11 @@ async def get_prime_flow(symbol: str):
 
     nodes = [
         {"id": "core", "label": f"{sym}", "group": "core", "score": score},
-        {"id": "momentum", "label": "Momentum", "group": "factor"},
-        {"id": "flow", "label": "Flow", "group": "factor"},
-        {"id": "leverage", "label": "Leverage", "group": "factor"},
-        {"id": "valuation", "label": "Valuation", "group": "factor"},
-        {"id": "risk", "label": "Risk", "group": "factor"},
+        {"id": "momentum", "label": "動能", "group": "factor"},
+        {"id": "flow", "label": "資金流", "group": "factor"},
+        {"id": "leverage", "label": "槓桿", "group": "factor"},
+        {"id": "valuation", "label": "估值", "group": "factor"},
+        {"id": "risk", "label": "風險", "group": "factor"},
     ]
 
     def build_edge(node_id: str, signal: float) -> dict[str, Any]:
@@ -748,7 +937,7 @@ async def get_prime_flow(symbol: str):
         return {
             "source": source,
             "target": target,
-            "label": f"L{edge_level(signal)}",
+            "label": f"強度{edge_level(signal)}",
             "signal": round(signal, 4),
             "direction": direction,
         }
@@ -763,18 +952,18 @@ async def get_prime_flow(symbol: str):
 
     if score >= 60:
         suggestions = [
-            "Trend and flow are constructive; use staged entries instead of chasing.",
-            "Increase only after price-volume confirmation near key levels.",
+            "趨勢與資金流偏正向 採分批進場避免追高。",
+            "只在關鍵價位出現量價確認後再提高部位。",
         ]
     elif score >= 40:
         suggestions = [
-            "Mixed signals; keep position sizing moderate and wait for confirmation.",
-            "Focus on reaction around support/resistance before adding risk.",
+            "訊號分歧 建議控制中性倉位等待確認。",
+            "先觀察支撐與壓力區反應 再決定是否加碼。",
         ]
     else:
         suggestions = [
-            "Defensive posture preferred; reduce exposure on weak rebounds.",
-            "Wait for flow recovery and lower volatility before re-risking.",
+            "防禦姿態優先 反彈無量時應降低曝險。",
+            "等待資金流回升與波動收斂後再提高風險部位。",
         ]
 
     return {
@@ -788,6 +977,7 @@ async def get_prime_flow(symbol: str):
             "whale_entry": whale_entry,
             "whale_confidence": whale_confidence,
             "whale_flow": whale_flow,
+            "whale_flow_key": whale_flow_key,
             "whale_reasons": whale_reasons,
         },
         "factors": factors,

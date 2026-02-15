@@ -20,15 +20,14 @@ GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2"))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
 GEMINI_REPAIR_TIMEOUT_SEC = max(6, int(os.environ.get("GEMINI_REPAIR_TIMEOUT_SEC", "12")))
 
-INTRO_LINE = "\u6211\u662f DiscoverLatest AI\u3002"
-S1 = "\u4e00\u3001\u5e02\u5834\u60c5\u5883\u8207\u7d50\u8ad6 \U0001F50E"
-S2 = "\u4e8c\u3001\u95dc\u9375\u50ac\u5316\u8207\u57fa\u672c\u9762 \U0001F9F1"
-S3 = "\u4e09\u3001\u4ea4\u6613\u7b56\u7565\u8207\u57f7\u884c \U0001F9ED"
-S4 = "\u56db\u3001\u98a8\u96aa\u8207\u5931\u6548\u689d\u4ef6 \u26A0\uFE0F"
-S5 = "\u4e94\u3001\u63a5\u4e0b\u4f86\u8981\u8ffd\u8e64\u7684\u4e8b\u4ef6 \U0001F4C5"
-SMC_HEADER = "SMC \u7d50\u69cb\u5224\u8b80 \U0001F9E0"
-S0 = "\u96f6\u3001\u7e3d\u89bd\u8a55\u5206 \U0001F4CA"
-S6 = "\u516d\u3001\u4ea4\u6613\u5287\u672c\u8207\u57f7\u884c\u8a08\u756b \U0001F3AF"
+INTRO_LINE = "\u6211\u662f DiscoverLatest \u5c08\u5c6c AI \U0001F680"
+S1 = "1.\u5e02\u5834\u5feb\u5831 \U0001F4F0"
+S2 = "2.\u6280\u8853\u9762\u5206\u6790 \U0001F4C8"
+S3 = "3.\u9032\u51fa\u5834\u8a08\u5283 \U0001F3AF"
+S4 = "4.\u98a8\u96aa\u63d0\u793a \u26A0\uFE0F"
+S5 = "5.\u7d50\u8ad6 \u2705"
+S6 = "6.\u60c5\u5883\u4ea4\u6613\u5730\u5716 \u504f\u591a \u504f\u7a7a \u9707\u76ea \U0001F5FA\uFE0F"
+S7 = "7.\u5b8f\u89c0\u9032\u968e\u5206\u6790 \U0001F30D"
 TIER_MIN_CHARS = {"free": 100, "pro": 250, "premium": 500}
 
 _key_pool: List[str] = []
@@ -309,29 +308,50 @@ class GeminiService:
         if not out:
             return ""
 
-        out = re.sub(r"(?m)^\s*[-*]{3,}\s*$", "", out)
-        out = out.replace("***", "").replace("**", "").replace("#", "").replace("`", "")
+        out = re.sub(r"(?m)^\s*[-*_]{3,}\s*$", "", out)
+        out = re.sub(r"```+", "", out)
+        out = out.replace("***", "").replace("**", "").replace("*", "").replace("__", "").replace("~~", "")
+        out = out.replace("#", "").replace("`", "").replace(">", "")
         out = re.sub(r"(?im)^\s*section\s*1\b.*$", S1, out)
         out = re.sub(r"(?im)^\s*section\s*2\b.*$", S2, out)
         out = re.sub(r"(?im)^\s*section\s*3\b.*$", S3, out)
         out = re.sub(r"(?im)^\s*section\s*4\b.*$", S4, out)
         out = re.sub(r"(?im)^\s*section\s*5\b.*$", S5, out)
         out = re.sub(r"(?im)^\s*section\s*6\b.*$", S6, out)
-        out = re.sub(r"(?im)^\s*section\s*7\b.*$", SMC_HEADER, out)
+        out = re.sub(r"(?im)^\s*section\s*7\b.*$", S7, out)
 
         lines: List[str] = []
+        section_by_num = {"1": S1, "2": S2, "3": S3, "4": S4, "5": S5, "6": S6, "7": S7}
+        section_by_zh = {
+            "一": S1,
+            "二": S2,
+            "三": S3,
+            "四": S4,
+            "五": S5,
+            "六": S6,
+            "七": S7,
+        }
         for raw in out.split("\n"):
             line = raw.strip()
             if not line:
                 lines.append("")
                 continue
+            m_num = re.match(r"^([1-7])[\.、\)]\s*", line)
+            if m_num:
+                lines.append(section_by_num[m_num.group(1)])
+                continue
+            m_zh = re.match(r"^([一二三四五六七])[、\.]\s*", line)
+            if m_zh:
+                lines.append(section_by_zh[m_zh.group(1)])
+                continue
+            if line in {S1, S2, S3, S4, S5, S6, S7}:
+                lines.append(line)
+                continue
             line = re.sub(r"^[-*]+\s*", "", line)
             line = re.sub(r"^\d+\)\s*", "", line)
-            line = re.sub(r"^\d+\.\s*", "", line)
+            line = re.sub(r"^\d+\.\s+", "", line)
             if line.startswith("- "):
                 lines.append(f"\u2022 {line[2:].strip()}")
-            elif re.match(r"^[一二三四五六七八九十]+、", line) or line.startswith("SMC"):
-                lines.append(line)
             else:
                 lines.append(f"\u2022 {line}")
 
@@ -353,8 +373,10 @@ class GeminiService:
         items = [seg.strip() for seg in summary.split("|") if seg.strip()]
         if not items:
             items = ["趨勢方向=neutral", "結構突破(BOS)=0", "特性轉換(CHoCH)=0"]
-        bullet_lines = "\n".join(f"\u2022 {seg}" for seg in items[:6])
-        return f"{out}\n\n{SMC_HEADER}\n{bullet_lines}".strip()
+        bullet_lines = "\n".join(f"\u2022 SMC補充 {seg}" for seg in items[:4])
+        if S2 in out:
+            return out.replace(S2, f"{S2}\n{bullet_lines}", 1).strip()
+        return f"{out}\n\n{S2}\n{bullet_lines}".strip()
 
     @staticmethod
     def _analysis_cache_key(symbol: str, tier: str, context: str, user_question: str) -> str:
@@ -397,28 +419,28 @@ class GeminiService:
     def _tier_instruction(tier: str) -> str:
         min_chars = GeminiService._tier_min_chars(tier)
         common = (
-            "\u8acb\u4f7f\u7528\u7e41\u9ad4\u4e2d\u6587\uff0c\u53e3\u543b\u5c08\u696d\u3001\u51b7\u975c\u3001\u57f7\u884c\u5c0e\u5411\uff0c\u985e\u4f3c 30+ \u5e74\u83ef\u723e\u8857\u4ea4\u6613\u54e1\u5831\u544a\u3002\n"
+            "\u8acb\u4f7f\u7528\u7e41\u9ad4\u4e2d\u6587\uff0c\u53e3\u543b\u5c08\u696d\u3001\u51b7\u975c\u3001\u57f7\u884c\u5c0e\u5411\uff0c\u985e\u4f3c 30+ \u5e74\u4ea4\u6613\u54e1\u5831\u544a\u3002\n"
             f"\u7b2c\u4e00\u884c\u5fc5\u9808\u662f\uff1a{INTRO_LINE}\n"
             f"\u7e3d\u9577\u5ea6\u81f3\u5c11 {min_chars} \u500b\u5b57\u7b26\u3002\n"
             "\u8acb\u7528\u5217\u9ede\u5448\u73fe\uff0c\u53ef\u4f7f\u7528\u5c11\u91cf emoji \u8f14\u52a9\u95b1\u8b80\uff0c\u4f46\u4e0d\u8981\u904e\u91cf\u3002\n"
-            "\u7981\u6b62\u4f7f\u7528 --- ** * # \u7b49 markdown \u88dd\u98fe\u7b26\u865f\u3002\n"
+            "\u5168\u6587\u7981\u6b62\u4f7f\u7528 markdown \u88dd\u98fe\u7b26\u865f\uff1a--- ** *** ## ### ``` __ ~~ >\u3002\n"
             "\u5167\u5bb9\u5fc5\u9808\u540c\u6642\u7d50\u5408\uff1a\u65b0\u805e\u9762\u3001\u6d88\u606f\u9762\u3001\u57fa\u672c\u9762\uff08FinMind\uff09\u3001\u7c4c\u78bc\u9762\uff08FinMind\uff09\u3001\u6280\u8853\u9762\u3002\n"
-            "\u6280\u8853\u9762\u5fc5\u9808\u660e\u78ba\u63d0\u53ca RSI\u3001MACD\u3001KDJ\u3001\u5e03\u6797\u901a\u9053\uff0c\u4e26\u7d50\u5408 SMC/ICT \u89c0\u9ede\u3002\n"
+            "\u6280\u8853\u9762\u5fc5\u9808\u660e\u78ba\u63d0\u53ca SMC\u3001RSI\u3001MACD\u3001KDJ\u3001\u5e03\u6797\u901a\u9053\u3001EMA20/EMA50/EMA200\u3002\n"
             "\u5fc5\u9808\u7d66\u51fa\u77ed\u671f\uff081-5 \u500b\u4ea4\u6613\u65e5\uff09\u3001\u4e2d\u671f\uff082-6 \u9031\uff09\u3001\u9577\u671f\uff082-4 \u5b63\uff09\u7684\u9032\u5834/\u52a0\u78bc/\u6e1b\u78bc/\u505c\u640d\u898f\u5283\u3002\n"
             "\u4ea4\u6613\u8173\u672c\u9700\u5305\u542b\u89f8\u767c\u689d\u4ef6\u3001\u50f9\u4f4d\u5340\u9593\u3001\u505c\u640d\u3001\u76ee\u6a19\u50f9\u3001R:R\u3002\n"
             "\u8f38\u51fa\u7ae0\u7bc0\u9806\u5e8f\u56fa\u5b9a\uff1a\n"
-            f"{S0}\n{S1}\n{S2}\n{S3}\n{S4}\n{S5}\n{S6}\n{SMC_HEADER}"
+            f"{S1}\n{S2}\n{S3}\n{S4}\n{S5}\n{S6}\n{S7}"
         )
         t = str(tier or "free").strip().lower()
         if t == "premium":
             return common + (
                 "\nPremium \u6df1\u5ea6\u8981\u6c42\uff1a"
-                "base/bull/bear \u6a5f\u7387\u3001\u90e8\u4f4d\u8a2d\u8a08\u3001\u5c0d\u6c96\u53ca\u98a8\u96aa\u66b4\u9732\u7ba1\u7406\u3002"
+                "base/bull/bear \u6a5f\u7387\u3001\u90e8\u4f4d\u8a2d\u8a08\u3001\u5c0d\u6c96\u53ca\u98a8\u96aa\u66b4\u9732\u7ba1\u7406\u3002\u60c5\u5883\u4ea4\u6613\u5730\u5716\u8981\u6709\u89f8\u767c\u689d\u4ef6\u8207\u6a5f\u7387\u3002"
             )
         if t == "pro":
             return common + (
                 "\nPro \u6df1\u5ea6\u8981\u6c42\uff1a"
-                "base/bull \u96d9\u60c5\u5883\u3001\u57f7\u884c\u5340\u9593\u3001\u5009\u4f4d\u5efa\u8b70\u8207\u98a8\u96aa\u9810\u8b66\u3002"
+                "base/bull \u96d9\u60c5\u5883\u3001\u57f7\u884c\u5340\u9593\u3001\u5009\u4f4d\u5efa\u8b70\u8207\u98a8\u96aa\u9810\u8b66\u3002\u5fc5\u9808\u88dc\u4e0a\u5b8f\u89c0\u9032\u968e\u89e3\u8b80\u3002"
             )
         return common + (
             "\nFree \u6df1\u5ea6\u8981\u6c42\uff1a"
@@ -434,12 +456,16 @@ class GeminiService:
         if len(t) < GeminiService._tier_min_chars(tier):
             return False
 
-        required_headers = [INTRO_LINE, S0, S1, S2, S3, S4, S5, S6, SMC_HEADER]
+        required_headers = [INTRO_LINE, S1, S2, S3, S4, S5, S6, S7]
         if any(h not in t for h in required_headers):
             return False
-        if re.search(r"(?im)^\s*section\s*[1-6]\b", t):
+        if re.search(r"(?im)^\s*section\s*[1-7]\b", t):
             return False
-        if "---" in t or "**" in t:
+        if re.search(r"(?m)^\s*[-*_]{3,}\s*$", t):
+            return False
+        if any(tok in t for tok in ("**", "***", "```", "__", "~~", "##", "###", "> ")):
+            return False
+        if "*" in t or "#" in t or "`" in t:
             return False
 
         tier_norm = str(tier or "free").strip().lower()
@@ -534,45 +560,37 @@ class GeminiService:
 
         lines = [
             INTRO_LINE,
-            S0,
-            f"\u2022 \u6a19\u7684\uff1a{symbol} \uff5c \u73fe\u50f9\uff1a{price} \uff5c \u7576\u65e5\u6f32\u8dcc\uff1a{change_pct}%",
-            f"\u2022 \u7d9c\u5408\u504f\u5411\uff1a{trend_label}\uff0c\u5efa\u8b70\u5148\u7b49\u7d50\u69cb\u8207\u91cf\u50f9\u540c\u6b65\u518d\u64f4\u5927\u90e8\u4f4d\u3002",
-            f"\u2022 \u4f30\u503c\u5feb\u7167\uff1aPE {pe}\uff0cPB {pb}\uff0c\u80a1\u606f\u7387 {dy}%\u3002",
             S1,
-            f"\u2022 \u65b0\u805e\u8207\u6d88\u606f\u9762\u91cd\u9ede\uff1a{summary}",
-            "\u2022 \u82e5\u65b0\u805e\u50c5\u662f\u60c5\u7dd2\u578b\u6572\u4e8b\uff0c\u9700\u4ee5\u91cf\u50f9\u8207\u7c4c\u78bc\u78ba\u8a8d\u3002",
-            "\u2022 \u5148\u89c0\u5bdf\u5e02\u5834\u98a8\u96aa\u504f\u597d\u8207\u5229\u7387\u65b9\u5411\uff0c\u907f\u514d\u9006\u52e2\u91cd\u58d3\u3002",
+            f"\u2022 \u6a19\u7684 {symbol} \u73fe\u50f9 {price} \u7576\u65e5\u6f32\u8dcc {change_pct}%",
+            f"\u2022 \u7576\u524d\u5e02\u5834\u504f\u5411 {trend_label} \u4f30\u503c\u5feb\u7167 PE {pe} PB {pb} \u80a1\u606f\u7387 {dy}%",
+            f"\u2022 \u6f32\u8dcc\u9a45\u52d5\u91cd\u9ede {summary}",
             S2,
-            "\u2022 \u57fa\u672c\u9762\uff1a\u7528\u7372\u5229\u8207\u4f30\u503c\u5340\u9593\u5224\u65b7\u4e0a\u884c\u7a7a\u9593\u8207\u9632\u5b88\u6027\u3002",
-            "\u2022 \u7c4c\u78bc\u9762\uff1a\u89c0\u5bdf\u5916\u8cc7/\u6295\u4fe1/\u878d\u8cc7\u8b8a\u5316\u662f\u5426\u540c\u5411\u3002",
-            "\u2022 \u50ac\u5316\u4e8b\u4ef6\uff1a\u8ca1\u5831\u3001\u6cd5\u8aaa\u3001\u8cc7\u672c\u652f\u51fa\u3001\u7522\u696d\u666f\u6c23\u8207\u5b8f\u89c0\u653f\u7b56\u3002",
+            f"\u2022 RSI14 {tech.get('rsi')} MACD {tech.get('macd')} Signal {tech.get('macd_signal')}",
+            f"\u2022 KDJ {tech.get('kdj')} Bollinger20 2 {tech.get('boll')}",
+            f"\u2022 EMA20 {tech.get('ema20')} EMA50 {tech.get('ema50')} EMA200 {tech.get('ema200')}",
+            f"\u2022 SMC \u7d50\u69cb \u8da8\u52e2 {smc.get('trend')} BOS {smc.get('bos')} CHoCH {smc.get('choch')}",
+            f"\u2022 SMC \u88dc\u5145 \u8a02\u55ae\u584a {smc.get('active_ob')} FVG {smc.get('open_fvg')} \u6d41\u52d5\u6027\u8cb7\u8ce3 {smc.get('liquidity')}",
             S3,
-            f"\u2022 RSI14={tech.get('rsi')} \uff5c MACD={tech.get('macd')} \uff5c Signal={tech.get('macd_signal')}",
-            f"\u2022 KDJ={tech.get('kdj')} \uff5c Bollinger(20,2)={tech.get('boll')}",
-            f"\u2022 EMA20={tech.get('ema20')} \uff5c EMA50={tech.get('ema50')} \uff5c EMA200={tech.get('ema200')}",
-            "\u2022 \u77ed\u671f\uff081-5 \u65e5\uff09\uff1a\u7b49\u7a81\u7834/\u56de\u6e2c\u78ba\u8a8d\u5f8c\u5206\u6279\u9032\u5834\uff0c\u672a\u653e\u91cf\u4e0d\u8ffd\u50f9\u3002",
-            "\u2022 \u4e2d\u671f\uff082-6 \u9031\uff09\uff1a\u53ea\u5728\u9ad8\u4f4e\u9ede\u7d50\u69cb\u62ac\u5347\u4e14\u6210\u4ea4\u91cf\u914d\u5408\u6642\u52a0\u78bc\u3002",
-            "\u2022 \u9577\u671f\uff082-4 \u5b63\uff09\uff1a\u4f9d\u7522\u696d\u8da8\u52e2\u8207\u7372\u5229\u4fee\u6b63\u65b9\u5411\u52d5\u614b\u8abf\u6574\u3002",
+            "\u2022 \u77ed\u671f 1-5\u65e5 \u7b49\u91cf\u80fd\u653e\u5927\u4e14\u6536\u76e4\u5b88\u4f4f\u652f\u6490\u5f8c\u5206\u6279\u9032\u5834 \u7834\u4f4d\u5373\u505c\u640d",
+            "\u2022 \u4e2d\u671f 2-6\u9031 \u7d50\u69cb\u9ad8\u9ede\u4e0a\u79fb\u624d\u52a0\u78bc \u8dcc\u7834\u4e2d\u671f\u8d77\u6f32\u8d70\u52e2\u7dda\u6e1b\u78bc",
+            "\u2022 \u9577\u671f 2-4\u5b63 \u4f9d\u8ca1\u5831\u8207\u7522\u696d\u9031\u671f\u9032\u884c\u52d5\u614b\u914d\u7f6e \u8da8\u52e2\u53cd\u8f49\u5168\u9762\u9000\u5834",
+            "\u2022 \u6bcf\u500b\u9031\u671f\u90fd\u8981\u5148\u5b9a\u7fa9\u9032\u5834\u5340 \u505c\u640d\u9ede \u76ee\u6a19\u50f9 \u98a8\u5831\u6bd4",
             S4,
-            "\u2022 \u5931\u6548\u689d\u4ef6\uff1a\u8dcc\u7834\u95dc\u9375\u652f\u6490\u4e14\u5169\u65e5\u5167\u7121\u6cd5\u6536\u5fa9\uff0c\u6216\u50f9\u91cf\u80cc\u96e2\u64f4\u5927\u3002",
-            "\u2022 \u90e8\u4f4d\u98a8\u63a7\uff1a\u55ae\u7b46\u98a8\u96aa\u63a7\u5728 0.5%-1.0%\uff0c\u907f\u514d\u904e\u5ea6\u96c6\u4e2d\u3002",
-            "\u2022 \u98a8\u96aa\u4f86\u6e90\uff1a\u8ca1\u5831\u840e\u7e2e\u3001\u6307\u5f15\u4e0b\u4fee\u3001\u5229\u7387\u8def\u5f91\u8b8a\u5316\u3001\u5730\u7de3\u653f\u6cbb\u3002",
+            "\u2022 \u95dc\u9375\u98a8\u96aa \u8ca1\u5831\u4e0d\u5982\u9810\u671f \u6307\u5f15\u4e0b\u4fee \u5229\u7387\u4e0a\u884c \u5730\u7de3\u653f\u6cbb\u885d\u64ca",
+            "\u2022 \u90e8\u4f4d\u98a8\u63a7 \u55ae\u7b46\u98a8\u96aa\u63a7\u5236\u65bc 0.5%-1.0% \u907f\u514d\u55ae\u4e00\u4e8b\u4ef6\u904e\u5ea6\u96c6\u4e2d",
+            "\u2022 \u5931\u6548\u689d\u4ef6 \u8dcc\u7834\u95dc\u9375\u652f\u6490\u4e14\u91cf\u80fd\u653e\u5927\u6642 \u57f7\u884c\u964d\u98a8\u96aa",
             S5,
-            "\u2022 24h\uff1a\u8ffd\u8e64\u65b0\u805e\u662f\u5426\u6539\u8b8a\u5e02\u5834\u6545\u4e8b\u7dda\u8207\u98a8\u96aa\u504f\u597d\u3002",
-            "\u2022 7d\uff1a\u8ffd\u8e64\u6cd5\u4eba\u7c4c\u78bc\u9023\u7e8c\u6027\u8207\u7372\u5229\u9810\u4f30\u4fee\u6b63\u3002",
-            "\u2022 30d\uff1a\u6aa2\u8996\u7e3d\u90e8\u4f4d\u7387\u8207\u7b56\u7565\u56de\u64a4\uff0c\u518d\u5e73\u8861\u6743\u91cd\u3002",
+            f"\u2022 \u7d9c\u5408\u7d50\u8ad6 \u73fe\u968e\u6bb5\u5c6c\u65bc {trend_label} \u63a1\u5206\u6279\u9032\u51fa\u5834\u8207\u52d5\u614b\u98a8\u63a7\u8f03\u9069\u5408",
+            "\u2022 \u5982\u7121\u4e8b\u4ef6\u50ac\u5316\u8207\u91cf\u50f9\u5171\u632f \u4e0d\u8ffd\u50f9 \u512a\u5148\u7b49\u56de\u6e2c\u78ba\u8a8d",
+            "\u2022 \u57f7\u884c\u9806\u5e8f \u5148\u63a7\u98a8\u96aa \u518d\u8b70\u5831\u916c",
             S6,
-            "\u2022 \u9032\u5834\uff1a\u689d\u4ef6\u6210\u7acb\u624d\u9032\u5834\uff0c\u5efa\u8b70\u5206\u6279\u4e26\u4fdd\u7559\u6a5f\u52d5\u6027\u3002",
-            "\u2022 \u505c\u640d\uff1a\u653e\u5728\u7d50\u69cb\u5931\u6548\u4f4d\u4e0b\u65b9\uff0c\u4e0d\u53ef\u56e0\u4e3b\u89c0\u9884\u671f\u5ef6\u5f8c\u57f7\u884c\u3002",
-            "\u2022 \u76ee\u6a19\uff1a\u4ee5\u524d\u9ad8/\u58d3\u529b\u5340\u5206\u6bb5\u4e86\u7d50\uff0c\u9810\u8a2d R:R \u81f3\u5c11 1:2\u3002",
-            SMC_HEADER,
-            f"\u2022 趨勢方向={smc.get('trend')}",
-            f"\u2022 結構突破(BOS)={smc.get('bos')}",
-            f"\u2022 特性轉換(CHoCH)={smc.get('choch')}",
-            f"\u2022 有效訂單塊(OB)={smc.get('active_ob')}",
-            f"\u2022 未填補缺口(FVG)={smc.get('open_fvg')}",
-            f"\u2022 流動性(買/賣)={smc.get('liquidity')}",
-            "\u2022 ICT/SMC\u89c0\u9ede\uff1a\u5148\u89c0\u5bdf\u6d41\u52d5\u6027\u6383\u63a0\u5f8c\u662f\u5426\u56de\u6536\uff0c\u518d\u5224\u65b7\u8da8\u52e2\u5ef6\u7e8c\u6216\u53cd\u8f49\u3002",
+            "\u2022 \u504f\u591a \u89f8\u767c\u689d\u4ef6 \u6536\u76e4\u7ad9\u4e0a\u95dc\u9375\u58d3\u529b\u5340\u4e14\u91cf\u80fd\u9023\u7e8c\u653e\u5927 \u7b56\u7565 \u56de\u6e2c\u4e0d\u7834\u52a0\u78bc",
+            "\u2022 \u504f\u7a7a \u89f8\u767c\u689d\u4ef6 \u8dcc\u7834\u95dc\u9375\u652f\u6490\u4e14\u5f48\u5347\u7121\u91cf \u7b56\u7565 \u53cd\u5f48\u81f3\u58d3\u529b\u5340\u6e1b\u78bc\u6216\u907f\u96aa",
+            "\u2022 \u9707\u76ea \u89f8\u767c\u689d\u4ef6 \u91cf\u80fd\u6536\u7e2e\u4e14\u5340\u9593\u672a\u7834 \u7b56\u7565 \u5340\u9593\u4e0b\u7de3\u4f4e\u5438 \u5340\u9593\u4e0a\u7de3\u6e1b\u78bc",
+            S7,
+            "\u2022 \u7f8e\u50b5\u5229\u7387 \u7f8e\u5143\u8d70\u52e2 \u80fd\u6e90\u50f9\u683c \u6703\u5f71\u97ff\u4f30\u503c\u6298\u73fe\u8207\u98a8\u96aa\u504f\u597d",
+            "\u2022 \u82e5\u805a\u7126\u901a\u81a8\u8207\u5229\u7387\u8def\u5f91\u8f49\u5411 \u6210\u9577\u80a1\u8207\u9031\u671f\u80a1\u8cc7\u91d1\u8f2a\u52d5\u901f\u5ea6\u6703\u6539\u8b8a",
+            "\u2022 \u5efa\u8b70\u6bcf\u9031\u6aa2\u8996\u5b8f\u89c0\u8b8a\u6578\u8207\u6301\u5009\u66dd\u96aa \u78ba\u4fdd\u5009\u4f4d\u914d\u7f6e\u8207\u60c5\u5883\u4e00\u81f4",
         ]
 
         if tier_norm in {"pro", "premium"}:
@@ -586,9 +604,9 @@ class GeminiService:
         if tier_norm == "premium":
             lines.extend(
                 [
-                    "\u2022 Premium \u60c5\u5883\u6a5f\u7387\uff1abase 50%\uff0cbull 30%\uff0cbear 20%\u3002",
-                    "\u2022 Premium \u7d44\u5408\u89d2\u5ea6\uff1a\u7d50\u5408\u6307\u6578\u6216\u9632\u79a6\u8cc7\u7522\u63a7\u5236\u5c3e\u90e8\u98a8\u96aa\u3002",
-                    "\u2022 Premium \u7b56\u7565\u7dad\u904b\uff1a\u4ee5\u52dd\u7387\u3001\u76c8\u8667\u6bd4\u3001\u6700\u5927\u56de\u64a4\u5b9a\u671f\u8907\u76e4\u3002",
+                    "\u2022 Premium \u6a5f\u7387\u6a21\u5f0f base 50% bull 30% bear 20%",
+                    "\u2022 Premium \u7d44\u5408\u8996\u89d2 \u53ef\u642d\u914d\u6307\u6578\u6216\u9632\u79a6\u8cc7\u7522\u63a7\u5236\u5c3e\u90e8\u98a8\u96aa",
+                    "\u2022 Premium \u7dad\u904b\u89c0\u5ff5 \u4ee5\u52dd\u7387 \u76c8\u8667\u6bd4 \u6700\u5927\u56de\u64a4\u5b9a\u671f\u8907\u76e4",
                 ]
             )
 
@@ -677,10 +695,16 @@ class GeminiService:
             grounding_sources: List[Dict[str, str]] = []
 
             stage1_prompt = (
-                "你是一位專業股票分析師的研究助理。"
-                "請使用 Google Search grounding 搜尋最新資訊。"
-                "以繁體中文回傳 5-8 條精簡重點，涵蓋：最新新聞、法人動向、產業趨勢、總經影響。"
-                "禁止使用任何英文句子，技術縮寫（如 RSI、PE）除外。\n"
+                "你是 DiscoverLatest 的市場情報研究員。"
+                "請務必使用 Google Search grounding 搜尋最新可驗證資訊。"
+                "請以繁體中文輸出 8-12 條重點，每條必須包含 日期 事件 對股價影響 來源。"
+                "必查資料包含 當前股價 當日漲跌幅 當日成交量 近五日漲跌幅。"
+                "必查漲跌原因包含 財報 法說 公司公告 訂單變化 評級調整 產業消息。"
+                "必查同分類與同產業近期消息 以及資金輪動。"
+                "必查宏觀變數包含 利率 匯率 油價 地緣政治 政策。"
+                "若找不到直接證據 必須明確寫出 尚無足夠證據。"
+                "最後補一段 新聞重點總結 字數 120 字內。"
+                "禁止使用英文句子 禁止使用 markdown 裝飾符號。\n"
                 f"標的={symbol}\n"
                 f"背景資料:\n{context}\n"
                 f"使用者提問={user_question or '無'}"
@@ -751,12 +775,15 @@ class GeminiService:
             final_prompt = (
                 f"{tier_instruction}\n\n"
                 "規則：\n"
-                "- 每個章節至少 3 條可執行的重點。\n"
-                "- 必須涵蓋：新聞消息面＋基本面＋籌碼面＋技術指標。\n"
-                "- 技術面必須明確提及 RSI、MACD、KDJ、布林通道的數值與判讀。\n"
-                "- 交易劇本必須包含短線(1-5日)/中線(2-6週)/長線(2-4季)的進場/停損/目標/風報比。\n"
-                "- 禁止使用 markdown 分隔線或裝飾符號。\n"
-                "- 全文必須使用繁體中文，禁止出現英文句子（技術縮寫除外）。\n\n"
+                f"- 第一行固定 {INTRO_LINE}\n"
+                f"- 章節順序固定為 {S1} {S2} {S3} {S4} {S5} {S6} {S7}\n"
+                "- 每個章節至少 3 條可執行重點。\n"
+                "- 必須整合 stage1 的所有證據與來源脈絡。\n"
+                "- 技術面必須含 SMC RSI MACD KDJ 布林通道 EMA20 EMA50 EMA200 的數值與判讀。\n"
+                "- 進出場計劃必須給出短期 中期 長期的進場區 加碼區 減碼區 停損 目標與理由。\n"
+                "- 情境交易地圖必須分 偏多 偏空 震盪 三情境並說明觸發條件。\n"
+                "- 全文必須使用繁體中文 禁止英文句子 技術縮寫除外。\n"
+                "- 禁止使用任何 markdown 裝飾符號 例如 --- ** *** ## ### ``` __ ~~ >。\n\n"
                 f"標的={symbol}\n"
                 f"背景資料:\n{context}\n\n"
                 f"grounding 搜尋結果:\n{grounding_compact}\n\n"
@@ -808,9 +835,12 @@ class GeminiService:
                     print(f"[Gemini] Stage 2 quality gate failed for {symbol}; running repair pass...")
                     repair_prompt = (
                         f"{tier_instruction}\n"
-                        "請以繁體中文重新撰寫完整版本，所有章節必須完整。\n"
-                        "不可縮減篇幅，所有必要章節與技術指標都必須保留。\n"
-                        "全文禁止出現英文句子（技術縮寫除外）。\n\n"
+                        f"請以繁體中文重寫完整版本 第一行固定 {INTRO_LINE}。\n"
+                        f"章節固定 {S1} {S2} {S3} {S4} {S5} {S6} {S7}。\n"
+                        "不可縮減篇幅 所有必要章節與技術指標都必須保留。\n"
+                        "必須補齊 SMC RSI MACD KDJ 布林通道與長中短進出場策略。\n"
+                        "全文禁止英文句子 技術縮寫除外。\n"
+                        "全文禁止 markdown 裝飾符號 例如 --- ** *** ## ### ``` __ ~~ >。\n\n"
                         f"標的={symbol}\n"
                         f"背景資料:\n{context}\n\n"
                         f"grounding 搜尋結果:\n{grounding_compact}\n\n"
