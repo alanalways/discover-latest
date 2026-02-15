@@ -286,15 +286,16 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
         elif result is not None:
             analysis_text = str(result).strip()
 
-        has_usable_text = len(analysis_text) >= 60
-        should_charge = has_usable_text and (success or degraded)
+        quality_pass = bool(result.get("quality_pass")) if isinstance(result, dict) else False
+        has_usable_text = len(analysis_text) >= 120
+        should_charge = quality_pass and has_usable_text and (success or degraded)
 
         if should_charge:
             rate_limiter.record_request(user_id)
-        elif not has_usable_text:
-            detail = "AI 暫時無法產出可用分析，這次不會扣次數，請稍後重試。"
+        else:
+            detail = "AI analysis is incomplete. Please retry in a moment."
             if error_text:
-                detail = f"{detail}（{error_text}）"
+                detail = f"{detail} error={error_text}"
             raise HTTPException(status_code=503, detail=detail)
 
         return {
@@ -303,6 +304,7 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
             "charged": bool(should_charge),
             "degraded": degraded,
             "success": success,
+            "quality_pass": quality_pass,
         }
     except HTTPException:
         raise
