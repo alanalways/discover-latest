@@ -879,10 +879,12 @@ async def get_industry_chain(symbol: str):
     market_hint = str(info.get("market") or ("TWSE" if sym.isdigit() else "US")).upper()
     industry_hint = str(info.get("industry") or "").lower()
     type_hint = str(info.get("type") or "").lower()
+    inferred_kind = _infer_profile_kind(sym, company_name, industry_hint, type_hint)
+    should_try_grounding = inferred_kind == "generic"
 
     grounded_sources: list[dict[str, str]] = []
     profile: dict[str, Any] | None = None
-    if gemini_service.is_available():
+    if gemini_service.is_available() and should_try_grounding:
         try:
             grounded = await asyncio.wait_for(
                 asyncio.to_thread(gemini_service.ground_industry_chain, sym, company_name, industry_hint),
