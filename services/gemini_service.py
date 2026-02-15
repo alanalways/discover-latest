@@ -331,10 +331,19 @@ class GeminiService:
             "六": S6,
             "七": S7,
         }
+        intro_line_compact = re.sub(r"\s+", "", INTRO_LINE).lower()
+        intro_seen = False
         for raw in out.split("\n"):
             line = raw.strip()
             if not line:
                 lines.append("")
+                continue
+            line_no_bullet = re.sub(r"^[\u2022\-\*\s]+", "", line)
+            line_compact = re.sub(r"\s+", "", line_no_bullet).lower()
+            if "discoverlatest" in line_compact and "專屬ai" in line_compact:
+                if not intro_seen:
+                    lines.append(INTRO_LINE)
+                    intro_seen = True
                 continue
             m_num = re.match(r"^([1-7])[\.、\)]\s*", line)
             if m_num:
@@ -355,9 +364,22 @@ class GeminiService:
             else:
                 lines.append(f"\u2022 {line}")
 
-        out = "\n".join(lines)
+        # Keep only one intro line and force it to first line.
+        deduped: List[str] = []
+        intro_seen = False
+        for ln in lines:
+            normalized = re.sub(r"\s+", "", re.sub(r"^[\u2022\-\*\s]+", "", (ln or "").strip())).lower()
+            if normalized == intro_line_compact or ("discoverlatest" in normalized and "專屬ai" in normalized):
+                if intro_seen:
+                    continue
+                intro_seen = True
+                deduped.append(INTRO_LINE)
+                continue
+            deduped.append(ln)
+
+        out = "\n".join(deduped)
         out = re.sub(r"\n{3,}", "\n\n", out).strip()
-        if not out.startswith(INTRO_LINE):
+        if not intro_seen or not out.startswith(INTRO_LINE):
             out = INTRO_LINE + "\n" + out
         return out.strip()
 
@@ -795,10 +817,10 @@ class GeminiService:
 
             tier_instruction = self._tier_instruction(tier)
             tier_norm = str(tier or "free").strip().lower()
-            max_tokens = 760 if tier_norm == "free" else (1020 if tier_norm == "pro" else 1320)
+            max_tokens = 700 if tier_norm == "free" else (920 if tier_norm == "pro" else 1180)
             grounding_compact = (grounding_text or "").strip()
-            if len(grounding_compact) > 2600:
-                grounding_compact = grounding_compact[:2600]
+            if len(grounding_compact) > 1900:
+                grounding_compact = grounding_compact[:1900]
 
             final_prompt = (
                 f"{tier_instruction}\n\n"

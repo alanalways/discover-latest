@@ -322,7 +322,7 @@ export class ApiClient {
     // ── Analysis ──
     async getAiAnalysis(symbol: string, period: string = '1y'): Promise<AiAnalysisResponse> {
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), 70_000) : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 120_000) : null;
         try {
             return await this.fetch<AiAnalysisResponse>('/api/analysis/ai', {
                 method: 'POST',
@@ -343,7 +343,7 @@ export class ApiClient {
         } = {},
     ): Promise<AiAnalysisResponse> {
         const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        const timer = controller ? setTimeout(() => controller.abort(), 90_000) : null;
+        const timer = controller ? setTimeout(() => controller.abort(), 150_000) : null;
         startRouteProgress();
         try {
             const headers: Record<string, string> = { 'Content-Type': 'application/json' };
