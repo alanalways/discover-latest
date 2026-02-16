@@ -19,6 +19,8 @@ def create_stock_analysis_page(
     lang: str = 'zh-TW',
     pred_model: str = "naive",
     pred_horizon: int = 20,
+    load_prediction: bool = False,
+    load_smc: bool = False,
     ai_result: Dict = None,
     current_user: Dict = None,
     chat_history: List[Dict] = None,
@@ -68,16 +70,30 @@ def create_stock_analysis_page(
         show_volume=True,
         tier=_user_tier,
     )
-    
-    # SMC 分析
-    smc_analysis = smc_service.analyze(history)
-    smc_chart_html = create_smc_chart(
-        data=history,
-        smc_analysis=smc_analysis,
-        symbol=symbol,
-        height=500
-    )
-    smc_summary_html = create_smc_summary_card(smc_analysis, lang)
+
+    # SMC 區塊改為 lazy load，避免首屏阻塞。
+    if load_smc:
+        smc_analysis = smc_service.analyze(history)
+        smc_chart_html = create_smc_chart(
+            data=history,
+            smc_analysis=smc_analysis,
+            symbol=symbol,
+            height=500
+        )
+        smc_summary_html = create_smc_summary_card(smc_analysis, lang)
+        smc_section_html = f'''
+        <div class="two-column" style="margin-bottom: 24px;">
+            <div>{smc_chart_html}</div>
+            <div>{smc_summary_html}</div>
+        </div>'''
+    else:
+        smc_section_html = f'''
+        <div class="chart-section" style="margin-bottom:24px;text-align:center;padding:28px;">
+            <p style="color:var(--text-3);margin-bottom:12px;">SMC/ICT 計算改為按需載入，點擊後才開始分析。</p>
+            <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'load_smc',symbol:'{symbol}'}})">
+                載入 SMC/ICT 分析
+            </button>
+        </div>'''
     
     # 風險指標（含真實 Sharpe）
     risk_html = _create_risk_metrics(info, history, lang)
@@ -144,14 +160,7 @@ def create_stock_analysis_page(
         
         <!-- SMC/ICT 分析區 -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg></span> SMC/ICT 技術分析</h2>
-        <div class="two-column" style="margin-bottom: 24px;">
-            <div>
-                {smc_chart_html}
-            </div>
-            <div>
-                {smc_summary_html}
-            </div>
-        </div>
+        {smc_section_html}
         
         <!-- 風險指標 -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg></span> {t('stock.riskMetrics', lang)}</h2>
@@ -159,7 +168,7 @@ def create_stock_analysis_page(
         
         <!-- 價格預測區 -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg></span> 價格預測</h2>
-        {_create_prediction_card(history, symbol, lang, pred_model, pred_horizon)}
+        {_create_prediction_card(history, symbol, lang, pred_model, pred_horizon) if load_prediction else _create_prediction_lazy_placeholder(symbol, pred_model, pred_horizon)}
         
         <!-- AI 智慧分析（統一卡片：快速分析 + 深度研究） -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
@@ -592,6 +601,17 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
         </button>
         <p style="color:var(--text-3);font-size:12px;margin-top:10px;">結合即時市場數據與 AI 模型生成綜合分析報告</p>
         {quick_result_html}
+    </div>
+    '''
+
+
+def _create_prediction_lazy_placeholder(symbol: str, model: str, horizon: int) -> str:
+    return f'''
+    <div class="chart-section" style="text-align:center;padding:28px;">
+        <p style="color:var(--text-3);margin-bottom:12px;">預測模型改為按需載入，點擊後才開始計算。</p>
+        <button class="period-tab active" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'predict',symbol:'{symbol}',model:'{model}',horizon:{int(horizon)}}})">
+            載入價格預測
+        </button>
     </div>
     '''
 

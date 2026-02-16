@@ -617,6 +617,9 @@ def create_app():
                 elif action == "predict":
                     page = _handle_predict_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "load_smc":
+                    page = _handle_smc_action(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "ai_analyze":
                     page = _handle_ai_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
@@ -881,6 +884,29 @@ def create_app():
                 lang=lang,
                 pred_model=model,
                 pred_horizon=horizon,
+                load_prediction=True,
+                current_user=cur_user,
+                chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
+            )
+            if not isinstance(inner, str):
+                inner = str(getattr(inner, 'value', inner))
+            return build_full_page(inner, lang, current_user=cur_user, current_page='stock')
+
+        def _handle_smc_action(payload, cur_user, cur_symbol, lang):
+            """按需載入 SMC 區塊"""
+            symbol = payload.get("symbol", cur_symbol)
+            if not symbol:
+                return gr.update()
+
+            data = _fetch_stock_data_sync(symbol)
+            if not data:
+                return gr.update()
+
+            inner = create_stock_analysis_page(
+                symbol=symbol,
+                stock_data=data,
+                lang=lang,
+                load_smc=True,
                 current_user=cur_user,
                 chat_history=cur_user.get("chat_histories", {}).get(symbol, []) if cur_user else [],
             )
@@ -1674,7 +1700,7 @@ def create_app():
                         srcBtn.disabled = true;
                     }
                     // Also show page loading for heavy actions
-                    var heavyActions = ['run_backtest', 'predict'];
+                    var heavyActions = ['run_backtest', 'predict', 'load_smc'];
                     if (heavyActions.indexOf(payload.action) >= 0) {
                         var overlay = document.getElementById('page-loading-overlay');
                         if (overlay) overlay.classList.add('active');

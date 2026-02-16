@@ -4,8 +4,10 @@
 使用 FinMind (台股 + 美股) 取得即時報價
 """
 from typing import List, Dict
+import time
+from datetime import datetime, timedelta
 from components.i18n import t
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # SVG icons
 _ICON_X = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>'
@@ -14,85 +16,104 @@ _ICON_STAR = '<svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke
 
 # 快取
 _quote_cache: Dict[str, Dict] = {}
+_quote_cache_ts: Dict[str, float] = {}
+_QUOTE_CACHE_TTL_SEC = 120.0
+_TW_NAME_CACHE: Dict[str, str] = {}
+_TW_NAME_CACHE_TS = 0.0
+_TW_NAME_CACHE_TTL_SEC = 3600.0
+
+
+def _load_tw_name_cache() -> Dict[str, str]:
+    global _TW_NAME_CACHE, _TW_NAME_CACHE_TS
+    now = time.time()
+    if _TW_NAME_CACHE and (now - _TW_NAME_CACHE_TS) < _TW_NAME_CACHE_TTL_SEC:
+        return _TW_NAME_CACHE
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+        rows = finmind_adapter.get_tw_stock_info_all_sync()
+        name_map: Dict[str, str] = {}
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            sym = str(row.get("symbol") or "").strip()
+            if not sym:
+                continue
+            name_map[sym] = str(row.get("name") or sym).strip() or sym
+        if name_map:
+            _TW_NAME_CACHE = name_map
+            _TW_NAME_CACHE_TS = now
+    except Exception:
+        pass
+    return _TW_NAME_CACHE
 
 
 def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
     """批次取得報價（台股 + 美股均使用 FinMind）"""
-    global _quote_cache
-    results = {}
+    global _quote_cache, _quote_cache_ts
+    results: Dict[str, Dict] = {}
+    now_ts = time.time()
+    symbols = [str(s or "").strip().upper() for s in (symbols or []) if str(s or "").strip()]
+    if not symbols:
+        return results
 
-    tw_symbols = [s for s in symbols if s.isdigit() and len(s) >= 4]
-    us_symbols = [s for s in symbols if not (s.isdigit() and len(s) >= 4)]
+    # Fast path: return fresh cache first.
+    stale_symbols: List[str] = []
+    for sym in symbols:
+        ts = float(_quote_cache_ts.get(sym) or 0.0)
+        if sym in _quote_cache and (now_ts - ts) < _QUOTE_CACHE_TTL_SEC:
+            results[sym] = dict(_quote_cache[sym])
+        else:
+            stale_symbols.append(sym)
+    if not stale_symbols:
+        return results
 
-    # ── 台股 → FinMind ──
-    if tw_symbols:
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+    except Exception:
+        return results
+
+    end = datetime.now().strftime("%Y-%m-%d")
+    start = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+    tw_name_map = _load_tw_name_cache()
+
+    def _fetch_single(sym: str) -> tuple[str, Dict]:
+        is_tw = sym.isdigit() and len(sym) >= 4
         try:
-            from adapters.finmind_adapter import finmind_adapter
-            from datetime import datetime, timedelta
-            end = datetime.now().strftime("%Y-%m-%d")
-            start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            if is_tw:
+                rows = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
+            else:
+                rows = finmind_adapter.get_us_stock_price_sync(sym, start, end)
+            if not rows or len(rows) < 2:
+                return sym, {}
+            last = rows[-1]
+            prev = rows[-2]
+            last_close = float(last.get("close") or 0.0)
+            prev_close = float(prev.get("close") or 0.0)
+            if prev_close <= 0:
+                return sym, {}
+            chg = last_close - prev_close
+            pct = (chg / prev_close * 100.0)
+            quote = {
+                "name": tw_name_map.get(sym, sym) if is_tw else sym,
+                "price": f"{last_close:,.2f}",
+                "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
+                "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                "color": "green" if chg >= 0 else "red",
+            }
+            return sym, quote
+        except Exception:
+            return sym, {}
 
-            for sym in tw_symbols:
-                try:
-                    data = finmind_adapter.get_tw_stock_price_sync(sym, start, end)
-                    if data and len(data) >= 2:
-                        last = data[-1]
-                        prev = data[-2]
-                        price = last["close"]
-                        chg = price - prev["close"]
-                        pct = (chg / prev["close"] * 100) if prev["close"] else 0
+    workers = max(2, min(5, len(stale_symbols)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_fetch_single, sym) for sym in stale_symbols]
+        for f in as_completed(futures):
+            sym, quote = f.result()
+            if quote:
+                results[sym] = quote
+                _quote_cache[sym] = dict(quote)
+                _quote_cache_ts[sym] = now_ts
 
-                        # 取得名稱
-                        name = sym
-                        try:
-                            info_list = finmind_adapter.get_tw_stock_info_sync(sym)
-                            if info_list:
-                                name = info_list[0].get("name", sym)
-                        except Exception:
-                            pass
-
-                        results[sym] = {
-                            "name": name,
-                            "price": f"{price:,.2f}",
-                            "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
-                            "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                            "color": "green" if chg >= 0 else "red",
-                        }
-                except Exception as e:
-                    print(f"[Watchlist] FinMind {sym}: {e}")
-        except Exception as e:
-            print(f"[Watchlist] FinMind batch error: {e}")
-
-    # ── 美股 → FinMind USStockPrice ──
-    if us_symbols:
-        try:
-            from adapters.finmind_adapter import finmind_adapter as fm
-            from datetime import datetime, timedelta
-            end = datetime.now().strftime("%Y-%m-%d")
-            start = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-
-            for sym in us_symbols:
-                try:
-                    data = fm.get_us_stock_price_sync(sym, start, end)
-                    if data and len(data) >= 2:
-                        last = data[-1]
-                        prev = data[-2]
-                        price = last["close"]
-                        chg = price - prev["close"]
-                        pct = (chg / prev["close"] * 100) if prev["close"] else 0
-                        results[sym] = {
-                            "name": sym,
-                            "price": f"{price:,.2f}",
-                            "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
-                            "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                            "color": "green" if chg >= 0 else "red",
-                        }
-                except Exception as e:
-                    print(f"[Watchlist] FinMind US {sym}: {e}")
-        except Exception as e:
-            print(f"[Watchlist] FinMind US batch error: {e}")
-
-    _quote_cache.update(results)
     return results
 
 

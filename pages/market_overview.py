@@ -5,6 +5,7 @@ DiscoverLatest 洞察運算 - 市場總覽頁面
 import time
 import traceback
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -22,6 +23,8 @@ _first_load = str((os.environ.get("MARKET_FIRST_LOAD_FALLBACK", "0") or "").stri
 # Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
 _TOP20_CACHE_TTL = 180  # 3 分鐘（保留即時性，避免長時間顯示舊榜單）
+_top20_refresh_running = False
+_top20_refresh_lock = threading.Lock()
 
 # ──────────────────────────────────────
 # Ticker definitions
@@ -513,6 +516,43 @@ def _fetch_top20_data() -> Dict:
     return {"tw": tw_data, "us": us_data}
 
 
+def _refresh_top20_background() -> None:
+    global _top20_refresh_running
+    with _top20_refresh_lock:
+        if _top20_refresh_running:
+            return
+        _top20_refresh_running = True
+
+    def _task() -> None:
+        global _top20_refresh_running
+        try:
+            _fetch_top20_data()
+        except Exception as e:
+            print(f"[Top20] background refresh error: {e}")
+        finally:
+            with _top20_refresh_lock:
+                _top20_refresh_running = False
+
+    threading.Thread(target=_task, daemon=True).start()
+
+
+def _get_top20_nonblocking() -> Dict:
+    """Prefer cached data and refresh in background when stale."""
+    now = time.time()
+    now_utc = datetime.now().astimezone(ZoneInfo("UTC"))
+    ttl = _top20_cache_ttl(now_utc)
+    cached_tw = list(_top20_cache.get("tw") or [])
+    cached_us = list(_top20_cache.get("us") or [])
+    cache_fresh = bool(cached_tw or cached_us) and (now - float(_top20_cache.get("ts") or 0.0) < ttl)
+    if cache_fresh:
+        return {"tw": cached_tw, "us": cached_us}
+
+    _refresh_top20_background()
+    if cached_tw or cached_us:
+        return {"tw": cached_tw, "us": cached_us}
+    return {"tw": list(_FALLBACK_TOP20_TW), "us": list(_FALLBACK_TOP20_US)}
+
+
 # ──────────────────────────────────────
 # Page builder
 # ──────────────────────────────────────
@@ -570,7 +610,7 @@ def create_market_overview_page(lang: str = "zh-TW"):
     us_etfs_html = "".join(build_etf_card(etf) for etf in us_etfs)
 
     # ---------- Top20 資料 ----------
-    top20 = _fetch_top20_data()
+    top20 = _get_top20_nonblocking()
     tw_top20 = top20.get("tw", [])
     us_top20 = top20.get("us", [])
 

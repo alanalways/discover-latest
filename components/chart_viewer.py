@@ -237,21 +237,29 @@ def create_candlestick_chart(
     ma20 = _calc_ma(close_prices, 20) if show_ma else []
     ma60 = _calc_ma(close_prices, 60) if show_ma else []
 
+    from services.feature_gate import can_access as _ca
+    _tier = tier or "free"
+    allow_bb = bool(show_bollinger and _ca(_tier, "indicator_bollinger"))
+    allow_ema = bool(_ca(_tier, "indicator_ema"))
+    allow_macd = bool(_ca(_tier, "indicator_macd"))
+    allow_rsi = bool(_ca(_tier, "indicator_rsi"))
+    allow_kd = bool(_ca(_tier, "indicator_kd"))
+    allow_vwap = bool(_ca(_tier, "indicator_vwap"))
+
     # 布林通道
     bb_ma, bb_upper, bb_lower = ([], [], [])
-    if show_bollinger:
+    if allow_bb:
         bb_ma, bb_upper, bb_lower = _calc_bollinger(close_prices, 20)
 
-    # 進階指標計算（Pre-compute for Pro/Premium）
+    # 進階指標按 tier 計算，避免無權限用戶也做重計算。
     highs = [d["high"] for d in data]
     lows  = [d["low"]  for d in data]
     volumes_raw = [d.get("volume", 0) for d in data]
-    ema12 = _calc_ema(close_prices, 12)
-    ema26 = _calc_ema(close_prices, 26)
-    macd_dif, macd_dea, macd_hist = _calc_macd(close_prices)
-    rsi14 = _calc_rsi(close_prices, 14)
-    kd_k, kd_d = _calc_kd(highs, lows, close_prices)
-    vwap_vals = _calc_vwap(close_prices, volumes_raw)
+    ema12 = _calc_ema(close_prices, 12) if allow_ema else []
+    macd_dif, macd_dea, macd_hist = _calc_macd(close_prices) if allow_macd else ([], [], [])
+    rsi14 = _calc_rsi(close_prices, 14) if allow_rsi else []
+    kd_k, kd_d = _calc_kd(highs, lows, close_prices) if allow_kd else ([], [])
+    vwap_vals = _calc_vwap(close_prices, volumes_raw) if allow_vwap else []
 
     def _build_line_data(values, dates):
         return json.dumps([
@@ -265,21 +273,21 @@ def create_candlestick_chart(
     ma5_json = _build_line_data(ma5, candle_data) if show_ma else "[]"
     ma20_json = _build_line_data(ma20, candle_data) if show_ma else "[]"
     ma60_json = _build_line_data(ma60, candle_data) if show_ma else "[]"
-    bbu_json = _build_line_data(bb_upper, candle_data) if show_bollinger else "[]"
-    bbl_json = _build_line_data(bb_lower, candle_data) if show_bollinger else "[]"
+    bbu_json = _build_line_data(bb_upper, candle_data) if allow_bb else "[]"
+    bbl_json = _build_line_data(bb_lower, candle_data) if allow_bb else "[]"
 
     # 進階指標 JSON
-    ema12_json = _build_line_data(ema12, candle_data)
-    macd_dif_json = _build_line_data(macd_dif, candle_data)
-    macd_dea_json = _build_line_data(macd_dea, candle_data)
+    ema12_json = _build_line_data(ema12, candle_data) if allow_ema else "[]"
+    macd_dif_json = _build_line_data(macd_dif, candle_data) if allow_macd else "[]"
+    macd_dea_json = _build_line_data(macd_dea, candle_data) if allow_macd else "[]"
     macd_hist_json = json.dumps([
         {"time": candle_data[i]["time"], "value": round(v, 4), "color": "rgba(0,217,126,0.6)" if v >= 0 else "rgba(239,68,68,0.6)"}
         for i, v in enumerate(macd_hist) if v is not None
-    ])
-    rsi_json = _build_line_data(rsi14, candle_data)
-    kd_k_json = _build_line_data(kd_k, candle_data)
-    kd_d_json = _build_line_data(kd_d, candle_data)
-    vwap_json = _build_line_data(vwap_vals, candle_data)
+    ]) if allow_macd else "[]"
+    rsi_json = _build_line_data(rsi14, candle_data) if allow_rsi else "[]"
+    kd_k_json = _build_line_data(kd_k, candle_data) if allow_kd else "[]"
+    kd_d_json = _build_line_data(kd_d, candle_data) if allow_kd else "[]"
+    vwap_json = _build_line_data(vwap_vals, candle_data) if allow_vwap else "[]"
 
     # SMC Markers
     markers = []
@@ -321,38 +329,46 @@ def create_candlestick_chart(
         """
 
     bollinger_js = ""
-    if show_bollinger:
+    if allow_bb:
         bollinger_js = f"var bbus = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbus.setData({bbu_json}); var bbls = chart.addLineSeries({{ color: 'rgba(184,134,11,0.4)', lineWidth: 1, lineStyle: 2, crosshairMarkerVisible: false }}); bbls.setData({bbl_json});"
 
     # --- New Indicators JS ---
     # EMA (Overlay)
-    ema_js = f"var emas = chart.addLineSeries({{ color: '#14B8A6', lineWidth: 1, title: 'EMA12', visible: false }}); emas.setData({ema12_json});"
+    ema_js = ""
+    if allow_ema:
+        ema_js = f"var emas = chart.addLineSeries({{ color: '#14B8A6', lineWidth: 1, title: 'EMA12', visible: false }}); emas.setData({ema12_json});"
     
     # VWAP (Overlay)
-    vwap_js = f"var vwaps = chart.addLineSeries({{ color: '#F97316', lineWidth: 2, title: 'VWAP', visible: false }}); vwaps.setData({vwap_json});"
+    vwap_js = ""
+    if allow_vwap:
+        vwap_js = f"var vwaps = chart.addLineSeries({{ color: '#F97316', lineWidth: 2, title: 'VWAP', visible: false }}); vwaps.setData({vwap_json});"
 
     # Oscillators (Separate Pane via scaleMargins)
     # 使用 'osc' priceScaleId 將它們放在下方
-    macd_js = f"""
-    var macd_dif = chart.addLineSeries({{ priceScaleId: 'osc', color: '#2962FF', lineWidth: 1, title: 'DIF', visible: false }}); macd_dif.setData({macd_dif_json});
-    var macd_dea = chart.addLineSeries({{ priceScaleId: 'osc', color: '#FF6D00', lineWidth: 1, title: 'DEA', visible: false }}); macd_dea.setData({macd_dea_json});
-    var macd_hist = chart.addHistogramSeries({{ priceScaleId: 'osc', title: 'Hist', visible: false }}); macd_hist.setData({macd_hist_json});
-    """
+    macd_js = ""
+    if allow_macd:
+        macd_js = f"""
+        var macd_dif = chart.addLineSeries({{ priceScaleId: 'osc', color: '#2962FF', lineWidth: 1, title: 'DIF', visible: false }}); macd_dif.setData({macd_dif_json});
+        var macd_dea = chart.addLineSeries({{ priceScaleId: 'osc', color: '#FF6D00', lineWidth: 1, title: 'DEA', visible: false }}); macd_dea.setData({macd_dea_json});
+        var macd_hist = chart.addHistogramSeries({{ priceScaleId: 'osc', title: 'Hist', visible: false }}); macd_hist.setData({macd_hist_json});
+        """
     
-    rsi_js = f"var rsis = chart.addLineSeries({{ priceScaleId: 'osc', color: '#8B5CF6', lineWidth: 1, title: 'RSI14', visible: false }}); rsis.setData({rsi_json});"
+    rsi_js = ""
+    if allow_rsi:
+        rsi_js = f"var rsis = chart.addLineSeries({{ priceScaleId: 'osc', color: '#8B5CF6', lineWidth: 1, title: 'RSI14', visible: false }}); rsis.setData({rsi_json});"
     
-    kd_js = f"""
-    var kdk = chart.addLineSeries({{ priceScaleId: 'osc', color: '#E8C547', lineWidth: 1, title: 'K', visible: false }}); kdk.setData({kd_k_json});
-    var kdd = chart.addLineSeries({{ priceScaleId: 'osc', color: '#F43F5E', lineWidth: 1, title: 'D', visible: false }}); kdd.setData({kd_d_json});
-    """
+    kd_js = ""
+    if allow_kd:
+        kd_js = f"""
+        var kdk = chart.addLineSeries({{ priceScaleId: 'osc', color: '#E8C547', lineWidth: 1, title: 'K', visible: false }}); kdk.setData({kd_k_json});
+        var kdd = chart.addLineSeries({{ priceScaleId: 'osc', color: '#F43F5E', lineWidth: 1, title: 'D', visible: false }}); kdd.setData({kd_d_json});
+        """
 
     vol_tooltip_js = ""
     if show_volume:
         vol_tooltip_js = """var vd = param.seriesData.get(vs); if(vd) volStr = '<div style="color:#64748B;margin-top:4px;">Vol: <span style="color:#CBD5E1;">' + (vd.value/1000).toFixed(0) + 'K</span></div>';"""
 
     # 指標 Toggle Bar（依 tier 決定鎖定狀態）
-    from services.feature_gate import can_access as _ca
-    _tier = tier or "free"
     def _ind_btn(name, label, feature_key):
         locked = not _ca(_tier, feature_key)
         lock_icon = ' 🔒' if locked else ''
