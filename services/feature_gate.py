@@ -59,8 +59,6 @@ FEATURE_ACCESS = {
     # ── 其他 ──
     "chart_period_3y_5y":   {"free": False, "pro": True,  "premium": True},
     "export_pdf":           {"free": False, "pro": True,  "premium": True},
-    "stock_compare":        {"free": False, "pro": True,  "premium": True},
-    "stock_compare_max":    {"free": 0,     "pro": 2,     "premium": 4},
     "stock_screener":       {"free": False, "pro": False, "premium": True},
     "keyboard_shortcuts":   {"free": False, "pro": True,  "premium": True},
 }

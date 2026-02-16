@@ -145,6 +145,10 @@ class GeminiService:
     def _get_api_key(self) -> str:
         return _get_next_key()
 
+    def get_api_key(self) -> str:
+        """Public key accessor for modules that need unified key-pool routing."""
+        return self._get_api_key()
+
     def is_available(self) -> bool:
         return bool(_load_key_pool())
 

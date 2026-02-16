@@ -277,7 +277,7 @@ def _pick_latest_and_prev(rows: List[Dict]) -> Optional[Dict[str, float]]:
 # ──────────────────────────────────────
 # Batch fetcher — FinMind only
 # ──────────────────────────────────────
-async def _fetch_market_data() -> Dict[str, list]:
+def _fetch_market_data() -> Dict[str, list]:
     """Fetch all indices + ETFs. First load uses fallback for instant startup."""
     global _market_cache, _first_load
     now = time.time()

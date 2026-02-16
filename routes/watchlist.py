@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -511,12 +510,11 @@ async def _resolve_auto_benchmark(
 
 
 def _pick_gemini_key() -> str:
-    multi = (os.environ.get("GEMINI_API_KEYS") or "").strip()
-    if multi:
-        keys = [k.strip() for k in multi.split(",") if k.strip()]
-        if keys:
-            return keys[0]
-    return (os.environ.get("GEMINI_API_KEY") or "").strip()
+    try:
+        from services.gemini_service import gemini_service
+        return (gemini_service.get_api_key() or "").strip()
+    except Exception:
+        return ""
 
 
 def _clean_ai_assessment(text: str) -> str:

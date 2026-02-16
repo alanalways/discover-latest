@@ -211,8 +211,25 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
 
 
 @router.get("/auth/diagnose")
-async def auth_diagnose():
+async def auth_diagnose(request: Request):
     """OAuth 設定診斷（不回傳敏感資訊）"""
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="未登入")
+
+    token = auth_header.split(" ", 1)[1]
+    from services.auth_service import auth_service
+
+    user = auth_service.verify_session(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session 已過期")
+
+    admin_email = (os.environ.get("ADMIN_EMAIL", "alanalways@gmail.com") or "").strip().lower()
+    user_email = str(user.get("email") or "").strip().lower()
+    is_admin_user = bool(auth_service.is_admin(user) or (admin_email and user_email == admin_email))
+    if not is_admin_user:
+        raise HTTPException(status_code=403, detail="僅管理員可使用診斷功能")
+
     supabase_url = os.environ.get("SUPABASE_URL", "").strip().rstrip("/")
     space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
     anon_key = os.environ.get("SUPABASE_ANON_KEY", "").strip()

@@ -61,7 +61,7 @@ async def market_overview():
     try:
         from pages.market_overview import _FALLBACK_ETFS, _FALLBACK_INDICES, _fetch_market_data
 
-        data = await _fetch_market_data()
+        data = await run_in_threadpool(_fetch_market_data)
         indices = data.get("indices") or list(_FALLBACK_INDICES)
         etfs = data.get("etfs") or list(_FALLBACK_ETFS)
         return {"indices": indices, "etfs": etfs}

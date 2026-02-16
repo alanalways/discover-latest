@@ -75,21 +75,6 @@ class AuthService:
                 else:
                     detail = resp.text[:300]
                     print(f"[Auth] verify_google_token 失敗: {detail}")
-
-                    # Fallback: 如果是 mock token（開發/測試用途），回傳訪客
-                    if id_token.startswith("mock_"):
-                        print("[Auth] 偵測到 mock token，回傳訪客資料")
-                        return {
-                            "id": "guest-" + hashlib.md5(id_token.encode()).hexdigest()[:8],
-                            "email": "guest@discoverlatest.app",
-                            "user_metadata": {
-                                "full_name": "訪客",
-                                "avatar_url": "",
-                                "tier": "free",
-                            },
-                            "app_metadata": {"role": "user"},
-                            "access_token": id_token,
-                        }
         except Exception as e:
             print(f"[Auth] verify_google_token 錯誤: {type(e).__name__}: {e}")
         return None
