@@ -675,14 +675,17 @@ async def _build_portfolio_ai_assessment(
         f"{rebalance_hint}"
     )
 
-    for attempt in range(2):
+    for attempt in range(3):
+        # 503 高需求時，等幾秒再重試
+        if attempt > 0:
+            await asyncio.sleep(5)
         try:
             from config.models import MODEL_FINAL
             from google import genai
 
-            # 第二次嘗試使用簡化 prompt
+            # 第二、三次嘗試使用簡化 prompt
             use_prompt = prompt
-            if attempt == 1:
+            if attempt >= 1:
                 short_summary = f"持股{len(top)}檔，總報酬{summary.get('total_pnl_pct', 0):.1f}%，風險{summary.get('risk_level', '未知')}"
                 use_prompt = (
                     "你是投資組合健檢分析師，請用繁體中文給出 3 點簡潔建議（純文字，不要 markdown）。\n"
@@ -703,7 +706,7 @@ async def _build_portfolio_ai_assessment(
         except asyncio.TimeoutError:
             logging.warning("[portfolio-ai] attempt %d: timeout after 45s", attempt + 1)
         except Exception as exc:
-            logging.warning("[portfolio-ai] attempt %d: %s", attempt + 1, exc, exc_info=True)
+            logging.warning("[portfolio-ai] attempt %d: %s", attempt + 1, exc)
 
     return "AI 健檢暫時無法完成，建議先依分散配置、單一部位上限與停損規則調整持股。"
 
