@@ -6,11 +6,20 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import asyncio
 import math
+import os
+import copy
+import threading
+from collections import OrderedDict
 
 from adapters import (
     supabase, fx_adapter,
     finmind_adapter, ndc_adapter
 )
+
+_STOCK_DATA_CACHE_TTL_SEC = max(30, int((os.environ.get("STOCK_DATA_CACHE_TTL_SEC") or "300").strip() or 300))
+_STOCK_DATA_CACHE_MAXSIZE = max(32, int((os.environ.get("STOCK_DATA_CACHE_MAXSIZE") or "256").strip() or 256))
+_stock_data_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+_stock_data_cache_lock = threading.Lock()
 
 
 class StockService:
@@ -184,6 +193,33 @@ class StockService:
             })
         return normalized
 
+    @staticmethod
+    def _stock_data_cache_key(symbol: str, market: str, period: str) -> str:
+        return f"{str(symbol or '').strip().upper()}|{str(market or '').strip().upper()}|{str(period or '').strip().lower()}"
+
+    def _read_stock_data_cache(self, key: str) -> Optional[Dict[str, Any]]:
+        now = datetime.now().timestamp()
+        with _stock_data_cache_lock:
+            row = _stock_data_cache.get(key)
+            if not isinstance(row, dict):
+                return None
+            ts = float(row.get("ts") or 0.0)
+            payload = row.get("payload")
+            if ts <= 0 or (now - ts) > _STOCK_DATA_CACHE_TTL_SEC:
+                _stock_data_cache.pop(key, None)
+                return None
+            if not isinstance(payload, dict):
+                return None
+            _stock_data_cache.move_to_end(key)
+            return copy.deepcopy(payload)
+
+    def _write_stock_data_cache(self, key: str, payload: Dict[str, Any]) -> None:
+        with _stock_data_cache_lock:
+            _stock_data_cache[key] = {"ts": datetime.now().timestamp(), "payload": copy.deepcopy(payload)}
+            _stock_data_cache.move_to_end(key)
+            while len(_stock_data_cache) > _STOCK_DATA_CACHE_MAXSIZE:
+                _stock_data_cache.popitem(last=False)
+
     async def _backfill_metrics_with_grounding(self, symbol: str, market: str, info: Dict[str, Any]) -> None:
         """Backfill key valuation fields via grounding when FinMind fields are missing."""
         if not isinstance(info, dict):
@@ -235,7 +271,8 @@ class StockService:
         self, 
         symbol: str, 
         market: str = None,
-        period: str = "1y"
+        period: str = "1y",
+        allow_grounding_backfill: bool = False,
     ) -> Dict[str, Any]:
         """
         ??摰?∠巨鞈?嚗?祈?閮?+ 甇瑕鞈?嚗?
@@ -247,6 +284,11 @@ class StockService:
         """
         if market is None:
             market = await self._detect_market(symbol)
+
+        cache_key = self._stock_data_cache_key(symbol, market, period)
+        cached_payload = self._read_stock_data_cache(cache_key)
+        if cached_payload is not None:
+            return cached_payload
         
         # 撱箇?銝西?隞餃?
         tasks = [
@@ -400,16 +442,19 @@ class StockService:
                 if shares_outstanding and latest_price and shares_outstanding > 0 and latest_price > 0:
                     info["market_cap"] = round(shares_outstanding * latest_price, 2)
 
-            # Final rescue for missing key valuation fields (daily-cached grounding).
-            await self._backfill_metrics_with_grounding(symbol, market, info)
+            # Grounding backfill is optional to avoid unnecessary Gemini usage on hot paths.
+            if allow_grounding_backfill:
+                await self._backfill_metrics_with_grounding(symbol, market, info)
 
-        return {
+        payload = {
             "symbol": symbol,
             "market": market,
             "info": info,
             "history": history,
             "updated_at": datetime.now().isoformat()
         }
+        self._write_stock_data_cache(cache_key, payload)
+        return payload
 
     async def get_stock_history(
         self,

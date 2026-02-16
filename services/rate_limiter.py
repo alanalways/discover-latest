@@ -2,9 +2,10 @@
 DiscoverLatest 洞察運算 - 限流服務
 實作會員分級限制與到期自動降級
 """
+import os
 import time
 import threading
-from datetime import datetime, date
+from datetime import datetime
 from typing import Dict, Optional, Tuple
 from adapters.supabase_adapter import supabase_adapter
 
@@ -27,6 +28,11 @@ TIER_LIMITS = {
 
 # 每分鐘請求追蹤（記憶體快取）
 _minute_requests: Dict[str, list] = {}
+_MINUTE_BUCKET_MAX_USERS = max(200, int((os.environ.get("RATE_LIMITER_MINUTE_BUCKET_MAX_USERS") or "5000").strip() or 5000))
+_TIER_CACHE_TTL_SEC = max(10, int((os.environ.get("RATE_LIMITER_TIER_CACHE_TTL_SEC") or "60").strip() or 60))
+_TIER_CACHE_MAXSIZE = max(100, int((os.environ.get("RATE_LIMITER_TIER_CACHE_MAXSIZE") or "5000").strip() or 5000))
+_tier_cache: Dict[str, Dict[str, object]] = {}
+_tier_cache_lock = threading.Lock()
 
 
 class RateLimiter:
@@ -34,6 +40,59 @@ class RateLimiter:
 
     def __init__(self):
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _get_cached_tier(user_id: str) -> Optional[str]:
+        if not user_id:
+            return None
+        now = time.time()
+        with _tier_cache_lock:
+            row = _tier_cache.get(user_id)
+            if not isinstance(row, dict):
+                return None
+            expires_at = row.get("expires_at")
+            tier = row.get("tier")
+            if not isinstance(expires_at, (int, float)) or not isinstance(tier, str):
+                _tier_cache.pop(user_id, None)
+                return None
+            if expires_at <= now:
+                _tier_cache.pop(user_id, None)
+                return None
+            return tier
+
+    @staticmethod
+    def _set_cached_tier(user_id: str, tier: str) -> None:
+        if not user_id or not tier:
+            return
+        now = time.time()
+        with _tier_cache_lock:
+            _tier_cache[user_id] = {
+                "tier": tier,
+                "expires_at": now + _TIER_CACHE_TTL_SEC,
+                "updated_at": now,
+            }
+            if len(_tier_cache) > _TIER_CACHE_MAXSIZE:
+                stale = sorted(
+                    _tier_cache.items(),
+                    key=lambda kv: float((kv[1] or {}).get("updated_at") or 0.0),
+                )
+                for uid, _ in stale[: max(1, len(_tier_cache) - _TIER_CACHE_MAXSIZE)]:
+                    _tier_cache.pop(uid, None)
+
+    @staticmethod
+    def _prune_minute_requests(now: float) -> None:
+        if not _minute_requests:
+            return
+        stale_users = [uid for uid, ts in _minute_requests.items() if not ts or (now - max(ts)) >= 60]
+        for uid in stale_users:
+            _minute_requests.pop(uid, None)
+        if len(_minute_requests) > _MINUTE_BUCKET_MAX_USERS:
+            sorted_users = sorted(
+                _minute_requests.items(),
+                key=lambda kv: max(kv[1]) if kv[1] else 0.0,
+            )
+            for uid, _ in sorted_users[: max(1, len(_minute_requests) - _MINUTE_BUCKET_MAX_USERS)]:
+                _minute_requests.pop(uid, None)
 
     @staticmethod
     def _parse_expires_at(raw: Optional[str]) -> Optional[datetime]:
@@ -59,10 +118,25 @@ class RateLimiter:
         Returns:
             用戶目前的 tier
         """
+        cached_tier = self._get_cached_tier(user_id)
+        if cached_tier in TIER_LIMITS:
+            return cached_tier
+
         # 1) 主要來源：user_subscriptions（管理後台升級會寫這裡）
         sub = supabase_adapter.get_user_subscription(user_id) or {}
         tier = (sub.get("tier") or "").strip().lower()
         expires_at = sub.get("expires_at")
+
+        # Early return: subscription table has a valid tier.
+        if tier in TIER_LIMITS:
+            if expires_at and tier != "free":
+                expiry_date = self._parse_expires_at(expires_at)
+                if expiry_date and expiry_date < datetime.now(expiry_date.tzinfo):
+                    supabase_adapter.update_user_tier(user_id, 'free', None)
+                    self._set_cached_tier(user_id, "free")
+                    return "free"
+            self._set_cached_tier(user_id, tier)
+            return tier
 
         # 2) 次要來源：public.users（相容舊結構）
         user = supabase_adapter.get_user_by_id(user_id) or {}
@@ -89,8 +163,10 @@ class RateLimiter:
             if expiry_date and expiry_date < datetime.now(expiry_date.tzinfo):
                 # 到期自動降級
                 supabase_adapter.update_user_tier(user_id, 'free', None)
+                self._set_cached_tier(user_id, "free")
                 return 'free'
-        
+
+        self._set_cached_tier(user_id, tier)
         return tier
     
     def can_make_request(self, user_id: str) -> Tuple[bool, str]:
@@ -112,9 +188,10 @@ class RateLimiter:
         
         # 檢查每分鐘限制
         now = time.time()
+        self._prune_minute_requests(now)
         if user_id not in _minute_requests:
             _minute_requests[user_id] = []
-        
+
         # 清理超過一分鐘的記錄
         _minute_requests[user_id] = [t for t in _minute_requests[user_id] if now - t < 60]
         
@@ -131,6 +208,7 @@ class RateLimiter:
         
         # 記錄到記憶體（每分鐘限制用）
         now = time.time()
+        self._prune_minute_requests(now)
         if user_id not in _minute_requests:
             _minute_requests[user_id] = []
         _minute_requests[user_id].append(now)

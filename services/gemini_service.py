@@ -17,7 +17,9 @@ GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "12"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "30"))
 GEMINI_TOTAL_TIMEOUT = int(os.environ.get("GEMINI_TOTAL_TIMEOUT", "42"))
 GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2")))
-GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "300")))
+GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "14400")))
+GEMINI_GROUNDING_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_GROUNDING_CACHE_TTL_SEC", "14400")))
+GEMINI_GROUNDING_CACHE_MAXSIZE = max(32, int(os.environ.get("GEMINI_GROUNDING_CACHE_MAXSIZE", "256")))
 
 INTRO_LINE = "\u6211\u662f DiscoverLatest \u5c08\u5c6c AI \U0001F680"
 S1 = "1.\u5e02\u5834\u5feb\u5831 \U0001F4F0"
@@ -90,6 +92,9 @@ _industry_chain_cache_lock = threading.Lock()
 
 _analysis_cache: Dict[str, Dict[str, Any]] = {}
 _analysis_cache_lock = threading.Lock()
+
+_grounding_cache: Dict[str, Dict[str, Any]] = {}
+_grounding_cache_lock = threading.Lock()
 
 
 def _load_key_pool() -> List[str]:
@@ -639,6 +644,45 @@ class GeminiService:
         with _analysis_cache_lock:
             _analysis_cache[key] = {"ts": time.time(), "payload": dict(payload)}
 
+    def _read_grounding_cache(self, key: str) -> Optional[Dict[str, Any]]:
+        if GEMINI_GROUNDING_CACHE_TTL_SEC <= 0:
+            return None
+        now = time.time()
+        with _grounding_cache_lock:
+            row = _grounding_cache.get(key)
+            if not isinstance(row, dict):
+                return None
+            ts = float(row.get("ts") or 0.0)
+            if ts <= 0 or (now - ts) > GEMINI_GROUNDING_CACHE_TTL_SEC:
+                _grounding_cache.pop(key, None)
+                return None
+            text = row.get("text")
+            sources = row.get("sources")
+            if not isinstance(text, str):
+                return None
+            out: Dict[str, Any] = {"text": text}
+            if isinstance(sources, list):
+                out["sources"] = [s for s in sources if isinstance(s, dict)]
+            return out
+
+    def _write_grounding_cache(self, key: str, text: str, sources: List[Dict[str, str]]) -> None:
+        if GEMINI_GROUNDING_CACHE_TTL_SEC <= 0 or not key:
+            return
+        now = time.time()
+        with _grounding_cache_lock:
+            _grounding_cache[key] = {
+                "ts": now,
+                "text": str(text or ""),
+                "sources": [s for s in (sources or []) if isinstance(s, dict)],
+            }
+            if len(_grounding_cache) > GEMINI_GROUNDING_CACHE_MAXSIZE:
+                stale = sorted(
+                    _grounding_cache.items(),
+                    key=lambda kv: float((kv[1] or {}).get("ts") or 0.0),
+                )
+                for old_key, _ in stale[: max(1, len(_grounding_cache) - GEMINI_GROUNDING_CACHE_MAXSIZE)]:
+                    _grounding_cache.pop(old_key, None)
+
     @staticmethod
     def _tier_min_chars(tier: str) -> int:
         return TIER_MIN_CHARS.get(str(tier or "free").strip().lower(), 100)
@@ -869,26 +913,6 @@ class GeminiService:
         out = "\n".join(lines)
         return GeminiService._pad_to_min_chars(out, tier)
 
-    def _background_retry_stage2(self, symbol: str, final_prompt: str) -> None:
-        def _task() -> None:
-            try:
-                key = self._get_api_key()
-                if not key:
-                    return
-                from google import genai
-
-                client = genai.Client(api_key=key)
-                response = client.models.generate_content(model=MODEL_FINAL, contents=final_prompt)
-                text = (getattr(response, "text", "") or "").strip()
-                if text:
-                    print(f"[Gemini] Background retry completed for {symbol}, {len(text)} chars")
-                else:
-                    print(f"[Gemini] Background retry completed for {symbol}, empty output")
-            except Exception as e:
-                print(f"[Gemini] Background retry failed for {symbol}: {type(e).__name__}: {e}")
-
-        threading.Thread(target=_task, daemon=True).start()
-
     @staticmethod
     def _emit_progress(
         progress_callback: Optional[Callable[[Dict[str, Any]], None]],
@@ -982,45 +1006,54 @@ class GeminiService:
                         config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
                     )
 
-            emit(12, "stage1", "collect_grounded_evidence")
-            print(f"[Gemini] Stage 1 starting for {symbol}...")
-            stage1_started = time.time()
-            stage1_timeout_sec = min(
-                GEMINI_TIMEOUT_STAGE1,
-                max(6.0, total_deadline - time.time() - 20.0),
-            )
-            ex1 = ThreadPoolExecutor(max_workers=1)
-            f1 = ex1.submit(_run_stage1)
-            try:
-                stage1_resp = f1.result(timeout=stage1_timeout_sec)
-                grounding_text = stage1_resp.text.strip() if stage1_resp and getattr(stage1_resp, "text", None) else ""
-                candidates = getattr(stage1_resp, "candidates", None) or []
-                if candidates:
-                    gm = getattr(candidates[0], "grounding_metadata", None)
-                    chunks = getattr(gm, "grounding_chunks", None) if gm else None
-                    for chunk in (chunks or []):
-                        web = getattr(chunk, "web", None)
-                        if web:
-                            grounding_sources.append(
-                                {
-                                    "title": str(getattr(web, "title", "") or ""),
-                                    "uri": str(getattr(web, "uri", "") or ""),
-                                }
-                            )
-                print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
-            except FuturesTimeoutError:
-                f1.cancel()
-                stage1_timeout_hit = True
-                grounding_text = "Grounding timeout."
-                print(f"[Gemini] Stage 1 TIMEOUT after {stage1_timeout_sec:.1f}s")
-            except Exception as e:
-                grounding_text = f"Grounding failed: {type(e).__name__}"
-                print(f"[Gemini] Stage 1 error: {type(e).__name__}: {e}")
-            finally:
-                ex1.shutdown(wait=False, cancel_futures=True)
+            grounding_cache_key = str(symbol or "").strip().upper()
+            cached_grounding = self._read_grounding_cache(grounding_cache_key)
+            if cached_grounding:
+                grounding_text = str(cached_grounding.get("text") or "")
+                grounding_sources = list(cached_grounding.get("sources") or [])
+                stage1_ms = 0
+                emit(38, "stage1_done", "grounded_evidence_cached", stage1_ms=stage1_ms, source_count=len(grounding_sources))
+            else:
+                emit(12, "stage1", "collect_grounded_evidence")
+                print(f"[Gemini] Stage 1 starting for {symbol}...")
+                stage1_started = time.time()
+                stage1_timeout_sec = min(
+                    GEMINI_TIMEOUT_STAGE1,
+                    max(6.0, total_deadline - time.time() - 20.0),
+                )
+                ex1 = ThreadPoolExecutor(max_workers=1)
+                f1 = ex1.submit(_run_stage1)
+                try:
+                    stage1_resp = f1.result(timeout=stage1_timeout_sec)
+                    grounding_text = stage1_resp.text.strip() if stage1_resp and getattr(stage1_resp, "text", None) else ""
+                    candidates = getattr(stage1_resp, "candidates", None) or []
+                    if candidates:
+                        gm = getattr(candidates[0], "grounding_metadata", None)
+                        chunks = getattr(gm, "grounding_chunks", None) if gm else None
+                        for chunk in (chunks or []):
+                            web = getattr(chunk, "web", None)
+                            if web:
+                                grounding_sources.append(
+                                    {
+                                        "title": str(getattr(web, "title", "") or ""),
+                                        "uri": str(getattr(web, "uri", "") or ""),
+                                    }
+                                )
+                    print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
+                except FuturesTimeoutError:
+                    f1.cancel()
+                    stage1_timeout_hit = True
+                    grounding_text = "Grounding timeout."
+                    print(f"[Gemini] Stage 1 TIMEOUT after {stage1_timeout_sec:.1f}s")
+                except Exception as e:
+                    grounding_text = f"Grounding failed: {type(e).__name__}"
+                    print(f"[Gemini] Stage 1 error: {type(e).__name__}: {e}")
+                finally:
+                    ex1.shutdown(wait=False, cancel_futures=True)
 
-            stage1_ms = int((time.time() - stage1_started) * 1000)
-            emit(38, "stage1_done", "grounded_evidence_ready", stage1_ms=stage1_ms, source_count=len(grounding_sources))
+                stage1_ms = int((time.time() - stage1_started) * 1000)
+                self._write_grounding_cache(grounding_cache_key, grounding_text, grounding_sources)
+                emit(38, "stage1_done", "grounded_evidence_ready", stage1_ms=stage1_ms, source_count=len(grounding_sources))
 
             tier_norm = str(tier or "free").strip().lower()
             max_tokens = 2048 if tier_norm == "free" else (3200 if tier_norm == "pro" else 4096)
@@ -1042,7 +1075,7 @@ class GeminiService:
 
             def _run_stage2(prompt: str, temperature: float, output_tokens: int):
                 last_err: Optional[Exception] = None
-                for attempt in range(3):
+                for _ in range(1):
                     try:
                         key2 = self._get_api_key() or api_key
                         c2 = genai.Client(api_key=key2)
@@ -1053,17 +1086,6 @@ class GeminiService:
                         )
                     except Exception as e:
                         last_err = e
-                        msg = str(e).lower()
-                        transient = (
-                            "503" in msg
-                            or "unavailable" in msg
-                            or "overloaded" in msg
-                            or "deadline" in msg
-                            or "timeout" in msg
-                        )
-                        if transient and attempt < 2:
-                            time.sleep(1.1 * (attempt + 1))
-                            continue
                         raise
                 if last_err:
                     raise last_err

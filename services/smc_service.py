@@ -5,6 +5,16 @@ SMC/ICT Service - Smart Money Concepts 技術分析
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 import math
+import os
+import time
+import copy
+import threading
+from collections import OrderedDict
+
+_SMC_CACHE_TTL_SEC = max(30, int((os.environ.get("SMC_CACHE_TTL_SEC") or "300").strip() or 300))
+_SMC_CACHE_MAXSIZE = max(32, int((os.environ.get("SMC_CACHE_MAXSIZE") or "256").strip() or 256))
+_smc_cache: "OrderedDict[str, Dict]" = OrderedDict()
+_smc_cache_lock = threading.Lock()
 
 
 class SMCService:
@@ -26,6 +36,47 @@ class SMCService:
             swing_lookback: 判斷 swing high/low 的回看期間
         """
         self.swing_lookback = swing_lookback
+
+    def _cache_key(self, history: List[Dict]) -> str:
+        if not history:
+            return f"empty:{self.swing_lookback}"
+        first = history[0] if isinstance(history[0], dict) else {}
+        last = history[-1] if isinstance(history[-1], dict) else {}
+        return "|".join(
+            [
+                str(self.swing_lookback),
+                str(len(history)),
+                str(first.get("date") or first.get("time") or ""),
+                str(last.get("date") or last.get("time") or ""),
+                str(last.get("open") or ""),
+                str(last.get("high") or ""),
+                str(last.get("low") or ""),
+                str(last.get("close") or ""),
+            ]
+        )
+
+    def _read_cache(self, key: str) -> Optional[Dict]:
+        now = time.time()
+        with _smc_cache_lock:
+            row = _smc_cache.get(key)
+            if not isinstance(row, dict):
+                return None
+            ts = float(row.get("ts") or 0.0)
+            payload = row.get("payload")
+            if ts <= 0 or (now - ts) > _SMC_CACHE_TTL_SEC:
+                _smc_cache.pop(key, None)
+                return None
+            if not isinstance(payload, dict):
+                return None
+            _smc_cache.move_to_end(key)
+            return copy.deepcopy(payload)
+
+    def _write_cache(self, key: str, payload: Dict) -> None:
+        with _smc_cache_lock:
+            _smc_cache[key] = {"ts": time.time(), "payload": copy.deepcopy(payload)}
+            _smc_cache.move_to_end(key)
+            while len(_smc_cache) > _SMC_CACHE_MAXSIZE:
+                _smc_cache.popitem(last=False)
     
     def analyze(self, history: List[Dict]) -> Dict:
         """
@@ -41,6 +92,11 @@ class SMCService:
                 "trend": "bullish/bearish/neutral"
             }
         """
+        cache_key = self._cache_key(history)
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return cached
+
         if len(history) < self.swing_lookback * 2:
             return {"error": "資料不足"}
         
@@ -62,7 +118,7 @@ class SMCService:
         # 判斷趨勢
         trend = self._determine_trend(swings)
         
-        return {
+        payload = {
             "swings": swings,
             "structures": structures,
             "order_blocks": order_blocks,
@@ -70,6 +126,8 @@ class SMCService:
             "liquidity": liquidity,
             "trend": trend
         }
+        self._write_cache(cache_key, payload)
+        return copy.deepcopy(payload)
     
     def _identify_swings(self, history: List[Dict]) -> List[Dict]:
         """識別 Swing High 和 Swing Low"""

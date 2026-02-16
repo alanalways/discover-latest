@@ -45,6 +45,8 @@ _TAVILY_KEY_INDEX = 0
 _TAVILY_LOCK = threading.Lock()
 _TAVILY_USAGE_LOCK = threading.Lock()
 _TAVILY_DAILY_USAGE: dict[str, int] = {}
+_TAVILY_USAGE_RETENTION_DAYS = max(2, int((os.environ.get("TAVILY_USAGE_RETENTION_DAYS") or "3").strip() or 3))
+_TAVILY_USAGE_MAX_DAYS = max(_TAVILY_USAGE_RETENTION_DAYS, int((os.environ.get("TAVILY_USAGE_MAX_DAYS") or "7").strip() or 7))
 _EVENT_CALENDAR_CACHE: list[dict[str, Any]] | None = None
 _MARKET_SPECIAL_CACHE: dict[str, Any] = {"ts": 0.0, "value": False}
 _MARKET_SPECIAL_LOCK = threading.Lock()
@@ -456,22 +458,40 @@ def _get_tavily_daily_budget() -> int:
     return max(1, int(monthly / max(1, trading_days)))
 
 
+def _prune_tavily_usage(today: str) -> None:
+    """Keep Tavily usage map bounded by retention window and max bucket size."""
+    try:
+        today_dt = datetime.strptime(today, "%Y-%m-%d")
+    except Exception:
+        return
+
+    # TTL prune by date window.
+    keep_keys: set[str] = set()
+    for i in range(_TAVILY_USAGE_RETENTION_DAYS):
+        keep_keys.add((today_dt - timedelta(days=i)).strftime("%Y-%m-%d"))
+    for key in list(_TAVILY_DAILY_USAGE.keys()):
+        if key not in keep_keys:
+            _TAVILY_DAILY_USAGE.pop(key, None)
+
+    # Maxsize prune as a second guard.
+    if len(_TAVILY_DAILY_USAGE) > _TAVILY_USAGE_MAX_DAYS:
+        keys = sorted(_TAVILY_DAILY_USAGE.keys())
+        for key in keys[: max(1, len(_TAVILY_DAILY_USAGE) - _TAVILY_USAGE_MAX_DAYS)]:
+            _TAVILY_DAILY_USAGE.pop(key, None)
+
+
 def _reserve_tavily_credit(cost: int) -> bool:
     if cost <= 0:
         return True
     today = _taipei_now().strftime("%Y-%m-%d")
     budget = _get_tavily_daily_budget()
     with _TAVILY_USAGE_LOCK:
+        _prune_tavily_usage(today)
         used = _TAVILY_DAILY_USAGE.get(today, 0)
         remain = max(0, budget - used)
         if remain < cost:
             return False
         _TAVILY_DAILY_USAGE[today] = used + cost
-        # Keep memory small: keep only today/yesterday counters.
-        if len(_TAVILY_DAILY_USAGE) > 3:
-            keys = sorted(_TAVILY_DAILY_USAGE.keys())
-            for k in keys[:-2]:
-                _TAVILY_DAILY_USAGE.pop(k, None)
         return True
 
 
