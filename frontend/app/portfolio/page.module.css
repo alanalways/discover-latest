@@ -169,7 +169,7 @@
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 10px;
 }
 
@@ -193,7 +193,8 @@
 .table {
   border: 1px solid #2b3e5f;
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .head,
@@ -203,6 +204,7 @@
   gap: 8px;
   padding: 10px 12px;
   font-size: 13px;
+  min-width: 500px;
 }
 
 .head {
@@ -284,32 +286,112 @@
   }
 }
 
+/* ─── Skeleton loading ─── */
+.skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.skeletonCard {
+  background: #18243a;
+  border: 1px solid #283a58;
+  border-radius: 10px;
+  padding: 14px;
+  height: 72px;
+  position: relative;
+  overflow: hidden;
+}
+
+.skeletonCard::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(148, 163, 184, 0.06) 50%, transparent 100%);
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ─── Tablet ─── */
 @media (max-width: 1200px) {
   .cards {
     grid-template-columns: repeat(3, minmax(130px, 1fr));
   }
+
   .formGrid {
     grid-template-columns: repeat(2, minmax(160px, 1fr));
   }
+
+  .skeleton {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
+/* ─── Mobile ─── */
 @media (max-width: 800px) {
   .cards {
     grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .skeleton {
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .formGrid {
     grid-template-columns: 1fr;
   }
 
-  .manualRowHead,
+  /* 手機版：隱藏表頭，每筆持股改為垂直 card */
+  .manualRowHead {
+    display: none;
+  }
+
   .manualRow {
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 10px;
+    position: relative;
+  }
+
+  .manualRow input,
+  .manualRow select {
+    width: 100%;
+  }
+
+  /* 用 ::before 加上欄位標籤 */
+  .manualRow input:nth-child(1)::placeholder {
+    opacity: 1;
+  }
+
+  .manualRow input:nth-child(2)::placeholder {
+    opacity: 1;
+  }
+
+  .manualRow input:nth-child(4)::placeholder {
+    opacity: 1;
+  }
+
+  /* 結果表格水平滾動 */
+  .table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .head,
   .row {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 80px 90px 70px 80px 80px;
+    min-width: 400px;
+    font-size: 12px;
   }
 
   .loginBtn {

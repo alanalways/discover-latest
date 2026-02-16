@@ -532,15 +532,14 @@ export class ApiClient {
             includeAi?: boolean;
         },
     ) {
-        const params = new URLSearchParams();
-        if (options?.asOfDate) params.set('as_of_date', options.asOfDate);
-        if (typeof options?.includeAi === 'boolean') {
-            params.set('include_ai', options.includeAi ? '1' : '0');
-        }
-        if (Array.isArray(options?.positions) && options.positions.length > 0) {
-            params.set('positions', JSON.stringify(options.positions));
-        }
-        return this.fetch<PortfolioHealthResponse>(`/api/portfolio/health?${params.toString()}`);
+        return this.fetch<PortfolioHealthResponse>('/api/portfolio/health', {
+            method: 'POST',
+            body: JSON.stringify({
+                as_of_date: options?.asOfDate || undefined,
+                positions: options?.positions || [],
+                include_ai: options?.includeAi ? 1 : 0,
+            }),
+        });
     }
 
     async getNewsBrief() {

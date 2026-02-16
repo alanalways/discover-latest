@@ -234,12 +234,12 @@ export default function PortfolioHealthPage() {
               <div key={row.id} className={styles.manualRow}>
                 <input
                   value={row.symbol}
-                  placeholder="2330 或 NVDA"
+                  placeholder="股票代碼（2330 或 NVDA）"
                   onChange={(e) => updateRow(row.id, { symbol: e.target.value.toUpperCase() })}
                 />
                 <input
                   value={row.shares}
-                  placeholder={isTwSymbol(row.symbol) && row.unit === 'lot' ? '1' : '100'}
+                  placeholder={`數量${isTwSymbol(row.symbol) && row.unit === 'lot' ? '（張）' : '（股）'}`}
                   onChange={(e) => updateRow(row.id, { shares: e.target.value })}
                 />
                 <select
@@ -251,12 +251,13 @@ export default function PortfolioHealthPage() {
                 </select>
                 <input
                   value={row.avgCost}
-                  placeholder="600"
+                  placeholder="平均成本（例如 600）"
                   onChange={(e) => updateRow(row.id, { avgCost: e.target.value })}
                 />
                 <input
                   type="date"
                   value={row.buyDate}
+                  placeholder="買入日期"
                   onChange={(e) => updateRow(row.id, { buyDate: e.target.value })}
                 />
                 <button
@@ -286,6 +287,14 @@ export default function PortfolioHealthPage() {
       )}
 
       {!data && !loading && !error && <div className={styles.empty}>尚未執行健檢，請先輸入持股後按下「開始健檢」。</div>}
+
+      {loading && (
+        <div className={styles.skeleton}>
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className={styles.skeletonCard} />
+          ))}
+        </div>
+      )}
 
       {summary && (
         <div className={styles.cards}>

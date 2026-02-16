@@ -10,8 +10,16 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
+from typing import List, Optional
 
 router = APIRouter()
+
+
+class PortfolioHealthRequest(BaseModel):
+    """POST body for /portfolio/health"""
+    as_of_date: Optional[str] = None
+    positions: Optional[List[dict]] = None
+    include_ai: int = 0
 
 
 class WatchlistAddRequest(BaseModel):
@@ -178,12 +186,39 @@ async def get_portfolio(request: Request):
         raise HTTPException(status_code=500, detail=f"讀取持股資料失敗: {e}")
 
 
+@router.post("/portfolio/health")
+async def post_portfolio_health(body: PortfolioHealthRequest, request: Request):
+    """POST endpoint — 接受 JSON body（推薦，避免 URL 過長）"""
+    positions_str = json.dumps(body.positions) if body.positions else None
+    return await _run_portfolio_health(
+        request=request,
+        as_of_date=body.as_of_date,
+        positions_str=positions_str,
+        include_ai=body.include_ai,
+    )
+
+
 @router.get("/portfolio/health")
 async def get_portfolio_health(
     request: Request,
     as_of_date: str | None = Query(default=None, description="分析日期 YYYY-MM-DD"),
     positions: str | None = Query(default=None, description="持股清單 JSON"),
     include_ai: int = Query(default=0, description="1 代表加入 AI 健檢"),
+):
+    """GET endpoint — 向下相容"""
+    return await _run_portfolio_health(
+        request=request,
+        as_of_date=as_of_date,
+        positions_str=positions,
+        include_ai=include_ai,
+    )
+
+
+async def _run_portfolio_health(
+    request: Request,
+    as_of_date: str | None,
+    positions_str: str | None,
+    include_ai: int,
 ):
     auth_user = _require_auth_user(request)
     user_id = str(auth_user.get("id") or "")
@@ -193,8 +228,8 @@ async def get_portfolio_health(
 
     user_tier = rate_limiter.check_and_downgrade(user_id)
     analysis_day = _parse_analysis_date(as_of_date)
-    holdings = _parse_positions_payload(positions)
-    raw_positions_supplied = bool(str(positions or "").strip())
+    holdings = _parse_positions_payload(positions_str)
+    raw_positions_supplied = bool(str(positions_str or "").strip())
 
     if raw_positions_supplied and not holdings:
         raise HTTPException(
@@ -320,6 +355,12 @@ async def get_portfolio_health(
 
     ai_assessment = ""
     if include_ai == 1:
+        # 扣除 AI 使用次數
+        try:
+            from adapters.supabase_data import supabase_data_adapter
+            supabase_data_adapter.increment_ai_usage(user_id)
+        except Exception:
+            pass
         ai_assessment = await _build_portfolio_ai_assessment(
             analysis_day=analysis_day,
             summary={
@@ -360,7 +401,7 @@ async def get_portfolio_health(
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
-        return float(value or default)
+        return float(value if value is not None else default)
     except Exception:
         return float(default)
 
