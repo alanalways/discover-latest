@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
         print("[Boot] Adapters loaded")
     except Exception as e:
         print(f"[Boot] Adapter load warning: {e}")
+    try:
+        from services.preloader import start_preload
+
+        start_preload()
+        print("[Boot] Preloader started")
+    except Exception as e:
+        print(f"[Boot] Preloader warning: {e}")
     yield
     print("===== DiscoverLatest API Shutting Down =====")
 
@@ -85,6 +92,7 @@ from routes.backtest import router as backtest_router
 from routes.watchlist import router as watchlist_router
 from routes.admin import router as admin_router
 from routes.billing import router as billing_router
+from routes.growth import router as growth_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -95,6 +103,7 @@ app.include_router(backtest_router, prefix="/api", tags=["Backtest"])
 app.include_router(watchlist_router, prefix="/api", tags=["Watchlist"])
 app.include_router(admin_router,    prefix="/api", tags=["Admin"])
 app.include_router(billing_router,  prefix="/api", tags=["Billing"])
+app.include_router(growth_router,   prefix="/api", tags=["Growth"])
 
 
 # ── Health Check ──

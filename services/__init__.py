@@ -7,6 +7,9 @@ from .backtest_service import BacktestService, backtest_service
 from .smc_service import smc_service, SMCService
 from .prediction_service import PredictionService, prediction_service
 from .auth_service import AuthService, auth_service
+from .investor_quiz import calculate_profile
+from .market_scanner import scan_market
+from .weekly_picks import generate_weekly_picks
 
 __all__ = [
     # Rate Limiter
@@ -28,4 +31,8 @@ __all__ = [
     # Auth Service
     "AuthService",
     "auth_service",
+    # Growth Services
+    "calculate_profile",
+    "scan_market",
+    "generate_weekly_picks",
 ]

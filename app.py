@@ -315,6 +315,12 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
         <div class="sidebar-overlay" onclick="if(typeof closeSidebar==='function')closeSidebar()"></div>
         <div class="topbar-wrapper">{topbar}</div>
         <div class="main-content" id="dl-main" style="overflow-y:auto;">{page_html_str}</div>
+        <nav class="mobile-bottom-nav">
+            <button class="mb-nav-btn {'active' if current_page == 'market' else ''}" data-page="market">📊<span>總覽</span></button>
+            <button class="mb-nav-btn {'active' if current_page == 'stock' else ''}" data-page="stock">📈<span>個股</span></button>
+            <button class="mb-nav-btn {'active' if current_page == 'watchlist' else ''}" data-page="watchlist">⭐<span>自選</span></button>
+            <button class="mb-nav-btn {'active' if current_page == 'pricing' else ''}" data-page="pricing">💎<span>方案</span></button>
+        </nav>
     </div>
     <script>
     (function(){{
@@ -334,6 +340,12 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
 # ── Gradio App ────────────────────────────
 def create_app():
     validate_models_on_startup()
+    try:
+        from services.preloader import start_preload
+
+        start_preload()
+    except Exception as e:
+        print(f"[Boot] Preloader skipped: {type(e).__name__}: {e}")
 
     # ── Auth config for client-side JS injection ──
     _supabase_url = os.environ.get("SUPABASE_URL", "")
@@ -950,11 +962,18 @@ def create_app():
             stock_info = data.get("info", {}) if data else {}
 
             tier = _get_tier(cur_user)
+            investor_profile = None
+            if isinstance(cur_user, dict):
+                metadata = cur_user.get("user_metadata") if isinstance(cur_user.get("user_metadata"), dict) else {}
+                profile = metadata.get("investor_profile")
+                if isinstance(profile, dict):
+                    investor_profile = profile
             result = gemini_service.generate_analysis(
                 symbol=symbol,
                 stock_info=stock_info,
                 user_question=question,
                 tier=tier,
+                investor_profile=investor_profile,
             )
 
             # AI 分析成功後，遞增 cur_user 的用量計數，讓 sidebar 即時反映
@@ -1687,6 +1706,14 @@ def create_app():
                     const ns = document.querySelector('#nav-state textarea');
                     if (ns) { ns.value = page; ns.dispatchEvent(new Event('input', {bubbles:true})); }
                 };
+                document.querySelectorAll('.mobile-bottom-nav .mb-nav-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var page = btn.getAttribute('data-page');
+                        if (page && typeof window.navigateTo === 'function') {
+                            window.navigateTo(page);
+                        }
+                    });
+                });
 
                 // ── Stock selection (with loading overlay) ──
                 window.selectStock = function(sym) {

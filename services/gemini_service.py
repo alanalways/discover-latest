@@ -615,13 +615,20 @@ class GeminiService:
         return f"{out}\n\n{S2}\n{bullet_lines}".strip()
 
     @staticmethod
-    def _analysis_cache_key(symbol: str, tier: str, context: str, user_question: str) -> str:
+    def _analysis_cache_key(
+        symbol: str,
+        tier: str,
+        context: str,
+        user_question: str,
+        persona_context: str = "",
+    ) -> str:
         raw = "|".join(
             [
                 str(symbol or "").strip().upper(),
                 str(tier or "free").strip().lower(),
                 str(user_question or "").strip(),
                 str(context or "").strip(),
+                str(persona_context or "").strip(),
             ]
         )
         return f"{time.strftime('%Y-%m-%d')}:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
@@ -937,6 +944,25 @@ class GeminiService:
             progress_callback(payload)
         except Exception:
             pass
+
+    @staticmethod
+    def _build_persona_modifier(investor_profile: Optional[Dict[str, Any]]) -> str:
+        if not isinstance(investor_profile, dict) or not investor_profile:
+            return ""
+        ptype = str(investor_profile.get("primary") or "").strip().lower()
+        risk = investor_profile.get("risk_score", 50)
+        try:
+            risk_val = int(risk)
+        except Exception:
+            risk_val = 50
+        modifiers = {
+            "guardian": f"此使用者屬於穩健型（風險分數 {risk_val}/100），請強調現金流、波動控制與下檔風險。",
+            "hunter": f"此使用者屬於成長型（風險分數 {risk_val}/100），可強調成長動能、產業趨勢與加速訊號。",
+            "surfer": f"此使用者屬於趨勢型（風險分數 {risk_val}/100），請強調突破、量價與時機管理。",
+            "explorer": f"此使用者屬於價值型（風險分數 {risk_val}/100），請強調估值、安全邊際與逆向機會。",
+        }
+        return modifiers.get(ptype, "")
+
     def generate_analysis(
         self,
         symbol: str,
@@ -946,6 +972,7 @@ class GeminiService:
         macro_data: Dict = None,
         user_question: str = "",
         tier: str = "free",
+        investor_profile: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
         emit = lambda p, s, m, **kw: self._emit_progress(progress_callback, p, s, m, **kw)
@@ -965,7 +992,13 @@ class GeminiService:
         with self._generate_slots:
             started = time.time()
             context = self._build_context(symbol, stock_info, smc_summary, prediction_summary, macro_data)
-            cache_key = self._analysis_cache_key(symbol, tier, context, user_question)
+            persona_context = ""
+            if isinstance(investor_profile, dict) and investor_profile:
+                try:
+                    persona_context = json.dumps(investor_profile, ensure_ascii=False, sort_keys=True)
+                except Exception:
+                    persona_context = str(investor_profile)
+            cache_key = self._analysis_cache_key(symbol, tier, context, user_question, persona_context)
             cached = self._read_analysis_cache(cache_key)
             if cached and self._quality_ok(str(cached.get("analysis") or ""), tier):
                 payload = dict(cached)
@@ -1064,9 +1097,11 @@ class GeminiService:
             if len(grounding_compact) > 2200:
                 grounding_compact = grounding_compact[:2200]
             tier_extra = TIER_EXTRA.get(tier_norm, TIER_EXTRA["free"])
+            persona_mod = self._build_persona_modifier(investor_profile)
 
             final_prompt = (
                 f"{UNIFIED_SYSTEM_PROMPT}\n"
+                f"{persona_mod}\n"
                 f"{tier_extra}\n\n"
                 f"標的 {symbol}\n"
                 f"背景資料 {context}\n\n"
@@ -1299,6 +1334,33 @@ class GeminiService:
                 return payload
             finally:
                 ex2.shutdown(wait=False, cancel_futures=True)
+
+    def quick_summary(self, symbol: str, max_tokens: int = 120) -> str:
+        api_key = self._get_api_key()
+        if not api_key or not symbol:
+            return ""
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception:
+            return ""
+        prompt = (
+            f"請用繁體中文用 40-70 字摘要 {symbol} 近期投資觀察重點，"
+            "包含一個風險提示。不要使用 markdown。"
+        )
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=MODEL_FINAL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.25,
+                    max_output_tokens=max(40, int(max_tokens)),
+                ),
+            )
+            return self._sanitize_analysis_text((getattr(response, "text", "") or "").strip())
+        except Exception:
+            return ""
 
     def generate_chat_response(
 
