@@ -330,16 +330,18 @@ async def _run_ai_analysis_pipeline(
 
     emit(16, "smc", "building_smc_snapshot")
     smc_summary = "SMC summary unavailable"
-    try:
-        from services.smc_service import smc_service
+    # P2-4: Free 用戶跳過 SMC 計算（chart_viewer 也不讓他們看）
+    if tier in ("pro", "premium"):
+        try:
+            from services.smc_service import smc_service
 
-        smc_result = await asyncio.to_thread(
-            smc_service.analyze,
-            history_payload[-220:] if history_payload else [],
-        )
-        smc_summary = _summarize_smc(smc_result, tier=tier)
-    except Exception:
-        smc_summary = "SMC summary unavailable"
+            smc_result = await asyncio.to_thread(
+                smc_service.analyze,
+                history_payload[-220:] if history_payload else [],
+            )
+            smc_summary = _summarize_smc(smc_result, tier=tier)
+        except Exception:
+            smc_summary = "SMC summary unavailable"
 
     last_progress = 24
 
