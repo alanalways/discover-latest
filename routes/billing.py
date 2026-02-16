@@ -10,7 +10,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from adapters.supabase_data import supabase_data_adapter
-from utils.helpers import parse_bearer_token
 
 logger = logging.getLogger(__name__)
 
@@ -22,9 +21,15 @@ class UpgradeRequest(BaseModel):
     billing_cycle: Literal["monthly", "yearly"] = "monthly"
 
 
+def _parse_bearer_token(auth_header: str) -> str:
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return ""
+    return auth_header.split(" ", 1)[1].strip()
+
+
 def _require_auth(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
-    token = parse_bearer_token(auth_header)
+    token = _parse_bearer_token(auth_header)
     if not token:
         raise HTTPException(status_code=401, detail="請先登入")
     try:
