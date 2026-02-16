@@ -27,6 +27,10 @@ from services.feature_gate import can_access, get_limit, get_locked_overlay_html
 CSS_PATH = Path(__file__).parent / "static" / "css" / "dashboard.css"
 with open(CSS_PATH, "r", encoding="utf-8") as f:
     CUSTOM_CSS = f.read()
+ANIMATIONS_CSS_PATH = Path(__file__).parent / "static" / "css" / "animations.css"
+if ANIMATIONS_CSS_PATH.exists():
+    with open(ANIMATIONS_CSS_PATH, "r", encoding="utf-8") as f:
+        CUSTOM_CSS += "\n\n" + f.read()
 
 # ── Global state (server-level, NOT per-user) ──
 _model_validation = {"valid": None, "errors": []}
@@ -286,14 +290,14 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
                 limits_info = rate_limiter.get_user_limits_info(user_id)
                 tier = limits_info.get("tier", "free")
                 daily_remaining = limits_info.get("daily_remaining", 0)
-                daily_limit = limits_info.get("daily_limit", 2)
+                daily_limit = limits_info.get("daily_limit", TIER_LIMITS.get("free", {}).get("daily_limit", 5))
             else:
                 tier = "free"
                 daily_limit = TIER_LIMITS["free"]["daily_limit"]
                 daily_remaining = daily_limit
         except Exception:
             tier = current_user.get("user_metadata", {}).get("tier", "free")
-            daily_limit = 2
+            daily_limit = 5
             daily_remaining = daily_limit
         user_info = {
             "name": current_user.get("user_metadata", {}).get("full_name", current_user.get("email", "User")),
@@ -308,6 +312,7 @@ def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, 
     return f'''
     <div class="app-shell">
         {sidebar}
+        <div class="sidebar-overlay" onclick="if(typeof closeSidebar==='function')closeSidebar()"></div>
         <div class="topbar-wrapper">{topbar}</div>
         <div class="main-content" id="dl-main" style="overflow-y:auto;">{page_html_str}</div>
     </div>
@@ -1635,9 +1640,20 @@ def create_app():
 
             setTimeout(() => {
                 // ── Sidebar toggle（可摺疊，含 localStorage 記憶）──
+                window.closeSidebar = function() {
+                    const s = document.querySelector('.sidebar');
+                    if (!s) return;
+                    s.classList.remove('active');
+                    document.body.classList.remove('sidebar-open');
+                };
                 window.toggleSidebar = function() {
                     const s = document.querySelector('.sidebar');
                     if (!s) return;
+                    if (window.matchMedia && window.matchMedia('(max-width: 1024px)').matches) {
+                        const open = s.classList.toggle('active');
+                        document.body.classList.toggle('sidebar-open', open);
+                        return;
+                    }
                     s.classList.toggle('collapsed');
                     document.body.classList.toggle('sidebar-collapsed');
                     // 記住摺疊狀態
@@ -1653,6 +1669,9 @@ def create_app():
 
                 // ── Page navigation (with loading overlay) ──
                 window.navigateTo = function(page) {
+                    if (window.matchMedia && window.matchMedia('(max-width: 1024px)').matches && typeof window.closeSidebar === 'function') {
+                        window.closeSidebar();
+                    }
                     document.querySelectorAll('.nav-item').forEach(i => {
                         i.classList.remove('active');
                         if (i.getAttribute('data-page') === page) i.classList.add('active');
@@ -1672,6 +1691,9 @@ def create_app():
                 // ── Stock selection (with loading overlay) ──
                 window.selectStock = function(sym) {
                     console.log('[Stock] Select:', sym);
+                    if (window.matchMedia && window.matchMedia('(max-width: 1024px)').matches && typeof window.closeSidebar === 'function') {
+                        window.closeSidebar();
+                    }
                     const sr = document.getElementById('search-results');
                     const si = document.getElementById('global-search');
                     if (sr) sr.classList.remove('active');

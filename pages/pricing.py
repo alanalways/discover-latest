@@ -33,8 +33,8 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
         {
             "id": "pro",
             "name": "Pro",
-            "price_monthly": 198,
-            "price_yearly": 1980,
+            "price_monthly": 200,
+            "price_yearly": 2000,
             "features": [
                 ("AI 分析次數", "20 次/日"),
                 ("AI 追問功能", "3 輪/次"),
@@ -51,8 +51,8 @@ def create_pricing_page(lang: str = "zh-TW", user_info: dict = None) -> str:
         {
             "id": "premium",
             "name": "Premium",
-            "price_monthly": 1088,
-            "price_yearly": 10880,
+            "price_monthly": 500,
+            "price_yearly": 5000,
             "features": [
                 ("AI 分析次數", "200 次/日"),
                 ("AI 追問功能", "10 輪/次"),

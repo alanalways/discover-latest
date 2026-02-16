@@ -85,14 +85,16 @@ class AuthResponse(BaseModel):
 def _free_limits_payload() -> dict:
     """未登入時回傳前端可用的預設免費額度"""
     from services.feature_gate import get_limit
+    from services.rate_limiter import TIER_LIMITS
     watchlist_max = int(get_limit("free", "watchlist_max") or 0)
     alerts_max = int(get_limit("free", "price_alert_max") or 0)
+    daily_limit = int(TIER_LIMITS.get("free", {}).get("daily_limit", 5))
     return {
         "tier": "free",
         "ai": {
-            "daily_limit": 2,
+            "daily_limit": daily_limit,
             "daily_used": 0,
-            "daily_remaining": 2,
+            "daily_remaining": daily_limit,
         },
         "watchlist": {
             "max": watchlist_max,

@@ -172,7 +172,7 @@ def create_stock_analysis_page(
         
         <!-- AI 智慧分析（統一卡片：快速分析 + 深度研究） -->
         <h2 class="section-title"><span class="section-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"></path><rect width="16" height="12" x="4" y="8" rx="2"></rect><path d="M2 14h2"></path><path d="M20 14h2"></path><path d="M15 13v2"></path><path d="M9 13v2"></path></svg></span> AI 智慧分析</h2>
-        {_create_ai_unified_card(symbol, ai_result, lang)}
+        {_create_ai_unified_card(symbol, ai_result, lang, _user_tier)}
         
         <!-- AI 追問對話區 -->
         {chat_html}
@@ -561,7 +561,7 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
         '''
 
 
-def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW') -> str:
+def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW', tier: str = "free") -> str:
     """統一 AI 分析卡片：快速分析 + Dexter 深度研究"""
     # 快速分析結果
     quick_result_html = ""
@@ -587,6 +587,8 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
         <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;margin-top:16px;padding:16px;background:rgba(0,0,0,0.15);border-radius:10px;">{analysis}{sources_html}
             <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Powered by Discover Latest AI</div>
         </div>'''
+        if str(tier or "free").lower() == "free":
+            quick_result_html = _render_blurred_preview(quick_result_html)
     elif ai_result and ai_result.get("error"):
         quick_result_html = f'''
         <div style="margin-top:16px;padding:16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;">
@@ -601,6 +603,19 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
         </button>
         <p style="color:var(--text-3);font-size:12px;margin-top:10px;">結合即時市場數據與 AI 模型生成綜合分析報告</p>
         {quick_result_html}
+    </div>
+    '''
+
+
+def _render_blurred_preview(content_html: str) -> str:
+    return f'''
+    <div class="blurred-preview">{content_html}</div>
+    <div class="upgrade-teaser">
+        <strong>解鎖完整 AI 分析</strong><br>
+        升級 Pro 可查看完整內容與更多指標
+        <div style="margin-top:10px;">
+            <button class="period-tab active" onclick="if(typeof navigateTo==='function')navigateTo('pricing')">立即升級</button>
+        </div>
     </div>
     '''
 

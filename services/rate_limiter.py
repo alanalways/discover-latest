@@ -11,11 +11,10 @@ from typing import Dict, Optional, Tuple
 from adapters.supabase_auth import supabase_auth_adapter
 from adapters.supabase_data import supabase_data_adapter
 
-# Keep current limits for phase3; tier values are adjusted in phase4a.
 TIER_LIMITS = {
-    "free": {"daily_limit": 2, "per_minute": 1},
-    "pro": {"daily_limit": 20, "per_minute": 5},
-    "premium": {"daily_limit": 200, "per_minute": 20},
+    "free": {"daily_limit": 5, "per_minute": 2},
+    "pro": {"daily_limit": 30, "per_minute": 5},
+    "premium": {"daily_limit": 200, "per_minute": 15},
 }
 
 _minute_requests: Dict[str, list[float]] = {}
