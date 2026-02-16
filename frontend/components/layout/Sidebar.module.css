@@ -267,5 +267,10 @@
         width: min(82vw, 260px);
         transform: translateX(-100%);
         box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+        z-index: 200;
+    }
+
+    .mobileOpen {
+        transform: translateX(0);
     }
 }
