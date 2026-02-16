@@ -23,6 +23,9 @@ GEMINI_MAX_CONCURRENT = max(1, int(os.environ.get("GEMINI_MAX_CONCURRENT", "2"))
 GEMINI_ANALYSIS_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_ANALYSIS_CACHE_TTL_SEC", "14400")))
 GEMINI_GROUNDING_CACHE_TTL_SEC = max(0, int(os.environ.get("GEMINI_GROUNDING_CACHE_TTL_SEC", "14400")))
 GEMINI_GROUNDING_CACHE_MAXSIZE = max(32, int(os.environ.get("GEMINI_GROUNDING_CACHE_MAXSIZE", "256")))
+GEMINI_ANALYSIS_CACHE_MAXSIZE = max(32, int(os.environ.get("GEMINI_ANALYSIS_CACHE_MAXSIZE", "200")))
+GEMINI_METRICS_CACHE_MAXSIZE = max(16, int(os.environ.get("GEMINI_METRICS_CACHE_MAXSIZE", "100")))
+GEMINI_INDUSTRY_CACHE_MAXSIZE = max(16, int(os.environ.get("GEMINI_INDUSTRY_CACHE_MAXSIZE", "50")))
 
 INTRO_LINE = "\u6211\u662f DiscoverLatest \u5c08\u5c6c AI \U0001F680"
 S1 = "1.\u5e02\u5834\u5feb\u5831 \U0001F4F0"
@@ -651,8 +654,17 @@ class GeminiService:
     def _write_analysis_cache(self, key: str, payload: Dict[str, Any]) -> None:
         if GEMINI_ANALYSIS_CACHE_TTL_SEC <= 0:
             return
+        now = time.time()
         with _analysis_cache_lock:
-            _analysis_cache[key] = {"ts": time.time(), "payload": dict(payload)}
+            _analysis_cache[key] = {"ts": now, "payload": dict(payload)}
+            # P1-4: maxsize eviction 避免 OOM
+            if len(_analysis_cache) > GEMINI_ANALYSIS_CACHE_MAXSIZE:
+                stale = sorted(
+                    _analysis_cache.items(),
+                    key=lambda kv: float((kv[1] or {}).get("ts") or 0.0),
+                )
+                for old_key, _ in stale[: max(1, len(_analysis_cache) - GEMINI_ANALYSIS_CACHE_MAXSIZE)]:
+                    _analysis_cache.pop(old_key, None)
 
     def _read_grounding_cache(self, key: str) -> Optional[Dict[str, Any]]:
         if GEMINI_GROUNDING_CACHE_TTL_SEC <= 0:
