@@ -19,6 +19,7 @@ import {
     LineChart,
     Settings,
     Shield,
+    User,
     X,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
     { icon: Globe, label: '國際市場', href: '/market' },
     { icon: ArrowLeftRight, label: '股票比較', href: '/compare' },
     { icon: Activity, label: '投資健檢', href: '/portfolio' },
+    { icon: User, label: '投資風格測驗', href: '/quiz' },
 ];
 
 const BOTTOM_ITEMS = [

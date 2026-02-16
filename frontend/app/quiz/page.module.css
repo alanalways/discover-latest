@@ -1,0 +1,425 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 20px 0;
+}
+
+/* ── Hero / Intro ── */
+.hero {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+.heroIcon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 16px;
+    background: linear-gradient(135deg, #5f75f8, #7d53e9);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
+
+.hero h1 {
+    font-size: 28px;
+    margin: 0 0 8px;
+}
+
+.hero p {
+    color: #9fb0cb;
+    font-size: 15px;
+    margin: 4px 0;
+}
+
+.startBtn {
+    margin-top: 24px;
+    border: none;
+    background: linear-gradient(90deg, #5f75f8, #7d53e9);
+    color: #fff;
+    border-radius: 10px;
+    padding: 12px 28px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.15s;
+}
+
+.startBtn:hover {
+    transform: translateY(-2px);
+}
+
+/* ── Progress Bar ── */
+.progressBar {
+    height: 4px;
+    background: #1f2c45;
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.progressFill {
+    height: 100%;
+    background: linear-gradient(90deg, #5f75f8, #7d53e9);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+/* ── Question Card ── */
+.questionCard {
+    background: #18243a;
+    border: 1px solid #283a58;
+    border-radius: 14px;
+    padding: 28px 24px;
+}
+
+.qNumber {
+    color: #7a8fb5;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.qTitle {
+    font-size: 20px;
+    margin: 0 0 20px;
+    color: #e4ecff;
+    line-height: 1.4;
+}
+
+/* ── Options ── */
+.optionsList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.optionBtn {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    text-align: left;
+    border: 1px solid #2b3e5f;
+    background: #101a2b;
+    color: #c0d0e8;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.optionBtn:hover {
+    border-color: #5f75f8;
+    background: rgba(95, 117, 248, 0.06);
+}
+
+.optionActive {
+    border-color: #5f75f8;
+    background: rgba(95, 117, 248, 0.12);
+    color: #a8c0ff;
+    font-weight: 600;
+}
+
+.optionNum {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    background: #1f2c45;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: #7a8fb5;
+    flex-shrink: 0;
+}
+
+.optionActive .optionNum {
+    background: #5f75f8;
+    color: #fff;
+}
+
+/* ── Navigation ── */
+.navRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 20px;
+    gap: 12px;
+}
+
+.backBtn {
+    border: 1px solid #2b3e5f;
+    background: transparent;
+    color: #9fb0cb;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.nextBtn {
+    border: none;
+    background: linear-gradient(90deg, #5f75f8, #7d53e9);
+    color: #fff;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+
+/* ── Supplementary ── */
+.selectGroup {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.selectGroup label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.selectGroup label span {
+    color: #9fb0cb;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.selectGroup select {
+    border: 1px solid #2b3e5f;
+    background: #101a2b;
+    color: #e4ecff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+}
+
+.submitBtn {
+    border: none;
+    background: linear-gradient(90deg, #5f75f8, #7d53e9);
+    color: #fff;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
+.submitBtn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+/* ── Result Card ── */
+.resultCard {
+    background: #18243a;
+    border: 1px solid #283a58;
+    border-radius: 14px;
+    padding: 32px 24px;
+    text-align: center;
+}
+
+.resultEmoji {
+    font-size: 48px;
+    margin-bottom: 8px;
+}
+
+.resultCard h1 {
+    font-size: 28px;
+    margin: 0 0 6px;
+    background: linear-gradient(90deg, #5f75f8, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.resultStyle {
+    color: #9fb0cb;
+    font-size: 14px;
+    margin: 0 0 12px;
+}
+
+.resultDesc {
+    color: #c8d6ef;
+    font-size: 14px;
+    line-height: 1.6;
+    text-align: left;
+    margin: 0 0 20px;
+}
+
+/* ── Risk Score ── */
+.riskSection {
+    background: #101a2b;
+    border: 1px solid #2b3e5f;
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 20px;
+}
+
+.riskLabel {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    color: #9fb0cb;
+    margin-bottom: 8px;
+}
+
+.riskScore {
+    font-weight: 700;
+    color: #e4ecff;
+}
+
+.riskTrack {
+    height: 10px;
+    background: #1f2c45;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.riskFill {
+    height: 100%;
+    background: linear-gradient(90deg, #20d69c, #f5a623, #f36b6b);
+    border-radius: 5px;
+    transition: width 0.5s ease;
+}
+
+.riskScale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #7a8fb5;
+    margin-top: 4px;
+}
+
+/* ── Tips ── */
+.tipsSection {
+    text-align: left;
+    margin-bottom: 20px;
+}
+
+.tipsSection h3 {
+    font-size: 15px;
+    margin: 0 0 8px;
+}
+
+.tipsSection ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.tipsSection li {
+    color: #c8d6ef;
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+/* ── Result Actions ── */
+.resultActions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.restartBtn {
+    border: 1px solid #2b3e5f;
+    background: transparent;
+    color: #9fb0cb;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.goHealthBtn {
+    border: none;
+    background: linear-gradient(90deg, #5f75f8, #7d53e9);
+    color: #fff;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
+/* ── Utilities ── */
+.subtle {
+    color: #7a8fb5;
+    font-size: 13px;
+}
+
+.spin {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Mobile ── */
+@media (max-width: 800px) {
+    .container {
+        padding: 10px 0;
+    }
+
+    .hero {
+        padding: 40px 16px;
+    }
+
+    .hero h1 {
+        font-size: 22px;
+    }
+
+    .questionCard {
+        padding: 20px 16px;
+    }
+
+    .qTitle {
+        font-size: 17px;
+    }
+
+    .optionBtn {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .selectGroup {
+        flex-direction: column;
+    }
+
+    .resultCard {
+        padding: 24px 16px;
+    }
+
+    .resultCard h1 {
+        font-size: 22px;
+    }
+}

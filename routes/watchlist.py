@@ -675,22 +675,35 @@ async def _build_portfolio_ai_assessment(
         f"{rebalance_hint}"
     )
 
-    try:
-        from config.models import MODEL_FINAL
-        from google import genai
+    for attempt in range(2):
+        try:
+            from config.models import MODEL_FINAL
+            from google import genai
 
-        def _run() -> str:
-            client = genai.Client(api_key=key)
-            resp = client.models.generate_content(model=MODEL_FINAL, contents=prompt)
-            return str(getattr(resp, "text", "") or "").strip()
+            # 第二次嘗試使用簡化 prompt
+            use_prompt = prompt
+            if attempt == 1:
+                short_summary = f"持股{len(top)}檔，總報酬{summary.get('total_pnl_pct', 0):.1f}%，風險{summary.get('risk_level', '未知')}"
+                use_prompt = (
+                    "你是投資組合健檢分析師，請用繁體中文給出 3 點簡潔建議（純文字，不要 markdown）。\n"
+                    f"組合概要: {short_summary}\n"
+                    f"持股: {json.dumps([{'symbol': r.get('symbol'), 'weight_pct': r.get('weight_pct'), 'pnl_pct': r.get('pnl_pct')} for r in top], ensure_ascii=False)}\n"
+                    "請判斷每檔續抱/減碼/停損，並給再平衡方向。"
+                )
 
-        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=45)
-        if text:
-            return _clean_ai_assessment(text)
-    except asyncio.TimeoutError:
-        logging.warning("[portfolio-ai] Gemini timeout after 45s")
-    except Exception as exc:
-        logging.warning("[portfolio-ai] Gemini failed: %s", exc)
+            def _run() -> str:
+                client = genai.Client(api_key=key)
+                resp = client.models.generate_content(model=MODEL_FINAL, contents=use_prompt)
+                return str(getattr(resp, "text", "") or "").strip()
+
+            text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=45)
+            if text:
+                return _clean_ai_assessment(text)
+            logging.warning("[portfolio-ai] attempt %d: empty response", attempt + 1)
+        except asyncio.TimeoutError:
+            logging.warning("[portfolio-ai] attempt %d: timeout after 45s", attempt + 1)
+        except Exception as exc:
+            logging.warning("[portfolio-ai] attempt %d: %s", attempt + 1, exc, exc_info=True)
 
     return "AI 健檢暫時無法完成，建議先依分散配置、單一部位上限與停損規則調整持股。"
 
