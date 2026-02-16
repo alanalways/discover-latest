@@ -24,10 +24,10 @@ import threading
 import time
 from typing import Any
 from urllib.parse import urlparse
-import xml.etree.ElementTree as ET
 
 import httpx
 from fastapi import APIRouter
+from services.news_service import parse_rss_feed, strip_html_text
 
 router = APIRouter()
 
@@ -806,33 +806,28 @@ def _normalize_payload(payload: dict[str, Any], provider: str = "unknown", sessi
 
 
 def _strip_html(value: str) -> str:
-    text = re.sub(r"<[^>]+>", " ", value or "")
-    text = html.unescape(text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = strip_html_text(value)
+    return html.unescape(text)
 
 
 def _parse_rss(xml_text: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
-        root = ET.fromstring(xml_text)
+        parsed = parse_rss_feed(xml_text)
     except Exception:
         return rows
-
-    for item in root.findall(".//item"):
-        title = _strip_html(item.findtext("title") or "")
-        link = (item.findtext("link") or "").strip()
-        source = _strip_html(item.findtext("source") or "")
-        pub = _strip_html(item.findtext("pubDate") or "")
-        desc = _strip_html(item.findtext("description") or "")
+    for item in parsed:
+        title = str(item.get("title") or "").strip()
+        link = str(item.get("url") or "").strip()
         if not title or not link:
             continue
         rows.append(
             {
                 "title": title,
                 "url": link,
-                "source": source or "News",
-                "published_at": pub,
-                "impact_reason": desc[:220],
+                "source": str(item.get("source") or "News"),
+                "published_at": str(item.get("published_at") or ""),
+                "impact_reason": str(item.get("snippet") or "")[:220],
                 "impact": "",
                 "region": "",
             }

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import time
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from adapters.supabase_adapter import supabase_adapter
+from adapters.supabase_data import supabase_data_adapter
+from utils.helpers import parse_bearer_token
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -20,10 +24,9 @@ class UpgradeRequest(BaseModel):
 
 def _require_auth(request: Request) -> dict[str, Any]:
     auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
+    token = parse_bearer_token(auth_header)
+    if not token:
         raise HTTPException(status_code=401, detail="請先登入")
-
-    token = auth_header.split(" ", 1)[1]
     try:
         from services.auth_service import auth_service
 
@@ -62,7 +65,7 @@ async def get_upgrade_status(request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail="缺少使用者 ID")
 
-    pending = supabase_adapter.get_pending_upgrade_request(user_id)
+    pending = supabase_data_adapter.get_pending_upgrade_request(user_id)
     return {"success": True, "has_pending": bool(pending), "pending": pending}
 
 
@@ -85,7 +88,7 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
     user_name = str(metadata.get("full_name") or user.get("name") or user_email.split("@", 1)[0]).strip()
 
     try:
-        created = supabase_adapter.create_pending_upgrade_request(
+        created = supabase_data_adapter.create_pending_upgrade_request(
             user_id=user_id,
             user_email=user_email,
             user_name=user_name,
@@ -93,7 +96,11 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
             billing_cycle=req.billing_cycle,
         )
     except Exception as e:
-        print(f"[Billing] create_pending_upgrade_request exception: {type(e).__name__}: {e}")
+        logger.exception(
+            "create_pending_upgrade_request failed: %s: %s",
+            type(e).__name__,
+            e,
+        )
         created = None
 
     if isinstance(created, dict) and not created.get("success") and created.get("reason") == "pending_exists":
@@ -113,7 +120,7 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
 
     # Last-resort fallback: keep request alive in memory to avoid user-facing failure.
     if not pending:
-        pending = supabase_adapter.get_pending_upgrade_request(user_id)
+        pending = supabase_data_adapter.get_pending_upgrade_request(user_id)
 
     if not pending:
         pending = _build_memory_pending(
@@ -124,7 +131,7 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
             billing_cycle=req.billing_cycle,
         )
         try:
-            supabase_adapter._pending_upgrade_mem[user_id] = pending  # noqa: SLF001
+            supabase_data_adapter.pending_upgrade_mem[user_id] = pending
         except Exception:
             pass
 

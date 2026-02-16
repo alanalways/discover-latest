@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -12,6 +13,8 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from typing import Any, Callable, Dict, List, Optional
 
 from config.models import MODEL_FINAL, MODEL_GROUNDING
+
+logger = logging.getLogger(__name__)
 
 GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "12"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "30"))
@@ -107,28 +110,28 @@ def _load_key_pool() -> List[str]:
         keys = [k.strip() for k in multi.split(",") if k.strip()]
         if keys:
             _key_pool = keys
-            print(f"[Gemini] Loaded {len(keys)} API keys from GEMINI_API_KEYS")
+            logger.info("Loaded %d API keys from GEMINI_API_KEYS", len(keys))
             return _key_pool
 
     single = os.environ.get("GEMINI_API_KEY", "").strip()
     if single:
         _key_pool = [single]
-        print("[Gemini] Loaded 1 API key from GEMINI_API_KEY")
+        logger.info("Loaded 1 API key from GEMINI_API_KEY")
         return _key_pool
 
     try:
-        from adapters.supabase_adapter import supabase_adapter
+        from adapters.supabase_vault import supabase_vault_adapter
 
-        vault_keys = supabase_adapter.get_gemini_keys()
+        vault_keys = supabase_vault_adapter.get_gemini_keys()
         if vault_keys:
             _key_pool = [k for k in vault_keys if isinstance(k, str) and k.strip()]
             if _key_pool:
-                print(f"[Gemini] Loaded {len(_key_pool)} API keys from Supabase Vault")
+                logger.info("Loaded %d API keys from Supabase Vault", len(_key_pool))
                 return _key_pool
     except Exception:
         pass
 
-    print("[Gemini] No API keys found")
+    logger.warning("No Gemini API keys found")
     return []
 
 
@@ -1015,7 +1018,7 @@ class GeminiService:
                 emit(38, "stage1_done", "grounded_evidence_cached", stage1_ms=stage1_ms, source_count=len(grounding_sources))
             else:
                 emit(12, "stage1", "collect_grounded_evidence")
-                print(f"[Gemini] Stage 1 starting for {symbol}...")
+                logger.info("Stage 1 starting for %s", symbol)
                 stage1_started = time.time()
                 stage1_timeout_sec = min(
                     GEMINI_TIMEOUT_STAGE1,
@@ -1039,15 +1042,15 @@ class GeminiService:
                                         "uri": str(getattr(web, "uri", "") or ""),
                                     }
                                 )
-                    print(f"[Gemini] Stage 1 completed for {symbol} in {time.time() - stage1_started:.1f}s")
+                    logger.info("Stage 1 completed for %s in %.1fs", symbol, time.time() - stage1_started)
                 except FuturesTimeoutError:
                     f1.cancel()
                     stage1_timeout_hit = True
                     grounding_text = "Grounding timeout."
-                    print(f"[Gemini] Stage 1 TIMEOUT after {stage1_timeout_sec:.1f}s")
+                    logger.warning("Stage 1 timeout after %.1fs for %s", stage1_timeout_sec, symbol)
                 except Exception as e:
                     grounding_text = f"Grounding failed: {type(e).__name__}"
-                    print(f"[Gemini] Stage 1 error: {type(e).__name__}: {e}")
+                    logger.warning("Stage 1 error for %s: %s: %s", symbol, type(e).__name__, e)
                 finally:
                     ex1.shutdown(wait=False, cancel_futures=True)
 
@@ -1092,7 +1095,7 @@ class GeminiService:
                 raise RuntimeError("stage2_failed")
 
             emit(48, "stage2", "generate_multifactor_analysis")
-            print(f"[Gemini] Stage 2 starting for {symbol}...")
+            logger.info("Stage 2 starting for %s", symbol)
             stage2_started = time.time()
             remaining = total_deadline - stage2_started
             if remaining <= 2.0:
@@ -1179,7 +1182,7 @@ class GeminiService:
                         },
                     }
 
-                print(f"[Gemini] Stage 2 completed for {symbol}, {len(analysis)} chars")
+                logger.info("Stage 2 completed for %s, %d chars", symbol, len(analysis))
                 payload = {
                     "success": True,
                     "analysis": analysis,
@@ -1210,7 +1213,7 @@ class GeminiService:
                 return payload
             except FuturesTimeoutError:
                 f2.cancel()
-                print(f"[Gemini] Stage 2 TIMEOUT after {stage2_timeout_sec:.1f}s")
+                logger.warning("Stage 2 timeout after %.1fs for %s", stage2_timeout_sec, symbol)
                 emit(86, "timeout", "stage2_timeout_local_fallback")
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
@@ -1254,7 +1257,7 @@ class GeminiService:
                     emit(100, "error", "timeout_and_quality_failed")
                 return payload
             except Exception as e:
-                print(f"[Gemini] Stage 2 error: {e}")
+                logger.warning("Stage 2 error for %s: %s", symbol, e)
                 emit(86, "error", f"stage2_error_{type(e).__name__}_local_fallback")
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
@@ -1347,7 +1350,7 @@ class GeminiService:
                 return {"success": False, "error": "empty_chat_output"}
             return {"success": True, "reply": self._sanitize_analysis_text(reply)}
         except Exception as e:
-            print(f"[Gemini] Chat error: {e}")
+            logger.warning("Chat error: %s", e)
             return {"success": False, "error": str(e)}
 
 

@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from services import analysis_service
 
 router = APIRouter()
 
@@ -238,6 +239,14 @@ def _summarize_smc(result: Optional[dict], tier: str = "free") -> str:
             lines.append(f"{gt}[{bottom:.2f}-{top:.2f}] {dt}".strip())
 
     return " | ".join(lines)
+
+
+# Route layer now consumes reusable helpers from services.analysis_service.
+_safe_num = analysis_service.safe_num
+_clamp = analysis_service.clamp
+_tier_min_chars = analysis_service.tier_min_chars
+_build_technical_snapshot = analysis_service.build_technical_snapshot
+_summarize_smc = analysis_service.summarize_smc
 
 
 async def _run_ai_analysis_pipeline(
