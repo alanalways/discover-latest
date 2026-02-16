@@ -1,12 +1,15 @@
 """
 TPEX Adapter - 櫃買中心資料抓取
 """
+import logging
 import httpx
 from datetime import datetime
 from typing import Optional, List, Dict
 import json
 
 
+
+logger = logging.getLogger(__name__)
 class TPEXAdapter:
     """櫃買中心資料 Adapter"""
     
@@ -67,7 +70,7 @@ class TPEXAdapter:
             }
             
         except Exception as e:
-            print(f"[TPEX] 取得 {symbol} 日成交失敗: {e}")
+            logger.debug(f"[TPEX] 取得 {symbol} 日成交失敗: {e}")
             return None
     
     async def get_stock_history(
@@ -114,7 +117,7 @@ class TPEXAdapter:
                         })
                         
             except Exception as e:
-                print(f"[TPEX] 取得 {symbol} {roc_date} 歷史失敗: {e}")
+                logger.debug(f"[TPEX] 取得 {symbol} {roc_date} 歷史失敗: {e}")
             
             # 下個月
             if current.month == 12:
@@ -148,7 +151,7 @@ class TPEXAdapter:
                 }
                 
         except Exception as e:
-            print(f"[TPEX] 取得櫃買指數失敗: {e}")
+            logger.debug(f"[TPEX] 取得櫃買指數失敗: {e}")
         
         return None
     
@@ -175,7 +178,7 @@ class TPEXAdapter:
             return stocks
             
         except Exception as e:
-            print(f"[TPEX] 取得股票列表失敗: {e}")
+            logger.debug(f"[TPEX] 取得股票列表失敗: {e}")
             return []
     
     def _parse_number(self, value: str) -> int:

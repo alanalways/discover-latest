@@ -1,6 +1,7 @@
 """
 Yahoo Finance Adapter - 使用 yfinance 封裝
 """
+import logging
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
@@ -9,6 +10,8 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 
+
+logger = logging.getLogger(__name__)
 class YahooAdapter:
     """Yahoo Finance 資料 Adapter"""
     
@@ -62,7 +65,7 @@ class YahooAdapter:
                     "exchange": info.get("exchange", "")
                 }
             except Exception as e:
-                print(f"[Yahoo] 取得 {yf_symbol} 基本資訊失敗: {e}")
+                logger.debug(f"[Yahoo] 取得 {yf_symbol} 基本資訊失敗: {e}")
                 return None
         
         loop = asyncio.get_event_loop()
@@ -111,7 +114,7 @@ class YahooAdapter:
                 return records
                 
             except Exception as e:
-                print(f"[Yahoo] 取得 {yf_symbol} 歷史資料失敗: {e}")
+                logger.debug(f"[Yahoo] 取得 {yf_symbol} 歷史資料失敗: {e}")
                 return []
         
         loop = asyncio.get_event_loop()
@@ -156,7 +159,7 @@ class YahooAdapter:
                 return records
                 
             except Exception as e:
-                print(f"[Yahoo] 取得 {yf_symbol} 日期範圍歷史失敗: {e}")
+                logger.debug(f"[Yahoo] 取得 {yf_symbol} 日期範圍歷史失敗: {e}")
                 return []
         
         loop = asyncio.get_event_loop()
@@ -185,7 +188,7 @@ class YahooAdapter:
                 }
                 
             except Exception as e:
-                print(f"[Yahoo] 取得 {yf_symbol} 即時報價失敗: {e}")
+                logger.debug(f"[Yahoo] 取得 {yf_symbol} 即時報價失敗: {e}")
                 return None
         
         loop = asyncio.get_event_loop()

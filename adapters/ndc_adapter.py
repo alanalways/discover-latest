@@ -1,10 +1,13 @@
 
+import logging
 import requests
 import json
 import time
 from datetime import datetime
 from typing import List, Dict, Optional
 
+
+logger = logging.getLogger(__name__)
 class NDCAdapter:
     """國發會資料 Adapter (National Development Council)"""
     
@@ -70,7 +73,7 @@ class NDCAdapter:
             return result
             
         except Exception as e:
-            print(f"[NDC] 取得景氣燈號失敗: {e}")
+            logger.debug(f"[NDC] 取得景氣燈號失敗: {e}")
             if self._cache:
                 return self._cache
             return []

@@ -1,6 +1,7 @@
 """
 Stooq Adapter - 美股歷史資料備援來源
 """
+import logging
 import httpx
 import pandas as pd
 from datetime import datetime, timedelta
@@ -8,6 +9,8 @@ from typing import Optional, List, Dict
 from io import StringIO
 
 
+
+logger = logging.getLogger(__name__)
 class StooqAdapter:
     """Stooq 資料 Adapter（美股歷史資料）"""
     
@@ -80,7 +83,7 @@ class StooqAdapter:
             return records
             
         except Exception as e:
-            print(f"[Stooq] 取得 {symbol} 歷史資料失敗: {e}")
+            logger.debug(f"[Stooq] 取得 {symbol} 歷史資料失敗: {e}")
             return []
     
     async def get_index_history(
@@ -138,7 +141,7 @@ class StooqAdapter:
             return records
             
         except Exception as e:
-            print(f"[Stooq] 取得 {index_symbol} 指數歷史失敗: {e}")
+            logger.debug(f"[Stooq] 取得 {index_symbol} 指數歷史失敗: {e}")
             return []
     
     async def get_etf_history(

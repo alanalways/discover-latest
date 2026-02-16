@@ -52,6 +52,14 @@ class SupabaseDataAdapter:
         res = supabase_adapter.get_pending_upgrade_request(user_id)
         return res if isinstance(res, dict) else None
 
+    def get_investor_profile(self, user_id: str) -> Dict[str, Any] | None:
+        """P4b-8: 取得投資人格測驗結果（用於 AI prompt 個人化）"""
+        try:
+            result = supabase_adapter.rpc_call("get_investor_profile", {"p_user_id": user_id})
+            return result if isinstance(result, dict) else None
+        except Exception:
+            return None
+
     @property
     def pending_upgrade_mem(self) -> Dict[str, Any]:
         return supabase_adapter._pending_upgrade_mem  # noqa: SLF001

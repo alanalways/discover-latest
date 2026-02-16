@@ -1,6 +1,7 @@
 """
 TWSE Adapter - 台灣證券交易所資料抓取
 """
+import logging
 import time
 import httpx
 from datetime import datetime, timedelta
@@ -8,6 +9,8 @@ from typing import Optional, List, Dict, Any
 import json
 
 
+
+logger = logging.getLogger(__name__)
 class TWSEAdapter:
     """台灣證券交易所資料 Adapter（含快取）"""
     
@@ -88,7 +91,7 @@ class TWSEAdapter:
             return result
             
         except Exception as e:
-            print(f"[TWSE] 取得 {symbol} 日成交失敗: {e}")
+            logger.debug(f"[TWSE] 取得 {symbol} 日成交失敗: {e}")
             return None
     
     async def get_stock_history(
@@ -140,7 +143,7 @@ class TWSEAdapter:
                         })
                         
             except Exception as e:
-                print(f"[TWSE] 取得 {symbol} {date_str} 歷史失敗: {e}")
+                logger.debug(f"[TWSE] 取得 {symbol} {date_str} 歷史失敗: {e}")
             
             # 下個月
             if current.month == 12:
@@ -176,7 +179,7 @@ class TWSEAdapter:
                 }
                 
         except Exception as e:
-            print(f"[TWSE] 取得大盤指數失敗: {e}")
+            logger.debug(f"[TWSE] 取得大盤指數失敗: {e}")
         
         return None
     
@@ -203,7 +206,7 @@ class TWSEAdapter:
             return stocks
             
         except Exception as e:
-            print(f"[TWSE] 取得股票列表失敗: {e}")
+            logger.debug(f"[TWSE] 取得股票列表失敗: {e}")
             return []
     
     def _parse_number(self, value: str) -> int:

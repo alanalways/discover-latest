@@ -2,6 +2,7 @@
 DiscoverLatest ?????? - Supabase Adapter (REST API ???)
 ??? httpx ?????? Supabase REST API?????realtime ?????websockets ??????
 """
+import logging
 import os
 import json
 import time
@@ -12,6 +13,8 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 
+
+logger = logging.getLogger(__name__)
 class SupabaseAdapter:
     """Supabase adapter implemented via REST API."""
     
@@ -91,7 +94,7 @@ class SupabaseAdapter:
                     return None
                 return resp.json() if resp.text else {}
         except Exception as e:
-            print(f"[Supabase Auth Admin] {method} {path} ???: {type(e).__name__}")
+            logger.debug(f"[Supabase Auth Admin] {method} {path} ???: {type(e).__name__}")
             return None
     
     def _rpc(self, name: str, params: Dict) -> Optional[Any]:
@@ -110,7 +113,7 @@ class SupabaseAdapter:
                     return None
                 return resp.json() if resp.text else None
         except Exception as e:
-            print(f"[Supabase RPC] {name} ???: {type(e).__name__}")
+            logger.debug(f"[Supabase RPC] {name} ???: {type(e).__name__}")
             return None
     
     def _request(
@@ -167,7 +170,7 @@ class SupabaseAdapter:
         now = time.time()
         last = self._error_log_throttle.get(key, 0.0)
         if now - last >= min_interval_sec:
-            print(message)
+            logger.debug(message)
             self._error_log_throttle[key] = now
     
     # ===== Vault ??? =====
@@ -743,7 +746,7 @@ class SupabaseAdapter:
                 )
                 return resp.is_success
         except Exception as e:
-            print(f"[DB] ??? portfolios ???: {type(e).__name__}")
+            logger.debug(f"[DB] ??? portfolios ???: {type(e).__name__}")
             return False
     
     def get_user_tier(self, user_id: str) -> str:
@@ -1115,7 +1118,7 @@ class SupabaseAdapter:
                 "status": "pending",
             }
             self._pending_upgrade_mem[user_id] = pending
-            print(f"[Billing] create_pending_upgrade_request fallback to memory: {type(e).__name__}: {e}")
+            logger.info(f"[Billing] create_pending_upgrade_request fallback to memory: {type(e).__name__}: {e}")
             return {
                 "success": True,
                 "request_id": request_id,
@@ -1478,7 +1481,7 @@ class SupabaseAdapter:
                                 _mirror_success_fallbacks()
                                 return True
                 except Exception as e:
-                    print(f"[DB] ??? AI ??? RPC ???: {type(e).__name__}: {e}")
+                    logger.debug(f"[DB] ??? AI ??? RPC ???: {type(e).__name__}: {e}")
 
                 # If FK is still blocking DB writes, fallback directly to metadata/memory
                 # to keep UI quota counters moving.
@@ -1622,7 +1625,7 @@ class SupabaseAdapter:
 
                 # Do not fallback to ai_usage_logs; table may not exist in all projects.
         except Exception as e:
-            print(f"[DB] ??? AI ??? fallback ???: {type(e).__name__}: {e}")
+            logger.info(f"[DB] ??? AI ??? fallback ???: {type(e).__name__}: {e}")
 
         # Final fallback: keep counting in auth metadata so limits/left sidebar stay consistent.
         if self._increment_ai_usage_fallback_metadata(user_id, today):
@@ -1667,7 +1670,7 @@ class SupabaseAdapter:
                 )
                 return response.is_success
         except Exception as e:
-            print(f"[DB] ????????????: {type(e).__name__}")
+            logger.debug(f"[DB] ????????????: {type(e).__name__}")
             return False
 
     # ===== ?????? (price_alerts) =====
@@ -1688,7 +1691,7 @@ class SupabaseAdapter:
                     return resp.json()
                 return []
         except Exception as e:
-            print(f"[DB] ?????????: {e}")
+            logger.debug(f"[DB] ?????????: {e}")
             return []
 
     def create_user_alert(self, user_id: str, symbol: str, target_price: float, condition: str) -> Dict[str, Any]:
@@ -1714,7 +1717,7 @@ class SupabaseAdapter:
                     return {"success": True, "data": resp.json() if resp.text else {}}
                 return {"success": False, "error": resp.text}
         except Exception as e:
-            print(f"[DB] ?????????: {e}")
+            logger.debug(f"[DB] ?????????: {e}")
             return {"success": False, "error": str(e)}
 
     def delete_user_alert(self, alert_id: str, user_id: str) -> bool:
@@ -1731,7 +1734,7 @@ class SupabaseAdapter:
                 )
                 return resp.status_code in [200, 204]
         except Exception as e:
-            print(f"[DB] ?????????: {e}")
+            logger.debug(f"[DB] ?????????: {e}")
             return False
     
     # ===== ?????? =====

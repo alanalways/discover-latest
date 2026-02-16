@@ -2,6 +2,7 @@
 股票比較頁面
 允許使用者輸入多檔股票代號，比較其歷史走勢 (Normalized %) 與基本面數據
 """
+import logging
 from typing import List, Dict
 import json
 from datetime import datetime, timedelta
@@ -11,6 +12,8 @@ from components.chart_viewer import create_line_chart
 from adapters.finmind_adapter import finmind_adapter
 from components.i18n import t
 
+
+logger = logging.getLogger(__name__)
 def _fetch_history_data(symbol: str, days: int = 365) -> List[Dict]:
     """取得歷史資料 (簡化版，無快取，直接調用 Adapter)"""
     # 1. 嘗試 FinMind (台股)
@@ -23,7 +26,7 @@ def _fetch_history_data(symbol: str, days: int = 365) -> List[Dict]:
                 # 轉為標準格式
                 return [{"date": d["date"], "close": d["close"]} for d in data]
         except Exception as e:
-            print(f"[Compare] FinMind {symbol} fail: {e}")
+            logger.debug(f"[Compare] FinMind {symbol} fail: {e}")
 
     # 2. 嘗試 FinMind USStockPrice (美股)
     try:
@@ -33,7 +36,7 @@ def _fetch_history_data(symbol: str, days: int = 365) -> List[Dict]:
         if data:
             return [{"date": d["date"], "close": d["close"]} for d in data]
     except Exception as e:
-        print(f"[Compare] FinMind US {symbol} fail: {e}")
+        logger.debug(f"[Compare] FinMind US {symbol} fail: {e}")
     
     return []
 

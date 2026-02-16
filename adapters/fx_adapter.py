@@ -1,12 +1,15 @@
 """
 FX Adapter - 匯率資料
 """
+import logging
 import httpx
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 import json
 
 
+
+logger = logging.getLogger(__name__)
 class FXAdapter:
     """匯率資料 Adapter"""
     
@@ -59,7 +62,7 @@ class FXAdapter:
             return rates.get(to_currency)
             
         except Exception as e:
-            print(f"[FX] 取得 {from_currency}/{to_currency} 匯率失敗: {e}")
+            logger.debug(f"[FX] 取得 {from_currency}/{to_currency} 匯率失敗: {e}")
             return None
     
     async def get_usd_twd(self) -> Optional[float]:
@@ -113,7 +116,7 @@ class FXAdapter:
             return rates
             
         except Exception as e:
-            print(f"[FX] 取得 {base_currency} 所有匯率失敗: {e}")
+            logger.debug(f"[FX] 取得 {base_currency} 所有匯率失敗: {e}")
             return {}
     
     async def get_common_rates(self) -> Dict[str, float]:

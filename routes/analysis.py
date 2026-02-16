@@ -367,16 +367,26 @@ async def _run_ai_analysis_pipeline(
             pass
 
     emit(24, "stage1", "grounding_and_synthesis_started")
+    # P4b-8: 注入投資人格至 AI prompt
+    _investor_profile = None
+    if user_id:
+        try:
+            from adapters.supabase_data import supabase_data_adapter
+            _investor_profile = supabase_data_adapter.get_investor_profile(user_id)
+        except Exception:
+            pass
+
     result = await asyncio.to_thread(
         gemini_service.generate_analysis,
-        req.symbol,
-        info_payload,
-        smc_summary,
-        tech_snapshot,
-        None,
-        "",
-        tier,
-        on_model_progress,
+        symbol=req.symbol,
+        stock_info=info_payload,
+        smc_summary=smc_summary,
+        prediction_summary=tech_snapshot,
+        macro_data=None,
+        user_question="",
+        tier=tier,
+        investor_profile=_investor_profile,
+        progress_callback=on_model_progress,
     )
 
     analysis_text = ""

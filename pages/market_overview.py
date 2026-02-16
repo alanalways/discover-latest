@@ -2,6 +2,7 @@
 DiscoverLatest 洞察運算 - 市場總覽頁面
 資料來源統一為 FinMind（若額度或網路異常則使用本地 fallback 顯示）
 """
+import logging
 import time
 import traceback
 import os
@@ -13,6 +14,8 @@ from zoneinfo import ZoneInfo
 
 from components.i18n import t
 
+
+logger = logging.getLogger(__name__)
 # ──────────────────────────────────────
 # Module-level cache (TTL = 300s, 降低 API 消耗)
 # ──────────────────────────────────────
@@ -292,7 +295,7 @@ def _fetch_market_data() -> Dict[str, list]:
     # FIRST LOAD: return fallback instantly (no network calls)
     if _first_load:
         _first_load = False
-        print("[Market] First load → using fallback data for instant startup")
+        logger.info("[Market] First load → using fallback data for instant startup")
         indices = list(_FALLBACK_INDICES)
         etfs = list(_FALLBACK_ETFS)
         _market_cache = {"indices": indices, "etfs": etfs, "ts": now}
@@ -329,7 +332,7 @@ def _fetch_market_data() -> Dict[str, list]:
                         "color": "green" if chg >= 0 else "red",
                     })
             except Exception as e:
-                print(f"[Market] FinMind index proxy {meta.get('display')}: {e}")
+                logger.debug(f"[Market] FinMind index proxy {meta.get('display')}: {e}")
 
         for sym, meta in _ETF_TICKERS.items():
             try:
@@ -351,9 +354,9 @@ def _fetch_market_data() -> Dict[str, list]:
                         "color": "green" if chg >= 0 else "red",
                     })
             except Exception as e:
-                print(f"[Market] FinMind ETF {sym}: {e}")
+                logger.debug(f"[Market] FinMind ETF {sym}: {e}")
     except Exception as e:
-        print(f"[Market] FinMind batch error: {e}")
+        logger.debug(f"[Market] FinMind batch error: {e}")
 
     # Fallback
     if not indices:
@@ -464,7 +467,7 @@ def _fetch_top20_data() -> Dict:
                 except Exception:
                     continue
     except Exception as e:
-        print(f"[Top20] TW error: {e}")
+        logger.debug(f"[Top20] TW error: {e}")
 
     # ── 美股 Top20：使用 FinMind USStockPrice ──
     try:
@@ -500,7 +503,7 @@ def _fetch_top20_data() -> Dict:
                 except Exception:
                     continue
     except Exception as e:
-        print(f"[Top20] US FinMind error: {e}")
+        logger.debug(f"[Top20] US FinMind error: {e}")
 
     # 若本次抓到太少，沿用前次資料補齊，避免榜單突然只剩 2-3 檔
     tw_data = merge_with_previous(tw_data, prev_tw, target=80)
@@ -528,7 +531,7 @@ def _refresh_top20_background() -> None:
         try:
             _fetch_top20_data()
         except Exception as e:
-            print(f"[Top20] background refresh error: {e}")
+            logger.debug(f"[Top20] background refresh error: {e}")
         finally:
             with _top20_refresh_lock:
                 _top20_refresh_running = False

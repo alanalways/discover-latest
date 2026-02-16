@@ -7,6 +7,7 @@ https://finmindtrade.com/
   FINMIND_TOKEN_2 — 備用帳號 (600 req/hr)
   總額度：~1200 req/hr，主 token 用完自動切備用
 """
+import logging
 import os
 import httpx
 import time
@@ -16,6 +17,8 @@ from typing import Optional, List, Dict, Any, Set, Tuple
 import asyncio
 
 
+
+logger = logging.getLogger(__name__)
 class _FinMindRateLimiter:
     """FinMind API 速率限制器"""
     def __init__(self, max_requests: int = 550, window_seconds: int = 3600):
@@ -138,17 +141,17 @@ class FinMindAdapter:
                 self._active_token_idx = i
                 if i != old_idx:
                     remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-                    print(f"[FinMind] Token 切換 #{old_idx}→#{i}（剩餘 {'/'.join(remaining)}）")
+                    logger.info(f"[FinMind] Token 切換 #{old_idx}→#{i}（剩餘 {'/'.join(remaining)}）")
                 return self._tokens[i] or "", i
 
         remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-        print(f"[FinMind] 所有 Token 額度耗盡（剩餘 {'/'.join(remaining)}）")
+        logger.info(f"[FinMind] 所有 Token 額度耗盡（剩餘 {'/'.join(remaining)}）")
         return "", -1
 
     def _mark_token_cooldown(self, idx: int, seconds: int, reason: str):
         until = time.time() + seconds
         self._token_cooldown_until[idx] = max(self._token_cooldown_until[idx], until)
-        print(f"[FinMind] Token #{idx} 暫停 {seconds}s（{reason}）")
+        logger.info(f"[FinMind] Token #{idx} 暫停 {seconds}s（{reason}）")
 
     def _is_dataset_cooling_down(self, dataset: str) -> bool:
         if not dataset:
@@ -166,7 +169,7 @@ class FinMindAdapter:
             return
         until = time.time() + seconds
         self._dataset_cooldown_until[dataset] = max(self._dataset_cooldown_until.get(dataset, 0.0), until)
-        print(f"[FinMind] Dataset {dataset} 暫停 {seconds}s（{reason}）")
+        logger.info(f"[FinMind] Dataset {dataset} 暫停 {seconds}s（{reason}）")
 
     def _get_token(self) -> str:
         """取得 FinMind API Token（多 Token 自動切換）"""
@@ -220,7 +223,7 @@ class FinMindAdapter:
         self._load_tokens()
         total_tokens = len([t for t in self._tokens if t])
         if total_tokens == 0:
-            print("[FinMind] 無可用 Token")
+            logger.debug("[FinMind] 無可用 Token")
             return None
 
         attempted: Set[int] = set()
@@ -264,11 +267,11 @@ class FinMindAdapter:
                     elif status == 429:
                         had_rate_limit = True
                     continue
-                print(f"[FinMind] 請求失敗: HTTP {status}: {e}")
+                logger.debug(f"[FinMind] 請求失敗: HTTP {status}: {e}")
                 self._available = False
                 return None
             except Exception as e:
-                print(f"[FinMind] 請求失敗: {type(e).__name__}: {e}")
+                logger.debug(f"[FinMind] 請求失敗: {type(e).__name__}: {e}")
                 self._available = False
                 return None
 
@@ -521,7 +524,7 @@ class FinMindAdapter:
         self._load_tokens()
         total_tokens = len([t for t in self._tokens if t])
         if total_tokens == 0:
-            print("[FinMind] 無可用 Token")
+            logger.debug("[FinMind] 無可用 Token")
             return None
 
         attempted: Set[int] = set()
@@ -561,10 +564,10 @@ class FinMindAdapter:
                     elif status == 429:
                         had_rate_limit = True
                     continue
-                print(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
+                logger.debug(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
                 return None
             except Exception as e:
-                print(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
+                logger.debug(f"[FinMind] 同步請求失敗: {type(e).__name__}: {e}")
                 return None
 
         if had_payment_limit:
@@ -707,12 +710,12 @@ class FinMindAdapter:
         # 先取 token（會自動切換到有額度的 token）
         token = self._get_token()
         if not token:
-            print("[FinMind] FINMIND_TOKEN 未設定，跳過")
+            logger.debug("[FinMind] FINMIND_TOKEN 未設定，跳過")
             return []
         limiter = self.rate_limiters[self._active_token_idx]
         if not limiter.can_request():
             remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
+            logger.info(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
             return []
         params = {
             "dataset": "TaiwanStockPrice",
@@ -747,10 +750,10 @@ class FinMindAdapter:
                         }
                         for d in data
                     ]
-                print(f"[FinMind] 台股 {symbol} 回傳空資料: status={result.get('status')}")
+                logger.debug(f"[FinMind] 台股 {symbol} 回傳空資料: status={result.get('status')}")
                 return []
         except Exception as e:
-            print(f"[FinMind] 同步請求失敗 ({symbol}): {type(e).__name__}: {e}")
+            logger.debug(f"[FinMind] 同步請求失敗 ({symbol}): {type(e).__name__}: {e}")
             self._available = False
             return []
 
@@ -763,7 +766,7 @@ class FinMindAdapter:
         limiter = self.rate_limiters[self._active_token_idx]
         if not limiter.can_request():
             remaining = [str(self.rate_limiters[j].remaining) for j in range(len(self._tokens))]
-            print(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
+            logger.info(f"[FinMind] 所有 Token 速率限制已滿（剩餘 {'/'.join(remaining)}），跳過")
             return []
         params = {"dataset": "TaiwanStockInfo", "token": token}
         if symbol:
@@ -788,7 +791,7 @@ class FinMindAdapter:
                     ]
                 return []
         except Exception as e:
-            print(f"[FinMind] 股票資訊同步請求失敗: {type(e).__name__}: {e}")
+            logger.debug(f"[FinMind] 股票資訊同步請求失敗: {type(e).__name__}: {e}")
             return []
 
 
