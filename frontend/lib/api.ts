@@ -109,6 +109,14 @@ interface PortfolioHealthResponse {
         risk_level: 'low' | 'medium' | 'high';
     };
     suggestions: string[];
+    rebalance?: Array<{
+        symbol: string;
+        actual_weight: number;
+        target_weight: number;
+        delta: number;
+        action: string;
+        action_detail: string;
+    }>;
     benchmark: {
         label?: string;
         return_1y_pct: number;
@@ -544,6 +552,26 @@ export class ApiClient {
 
     async getNewsBrief() {
         return this.fetch<NewsBriefResponse>('/api/news/brief', { skipAuth: true });
+    }
+
+    async submitInvestorQuiz(answers: number[], occupation: string = 'other', income: string = '50k_100k') {
+        return this.fetch<{
+            success: boolean;
+            profile: {
+                primary: string;
+                secondary: string;
+                scores: Record<string, number>;
+                risk_score: number;
+                occupation: string;
+                income: string;
+                profile_name: string;
+                profile_style: string;
+            };
+        }>('/api/growth/investor-quiz', {
+            method: 'POST',
+            body: JSON.stringify({ answers, occupation, income }),
+            skipAuth: true,
+        });
     }
 
     // ── Auth ──

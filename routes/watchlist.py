@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -353,6 +354,52 @@ async def _run_portfolio_health(
         stock_service=stock_service,
     )
 
+    # ── 再平衡計算 ──
+    rebalance = []
+    n_holdings = len(sorted_by_weight)
+    if n_holdings > 0 and total_market_value > 0:
+        target_weight = round(100.0 / n_holdings, 2)
+        for row in sorted_by_weight:
+            actual = _safe_float(row.get("weight_pct"))
+            delta = round(actual - target_weight, 2)
+            current_price = _safe_float(row.get("current_price"))
+            mv = _safe_float(row.get("market_value"))
+            target_mv = total_market_value * target_weight / 100.0
+            diff_mv = target_mv - mv
+
+            if current_price > 0:
+                diff_shares = round(diff_mv / current_price, 1)
+            else:
+                diff_shares = 0
+
+            symbol = str(row.get("symbol") or "")
+            is_tw = bool(re.fullmatch(r"\d{4,6}", symbol))
+
+            if abs(delta) < 3:
+                action = "維持"
+                action_detail = "目前配置接近目標，不需調整"
+            elif delta > 0:
+                if is_tw and abs(diff_shares) >= 1000:
+                    action_detail = f"建議減碼約 {abs(int(diff_shares // 1000))} 張"
+                else:
+                    action_detail = f"建議減碼約 {abs(int(diff_shares))} 股"
+                action = "減碼"
+            else:
+                if is_tw and abs(diff_shares) >= 1000:
+                    action_detail = f"建議加碼約 {abs(int(diff_shares // 1000))} 張"
+                else:
+                    action_detail = f"建議加碼約 {abs(int(diff_shares))} 股"
+                action = "加碼"
+
+            rebalance.append({
+                "symbol": symbol,
+                "actual_weight": round(actual, 2),
+                "target_weight": target_weight,
+                "delta": delta,
+                "action": action,
+                "action_detail": action_detail,
+            })
+
     ai_assessment = ""
     if include_ai == 1:
         # 扣除 AI 使用次數
@@ -376,6 +423,7 @@ async def _run_portfolio_health(
             benchmark_label=benchmark_label,
             benchmark_return=round(benchmark_return, 2),
             user_tier=user_tier,
+            rebalance=rebalance,
         )
 
     return {
@@ -390,6 +438,7 @@ async def _run_portfolio_health(
             "risk_level": risk_level,
         },
         "suggestions": suggestions,
+        "rebalance": rebalance,
         "benchmark": {
             "label": "台美大盤趨勢（系統自動加權）",
             "return_1y_pct": round(benchmark_return, 2),
@@ -575,6 +624,7 @@ async def _build_portfolio_ai_assessment(
     benchmark_label: str,
     benchmark_return: float,
     user_tier: str = "free",
+    rebalance: list[dict[str, Any]] | None = None,
 ) -> str:
     key = _pick_gemini_key()
     if not key:
@@ -596,16 +646,24 @@ async def _build_portfolio_ai_assessment(
 
     tier = user_tier if user_tier in {"free", "pro", "premium"} else "free"
     if tier == "free":
-        tier_rules = "FREE：輸出 3 點建議，聚焦風險、續抱與停損原則。"
+        tier_rules = "FREE：輸出 3-4 點建議，聚焦風險、續抱與停損原則，加上再平衡方向。"
     elif tier == "pro":
-        tier_rules = "PRO：輸出 4-5 點建議，加入短中線加減碼觸發條件。"
+        tier_rules = "PRO：輸出 4-5 點建議，加入短中線加減碼觸發條件與再平衡具體操作。"
     else:
-        tier_rules = "PREMIUM：輸出 6-8 點建議，含短中長線、再平衡與替代配置建議。"
+        tier_rules = "PREMIUM：輸出 6-8 點建議，含短中長線、再平衡方案與替代配置建議。"
+
+    rebalance_hint = ""
+    if rebalance:
+        rb_lines = []
+        for rb in rebalance:
+            rb_lines.append(f"{rb['symbol']}：目前{rb['actual_weight']:.1f}% → 目標{rb['target_weight']:.1f}%，{rb['action_detail']}")
+        rebalance_hint = "\n再平衡參考: " + "; ".join(rb_lines)
 
     prompt = (
         "你是投資組合健檢分析師，請使用繁體中文輸出純文字，不要 markdown。\n"
         f"{tier_rules}\n"
         "請先判斷每一檔持股狀態（續抱/分批加碼/分批減碼/停損檢討），再給整體調整策略。\n"
+        "請根據再平衡參考，給出具體的再平衡建議（該買多少、該賣多少）。\n"
         "請連動台股與美股大盤趨勢，禁止輸出任何基準代號（例如 0050、SPY）。\n"
         "最後請給可執行條件：進場、出場、風險控管。\n"
         f"\n方案等級: {tier.upper()}"
@@ -614,6 +672,7 @@ async def _build_portfolio_ai_assessment(
         f"\n持股明細: {json.dumps(top, ensure_ascii=False)}"
         f"\n規則建議: {json.dumps(suggestions[:5], ensure_ascii=False)}"
         f"\n市場對照: {benchmark_label}，近一年參考報酬 {benchmark_return:.2f}%"
+        f"{rebalance_hint}"
     )
 
     try:
@@ -625,11 +684,13 @@ async def _build_portfolio_ai_assessment(
             resp = client.models.generate_content(model=MODEL_FINAL, contents=prompt)
             return str(getattr(resp, "text", "") or "").strip()
 
-        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=24)
+        text = await asyncio.wait_for(asyncio.to_thread(_run), timeout=45)
         if text:
             return _clean_ai_assessment(text)
-    except Exception:
-        pass
+    except asyncio.TimeoutError:
+        logging.warning("[portfolio-ai] Gemini timeout after 45s")
+    except Exception as exc:
+        logging.warning("[portfolio-ai] Gemini failed: %s", exc)
 
     return "AI 健檢暫時無法完成，建議先依分散配置、單一部位上限與停損規則調整持股。"
 
