@@ -31,6 +31,7 @@ FEATURE_ACCESS = {
     "fundamentals_chart":   {"free": False, "pro": True,  "premium": True},
     "stock_compare":        {"free": False, "pro": True,  "premium": True},
     "stock_compare_max":    {"free": 0,     "pro": 2,     "premium": 4},
+    "industry_chain":       {"free": True,  "pro": True,  "premium": True},
 
     # ── 回測 (Backtest) ──
     "backtest":             {"free": True,  "pro": True,  "premium": True},

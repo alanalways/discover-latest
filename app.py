@@ -278,6 +278,82 @@ def _fetch_stock_data_sync(symbol: str, days: int = 365):
 
 
 # ── Layout builder ────────────────────────
+def _compute_beta_map(main_symbol, all_tickers, price_data):
+    """Beta = Cov(r_related, r_main) / Var(r_main)."""
+
+    def _build_returns(rows):
+        if not isinstance(rows, list) or len(rows) < 2:
+            return {}
+        sorted_rows = sorted(
+            [r for r in rows if isinstance(r, dict) and r.get("date") is not None],
+            key=lambda x: str(x.get("date")),
+        )
+        out = {}
+        prev_close = None
+        for row in sorted_rows:
+            date = str(row.get("date"))
+            try:
+                close = float(row.get("close", 0))
+            except Exception:
+                prev_close = None
+                continue
+            if close <= 0:
+                prev_close = None
+                continue
+            if prev_close and prev_close > 0:
+                out[date] = (close - prev_close) / prev_close
+            prev_close = close
+        return out
+
+    def _variance(vals):
+        n = len(vals)
+        if n < 2:
+            return 0.0
+        mu = sum(vals) / n
+        return sum((v - mu) ** 2 for v in vals) / (n - 1)
+
+    def _covariance(xs, ys):
+        n = len(xs)
+        if n < 2 or n != len(ys):
+            return 0.0
+        mx = sum(xs) / n
+        my = sum(ys) / n
+        return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / (n - 1)
+
+    if not main_symbol or not isinstance(price_data, dict):
+        return {}
+
+    main = str(main_symbol).strip().upper()
+    main_returns = _build_returns(price_data.get(main) or [])
+    if len(main_returns) < 30:
+        return {}
+
+    beta_map = {}
+    for ticker in (all_tickers or []):
+        tk = str(ticker or "").strip().upper()
+        if not tk or tk == main:
+            continue
+        rel_returns = _build_returns(price_data.get(tk) or [])
+        if len(rel_returns) < 30:
+            continue
+
+        overlap_dates = sorted(set(main_returns.keys()) & set(rel_returns.keys()))
+        if len(overlap_dates) < 30:
+            continue
+
+        main_series = [main_returns[d] for d in overlap_dates]
+        rel_series = [rel_returns[d] for d in overlap_dates]
+        var_main = _variance(main_series)
+        if var_main <= 0:
+            continue
+
+        beta = _covariance(rel_series, main_series) / var_main
+        if beta == beta and beta not in (float("inf"), float("-inf")):
+            beta_map[tk] = round(float(beta), 4)
+
+    return beta_map
+
+
 def build_full_page(page_html_str: str, lang: str = 'zh-TW', current_user=None, current_page: str = 'market') -> str:
     # 確保 user_info 初始化以避免 NameError
     user_info = None
@@ -483,7 +559,19 @@ def create_app():
                         lang=lang,
                     )
                 elif page_id == "industry":
-                    inner = create_industry_beta_page(lang=lang)
+                    limits_info = None
+                    if cur_user:
+                        uid = cur_user.get("id", "")
+                        if uid:
+                            try:
+                                limits_info = rate_limiter.get_user_limits_info(uid)
+                            except Exception:
+                                limits_info = None
+                    inner = create_industry_beta_page(
+                        lang=lang,
+                        symbol=cur_symbol,
+                        limits_info=limits_info,
+                    )
                 elif page_id == "watchlist":
                     tier = _get_tier(cur_user)
                     wl_limit = get_limit(tier, "watchlist_max")
@@ -610,8 +698,8 @@ def create_app():
                 action = payload.get("action", "")
                 print(f"[Action] {action} → {payload} (tier={tier})")
 
-                # Rate limit pre-check for predict action
-                if action == "predict" and cur_user:
+                # Rate limit pre-check for AI-heavy actions
+                if action in {"predict", "load_industry_chain"} and cur_user:
                     user_id = cur_user.get("id", "")
                     if user_id:
                         allowed, reason = rate_limiter.acquire_request(user_id)
@@ -655,6 +743,13 @@ def create_app():
                     if not can_access(tier, "fundamentals_chart"):
                         return _gate_block("fundamentals_chart", cur_user, lang, cur_symbol, cur_watchlist)
                     page = _handle_load_fundamentals(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "load_industry_chain":
+                    if not cur_user:
+                        return handle_nav("industry", json.dumps(portfolio_holdings), cur_user, cur_symbol, lang, cur_watchlist)
+                    if not can_access(tier, "industry_chain"):
+                        return _gate_block("industry_chain", cur_user, lang, cur_symbol, cur_watchlist, "industry")
+                    page = _handle_industry_chain_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "market_refresh":
                     from pages.market_overview import _market_cache
@@ -1181,6 +1276,124 @@ def create_app():
             if not isinstance(inner, str):
                 inner = str(getattr(inner, 'value', inner))
             return build_full_page(inner, lang, current_user=cur_user, current_page='stock')
+
+        def _handle_industry_chain_action(payload, cur_user, cur_symbol, lang):
+            """Load grounded industry-chain data, then compute beta map."""
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from datetime import datetime, timedelta
+            from adapters.finmind_adapter import finmind_adapter
+            from services.gemini_service import gemini_service
+
+            symbol = str(payload.get("symbol", cur_symbol) or "").strip().upper()
+
+            limits_info = None
+            if cur_user:
+                user_id = cur_user.get("id", "")
+                if user_id:
+                    try:
+                        limits_info = rate_limiter.get_user_limits_info(user_id)
+                    except Exception:
+                        limits_info = None
+
+            if not symbol:
+                inner = create_industry_beta_page(lang=lang, limits_info=limits_info)
+                return build_full_page(inner, lang, current_user=cur_user, current_page='industry')
+
+            company_name = symbol
+            industry_hint = ""
+            try:
+                if symbol.isdigit():
+                    info_list = finmind_adapter.get_tw_stock_info_sync(symbol) or []
+                    if info_list:
+                        item = info_list[0] or {}
+                        company_name = str(item.get("name") or symbol)
+                        industry_hint = str(item.get("industry") or "")
+                else:
+                    snap = _fetch_stock_data_sync(symbol, days=120) or {}
+                    info = snap.get("info") if isinstance(snap, dict) else {}
+                    if isinstance(info, dict):
+                        company_name = str(info.get("name") or company_name)
+                        industry_hint = str(info.get("industry") or info.get("sector") or "")
+            except Exception as e_info:
+                print(f"[IndustryChain] profile fallback: {type(e_info).__name__}: {e_info}")
+
+            try:
+                chain_result = gemini_service.ground_industry_chain(symbol, company_name, industry_hint)
+            except Exception as e_chain:
+                print(f"[IndustryChain] grounding failed: {type(e_chain).__name__}: {e_chain}")
+                chain_result = {"success": False, "chain": {}, "sources": [], "error": type(e_chain).__name__}
+
+            if not isinstance(chain_result, dict):
+                chain_result = {"success": False, "chain": {}, "sources": [], "error": "invalid_chain_payload"}
+
+            chain = chain_result.get("chain") if isinstance(chain_result.get("chain"), dict) else {}
+            if not chain_result.get("success") or not chain:
+                msg = "無法取得供應鏈資料，請稍後再試" if str(lang).startswith("zh") else "Failed to load industry-chain data. Please try again later."
+                inner = create_industry_beta_page(
+                    lang=lang,
+                    symbol=symbol,
+                    company_name=company_name,
+                    limits_info=limits_info,
+                )
+                err = f'<div class="chain-explain-box" style="margin-bottom:16px;"><p style="color:#FCA5A5;">{html_mod.escape(msg)}</p></div>'
+                return build_full_page(err + inner, lang, current_user=cur_user, current_page='industry')
+
+            invalid_tickers = {"", "NA", "N/A", "NONE", "NULL", "-", "--"}
+            related_tickers = []
+            seen_tickers = set()
+            for group in ("upstream", "downstream", "peer", "competitor"):
+                rows = chain.get(group) or []
+                if not isinstance(rows, list):
+                    continue
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    tk = str(row.get("ticker") or "").strip().upper().replace(" ", "")
+                    if not tk or tk in invalid_tickers or tk == symbol:
+                        continue
+                    if tk in seen_tickers:
+                        continue
+                    seen_tickers.add(tk)
+                    related_tickers.append(tk)
+
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
+            tickers_for_price = sorted(set([symbol] + related_tickers))
+            price_data = {}
+
+            def _fetch_price_rows(ticker):
+                try:
+                    if str(ticker).isdigit():
+                        rows = finmind_adapter.get_tw_stock_price_sync(ticker, start_date, end_date)
+                    else:
+                        rows = finmind_adapter.get_us_stock_price_sync(ticker, start_date, end_date)
+                    return ticker, rows if isinstance(rows, list) else []
+                except Exception as e_price:
+                    print(f"[IndustryChain] price failed ({ticker}): {type(e_price).__name__}: {e_price}")
+                    return ticker, []
+
+            if tickers_for_price:
+                workers = min(8, max(1, len(tickers_for_price)))
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futures = [ex.submit(_fetch_price_rows, tk) for tk in tickers_for_price]
+                    for fut in as_completed(futures):
+                        try:
+                            tk, rows = fut.result()
+                        except Exception:
+                            continue
+                        if rows:
+                            price_data[tk] = rows
+
+            beta_map = _compute_beta_map(symbol, related_tickers, price_data)
+            inner = create_industry_beta_page(
+                lang=lang,
+                symbol=symbol,
+                company_name=company_name,
+                chain_data=chain_result,
+                beta_map=beta_map,
+                limits_info=limits_info,
+            )
+            return build_full_page(inner, lang, current_user=cur_user, current_page='industry')
 
         def _build_chips_html(inst_data: list, margin_data: list) -> str:
             """建構籌碼面 HTML"""
@@ -1778,7 +1991,7 @@ def create_app():
                         srcBtn.disabled = true;
                     }
                     // Also show page loading for heavy actions
-                    var heavyActions = ['run_backtest', 'predict', 'load_smc'];
+                    var heavyActions = ['run_backtest', 'predict', 'load_smc', 'load_industry_chain'];
                     if (heavyActions.indexOf(payload.action) >= 0) {
                         var overlay = document.getElementById('page-loading-overlay');
                         if (overlay) overlay.classList.add('active');

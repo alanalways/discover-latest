@@ -1,307 +1,496 @@
 """
-Industry + Beta 頁面
-D3.js Force Simulation 泡泡圖 + Neon Glow + 3D Tilt 卡片
+Industry Chain + Beta Network Page
 """
+import html
 import json
-from typing import Dict, List
-from components.i18n import t
+from typing import Any, Dict, List
 
 
-def create_industry_beta_page(lang: str = "zh-TW") -> str:
-    """建立產業 + Beta 頁面"""
-    industries = _get_industry_data()
-    industries_json = json.dumps(industries, ensure_ascii=False)
+RELATION_GROUPS = ("upstream", "downstream", "peer", "competitor")
+L1_GROUPS = {"upstream", "downstream"}
+INVALID_TICKERS = {"", "NA", "N/A", "NONE", "NULL", "-", "--"}
 
-    # 產業卡片（含 3D tilt 效果 + 展開全部功能）
-    industry_cards = ""
-    colors = ["#D4A76A", "#E8C547", "#3B82F6", "#22C55E", "#F97316", "#B8860B"]
-    for idx, ind in enumerate(industries):
-        color = colors[idx % len(colors)]
-        all_stocks = ind.get("stocks", [])
-        visible_stocks = all_stocks[:5]
-        hidden_stocks = all_stocks[5:]
-        card_id = f"ind_card_{idx}"
 
-        # 前 5 檔（預設顯示）
-        stocks_html = ""
-        for s in visible_stocks:
-            beta = s.get("beta", 1)
-            beta_color = "#22C55E" if beta < 1 else "#EF4444" if beta > 1.5 else "#FBBF24"
-            stocks_html += f'''
-            <div class="ind-stock" onclick="selectStock('{s['symbol']}')">
-                <span class="ind-stock-sym">{s['symbol']}</span>
-                <span class="ind-stock-name">{s['name']}</span>
-                <span class="ind-stock-beta" style="color:{beta_color};">β {beta:.2f}</span>
-            </div>'''
+def _normalize_ticker(raw: Any) -> str:
+    return str(raw or "").strip().upper().replace(" ", "")
 
-        # 隱藏的股票（展開後顯示）
-        hidden_html = ""
-        if hidden_stocks:
-            for s in hidden_stocks:
-                beta = s.get("beta", 1)
-                beta_color = "#22C55E" if beta < 1 else "#EF4444" if beta > 1.5 else "#FBBF24"
-                hidden_html += f'''
-                <div class="ind-stock" onclick="selectStock('{s['symbol']}')">
-                    <span class="ind-stock-sym">{s['symbol']}</span>
-                    <span class="ind-stock-name">{s['name']}</span>
-                    <span class="ind-stock-beta" style="color:{beta_color};">β {beta:.2f}</span>
-                </div>'''
 
-        # 「查看全部」按鈕
-        expand_btn = ""
-        if len(all_stocks) > 5:
-            expand_btn = f'''
-            <button class="ind-expand-btn" id="{card_id}_btn"
-                onclick="(function(){{ var h=document.getElementById('{card_id}_hidden'); var b=document.getElementById('{card_id}_btn'); if(h.style.display==='none'){{ h.style.display='block'; b.textContent='收合'; }} else {{ h.style.display='none'; b.textContent='查看全部 ({len(all_stocks)} 檔)'; }} }})()"
-                style="width:100%;padding:8px;margin-top:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:var(--text-2);font-size:12px;cursor:pointer;transition:all 0.2s;">
-                查看全部 ({len(all_stocks)} 檔)
-            </button>'''
+def _valid_ticker(raw: Any) -> bool:
+    return _normalize_ticker(raw) not in INVALID_TICKERS
 
-        industry_cards += f'''
-        <div class="industry-card tilt-card" style="--accent-clr:{color};">
-            <div class="industry-card-glow" style="background:radial-gradient(circle at 50% 0%,{color}12,transparent 70%);"></div>
-            <div class="industry-header">
-                <span class="industry-icon">{ind.get('icon','')}</span>
-                <span class="industry-name">{ind['name']}</span>
-                <span class="industry-count">{ind.get('count',0)} 檔</span>
+
+def _lang_is_zh(lang: str) -> bool:
+    return str(lang or "").lower().startswith("zh")
+
+
+def _build_quota_text(lang: str, limits_info: Dict[str, Any] | None) -> str:
+    if not isinstance(limits_info, dict):
+        return "登入後可查看額度" if _lang_is_zh(lang) else "Sign in to view quota"
+    used = int(limits_info.get("daily_used") or 0)
+    limit = int(limits_info.get("daily_limit") or 0)
+    if _lang_is_zh(lang):
+        return f"今日額度 {used}/{limit}"
+    return f"Daily quota {used}/{limit}"
+
+
+def _build_graph_json(
+    symbol: str,
+    company_name: str | None,
+    chain_data: Dict[str, Any] | None,
+    beta_map: Dict[str, float] | None,
+) -> Dict[str, Any]:
+    main_symbol = _normalize_ticker(symbol)
+    main_name = str(company_name or main_symbol).strip() or main_symbol
+    beta_map = {str(k).upper(): v for k, v in (beta_map or {}).items()}
+
+    chain = {}
+    sources = []
+    if isinstance(chain_data, dict):
+        maybe_chain = chain_data.get("chain")
+        if isinstance(maybe_chain, dict):
+            chain = maybe_chain
+        else:
+            chain = chain_data
+        if isinstance(chain_data.get("sources"), list):
+            sources = chain_data.get("sources") or []
+
+    graph: Dict[str, Any] = {
+        "nodes": [
+            {
+                "id": main_symbol,
+                "ticker": main_symbol,
+                "name": main_name,
+                "level": "main",
+                "group": "main",
+                "beta": None,
+                "has_ticker": True,
+            }
+        ],
+        "links": [],
+        "sources": [],
+    }
+
+    seen_keys = {main_symbol}
+    name_seq = 0
+    for group in RELATION_GROUPS:
+        rows = chain.get(group) or []
+        if not isinstance(rows, list):
+            continue
+        level = "L1" if group in L1_GROUPS else "L2"
+        for row in rows:
+            if isinstance(row, dict):
+                ticker = _normalize_ticker(row.get("ticker"))
+                name = str(row.get("name") or row.get("company_name") or "").strip()
+            else:
+                ticker = ""
+                name = str(row or "").strip()
+
+            has_ticker = _valid_ticker(ticker)
+            if has_ticker and ticker == main_symbol:
+                continue
+            if not has_ticker and not name:
+                continue
+
+            node_name = name or ticker
+            dedupe_key = ticker if has_ticker else f"name:{node_name.lower()}"
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            if has_ticker:
+                node_id = ticker
+            else:
+                name_seq += 1
+                node_id = f"name_{name_seq}"
+
+            beta_val = None
+            if has_ticker:
+                try:
+                    b = beta_map.get(ticker)
+                    if b is not None:
+                        beta_val = float(b)
+                except Exception:
+                    beta_val = None
+
+            graph["nodes"].append(
+                {
+                    "id": node_id,
+                    "ticker": ticker if has_ticker else "",
+                    "name": node_name,
+                    "level": level,
+                    "group": group,
+                    "beta": beta_val,
+                    "has_ticker": has_ticker,
+                }
+            )
+            graph["links"].append(
+                {
+                    "source": main_symbol,
+                    "target": node_id,
+                    "beta": beta_val,
+                    "level": level,
+                    "group": group,
+                }
+            )
+
+    seen_uri = set()
+    cleaned_sources: List[Dict[str, str]] = []
+    for item in sources:
+        if not isinstance(item, dict):
+            continue
+        uri = str(item.get("uri") or "").strip()
+        title = str(item.get("title") or uri).strip()
+        if not uri or uri in seen_uri:
+            continue
+        seen_uri.add(uri)
+        cleaned_sources.append({"title": title, "uri": uri})
+        if len(cleaned_sources) >= 8:
+            break
+    graph["sources"] = cleaned_sources
+
+    return graph
+
+
+def create_industry_beta_page(
+    lang: str = "zh-TW",
+    symbol: str = None,
+    company_name: str = None,
+    chain_data: dict = None,
+    beta_map: dict = None,
+    limits_info: dict = None,
+) -> str:
+    symbol = _normalize_ticker(symbol)
+    is_zh = _lang_is_zh(lang)
+    quota_text = _build_quota_text(lang, limits_info)
+    is_logged_in = isinstance(limits_info, dict)
+
+    title = "⚡ 產業關聯與 Beta 連動圖譜" if is_zh else "⚡ Industry Chain & Beta Network"
+    hint_pick_stock = "請先搜尋並選擇一檔標的" if is_zh else "Search and select a stock first"
+    hint_pick_stock_sub = (
+        "可從上方搜尋欄輸入代號或公司名稱，再進入本頁載入供應鏈圖譜。"
+        if is_zh
+        else "Use the top search box to pick a symbol, then load its supply-chain graph here."
+    )
+    explain_title = "圖譜說明" if is_zh else "Graph Notes"
+    explain_body = (
+        "中心節點為主標的；藍色 L1 為上游/下游直接連動，紫色 L2 為同業/競爭關聯。連線上的 β 值為該股票對主標的報酬序列估計 Beta。"
+        if is_zh
+        else "Center node is the target stock; blue L1 nodes are upstream/downstream direct links; purple L2 nodes are peer/competitor links. Edge labels show estimated beta versus the target."
+    )
+    load_btn = "載入供應鏈圖譜" if is_zh else "Load Supply-Chain Graph"
+    reload_btn = "重新載入" if is_zh else "Reload"
+    login_hint = "登入後即可使用此 AI 功能並消耗當日額度。" if is_zh else "Sign in to use this AI feature and consume daily quota."
+    no_chain_hint = "目前沒有足夠關聯資料，請稍後再試。" if is_zh else "Not enough related data right now. Please try again later."
+    source_title = "資料來源" if is_zh else "Sources"
+    source_empty = "本次沒有可用的 grounding 來源連結。" if is_zh else "No grounding source links were available."
+
+    if not symbol:
+        return f"""
+        <div class="industry-page">
+            <div class="chain-header">
+                <h1 class="chain-title">{title}</h1>
+                <div class="chain-meta-row">
+                    <span class="chain-badge chain-badge-beta">BETA</span>
+                    <span class="chain-quota">{html.escape(quota_text)}</span>
+                </div>
             </div>
-            <div class="industry-beta-bar">
-                <span style="font-size:11px;color:var(--text-3);">平均 β</span>
-                <span class="mono-font" style="font-size:22px;font-weight:700;color:{color};text-shadow:0 0 12px {color}44;">
-                    {ind.get('avg_beta',1.0):.2f}
-                </span>
+            <div class="chain-explain-box">
+                <h3>{html.escape(hint_pick_stock)}</h3>
+                <p>{html.escape(hint_pick_stock_sub)}</p>
             </div>
-            <div class="industry-stocks">{stocks_html}</div>
-            <div id="{card_id}_hidden" style="display:none;">{hidden_html}</div>
-            {expand_btn}
-        </div>'''
-
-    return f'''
-    <div class="industry-page">
-        <h1 style="font-size:28px;font-weight:700;margin:0 0 8px 0;color:var(--text-1);
-            background:linear-gradient(135deg,#F5F0E8 30%,#D4A76A 90%);
-            -webkit-background-clip:text;-webkit-text-fill-color:transparent;">
-            產業分布 + Beta
-        </h1>
-        <p style="color:var(--text-3);margin-bottom:24px;">產業板塊分析與系統性風險（Beta）概覽</p>
-
-        <div class="beta-legend">
-            <div class="beta-legend-item"><div class="beta-legend-dot" style="background:#22C55E;box-shadow:0 0 8px #22C55E44;"></div> β &lt; 1.0 低風險</div>
-            <div class="beta-legend-item"><div class="beta-legend-dot" style="background:#FBBF24;box-shadow:0 0 8px #FBBF2444;"></div> 1.0 ≤ β ≤ 1.5</div>
-            <div class="beta-legend-item"><div class="beta-legend-dot" style="background:#EF4444;box-shadow:0 0 8px #EF444444;"></div> β &gt; 1.5 高風險</div>
         </div>
+        """
 
-        <!-- D3 泡泡圖 -->
-        <div class="bubble-chart-d3" id="bubble-container">
-            <svg id="d3-bubble-svg"></svg>
-            <div class="d3-tooltip" id="d3-tooltip"></div>
+    safe_symbol = html.escape(symbol)
+    safe_company_name = html.escape(company_name or symbol)
+
+    header_html = f"""
+    <div class="chain-header">
+        <div>
+            <h1 class="chain-title">{title}</h1>
+            <div class="chain-subtitle">{safe_symbol} · {safe_company_name}</div>
         </div>
-
-        <!-- 產業卡片 -->
-        <h2 style="font-size:18px;color:var(--text-1);margin-bottom:16px;display:flex;align-items:center;gap:8px;">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"></path></svg>
-            產業明細
-        </h2>
-        <div class="industry-grid">{industry_cards}</div>
+        <div class="chain-meta-row">
+            <span class="chain-badge">Industry Chain</span>
+            <span class="chain-badge chain-badge-beta">BETA</span>
+            <span class="chain-quota">{html.escape(quota_text)}</span>
+        </div>
     </div>
+    """
 
-    <!-- D3.js -->
+    explain_html = f"""
+    <div class="chain-explain-box">
+        <h3>{html.escape(explain_title)}</h3>
+        <p>{html.escape(explain_body)}</p>
+    </div>
+    """
+
+    if chain_data is None:
+        if is_logged_in:
+            action_btn = f"""
+            <button class="chain-load-btn"
+                onclick="dispatchAction({{action:'load_industry_chain',symbol:'{safe_symbol}'}}, this)">
+                {html.escape(load_btn)}
+            </button>
+            """
+        else:
+            action_btn = f"""
+            <div class="chain-login-hint">{html.escape(login_hint)}</div>
+            """
+        return f"""
+        <div class="industry-page">
+            {header_html}
+            {explain_html}
+            <div style="margin-top:18px;">{action_btn}</div>
+        </div>
+        """
+
+    graph = _build_graph_json(symbol, company_name, chain_data, beta_map)
+    has_graph_data = len(graph.get("nodes") or []) > 1
+    graph_json = json.dumps(
+        {
+            "nodes": graph.get("nodes", []),
+            "links": graph.get("links", []),
+        },
+        ensure_ascii=False,
+    )
+
+    source_items = []
+    for src in graph.get("sources", []):
+        uri = html.escape(str(src.get("uri") or ""))
+        title_text = html.escape(str(src.get("title") or uri))
+        if not uri:
+            continue
+        source_items.append(f'<li><a href="{uri}" target="_blank" rel="noopener noreferrer">{title_text}</a></li>')
+    if source_items:
+        sources_html = "<ul>" + "".join(source_items) + "</ul>"
+    else:
+        sources_html = f"<p>{html.escape(source_empty)}</p>"
+
+    legend_main = "主標的" if is_zh else "Core"
+    legend_l1 = "直接連動 L1" if is_zh else "Direct L1"
+    legend_l2 = "產業關聯 L2" if is_zh else "Related L2"
+
+    graph_block = f"""
+    <div class="chain-graph-container" id="chain-graph-mount">
+        <svg class="chain-graph-svg" id="chain-graph-svg"></svg>
+        <div class="chain-graph-tooltip" id="chain-graph-tooltip"></div>
+    </div>
+    <div class="chain-legend">
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-main"></span>{html.escape(legend_main)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-l1"></span>{html.escape(legend_l1)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-l2"></span>{html.escape(legend_l2)}</div>
+    </div>
+    """
+
+    if not has_graph_data:
+        graph_block = f"""
+        <div class="chain-explain-box">
+            <p>{html.escape(no_chain_hint)}</p>
+        </div>
+        """
+
+    js_symbol = symbol.replace("\\", "\\\\").replace("'", "\\'")
+    page_tpl = """
+    <div class="industry-page">
+        @@HEADER@@
+        @@EXPLAIN@@
+        <div style="margin:16px 0;">
+            <button class="chain-load-btn"
+                onclick="dispatchAction({action:'load_industry_chain',symbol:'@@SYMBOL@@'}, this)">
+                @@RELOAD@@
+            </button>
+        </div>
+        @@GRAPH_BLOCK@@
+        <div class="chain-sources">
+            <h3>@@SOURCE_TITLE@@</h3>
+            @@SOURCES@@
+        </div>
+    </div>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <script>
-    (function() {{
-        var data = {industries_json};
-        function runD3Bubble() {{
-            if (typeof window.d3 === 'undefined') {{
-                setTimeout(runD3Bubble, 50);
+    (function() {
+        var graphData = @@GRAPH_JSON@@;
+        var mount = document.getElementById('chain-graph-mount');
+        var svgEl = document.getElementById('chain-graph-svg');
+        var tooltipEl = document.getElementById('chain-graph-tooltip');
+        if (!mount || !svgEl || !tooltipEl) return;
+        if (!graphData || !Array.isArray(graphData.nodes) || graphData.nodes.length <= 1) return;
+
+        function radius(d) {
+            if (d.level === 'main') return 40;
+            if (d.level === 'L1') return 28;
+            return 22;
+        }
+        function fill(d) {
+            if (d.level === 'main') return '#D4A76A';
+            if (d.level === 'L1') return '#3B82F6';
+            return '#A855F7';
+        }
+        function stroke(d) {
+            if (d.level === 'main') return 'rgba(212,167,106,0.9)';
+            if (d.level === 'L1') return 'rgba(59,130,246,0.9)';
+            return 'rgba(168,85,247,0.9)';
+        }
+        function tipHtml(d) {
+            var betaText = (typeof d.beta === 'number') ? ('β ' + d.beta.toFixed(2)) : 'β N/A';
+            var ticker = d.ticker || '';
+            return '<div class="tip-title">' + (d.name || ticker || d.id) + '</div>' +
+                (ticker ? '<div class="tip-line">' + ticker + '</div>' : '') +
+                '<div class="tip-line">' + betaText + '</div>' +
+                '<div class="tip-line">' + (d.group || d.level || '') + '</div>';
+        }
+
+        function boot() {
+            if (typeof window.d3 === 'undefined') {
+                setTimeout(boot, 60);
                 return;
-            }}
-            var container = document.getElementById('bubble-container');
-            var svgEl = document.getElementById('d3-bubble-svg');
-            if (!container || !svgEl) {{
-                setTimeout(runD3Bubble, 50);
-                return;
-            }}
+            }
             var d3 = window.d3;
-            var svg = d3.select('#d3-bubble-svg');
-            if (!svg.node()) {{
-                setTimeout(runD3Bubble, 50);
-                return;
-            }}
-
-            if (!Array.isArray(data) || data.length === 0) {{
-                svg.append('text')
-                    .attr('x', '50%').attr('y', '50%').attr('text-anchor', 'middle').attr('dy', '0.35em')
-                    .style('fill', 'var(--text-3)').style('font-size', '14px')
-                    .text('暫無資料');
-                return;
-            }}
-
-            var width = Math.max(300, container.clientWidth - 48);
-            var height = 400;
+            var width = Math.max(360, mount.clientWidth);
+            var height = 500;
+            var svg = d3.select(svgEl);
+            svg.selectAll('*').remove();
             svg.attr('viewBox', '0 0 ' + width + ' ' + height);
 
-            var tooltip = d3.select('#d3-tooltip');
-            var colors = ['#D4A76A','#E8C547','#3B82F6','#22C55E','#F97316','#B8860B'];
+            var defs = svg.append('defs');
+            var glow = defs.append('filter')
+                .attr('id', 'chain-main-glow')
+                .attr('x', '-50%')
+                .attr('y', '-50%')
+                .attr('width', '200%')
+                .attr('height', '200%');
+            glow.append('feGaussianBlur').attr('stdDeviation', 4).attr('result', 'blur');
+            var merge = glow.append('feMerge');
+            merge.append('feMergeNode').attr('in', 'blur');
+            merge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-            // 建立節點
-            var nodes = data.map(function(d, i) {{
-            var r = Math.max(35, Math.min(70, d.count * 1.2 + 15));
-            return {{
-                id: d.name,
-                r: r,
-                beta: d.avg_beta,
-                count: d.count,
-                color: colors[i % colors.length],
-                stocks: d.stocks || [],
-            }};
-        }});
-
-        // Force Simulation
-        var sim = d3.forceSimulation(nodes)
-            .force('center', d3.forceCenter(width / 2, height / 2))
-            .force('charge', d3.forceManyBody().strength(8))
-            .force('collision', d3.forceCollide().radius(function(d) {{ return d.r + 6; }}).strength(0.9))
-            .on('tick', ticked);
-
-        // 定義 glow filter
-        var defs = svg.append('defs');
-        var filter = defs.append('filter').attr('id', 'glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
-        filter.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
-        var merge = filter.append('feMerge');
-        merge.append('feMergeNode').attr('in', 'blur');
-        merge.append('feMergeNode').attr('in', 'SourceGraphic');
-
-        var g = svg.selectAll('.bubble-g')
-            .data(nodes).enter().append('g')
-            .attr('class', 'bubble-g')
-            .style('cursor', 'pointer')
-            .call(d3.drag()
-                .on('start', function(event, d) {{ if (!event.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
-                .on('drag', function(event, d) {{ d.fx = event.x; d.fy = event.y; }})
-                .on('end', function(event, d) {{ if (!event.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }})
+            var zoomRoot = svg.append('g');
+            svg.call(
+                d3.zoom().scaleExtent([0.3, 3]).on('zoom', function(event) {
+                    zoomRoot.attr('transform', event.transform);
+                })
             );
 
-        // 泡泡
-        g.append('circle')
-            .attr('r', function(d){{ return d.r; }})
-            .attr('fill', function(d){{ return d.color + '15'; }})
-            .attr('stroke', function(d){{ return d.color + '60'; }})
-            .attr('stroke-width', 1.5)
-            .attr('filter', 'url(#glow)')
-            .on('mouseover', function(event, d) {{
-                d3.select(this).transition().duration(200).attr('fill', d.color + '28').attr('stroke', d.color).attr('stroke-width', 2);
-                var top5 = d.stocks.slice(0, 3).map(function(s){{ return s.symbol + ' ' + s.name; }}).join('<br>');
-                tooltip.html(
-                    '<div style="font-weight:700;color:' + d.color + ';margin-bottom:6px;">' + d.id + '</div>' +
-                    '<div style="color:#CBD5E1;font-family:monospace;font-size:18px;margin-bottom:4px;">β ' + d.beta.toFixed(2) + '</div>' +
-                    '<div style="color:#64748B;font-size:11px;">' + d.count + ' 檔</div>' +
-                    (top5 ? '<div style="margin-top:6px;border-top:1px solid rgba(255,255,255,0.08);padding-top:6px;color:#94a3b8;font-size:11px;">' + top5 + '</div>' : '')
-                ).style('display', 'block')
-                 .style('left', (event.offsetX + 16) + 'px')
-                 .style('top', (event.offsetY - 10) + 'px');
-            }})
-            .on('mouseout', function(event, d) {{
-                d3.select(this).transition().duration(300).attr('fill', d.color + '15').attr('stroke', d.color + '60').attr('stroke-width', 1.5);
-                tooltip.style('display', 'none');
-            }});
+            var links = zoomRoot.append('g')
+                .selectAll('line')
+                .data(graphData.links)
+                .enter()
+                .append('line')
+                .attr('stroke', function(d) { return d.level === 'L1' ? 'rgba(59,130,246,0.4)' : 'rgba(168,85,247,0.3)'; })
+                .attr('stroke-width', function(d) { return d.level === 'L1' ? 2 : 1.5; })
+                .attr('stroke-dasharray', function(d) { return d.level === 'L2' ? '8,4' : null; });
 
-        // 標籤
-        g.append('text')
-            .text(function(d){{ return d.id; }})
-            .attr('text-anchor', 'middle').attr('dy', '-0.3em')
-            .style('fill', '#F8FAFC').style('font-size', '11px').style('font-weight', '600')
-            .style('pointer-events', 'none');
+            var betaLabels = zoomRoot.append('g')
+                .selectAll('text')
+                .data(graphData.links)
+                .enter()
+                .append('text')
+                .attr('class', 'chain-link-beta')
+                .attr('text-anchor', 'middle')
+                .text(function(d) { return (typeof d.beta === 'number') ? ('β ' + d.beta.toFixed(2)) : 'β N/A'; });
 
-        g.append('text')
-            .text(function(d){{ return 'β ' + d.beta.toFixed(2); }})
-            .attr('text-anchor', 'middle').attr('dy', '1.1em')
-            .style('fill', function(d){{ return d.color; }}).style('font-size', '10px')
-            .style('font-family', 'monospace').style('pointer-events', 'none');
+            var simulation = d3.forceSimulation(graphData.nodes)
+                .force('center', d3.forceCenter(width / 2, height / 2))
+                .force('link', d3.forceLink(graphData.links)
+                    .id(function(d) { return d.id; })
+                    .distance(function(d) { return d.level === 'L1' ? 120 : 200; })
+                    .strength(function(d) { return d.level === 'L1' ? 0.9 : 0.55; }))
+                .force('charge', d3.forceManyBody().strength(-300))
+                .force('collide', d3.forceCollide().radius(function(d) { return radius(d) + 14; }));
 
-        function ticked() {{
-            g.attr('transform', function(d) {{
-                d.x = Math.max(d.r, Math.min(width - d.r, d.x));
-                d.y = Math.max(d.r, Math.min(height - d.r, d.y));
-                return 'translate(' + d.x + ',' + d.y + ')';
-            }});
-        }}
+            var nodes = zoomRoot.append('g')
+                .selectAll('g')
+                .data(graphData.nodes)
+                .enter()
+                .append('g')
+                .attr('cursor', 'pointer')
+                .call(
+                    d3.drag()
+                        .on('start', function(event, d) {
+                            if (!event.active) simulation.alphaTarget(0.3).restart();
+                            d.fx = d.x;
+                            d.fy = d.y;
+                        })
+                        .on('drag', function(event, d) {
+                            d.fx = event.x;
+                            d.fy = event.y;
+                        })
+                        .on('end', function(event, d) {
+                            if (!event.active) simulation.alphaTarget(0);
+                            d.fx = null;
+                            d.fy = null;
+                        })
+                );
 
-            // Responsive (debounced + threshold)
-            var _d3rt = null, _d3lw = container.clientWidth;
-            new ResizeObserver(function(entries) {{
-                if (_d3rt) clearTimeout(_d3rt);
-                _d3rt = setTimeout(function() {{
-                    if (!entries.length) return;
-                    var nw = Math.floor(entries[0].contentRect.width);
-                    if (Math.abs(nw - _d3lw) < 4) return;
-                    _d3lw = nw;
-                    var w = Math.max(300, nw - 48);
-                    svg.attr('viewBox', '0 0 ' + w + ' ' + height);
-                    sim.force('center', d3.forceCenter(w / 2, height / 2)).alpha(0.3).restart();
-                }}, 200);
-            }}).observe(container);
-        }}
-        runD3Bubble();
-    }})();
+            nodes.append('circle')
+                .attr('r', function(d) { return radius(d); })
+                .attr('fill', function(d) { return fill(d); })
+                .attr('fill-opacity', 0.26)
+                .attr('stroke', function(d) { return stroke(d); })
+                .attr('stroke-width', 2)
+                .attr('filter', function(d) { return d.level === 'main' ? 'url(#chain-main-glow)' : null; });
+
+            nodes.append('text')
+                .attr('class', 'chain-node-ticker')
+                .attr('text-anchor', 'middle')
+                .attr('dy', '0.36em')
+                .text(function(d) {
+                    if (d.ticker) return d.ticker;
+                    return d.name.length > 6 ? d.name.slice(0, 6) + '...' : d.name;
+                });
+
+            nodes.append('text')
+                .attr('class', 'chain-node-name')
+                .attr('text-anchor', 'middle')
+                .attr('dy', function(d) { return radius(d) + 16; })
+                .text(function(d) {
+                    if (!d.name) return '';
+                    return d.name.length > 12 ? d.name.slice(0, 12) + '...' : d.name;
+                });
+
+            nodes
+                .on('mouseover', function(event, d) {
+                    tooltipEl.style.display = 'block';
+                    tooltipEl.innerHTML = tipHtml(d);
+                })
+                .on('mousemove', function(event) {
+                    var rect = mount.getBoundingClientRect();
+                    tooltipEl.style.left = (event.clientX - rect.left + 12) + 'px';
+                    tooltipEl.style.top = (event.clientY - rect.top + 12) + 'px';
+                })
+                .on('mouseout', function() { tooltipEl.style.display = 'none'; })
+                .on('click', function(event, d) {
+                    if (!d.has_ticker || !d.ticker) return;
+                    if (typeof window.selectStock === 'function') window.selectStock(d.ticker);
+                });
+
+            simulation.on('tick', function() {
+                links
+                    .attr('x1', function(d) { return d.source.x; })
+                    .attr('y1', function(d) { return d.source.y; })
+                    .attr('x2', function(d) { return d.target.x; })
+                    .attr('y2', function(d) { return d.target.y; });
+
+                betaLabels
+                    .attr('x', function(d) { return (d.source.x + d.target.x) / 2; })
+                    .attr('y', function(d) { return (d.source.y + d.target.y) / 2; });
+
+                nodes.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+            });
+        }
+        boot();
+    })();
     </script>
-    '''
-
-
-def _get_industry_data() -> List[Dict]:
-    """產業資料（含合理的 Beta 預設值）"""
-    return [
-        {
-            "name": "半導體", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><path d="M15 2v2M15 20v2M2 15h2M2 9h2M20 15h2M20 9h2M9 2v2M9 20v2"></path></svg>', "count": 45, "avg_beta": 1.32,
-            "stocks": [
-                {"symbol": "2330", "name": "台積電", "beta": 1.15},
-                {"symbol": "2454", "name": "聯發科", "beta": 1.38},
-                {"symbol": "3034", "name": "聯詠", "beta": 1.42},
-                {"symbol": "2379", "name": "瑞昱", "beta": 1.25},
-                {"symbol": "3711", "name": "日月光投控", "beta": 1.18},
-            ]
-        },
-        {
-            "name": "金融保險", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="22" x2="21" y2="22"></line><line x1="6" y1="18" x2="6" y2="11"></line><line x1="10" y1="18" x2="10" y2="11"></line><line x1="14" y1="18" x2="14" y2="11"></line><line x1="18" y1="18" x2="18" y2="11"></line><polygon points="12 2 20 7 4 7"></polygon></svg>', "count": 38, "avg_beta": 0.85,
-            "stocks": [
-                {"symbol": "2882", "name": "國泰金", "beta": 0.92},
-                {"symbol": "2881", "name": "富邦金", "beta": 0.88},
-                {"symbol": "2884", "name": "玉山金", "beta": 0.78},
-                {"symbol": "2886", "name": "兆豐金", "beta": 0.72},
-                {"symbol": "2891", "name": "中信金", "beta": 0.85},
-            ]
-        },
-        {
-            "name": "電子零組件", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22v-5M9 8V2M15 8V2M18 8v5a4 4 0 01-4 4h-4a4 4 0 01-4-4V8Z"></path></svg>', "count": 52, "avg_beta": 1.18,
-            "stocks": [
-                {"symbol": "2317", "name": "鴻海", "beta": 1.05},
-                {"symbol": "3231", "name": "緯創", "beta": 1.45},
-                {"symbol": "2382", "name": "廣達", "beta": 1.28},
-                {"symbol": "2357", "name": "華碩", "beta": 1.12},
-                {"symbol": "2356", "name": "英業達", "beta": 0.95},
-            ]
-        },
-        {
-            "name": "電信", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0M1.42 9a16 16 0 0121.16 0M8.53 16.11a6 6 0 016.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>', "count": 8, "avg_beta": 0.55,
-            "stocks": [
-                {"symbol": "2412", "name": "中華電", "beta": 0.42},
-                {"symbol": "3045", "name": "台灣大", "beta": 0.55},
-                {"symbol": "4904", "name": "遠傳", "beta": 0.58},
-            ]
-        },
-        {
-            "name": "生技醫療", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0016.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 002 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path></svg>', "count": 28, "avg_beta": 1.45,
-            "stocks": [
-                {"symbol": "6446", "name": "藥華藥", "beta": 1.65},
-                {"symbol": "4743", "name": "合一", "beta": 1.72},
-                {"symbol": "1707", "name": "葡萄王", "beta": 0.88},
-            ]
-        },
-        {
-            "name": "傳產", "icon": '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20a2 2 0 002 2h16a2 2 0 002-2V8l-7 5V8l-7 5V4a2 2 0 00-2-2H4a2 2 0 00-2 2Z"></path></svg>', "count": 35, "avg_beta": 0.78,
-            "stocks": [
-                {"symbol": "1301", "name": "台塑", "beta": 0.82},
-                {"symbol": "1303", "name": "南亞", "beta": 0.79},
-                {"symbol": "2002", "name": "中鋼", "beta": 0.72},
-            ]
-        },
-    ]
+    """
+    return (
+        page_tpl
+        .replace("@@HEADER@@", header_html)
+        .replace("@@EXPLAIN@@", explain_html)
+        .replace("@@SYMBOL@@", js_symbol)
+        .replace("@@RELOAD@@", html.escape(reload_btn))
+        .replace("@@GRAPH_BLOCK@@", graph_block)
+        .replace("@@SOURCE_TITLE@@", html.escape(source_title))
+        .replace("@@SOURCES@@", sources_html)
+        .replace("@@GRAPH_JSON@@", graph_json)
+    )
