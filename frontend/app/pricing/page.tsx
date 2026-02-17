@@ -42,7 +42,7 @@ const PLANS: PlanItem[] = [
   {
     id: 'pro',
     name: 'Pro',
-    priceNtd: 198,
+    priceNtd: 99,
     period: '/月',
     icon: <Gem size={24} />,
     color: 'var(--accent)',
@@ -91,25 +91,25 @@ const FEATURE_DETAILS: Array<{
   pro: string;
   premium: string;
 }> = [
-  {
-    title: 'AI 深度分析',
-    free: '提供單次重點判讀，適合快速看方向。',
-    pro: '加入短中長線拆解與多指標交叉（EMA/RSI/MACD/布林）。',
-    premium: '提供完整情境推演（含進出場劇本、風險區間與資金配置建議）。',
-  },
-  {
-    title: '投資健檢',
-    free: '提供基本持倉體檢與風險提示。',
-    pro: '新增更完整的調整建議與部位優化方向。',
-    premium: '提供完整組合健檢、再平衡方案與多資產建議。',
-  },
-  {
-    title: '財經新聞焦點',
-    free: '標準新聞摘要與市場概況。',
-    pro: '加強主題重點與市場連結，縮短判讀時間。',
-    premium: '提供完整一分鐘市場重點、主題影響表與策略提示。',
-  },
-];
+    {
+      title: 'AI 深度分析',
+      free: '提供單次重點判讀，適合快速看方向。',
+      pro: '加入短中長線拆解與多指標交叉（EMA/RSI/MACD/布林）。',
+      premium: '提供完整情境推演（含進出場劇本、風險區間與資金配置建議）。',
+    },
+    {
+      title: '投資健檢',
+      free: '提供基本持倉體檢與風險提示。',
+      pro: '新增更完整的調整建議與部位優化方向。',
+      premium: '提供完整組合健檢、再平衡方案與多資產建議。',
+    },
+    {
+      title: '財經新聞焦點',
+      free: '標準新聞摘要與市場概況。',
+      pro: '加強主題重點與市場連結，縮短判讀時間。',
+      premium: '提供完整一分鐘市場重點、主題影響表與策略提示。',
+    },
+  ];
 
 export default function PricingPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
@@ -173,7 +173,7 @@ export default function PricingPage() {
       setHasPendingUpgrade(!!res.has_pending);
       setSuccess(
         res.message ||
-          '升級申請已建立，系統已鎖定重複申請。管理員將在 1-5 個工作天內完成人工審核。'
+        '升級申請已建立，系統已鎖定重複申請。管理員將在 1-5 個工作天內完成人工審核。'
       );
     } catch (err: unknown) {
       if (err instanceof ApiError) setError(mapUpgradeError(err));
