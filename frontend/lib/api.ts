@@ -213,6 +213,23 @@ interface PrimeFlowResponse {
     };
 }
 
+// ── Dexter 深度研究 ──
+interface DexterTask {
+    name: string;
+    tool: string;
+    status: string;
+    duration: number;
+}
+
+export interface DexterResult {
+    query: string;
+    tasks: DexterTask[];
+    validation: Array<{ label: string; passed: boolean }>;
+    analysis: string;
+    summary: { duration: number; api_calls: number; confidence: number };
+    error: string | null;
+}
+
 export class ApiClient {
     private token: string | null = null;
     private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
@@ -468,6 +485,17 @@ export class ApiClient {
             method: 'POST',
             body: JSON.stringify({ symbol, period }),
             skipAuth: true,
+        });
+    }
+
+    // ── Dexter 深度研究 ──
+    async runDexter(symbol: string, query?: string): Promise<DexterResult> {
+        return this.fetch<DexterResult>('/api/dexter/execute', {
+            method: 'POST',
+            body: JSON.stringify({
+                symbol: String(symbol || '').trim().toUpperCase(),
+                query: query || '',
+            }),
         });
     }
 
