@@ -12,7 +12,15 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from components.i18n import t
+
+# i18n fallback（原 components.i18n 已移除，保留相容）
+_I18N_FALLBACK = {
+    "auth.guestWelcome": "歡迎來到 DiscoverLatest",
+    "app.tagline": "AI 智慧投資分析平台",
+}
+
+def t(key: str, lang: str = "zh-TW") -> str:
+    return _I18N_FALLBACK.get(key, key)
 
 
 logger = logging.getLogger(__name__)
