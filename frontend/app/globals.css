@@ -1,13 +1,18 @@
-@import "tailwindcss/utilities";
-
 /*
  * DiscoverLatest v2 — Design System
  * Dark Mode OLED + Gold/Purple Fintech
  * Fonts: Orbitron (heading) + Exo 2 (body)
  * Icons: Lucide React SVG
+ *
+ * Tailwind v4: only import utility classes — NO preflight/theme
+ * (preflight resets our custom fonts, headings, links, and --radius)
  */
 
 @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap');
+
+@layer utilities {
+  @tailwind utilities;
+}
 
 /* ─── Design Tokens ─── */
 :root {
