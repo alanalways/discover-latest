@@ -1,4 +1,4 @@
-﻿"""
+"""
 Stock Service - ?∠巨鞈???撅?
 ?游?????皞???蝯曹?????????
 """
@@ -211,11 +211,11 @@ class StockService:
             if not isinstance(payload, dict):
                 return None
             _stock_data_cache.move_to_end(key)
-            return payload
+            return copy.deepcopy(payload)
 
     def _write_stock_data_cache(self, key: str, payload: Dict[str, Any]) -> None:
         with _stock_data_cache_lock:
-            _stock_data_cache[key] = {"ts": datetime.now().timestamp(), "payload": payload}
+            _stock_data_cache[key] = {"ts": datetime.now().timestamp(), "payload": copy.deepcopy(payload)}
             _stock_data_cache.move_to_end(key)
             while len(_stock_data_cache) > _STOCK_DATA_CACHE_MAXSIZE:
                 _stock_data_cache.popitem(last=False)
