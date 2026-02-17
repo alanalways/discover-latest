@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Star, Plus, Trash2, Bell, Loader2, AlertCircle, Search } from 'lucide-react';
+import { Star, Plus, Trash2, Bell, Loader2, AlertCircle, Search, TrendingUp, TrendingDown } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
@@ -14,11 +14,19 @@ interface AlertItem {
     target_price: number;
     condition?: 'gte' | 'lte';
 }
+interface QuoteData {
+    name: string;
+    price: number;
+    change: number;
+    change_pct: number;
+    vol_5d: number;
+}
 
 export default function WatchlistPage() {
     const router = useRouter();
     const [list, setList] = useState<WatchItem[]>([]);
     const [alerts, setAlerts] = useState<AlertItem[]>([]);
+    const [quotes, setQuotes] = useState<Record<string, QuoteData>>({});
     const [loading, setLoading] = useState(true);
     const [addSymbol, setAddSymbol] = useState('');
     const [adding, setAdding] = useState(false);
@@ -46,7 +54,19 @@ export default function WatchlistPage() {
         }
     }, []);
 
-    useEffect(() => { void fetchList(); }, [fetchList]);
+    const fetchQuotes = useCallback(async () => {
+        try {
+            const res = await api.fetch<{ quotes: Record<string, QuoteData> }>('/api/watchlist/quotes');
+            if (res?.quotes) setQuotes(res.quotes);
+        } catch {
+            // Silently ignore — user might not have watchlist
+        }
+    }, []);
+
+    useEffect(() => {
+        void fetchList();
+        void fetchQuotes();
+    }, [fetchList, fetchQuotes]);
 
     const handleAdd = async () => {
         const raw = addSymbol.trim().toUpperCase();
@@ -61,6 +81,7 @@ export default function WatchlistPage() {
             setAddSymbol('');
             setList((prev) => (prev.some((item) => item.symbol === sym) ? prev : [{ symbol: sym }, ...prev]));
             await fetchList();
+            await fetchQuotes();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : '新增失敗';
             setError(msg);
@@ -116,6 +137,11 @@ export default function WatchlistPage() {
         }
     };
 
+    // Price anomaly alerts: symbols with |change_pct| >= 3%
+    const anomalySymbols = Object.entries(quotes)
+        .filter(([, q]) => Math.abs(q.change_pct) >= 3)
+        .sort((a, b) => Math.abs(b[1].change_pct) - Math.abs(a[1].change_pct));
+
     return (
         <div className={styles.container}>
             {/* 新增 */}
@@ -141,6 +167,19 @@ export default function WatchlistPage() {
                 </div>
             )}
 
+            {/* Price anomaly alert banner */}
+            {anomalySymbols.length > 0 && (
+                <div className={styles.alertBanner}>
+                    <AlertCircle size={16} />
+                    <span>價格異動</span>
+                    {anomalySymbols.slice(0, 3).map(([sym, q]) => (
+                        <span key={sym} className={q.change_pct >= 0 ? styles.alertUp : styles.alertDown}>
+                            {sym} {q.change_pct >= 0 ? '+' : ''}{q.change_pct.toFixed(2)}%
+                        </span>
+                    ))}
+                </div>
+            )}
+
             {/* 清單 */}
             <div className={styles.listCard}>
                 <div className={styles.listHeader}>
@@ -160,6 +199,8 @@ export default function WatchlistPage() {
                     <div className={styles.listBody}>
                         {list.map((item) => {
                             const hasAlert = alerts.some((alert) => alert.symbol === item.symbol);
+                            const q = quotes[item.symbol];
+                            const isUp = q ? q.change_pct >= 0 : false;
                             return (
                                 <div key={item.symbol} className={styles.listItem}>
                                     <div
@@ -180,8 +221,38 @@ export default function WatchlistPage() {
                                         title={`查看 ${item.symbol} 深度分析`}
                                     >
                                         <span className={styles.itemSymbol}>{item.symbol}</span>
-                                        <span className={styles.itemName}>{item.name || '點擊查看深度分析'}</span>
+                                        <span className={styles.itemName}>{q?.name || item.name || '點擊查看深度分析'}</span>
                                     </div>
+
+                                    {/* Price column */}
+                                    {q ? (
+                                        <div className={styles.priceCol}>
+                                            <span className={styles.priceValue}>{q.price.toFixed(2)}</span>
+                                            <span className={isUp ? styles.priceUp : styles.priceDown}>
+                                                {isUp ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                                                {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className={styles.priceCol}>
+                                            <span className={styles.priceValue}>--</span>
+                                        </div>
+                                    )}
+
+                                    {/* Volatility bar */}
+                                    {q ? (
+                                        <div className={styles.volCol}>
+                                            <div className={styles.volBar}>
+                                                <div className={styles.volBarFill} style={{ width: `${Math.min(100, q.vol_5d)}%` }} />
+                                            </div>
+                                            <span className={styles.volLabel}>{q.vol_5d.toFixed(1)}%</span>
+                                        </div>
+                                    ) : (
+                                        <div className={styles.volCol}>
+                                            <span className={styles.volLabel}>--</span>
+                                        </div>
+                                    )}
+
                                     <div className={styles.itemActions}>
                                         <button
                                             className={`${styles.actionBtn} ${hasAlert ? styles.actionActive : ''}`}

@@ -33,6 +33,81 @@ class AlertAddRequest(BaseModel):
     direction: str = "above"  # above | below | gte | lte
 
 
+@router.get("/watchlist/quotes")
+async def get_watchlist_quotes(request: Request):
+    """Return real-time quotes for all symbols in the user's watchlist."""
+    user_id = _require_auth(request)
+    from adapters.supabase_adapter import supabase_adapter
+
+    try:
+        rows = supabase_adapter.get_user_watchlist(user_id) or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"讀取自選清單失敗: {e}")
+
+    symbols = [
+        str((row or {}).get("symbol") or "").strip().upper()
+        for row in rows
+        if isinstance(row, dict) and str((row or {}).get("symbol") or "").strip()
+    ]
+
+    if not symbols:
+        return {"quotes": {}}
+
+    from services.stock_service import stock_service
+    import math
+
+    async def _fetch_quote(symbol: str) -> tuple[str, dict | None]:
+        try:
+            stock = await stock_service.get_stock_data(symbol=symbol, period="1mo")
+            info = stock.get("info", {}) if isinstance(stock, dict) else {}
+            history = stock.get("history", []) if isinstance(stock, dict) else []
+
+            if not history or len(history) < 2:
+                return (symbol, None)
+
+            last = history[-1]
+            prev = history[-2]
+            price = _safe_float(last.get("close"))
+            prev_close = _safe_float(prev.get("close"))
+
+            if price <= 0:
+                return (symbol, None)
+
+            change = price - prev_close if prev_close > 0 else 0.0
+            change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
+
+            # 5-day annualized volatility
+            recent = history[-6:] if len(history) >= 6 else history
+            daily_returns = []
+            for i in range(1, len(recent)):
+                c_prev = _safe_float(recent[i - 1].get("close"))
+                c_curr = _safe_float(recent[i].get("close"))
+                if c_prev > 0 and c_curr > 0:
+                    daily_returns.append(c_curr / c_prev - 1)
+
+            vol_5d = 0.0
+            if len(daily_returns) >= 2:
+                mean = sum(daily_returns) / len(daily_returns)
+                variance = sum((r - mean) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
+                vol_5d = math.sqrt(variance) * math.sqrt(252) * 100
+
+            name = str(info.get("name") or info.get("shortName") or symbol)
+
+            return (symbol, {
+                "name": name,
+                "price": round(price, 2),
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "vol_5d": round(vol_5d, 1),
+            })
+        except Exception:
+            return (symbol, None)
+
+    results = await asyncio.gather(*[_fetch_quote(s) for s in symbols[:20]])
+    quotes = {sym: data for sym, data in results if data is not None}
+    return {"quotes": quotes}
+
+
 @router.get("/watchlist")
 async def get_watchlist(request: Request):
     user_id = _require_auth(request)

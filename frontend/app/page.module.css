@@ -285,52 +285,66 @@
   color: var(--danger);
 }
 
-/* ── ETF 卡片 ── */
-.etfGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 10px;
-}
-
-.etfCard {
+/* ── Watchlist Section ── */
+.watchlistSection {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 14px;
-  transition: all var(--duration-fast) var(--ease-out);
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
-.etfCard:hover {
-  border-color: var(--border-hover);
+.watchlistTable {
+  display: flex;
+  flex-direction: column;
 }
 
-.etfName {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-1);
-  margin-bottom: 2px;
-}
-
-.etfSymbol {
+.watchlistHeader {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 90px 140px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
   font-size: 11px;
   color: var(--text-3);
-  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
-.etfValue {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--text-1);
-  font-family: var(--font-heading);
+.watchlistRow {
+  display: grid;
+  grid-template-columns: 80px 1fr 90px 90px 140px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background var(--duration-fast);
+  align-items: center;
 }
 
-.etfChange {
-  font-size: 12px;
-  font-weight: 500;
-  margin-top: 4px;
+.watchlistRow:last-child {
+  border-bottom: none;
 }
 
-/* ── Top20 ── */
+.watchlistRow:hover {
+  background: var(--bg-hover);
+}
+
+.volBar {
+  display: inline-block;
+  width: 48px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+.volBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+/* ── Top10 ── */
 .top20Header {
   display: flex;
   align-items: center;

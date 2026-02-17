@@ -81,6 +81,40 @@
     font-size: 13px;
 }
 
+/* ── Alert Banner ── */
+.alertBanner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    background: rgba(251, 191, 36, 0.08);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    border-radius: var(--radius-sm);
+    color: #fbbf24;
+    font-size: 13px;
+    font-weight: 600;
+    flex-wrap: wrap;
+}
+
+.alertUp {
+    color: var(--success);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(52, 211, 153, 0.1);
+}
+
+.alertDown {
+    color: var(--danger);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(248, 113, 113, 0.1);
+}
+
+/* ── List Card ── */
 .listCard {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -116,9 +150,10 @@
 }
 
 .listItem {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
     align-items: center;
+    gap: 16px;
     padding: 14px 20px;
     border-bottom: 1px solid var(--border-subtle);
     transition: background var(--duration-fast);
@@ -157,6 +192,71 @@
     color: var(--text-3);
 }
 
+/* ── Price Column ── */
+.priceCol {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    min-width: 80px;
+}
+
+.priceValue {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+.priceUp {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--success);
+}
+
+.priceDown {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--danger);
+}
+
+/* ── Volatility Column ── */
+.volCol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 90px;
+}
+
+.volBar {
+    width: 48px;
+    height: 6px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.volBarFill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+    transition: width 0.3s ease;
+}
+
+.volLabel {
+    font-size: 11px;
+    color: var(--text-3);
+    min-width: 36px;
+    text-align: right;
+}
+
+/* ── Actions ── */
 .itemActions {
     display: flex;
     gap: 8px;
@@ -215,4 +315,15 @@
 
 .spinning {
     animation: spin 1s linear infinite;
+}
+
+@media (max-width: 640px) {
+    .listItem {
+        grid-template-columns: 1fr auto auto;
+        gap: 10px;
+    }
+
+    .volCol {
+        display: none;
+    }
 }

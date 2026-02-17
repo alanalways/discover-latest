@@ -6,12 +6,12 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import {
   TrendingUp,
   Activity,
-  BarChart3,
   Globe,
   ArrowUpRight,
   ArrowDownRight,
   RefreshCw,
   Clock,
+  Star,
 } from 'lucide-react';
 import styles from './page.module.css';
 import api from '@/lib/api';
@@ -32,6 +32,14 @@ interface Top20Stock {
   change_pct: number;
   volume: number;
   close?: number;
+}
+
+interface WatchlistQuote {
+  name: string;
+  price: number;
+  change: number;
+  change_pct: number;
+  vol_5d: number;
 }
 
 interface MarketOverviewResponse {
@@ -86,7 +94,6 @@ type Top20Meta = {
 
 type DashboardCachePayload = {
   indices?: MarketItem[];
-  etfs?: MarketItem[];
   hours?: { tw: MarketHours; us: MarketHours } | null;
   top20Tw?: Top20Bucket;
   top20Us?: Top20Bucket;
@@ -105,14 +112,6 @@ const FALLBACK_INDICES: MarketItem[] = [
   { name: '費城半導體', symbol: 'SOX', value: '5,042.16', change: '+47.38', change_pct: '+0.95%', color: 'green' },
 ];
 
-const FALLBACK_ETFS: MarketItem[] = [
-  { name: '元大台灣50', symbol: '0050', value: '186.25', change: '+0.85', change_pct: '+0.46%', color: 'green' },
-  { name: '元大高股息', symbol: '0056', value: '39.15', change: '+0.10', change_pct: '+0.26%', color: 'green' },
-  { name: '國泰永續高股息', symbol: '00878', value: '23.42', change: '-0.05', change_pct: '-0.21%', color: 'red' },
-  { name: '群益台灣精選高息', symbol: '00919', value: '24.06', change: '+0.08', change_pct: '+0.33%', color: 'green' },
-  { name: 'Vanguard S&P 500', symbol: 'VOO', value: '556.34', change: '+3.18', change_pct: '+0.57%', color: 'green' },
-  { name: 'Invesco QQQ', symbol: 'QQQ', value: '530.12', change: '+4.22', change_pct: '+0.80%', color: 'green' },
-];
 
 const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [
   '2330','2454','2317','2382','2308','2303','2603','2609','2881','2882',
@@ -125,9 +124,9 @@ const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [
 ].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
 const toBucket = (rows: Top20Stock[]): Top20Bucket => ({
-  gainers: [...rows].sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0)).slice(0, 20),
-  losers: [...rows].sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0)).slice(0, 20),
-  volume: [...rows].sort((a, b) => (b.volume || 0) - (a.volume || 0)).slice(0, 20),
+  gainers: [...rows].sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0)).slice(0, 10),
+  losers: [...rows].sort((a, b) => (a.change_pct || 0) - (b.change_pct || 0)).slice(0, 10),
+  volume: [...rows].sort((a, b) => (b.volume || 0) - (a.volume || 0)).slice(0, 10),
 });
 
 const FALLBACK_TOP20_TW = toBucket(FALLBACK_TOP20_TW_ROWS);
@@ -204,7 +203,7 @@ function normalizeTop20Bucket(raw: unknown, fallback: Top20Bucket): Top20Bucket 
       if (!symbol || seen.has(symbol)) continue;
       seen.add(symbol);
       rows.push(row);
-      if (rows.length >= 20) break;
+      if (rows.length >= 10) break;
     }
     return rows;
   };
@@ -248,12 +247,12 @@ export default function Dashboard() {
   const newsRef = useRef<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
 
   const [indices, setIndices] = useState<MarketItem[]>(FALLBACK_INDICES);
-  const [etfs, setEtfs] = useState<MarketItem[]>(FALLBACK_ETFS);
   const [top20Tw, setTop20Tw] = useState<Top20Bucket>(FALLBACK_TOP20_TW);
   const [top20Us, setTop20Us] = useState<Top20Bucket>(FALLBACK_TOP20_US);
   const [top20Meta, setTop20Meta] = useState<Top20Meta>({});
   const [hours, setHours] = useState<{ tw: MarketHours; us: MarketHours } | null>(null);
   const [news, setNews] = useState<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
+  const [watchlistQuotes, setWatchlistQuotes] = useState<Record<string, WatchlistQuote>>({});
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'gainers' | 'losers' | 'volume'>('gainers');
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
@@ -278,7 +277,6 @@ export default function Dashboard() {
 
   const hydrateFromPayload = useCallback((payload: DashboardCachePayload) => {
     if (Array.isArray(payload.indices) && payload.indices.length > 0) setIndices(payload.indices);
-    if (Array.isArray(payload.etfs) && payload.etfs.length > 0) setEtfs(payload.etfs);
     if (payload.hours) setHours(payload.hours);
     if (payload.top20Tw) setTop20Tw(normalizeTop20Bucket(payload.top20Tw, FALLBACK_TOP20_TW));
     if (payload.top20Us) setTop20Us(normalizeTop20Bucket(payload.top20Us, FALLBACK_TOP20_US));
@@ -295,7 +293,7 @@ export default function Dashboard() {
     }
     setError('');
 
-    const marketFallback: MarketOverviewResponse = { indices: FALLBACK_INDICES, etfs: FALLBACK_ETFS };
+    const marketFallback: MarketOverviewResponse = { indices: FALLBACK_INDICES };
     const top20Fallback: Top20Response = { tw: FALLBACK_TOP20_TW, us: FALLBACK_TOP20_US };
     const newsFallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
 
@@ -325,9 +323,7 @@ export default function Dashboard() {
       ]);
 
       const safeIndices = (marketRes.indices && marketRes.indices.length > 0) ? marketRes.indices : FALLBACK_INDICES;
-      const safeEtfs = (marketRes.etfs && marketRes.etfs.length > 0) ? marketRes.etfs : FALLBACK_ETFS;
       setIndices(safeIndices);
-      setEtfs(safeEtfs);
       if (hoursRes) setHours(hoursRes);
       const updatedAt = new Date().toLocaleTimeString('zh-TW');
       setLastUpdate(updatedAt);
@@ -347,7 +343,6 @@ export default function Dashboard() {
 
       const payload: DashboardCachePayload = {
         indices: safeIndices,
-        etfs: safeEtfs,
         hours: hoursRes || null,
         top20Tw: tw,
         top20Us: us,
@@ -366,7 +361,6 @@ export default function Dashboard() {
       console.error('Dashboard fetch error:', err);
       setError('資料載入失敗，已切換為快取/備援資料');
       setIndices((prev) => (prev.length ? prev : FALLBACK_INDICES));
-      setEtfs((prev) => (prev.length ? prev : FALLBACK_ETFS));
       setTop20Tw((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_TW));
       setTop20Us((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_US));
       setNews((prev) => (prev?.brief?.length ? prev : { brief: FALLBACK_NEWS_BRIEF, items: [] }));
@@ -424,6 +418,22 @@ export default function Dashboard() {
       clearInterval(interval);
     };
   }, [fetchData, user?.tier]);
+
+  useEffect(() => {
+    if (!user) {
+      setWatchlistQuotes({});
+      return;
+    }
+    const fetchQuotes = async () => {
+      try {
+        const res = await api.fetch<{ quotes: Record<string, WatchlistQuote> }>('/api/watchlist/quotes');
+        if (res?.quotes) setWatchlistQuotes(res.quotes);
+      } catch {
+        // Silently ignore — user might not have watchlist
+      }
+    };
+    void fetchQuotes();
+  }, [user]);
 
   const top20Data = activeMarket === 'tw' ? top20Tw : top20Us;
   const activeMarketKey = activeMarket === 'tw' ? 'tw' : 'us';
@@ -556,32 +566,56 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>
-          <BarChart3 size={18} /> 熱門 ETF
-        </h3>
-        <div className={styles.etfGrid}>
-          {(etfs.length ? etfs : (loading ? Array(6).fill(null) : FALLBACK_ETFS)).map((etf, i) => (
-            etf ? (
-              <div key={etf.symbol} className={styles.etfCard}>
-                <div className={styles.etfName}>{etf.name}</div>
-                <div className={styles.etfSymbol}>{etf.symbol}</div>
-                <div className={styles.etfValue}>{etf.value}</div>
-                <div className={`${styles.etfChange} ${etf.color === 'green' ? styles.up : styles.down}`}>
-                  {etf.change} ({etf.change_pct})
-                </div>
+      {/* 我的自選股 — only for logged-in users with watchlist data */}
+      {user && Object.keys(watchlistQuotes).length > 0 && (
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>
+            <Star size={18} /> 我的自選股
+          </h3>
+          <div className={styles.watchlistSection}>
+            <div className={styles.watchlistTable}>
+              <div className={styles.watchlistHeader}>
+                <span>代號</span>
+                <span>名稱</span>
+                <span style={{ textAlign: 'right' }}>價格</span>
+                <span style={{ textAlign: 'right' }}>漲跌%</span>
+                <span style={{ textAlign: 'right' }}>5日波動率</span>
               </div>
-            ) : (
-              <div key={i} className={`${styles.etfCard} ${styles.skeleton}`} />
-            )
-          ))}
-        </div>
-      </section>
+              {Object.entries(watchlistQuotes).map(([symbol, q]) => {
+                const isUp = q.change_pct >= 0;
+                const volPct = Math.min(100, q.vol_5d);
+                return (
+                  <button
+                    type="button"
+                    key={symbol}
+                    className={`${styles.watchlistRow} ${styles.tableRowButton}`}
+                    onClick={() => navigateToAnalysis(symbol)}
+                    title={`前往 ${q.name || symbol} 深度分析`}
+                  >
+                    <span className={styles.stockSymbol}>{symbol}</span>
+                    <span className={styles.stockName}>{q.name || '-'}</span>
+                    <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-1)' }}>{q.price.toFixed(2)}</span>
+                    <span className={isUp ? styles.up : styles.down} style={{ textAlign: 'right', fontWeight: 600 }}>
+                      {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
+                    </span>
+                    <span style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                      <span className={styles.volBar}>
+                        <span className={styles.volBarFill} style={{ width: `${volPct}%` }} />
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 36 }}>{q.vol_5d.toFixed(1)}%</span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className={styles.section}>
         <div className={styles.top20Header}>
           <h3 className={styles.sectionTitle}>
-            <TrendingUp size={18} /> Top 20 排行
+            <TrendingUp size={18} /> Top 10 排行
           </h3>
           <div className={styles.tabGroup}>
             <button className={`${styles.tabBtn} ${activeMarket === 'tw' ? styles.tabActive : ''}`} onClick={() => setActiveMarket('tw')}>
@@ -611,7 +645,7 @@ export default function Dashboard() {
             <span className={styles.colName}>股票</span>
             <span className={styles.colValue}>{activeTab === 'volume' ? '成交量' : '漲跌幅'}</span>
           </div>
-          {top20Data[activeTab].slice(0, 20).map((stock, i) => (
+          {top20Data[activeTab].slice(0, 10).map((stock, i) => (
             <button
               type="button"
               key={`${stock.symbol}-${i}`}
