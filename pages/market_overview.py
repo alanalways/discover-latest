@@ -559,8 +559,8 @@ def _get_top20_nonblocking() -> Dict:
 # ──────────────────────────────────────
 # Page builder
 # ──────────────────────────────────────
-def create_market_overview_page(lang: str = "zh-TW"):
-    """建立市場總覽頁面（台股/美股分類 + Top20 + 開休市）"""
+def create_market_overview_page(lang: str = "zh-TW", watchlist: list = None):
+    """建立市場總覽頁面（台股/美股指數 + 自選股行情 + Top10 + 開休市）"""
 
     data = _fetch_market_data()
     indices = data.get("indices", [])
@@ -572,10 +572,6 @@ def create_market_overview_page(lang: str = "zh-TW"):
     # ---------- 分類 indices ----------
     tw_indices = [idx for idx in indices if idx["symbol"] in ("TAIEX",)]
     us_indices = [idx for idx in indices if idx["symbol"] in ("SPX", "IXIC", "DJI", "SOX")]
-
-    # ---------- 分類 ETFs ----------
-    tw_etfs = [etf for etf in etfs if etf["symbol"] in ("0050", "0056", "00878", "00919")]
-    us_etfs = [etf for etf in etfs if etf["symbol"] in ("VOO", "QQQ")]
 
     def build_index_card(idx):
         change_icon = "▲" if idx["color"] == "green" else "▼"
@@ -591,26 +587,9 @@ def create_market_overview_page(lang: str = "zh-TW"):
             </div>
         </div>'''
 
-    def build_etf_card(etf):
-        raw_sym = etf["symbol"]
-        change_icon = "▲" if etf["color"] == "green" else "▼"
-        return f'''
-        <div class="etf-card" onclick="selectStock('{raw_sym}')" style="cursor:pointer;">
-            <div class="etf-header">
-                <span class="etf-symbol">{etf["symbol"]}</span>
-                <span class="etf-name">{etf["name"]}</span>
-            </div>
-            <div class="etf-value">{etf["value"]}</div>
-            <div class="etf-change {etf["color"]}">
-                {change_icon} {etf["change"]} ({etf["change_pct"]})
-            </div>
-        </div>'''
-
     # 建構 HTML
     tw_indices_html = "".join(build_index_card(idx) for idx in tw_indices)
-    tw_etfs_html = "".join(build_etf_card(etf) for etf in tw_etfs)
     us_indices_html = "".join(build_index_card(idx) for idx in us_indices)
-    us_etfs_html = "".join(build_etf_card(etf) for etf in us_etfs)
 
     # ---------- Top20 資料 ----------
     top20 = _get_top20_nonblocking()
@@ -618,14 +597,14 @@ def create_market_overview_page(lang: str = "zh-TW"):
     us_top20 = top20.get("us", [])
 
     def build_top20_section(stocks: List[Dict], market_label: str, market_id: str) -> str:
-        """建構 Top20 漲跌幅/成交量排行區塊"""
+        """建構 Top10 漲跌幅/成交量排行區塊"""
         if not stocks:
             return f'<div style="padding:24px;text-align:center;color:var(--text-3);font-size:13px;">載入中或暫無 {market_label} 資料…</div>'
 
-        # 排序
-        by_gainers = sorted(stocks, key=lambda x: x.get("change_pct", 0), reverse=True)[:20]
-        by_losers = sorted(stocks, key=lambda x: x.get("change_pct", 0))[:20]
-        by_volume = sorted(stocks, key=lambda x: x.get("volume", 0), reverse=True)[:20]
+        # 排序 — Top 10
+        by_gainers = sorted(stocks, key=lambda x: x.get("change_pct", 0), reverse=True)[:10]
+        by_losers = sorted(stocks, key=lambda x: x.get("change_pct", 0))[:10]
+        by_volume = sorted(stocks, key=lambda x: x.get("volume", 0), reverse=True)[:10]
 
         def build_row(rank, s, show_vol=False):
             pct = s.get("change_pct", 0)
@@ -685,6 +664,95 @@ def create_market_overview_page(lang: str = "zh-TW"):
     tw_top20_html = build_top20_section(tw_top20, "台股", "tw_top20")
     us_top20_html = build_top20_section(us_top20, "美股", "us_top20")
 
+    # ---------- 自選股行情 ----------
+    watchlist_section_html = ""
+    if watchlist:
+        import math
+        wl_rows_html = ""
+        try:
+            from adapters.finmind_adapter import finmind_adapter
+            end_wl = datetime.now().strftime("%Y-%m-%d")
+            start_wl = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
+            tw_name_map = dict(_TW_STOCK_NAMES)
+
+            def _fetch_wl_row(sym: str):
+                is_tw = sym.isdigit() and len(sym) >= 4
+                try:
+                    if is_tw:
+                        rows = finmind_adapter.get_tw_stock_price_sync(sym, start_wl, end_wl)
+                    else:
+                        rows = finmind_adapter.get_us_stock_price_sync(sym, start_wl, end_wl)
+                    if not rows or len(rows) < 2:
+                        return None
+                    closes = [float(r.get("close") or 0) for r in rows if float(r.get("close") or 0) > 0]
+                    if len(closes) < 2:
+                        return None
+                    price = closes[-1]
+                    prev = closes[-2]
+                    chg_pct = (price - prev) / prev * 100 if prev > 0 else 0
+                    # 5-day volatility
+                    vol_5d = 0.0
+                    if len(closes) >= 5:
+                        rets = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(-4, 0)]
+                        if rets:
+                            var_r = sum(r*r for r in rets) / len(rets)
+                            vol_5d = math.sqrt(var_r) * math.sqrt(252) * 100
+                    name = tw_name_map.get(sym, _US_STOCK_NAMES.get(sym, sym)) if is_tw else _US_STOCK_NAMES.get(sym, sym)
+                    return {"symbol": sym, "name": name, "price": price, "change_pct": chg_pct, "vol_5d": vol_5d}
+                except Exception:
+                    return None
+
+            workers = max(2, min(6, len(watchlist)))
+            wl_results = []
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {pool.submit(_fetch_wl_row, s): s for s in watchlist[:20]}
+                for f in as_completed(futures):
+                    r = f.result()
+                    if r:
+                        wl_results.append(r)
+
+            # Sort by original watchlist order
+            wl_order = {s: i for i, s in enumerate(watchlist)}
+            wl_results.sort(key=lambda x: wl_order.get(x["symbol"], 99))
+
+            for r in wl_results:
+                pct = r["change_pct"]
+                color = "#22c55e" if pct >= 0 else "#ef4444"
+                icon = "▲" if pct >= 0 else "▼"
+                vol = r["vol_5d"]
+                vol_width = min(100, max(5, vol * 15))
+                wl_rows_html += f'''<tr onclick="selectStock('{r["symbol"]}')" style="cursor:pointer;transition:background 0.15s;">
+                    <td style="padding:8px 6px;font-weight:600;color:var(--primary);font-family:var(--font-mono);font-size:13px;">{r["symbol"]}</td>
+                    <td style="padding:8px 6px;color:var(--text-2);font-size:12px;">{r["name"]}</td>
+                    <td style="padding:8px 6px;text-align:right;color:var(--text-1);font-family:var(--font-mono);font-size:13px;">{r["price"]:,.2f}</td>
+                    <td style="padding:8px 6px;text-align:right;color:{color};font-family:var(--font-mono);font-size:13px;font-weight:600;">{icon} {abs(pct):.2f}%</td>
+                    <td style="padding:8px 6px;text-align:right;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;">
+                            <div class="watchlist-vol-bar" style="width:60px;"><div style="width:{vol_width}%;"></div></div>
+                            <span style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);">{vol:.1f}%</span>
+                        </div>
+                    </td>
+                </tr>'''
+        except Exception as e:
+            logger.debug(f"[Market] Watchlist overview error: {e}")
+
+        if wl_rows_html:
+            watchlist_section_html = f'''
+            <div class="market-section">
+                <h2 class="section-title" style="display:flex;align-items:center;gap:8px;">
+                    <span class="section-icon">&#11088;</span>
+                    我的自選股
+                </h2>
+                <div class="chart-section" style="margin-bottom:20px;">
+                    <table class="watchlist-overview-table">
+                        <thead><tr>
+                            <th>代號</th><th>名稱</th><th style="text-align:right;">收盤價</th><th style="text-align:right;">漲跌%</th><th style="text-align:right;">5日波動率</th>
+                        </tr></thead>
+                        <tbody>{wl_rows_html}</tbody>
+                    </table>
+                </div>
+            </div>'''
+
     # ---------- Assemble page HTML ----------
     page_html = f'''
     <div class="market-page">
@@ -705,41 +773,40 @@ def create_market_overview_page(lang: str = "zh-TW"):
             </button>
         </div>
 
-        <!-- 🇹🇼 台股區塊 -->
+        <!-- 🇹🇼 台股指數 -->
         <div class="market-section tw-section">
             <h2 class="section-title">
                 <span class="section-icon">🇹🇼</span>
                 台股行情
             </h2>
             <div class="indices-grid">{tw_indices_html}</div>
-            <h3 class="subsection-title">熱門 ETF</h3>
-            <div class="etf-grid">{tw_etfs_html}</div>
         </div>
 
-        <!-- 🇺🇸 美股區塊 -->
+        <!-- 🇺🇸 美股指數 -->
         <div class="market-section us-section">
             <h2 class="section-title">
                 <span class="section-icon">🇺🇸</span>
                 美股行情
             </h2>
             <div class="indices-grid">{us_indices_html}</div>
-            <h3 class="subsection-title">熱門 ETF</h3>
-            <div class="etf-grid">{us_etfs_html}</div>
         </div>
 
-        <!-- 📊 Top 20 排行 -->
+        <!-- ⭐ 自選股行情（登入且有自選股時顯示）-->
+        {watchlist_section_html}
+
+        <!-- 📊 Top 10 排行 -->
         <div class="market-section">
             <h2 class="section-title" style="display:flex;align-items:center;gap:8px;">
                 <span class="section-icon">📊</span>
-                漲跌幅 & 成交量排行
+                漲跌幅 & 成交量 Top 10
             </h2>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
                 <div>
-                    <h3 class="subsection-title">🇹🇼 台股 Top 20</h3>
+                    <h3 class="subsection-title">🇹🇼 台股 Top 10</h3>
                     {tw_top20_html}
                 </div>
                 <div>
-                    <h3 class="subsection-title">🇺🇸 美股 Top 20</h3>
+                    <h3 class="subsection-title">🇺🇸 美股 Top 10</h3>
                     {us_top20_html}
                 </div>
             </div>

@@ -41,6 +41,14 @@ UNIFIED_SYSTEM_PROMPT = """你是 DiscoverLatest 專屬 AI 深度分析引擎
 語言 全文繁體中文 禁止英文句子 技術縮寫 RSI MACD SMC 等除外
 格式 純文字列點 禁止任何 markdown 符號 --- ** *** ## ### ``` __ ~~ >
 
+重要 在正文分析之前 先輸出一段 JSON 摘要 用 <<<JSON_START>>> 和 <<<JSON_END>>> 包裹
+格式如下
+<<<JSON_START>>>
+{"verdict":"偏多或偏空或中性","confidence":0到100整數,"scores":{"technical":0到100,"fundamental":0到100,"chips":0到100,"macro":0到100},"entry":{"short":"xxx-xxx","mid":"xxx-xxx","long":"xxx-xxx"},"stop_loss":{"short":"xxx","mid":"xxx","long":"xxx"},"target":{"short":"xxx","mid":"xxx","long":"xxx"},"risk_reward":{"short":"x.x:1","mid":"x.x:1","long":"x.x:1"},"key_levels":{"support":["xxx","xxx"],"resistance":["xxx","xxx"]},"one_liner":"一句話總結最重要的操作建議"}
+<<<JSON_END>>>
+JSON 中所有價位必須是具體數字 不可使用文字描述
+然後接著輸出正文分析
+
 固定輸出結構 不可更改標題文字與順序
 
 我是 DiscoverLatest 專屬 AI 🚀
@@ -321,15 +329,25 @@ class GeminiService:
         prompt = (
             "Use Google Search grounding and return strict JSON only. "
             "Return object schema: "
-            '{"upstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"上游","weight":number|null,"reason":string|null,"confidence":number|null}],'
-            '"downstream":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"下游","weight":number|null,"reason":string|null,"confidence":number|null}],'
-            '"peer":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"同業","weight":number|null,"reason":string|null,"confidence":number|null}],'
-            '"competitor":[{"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,"relation_type":"競爭","weight":number|null,"reason":string|null,"confidence":number|null}]}. '
-            "Rule: only include direct and defensible industry-chain relationships. "
-            "Do not include generic mega-cap names unless there is a clear supply-chain or direct competition relation. "
-            "Do not include the core company itself. no duplicates across groups. "
-            "Each list target 3 to 5 companies, prefer listed companies with ticker. "
-            "weight and confidence range 0 to 1. reason must be short Traditional Chinese text. no markdown.\n"
+            '{"upstream":[OBJ],"downstream":[OBJ],"peer":[OBJ],"competitor":[OBJ],"etf_tracking":[OBJ],"cross_market":[OBJ]}. '
+            'OBJ={"name":string,"ticker":string|null,"listed":boolean|null,"listed_market":string|null,'
+            '"relation_type":string,"weight":number|null,"reason":string|null,"relation_detail":string|null,"confidence":number|null}. '
+            "Rules:\n"
+            "1. Only include direct and defensible industry-chain relationships backed by evidence.\n"
+            "2. Do not include generic mega-cap names unless there is a clear supply-chain or direct competition relation.\n"
+            "3. Do not include the core company itself. No duplicates across groups.\n"
+            "4. Each group target 5 to 8 companies, prefer listed companies with ticker.\n"
+            "5. weight and confidence range 0 to 1.\n"
+            "6. reason: short Traditional Chinese text explaining the relationship.\n"
+            "7. relation_detail: specific description (e.g. 'IC設計晶圓代工主要客戶' 'AI伺服器組裝代工' 'ETF成分股權重約15%').\n"
+            "8. etf_tracking: if target is a stock, list ETFs that hold it with significant weight. "
+            "If target is an ETF, list its top constituent stocks with weight.\n"
+            "9. cross_market: international companies with direct supply-chain, licensing, OEM/ODM relationships. "
+            "Must include foreign ticker (e.g. NVDA, AAPL, ASML). "
+            "Especially: cross-border assembly, component supply, licensing.\n"
+            "10. For industry bellwether stocks, mention in relation_detail.\n"
+            "11. relation_type values: upstream→'上游', downstream→'下游', peer→'同業', competitor→'競爭', etf_tracking→'ETF追蹤', cross_market→'跨市場供應鏈'.\n"
+            "12. No markdown.\n"
             f"symbol={normalized_symbol}\n"
             f"company={company_name or normalized_symbol}\n"
             f"industry={industry_hint or 'unknown'}"
@@ -343,7 +361,7 @@ class GeminiService:
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                     temperature=0.1,
-                    max_output_tokens=1200,
+                    max_output_tokens=2400,
                 ),
             )
 
@@ -376,13 +394,17 @@ class GeminiService:
                     )
 
         parsed = self._extract_json_object(text_out)
-        relation_keys = ("upstream", "downstream", "peer", "competitor")
+        relation_keys = ("upstream", "downstream", "peer", "competitor", "etf_tracking", "cross_market")
+        relation_type_defaults = {
+            "upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭",
+            "etf_tracking": "ETF追蹤", "cross_market": "跨市場供應鏈",
+        }
         chain: Dict[str, List[Dict[str, Any]]] = {k: [] for k in relation_keys}
         for key in relation_keys:
             rows = parsed.get(key)
             if not isinstance(rows, list):
                 continue
-            for row in rows[:8]:
+            for row in rows[:10]:
                 if isinstance(row, str):
                     name = row.strip()
                     if not name:
@@ -393,10 +415,11 @@ class GeminiService:
                             "ticker": None,
                             "listed": None,
                             "listed_market": None,
-                            "relation_type": {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key],
+                            "relation_type": relation_type_defaults[key],
                             "weight": None,
                             "confidence": None,
                             "reason": "",
+                            "relation_detail": "",
                         }
                     )
                     continue
@@ -425,6 +448,7 @@ class GeminiService:
                     or row.get("evidence")
                     or ""
                 ).strip()
+                relation_detail = str(row.get("relation_detail") or row.get("detail") or "").strip()
 
                 chain[key].append(
                     {
@@ -432,10 +456,11 @@ class GeminiService:
                         "ticker": ticker,
                         "listed": listed,
                         "listed_market": listed_market,
-                        "relation_type": str(row.get("relation_type") or {"upstream": "上游", "downstream": "下游", "peer": "同業", "competitor": "競爭"}[key]),
+                        "relation_type": str(row.get("relation_type") or relation_type_defaults[key]),
                         "weight": weight,
                         "confidence": confidence,
                         "reason": reason,
+                        "relation_detail": relation_detail,
                     }
                 )
 
@@ -518,6 +543,38 @@ class GeminiService:
             elif key.startswith("liquidity"):
                 data["liquidity"] = val
         return data
+
+    @staticmethod
+    def _extract_summary_json(raw_text: str) -> tuple:
+        """Extract <<<JSON_START>>> ... <<<JSON_END>>> block from AI output.
+        Returns (summary_dict_or_None, cleaned_text_without_json_block).
+        """
+        if not raw_text:
+            return None, raw_text or ""
+        pattern = r'<<<JSON_START>>>\s*(.*?)\s*<<<JSON_END>>>'
+        match = re.search(pattern, raw_text, flags=re.DOTALL)
+        if not match:
+            return None, raw_text
+        json_str = match.group(1).strip()
+        cleaned = raw_text[:match.start()] + raw_text[match.end():]
+        cleaned = cleaned.strip()
+        try:
+            parsed = json.loads(json_str)
+            if isinstance(parsed, dict):
+                return parsed, cleaned
+        except Exception:
+            pass
+        # Try extracting JSON object from the block
+        start = json_str.find("{")
+        end = json_str.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                parsed = json.loads(json_str[start:end + 1])
+                if isinstance(parsed, dict):
+                    return parsed, cleaned
+            except Exception:
+                pass
+        return None, cleaned
 
     @staticmethod
     def _sanitize_analysis_text(text: str) -> str:
@@ -1194,8 +1251,9 @@ class GeminiService:
             f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
             try:
                 stage2_resp = f2.result(timeout=stage2_timeout_sec)
-                analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
-                analysis = self._ensure_smc_section(self._sanitize_analysis_text(analysis), smc_summary)
+                raw_analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
+                summary_data, raw_analysis = self._extract_summary_json(raw_analysis)
+                analysis = self._ensure_smc_section(self._sanitize_analysis_text(raw_analysis), smc_summary)
 
                 if not self._quality_ok(analysis, tier):
                     emit(86, "fallback", "stage2_quality_fallback_local")
@@ -1233,6 +1291,7 @@ class GeminiService:
                 payload = {
                     "success": True,
                     "analysis": analysis,
+                    "summary": summary_data,
                     "grounding_sources": grounding_sources,
                     "model_used": MODEL_FINAL,
                     "grounding_model": MODEL_GROUNDING,

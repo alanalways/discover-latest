@@ -562,10 +562,158 @@ def _create_ai_analysis_card(symbol: str, ai_result: Dict = None, lang: str = 'z
 
 
 def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh-TW', tier: str = "free") -> str:
-    """統一 AI 分析卡片：快速分析 + Dexter 深度研究"""
-    # 快速分析結果
-    quick_result_html = ""
-    if ai_result and ai_result.get("success"):
+    """統一 AI 分析卡片：評分表格 + 進出場計劃 + 可展開詳細分析"""
+    tier_norm = str(tier or "free").lower()
+    summary = ai_result.get("summary") if ai_result else None
+    has_result = ai_result and ai_result.get("success")
+    has_error = ai_result and ai_result.get("error") and not ai_result.get("success")
+
+    # ── Build summary card (verdict + entry table + scores) ──
+    summary_html = ""
+    detail_html = ""
+    if has_result and summary and isinstance(summary, dict):
+        verdict = summary.get("verdict", "中性")
+        confidence = int(summary.get("confidence", 50))
+        scores = summary.get("scores", {})
+        entry = summary.get("entry", {})
+        stop_loss = summary.get("stop_loss", {})
+        target = summary.get("target", {})
+        risk_reward = summary.get("risk_reward", {})
+        key_levels = summary.get("key_levels", {})
+        one_liner = summary.get("one_liner", "")
+
+        # Verdict color
+        if "多" in verdict:
+            v_color, v_bg = "#22C55E", "rgba(34,197,94,0.1)"
+        elif "空" in verdict:
+            v_color, v_bg = "#EF4444", "rgba(239,68,68,0.1)"
+        else:
+            v_color, v_bg = "#94a3b8", "rgba(148,163,175,0.1)"
+
+        # Verdict banner
+        verdict_html = f'''
+        <div class="ai-verdict-banner" style="background:{v_bg};border-left:3px solid {v_color};">
+            <span style="font-size:20px;font-weight:700;color:{v_color};">{html.escape(verdict)}</span>
+            <span style="font-size:14px;color:var(--text-2);margin-left:12px;">信心度 {confidence}%</span>
+            <div style="flex:1;"></div>
+            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)" style="font-size:12px;padding:6px 14px;">
+                重新分析
+            </button>
+        </div>'''
+
+        # Entry/exit table — tier gating
+        def _cell(val, locked=False):
+            if locked:
+                return '<span style="filter:blur(4px);user-select:none;">---</span>'
+            return html.escape(str(val or "—"))
+
+        show_mid = tier_norm in ("pro", "premium")
+        show_long = tier_norm == "premium"
+        show_rr = tier_norm in ("pro", "premium")
+
+        entry_rows = f'''
+        <table class="ai-entry-table">
+            <thead><tr>
+                <th></th><th>短期 1-5日</th>
+                <th>中期 2-6週</th>
+                <th>長期 2-4季</th>
+            </tr></thead>
+            <tbody>
+                <tr><td>進場</td><td>{_cell(entry.get("short"))}</td><td>{_cell(entry.get("mid"), not show_mid)}</td><td>{_cell(entry.get("long"), not show_long)}</td></tr>
+                <tr><td>停損</td><td>{_cell(stop_loss.get("short"))}</td><td>{_cell(stop_loss.get("mid"), not show_mid)}</td><td>{_cell(stop_loss.get("long"), not show_long)}</td></tr>
+                <tr><td>目標</td><td>{_cell(target.get("short"))}</td><td>{_cell(target.get("mid"), not show_mid)}</td><td>{_cell(target.get("long"), not show_long)}</td></tr>
+                <tr><td>R:R</td><td>{_cell(risk_reward.get("short") if show_rr else None, not show_rr)}</td><td>{_cell(risk_reward.get("mid"), not show_mid or not show_rr)}</td><td>{_cell(risk_reward.get("long"), not show_long)}</td></tr>
+            </tbody>
+        </table>'''
+
+        # Score bars
+        score_labels = [("技術面", "technical"), ("基本面", "fundamental"), ("籌碼面", "chips"), ("宏觀面", "macro")]
+        bars_html = ""
+        for label, key in score_labels:
+            val = int(scores.get(key, 0))
+            val = max(0, min(100, val))
+            bar_color = "#22C55E" if val >= 60 else ("#fbbf24" if val >= 40 else "#EF4444")
+            bars_html += f'''
+            <div class="ai-score-row">
+                <span class="ai-score-label">{label}</span>
+                <div class="ai-score-track"><div class="ai-score-bar-fill" style="width:{val}%;background:{bar_color};"></div></div>
+                <span class="ai-score-val">{val}</span>
+            </div>'''
+
+        # Key levels
+        supports = key_levels.get("support", [])
+        resistances = key_levels.get("resistance", [])
+        levels_html = ""
+        if supports or resistances:
+            sup_str = " / ".join(str(s) for s in supports[:3]) if supports else "—"
+            res_str = " / ".join(str(r) for r in resistances[:3]) if resistances else "—"
+            levels_html = f'<div style="font-size:12px;color:var(--text-3);margin-top:8px;">支撐 {html.escape(sup_str)} · 壓力 {html.escape(res_str)}</div>'
+
+        # One-liner
+        one_liner_html = ""
+        if one_liner:
+            one_liner_html = f'<div class="ai-one-liner">{html.escape(one_liner)}</div>'
+
+        # Upgrade hint for free tier
+        upgrade_hint = ""
+        if tier_norm == "free":
+            upgrade_hint = '''
+            <div style="margin-top:12px;padding:10px 16px;background:rgba(0,217,126,0.06);border:1px solid rgba(0,217,126,0.15);border-radius:8px;font-size:12px;color:var(--text-2);">
+                升級 Pro 解鎖中期計劃與風報比 · 升級 Premium 解鎖完整三週期分析
+                <button class="period-tab" onclick="if(typeof navigateTo==='function')navigateTo('pricing')" style="margin-left:12px;font-size:11px;padding:4px 12px;">立即升級</button>
+            </div>'''
+
+        summary_html = f'''
+        <div class="ai-summary-card" style="margin-top:16px;">
+            {verdict_html}
+            <div style="padding:16px;">
+                <div style="font-size:14px;font-weight:600;color:var(--text-1);margin-bottom:12px;">進出場計劃</div>
+                {entry_rows}
+                <div style="font-size:14px;font-weight:600;color:var(--text-1);margin-top:20px;margin-bottom:12px;">四維評分</div>
+                <div class="ai-score-bars">{bars_html}</div>
+                {levels_html}
+                {one_liner_html}
+                {upgrade_hint}
+            </div>
+        </div>'''
+
+        # Detail section (expandable)
+        raw = ai_result.get("analysis", "")
+        raw = re.sub(r'#{1,6}\s*', '', raw)
+        raw = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', raw)
+        raw = re.sub(r'_{1,2}([^_]+)_{1,2}', r'\1', raw)
+        raw = re.sub(r'^---+$', '', raw, flags=re.MULTILINE)
+        raw = re.sub(r'^- ', '  ', raw, flags=re.MULTILINE)
+        raw = re.sub(r'```[^`]*```', '', raw, flags=re.DOTALL)
+        analysis = html.escape(raw.strip())
+
+        sources = ai_result.get("grounding_sources", [])
+        sources_html = ""
+        if sources:
+            sources_html = '<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,0.05);padding-top:10px;"><div style="font-size:11px;color:var(--text-3);margin-bottom:6px;">Grounding 來源：</div>'
+            for s in sources[:5]:
+                title = html.escape(s.get("title", ""))
+                uri = html.escape(s.get("uri", "#"))
+                sources_html += f'<a href="{uri}" target="_blank" style="display:block;font-size:11px;color:var(--primary);text-decoration:none;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title or uri}</a>'
+            sources_html += '</div>'
+
+        detail_content = f'''<div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;">{analysis}</div>{sources_html}'''
+        if tier_norm == "free":
+            detail_content = _render_blurred_preview(detail_content)
+
+        detail_html = f'''
+        <div style="margin-top:16px;">
+            <button class="ai-detail-toggle" onclick="var body=this.nextElementSibling;var show=body.style.display==='none';body.style.display=show?'block':'none';this.textContent=show?'收合詳細分析':'展開詳細分析';">
+                展開詳細分析
+            </button>
+            <div class="ai-detail-body" style="display:none;margin-top:12px;padding:16px;background:rgba(0,0,0,0.15);border-radius:10px;">
+                {detail_content}
+                <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Powered by Discover Latest AI</div>
+            </div>
+        </div>'''
+
+    elif has_result and not summary:
+        # Fallback: no structured summary, show full text as before
         raw = ai_result.get("analysis", "")
         raw = re.sub(r'#{1,6}\s*', '', raw)
         raw = re.sub(r'\*{1,3}([^*]+)\*{1,3}', r'\1', raw)
@@ -583,14 +731,15 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
                 uri = html.escape(s.get("uri", "#"))
                 sources_html += f'<a href="{uri}" target="_blank" style="display:block;font-size:11px;color:var(--primary);text-decoration:none;margin-bottom:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{title or uri}</a>'
             sources_html += '</div>'
-        quick_result_html = f'''
+        detail_html = f'''
         <div style="white-space:pre-wrap;color:var(--text-2);font-size:14px;line-height:1.8;margin-top:16px;padding:16px;background:rgba(0,0,0,0.15);border-radius:10px;">{analysis}{sources_html}
             <div style="margin-top:10px;font-size:10px;color:var(--text-3);">Powered by Discover Latest AI</div>
         </div>'''
-        if str(tier or "free").lower() == "free":
-            quick_result_html = _render_blurred_preview(quick_result_html)
-    elif ai_result and ai_result.get("error"):
-        quick_result_html = f'''
+        if tier_norm == "free":
+            detail_html = _render_blurred_preview(detail_html)
+
+    elif has_error:
+        detail_html = f'''
         <div style="margin-top:16px;padding:16px;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);border-radius:10px;">
             <p style="color:var(--danger);font-size:13px;margin:0;">{html.escape(ai_result["error"])}</p>
         </div>'''
@@ -612,7 +761,8 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
             {dexter_btn_html}
         </div>
         <p style="color:var(--text-3);font-size:12px;margin-top:10px;">結合即時市場數據與 AI 模型生成綜合分析報告</p>
-        {quick_result_html}
+        {summary_html}
+        {detail_html}
     </div>
     '''
 

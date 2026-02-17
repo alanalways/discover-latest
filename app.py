@@ -522,7 +522,7 @@ def create_app():
 
             try:
                 if page_id == "market":
-                    inner = create_market_overview_page(lang)
+                    inner = create_market_overview_page(lang, watchlist=cur_watchlist)
                 elif page_id == "stock":
                     if cur_symbol:
                         data = _fetch_stock_data_sync(cur_symbol)
@@ -754,7 +754,7 @@ def create_app():
                 elif action == "market_refresh":
                     from pages.market_overview import _market_cache
                     _market_cache["ts"] = 0  # Force cache expiry
-                    inner = create_market_overview_page(lang)
+                    inner = create_market_overview_page(lang, watchlist=cur_watchlist)
                     page = build_full_page(inner, lang, current_user=cur_user, current_page='market')
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "admin_search":
@@ -1341,7 +1341,7 @@ def create_app():
             invalid_tickers = {"", "NA", "N/A", "NONE", "NULL", "-", "--"}
             related_tickers = []
             seen_tickers = set()
-            for group in ("upstream", "downstream", "peer", "competitor"):
+            for group in ("upstream", "downstream", "peer", "competitor", "etf_tracking", "cross_market"):
                 rows = chain.get(group) or []
                 if not isinstance(rows, list):
                     continue

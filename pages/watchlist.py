@@ -48,7 +48,8 @@ def _load_tw_name_cache() -> Dict[str, str]:
 
 
 def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
-    """批次取得報價（台股 + 美股均使用 FinMind）"""
+    """批次取得報價 + 5 日波動率（台股 + 美股均使用 FinMind）"""
+    import math
     global _quote_cache, _quote_cache_ts
     results: Dict[str, Dict] = {}
     now_ts = time.time()
@@ -73,7 +74,7 @@ def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
         return results
 
     end = datetime.now().strftime("%Y-%m-%d")
-    start = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+    start = (datetime.now() - timedelta(days=14)).strftime("%Y-%m-%d")
     tw_name_map = _load_tw_name_cache()
 
     def _fetch_single(sym: str) -> tuple[str, Dict]:
@@ -85,20 +86,30 @@ def _fetch_quotes_batch(symbols: List[str]) -> Dict[str, Dict]:
                 rows = finmind_adapter.get_us_stock_price_sync(sym, start, end)
             if not rows or len(rows) < 2:
                 return sym, {}
-            last = rows[-1]
-            prev = rows[-2]
-            last_close = float(last.get("close") or 0.0)
-            prev_close = float(prev.get("close") or 0.0)
+            closes = [float(r.get("close") or 0) for r in rows if float(r.get("close") or 0) > 0]
+            if len(closes) < 2:
+                return sym, {}
+            last_close = closes[-1]
+            prev_close = closes[-2]
             if prev_close <= 0:
                 return sym, {}
             chg = last_close - prev_close
             pct = (chg / prev_close * 100.0)
+            # 5-day volatility (annualized)
+            vol_5d = 0.0
+            if len(closes) >= 5:
+                rets = [(closes[i] - closes[i-1]) / closes[i-1] for i in range(-4, 0)]
+                if rets:
+                    var_r = sum(r*r for r in rets) / len(rets)
+                    vol_5d = math.sqrt(var_r) * math.sqrt(252) * 100
             quote = {
                 "name": tw_name_map.get(sym, sym) if is_tw else sym,
                 "price": f"{last_close:,.2f}",
                 "change": f"{'+' if chg >= 0 else ''}{chg:.2f}",
                 "pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                "pct_raw": pct,
                 "color": "green" if chg >= 0 else "red",
+                "vol_5d": vol_5d,
             }
             return sym, quote
         except Exception:
@@ -291,19 +302,46 @@ def create_watchlist_page(
     """
 
     if watchlist:
-        # (Same as before)
         quotes = _fetch_quotes_batch(watchlist)
+
+        # Price movement alerts (>= ±3%)
+        alert_items = []
+        for sym in watchlist:
+            q = quotes.get(sym, {})
+            pct_raw = q.get("pct_raw", 0)
+            if abs(pct_raw) >= 3.0:
+                alert_items.append({"symbol": sym, "name": q.get("name", sym), "pct": pct_raw})
+
+        movement_alerts_html = ""
+        if alert_items:
+            items_html = ""
+            for a in alert_items:
+                a_color = "#22c55e" if a["pct"] >= 0 else "#ef4444"
+                a_icon = "&#9650;" if a["pct"] >= 0 else "&#9660;"
+                a_border = "rgba(34,197,94,0.3)" if a["pct"] >= 0 else "rgba(239,68,68,0.3)"
+                items_html += f'''
+                <div class="watchlist-alert-card" style="border-color:{a_border};" onclick="selectStock('{a["symbol"]}')">
+                    <span style="font-weight:600;color:var(--primary);font-family:var(--font-mono);">{a["symbol"]}</span>
+                    <span style="color:var(--text-2);font-size:13px;margin-left:8px;">{a["name"]}</span>
+                    <span style="color:{a_color};font-weight:700;font-family:var(--font-mono);margin-left:auto;">{a_icon} {abs(a["pct"]):.1f}%</span>
+                </div>'''
+            movement_alerts_html = f'''
+            <div style="margin-bottom:20px;padding:16px;background:rgba(251,191,36,0.04);border:1px solid rgba(251,191,36,0.15);border-radius:10px;">
+                <div style="font-size:14px;font-weight:600;color:var(--warning);margin-bottom:10px;">&#9888;&#65039; 價格異動</div>
+                {items_html}
+            </div>'''
+
         cards_html = ""
         for sym in watchlist:
             quote = quotes.get(sym, _quote_cache.get(sym, {
-                "name": sym, "price": "--", "change": "--", "pct": "--", "color": "green"
+                "name": sym, "price": "--", "change": "--", "pct": "--", "color": "green", "vol_5d": 0.0
             }))
             change_icon = "&#9650;" if quote["color"] == "green" else "&#9660;"
             clr_var = "success" if quote["color"] == "green" else "danger"
-            
-            # 取得純數字價格，方便 JS 使用
             clean_price = str(quote["price"]).replace(",", "")
-            
+            vol_5d = quote.get("vol_5d", 0.0)
+            vol_width = min(100, max(5, vol_5d * 15))
+
             cards_html += f'''
             <div class="watchlist-card" style="position:relative;">
                 <div class="card-actions" style="position:absolute;top:12px;right:12px;display:flex;gap:8px;">
@@ -322,12 +360,17 @@ def create_watchlist_page(
                     <div style="font-family:var(--font-mono);font-size:26px;font-weight:700;color:var(--text-1);margin-bottom:6px;">
                         {quote["price"]}
                     </div>
-                    <div style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--{clr_var});">
+                    <div style="font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--{clr_var});margin-bottom:8px;">
                         {change_icon} {quote["change"]} ({quote["pct"]})
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span style="font-size:11px;color:var(--text-3);">波動率</span>
+                        <div class="watchlist-vol-bar" style="width:50px;"><div style="width:{vol_width}%;"></div></div>
+                        <span style="font-size:11px;color:var(--text-3);font-family:var(--font-mono);">{vol_5d:.1f}%</span>
                     </div>
                 </div>
             </div>'''
-        content_html = f'<div class="watchlist-grid">{cards_html}</div>'
+        content_html = f'{movement_alerts_html}<div class="watchlist-grid">{cards_html}</div>'
     else:
         # (Same empty state)
         content_html = f'''

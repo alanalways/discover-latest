@@ -4913,18 +4913,23 @@ textarea:focus {
 .chain-graph-container {
     position: relative;
     background:
-        radial-gradient(1200px 380px at 20% 0%, rgba(59, 130, 246, 0.12), transparent 55%),
-        radial-gradient(1200px 420px at 80% 0%, rgba(168, 85, 247, 0.12), transparent 52%),
-        rgba(6, 10, 16, 0.92);
+        radial-gradient(1200px 380px at 15% 0%, rgba(59, 130, 246, 0.10), transparent 55%),
+        radial-gradient(1200px 420px at 50% 0%, rgba(168, 85, 247, 0.08), transparent 52%),
+        radial-gradient(1200px 380px at 85% 0%, rgba(16, 185, 129, 0.06), transparent 50%),
+        rgba(2, 2, 6, 0.96);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: var(--radius);
     overflow: hidden;
 }
 
-.chain-graph-svg {
+#chain-3d-graph {
     width: 100%;
-    height: 500px;
+    height: 560px;
     display: block;
+}
+
+#chain-3d-graph canvas {
+    border-radius: var(--radius);
 }
 
 .chain-graph-tooltip {
@@ -4934,7 +4939,7 @@ textarea:focus {
     z-index: 3;
     display: none;
     min-width: 130px;
-    max-width: 240px;
+    max-width: 320px;
     padding: 8px 10px;
     border-radius: 8px;
     background: rgba(10, 14, 21, 0.94);
@@ -4954,26 +4959,6 @@ textarea:focus {
     color: #cbd5e1;
 }
 
-.chain-link-beta {
-    fill: #dbeafe;
-    font-size: 11px;
-    font-family: var(--font-mono);
-    pointer-events: none;
-}
-
-.chain-node-ticker {
-    fill: #f8fafc;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    pointer-events: none;
-}
-
-.chain-node-name {
-    fill: #cbd5e1;
-    font-size: 10px;
-    pointer-events: none;
-}
 
 .chain-legend {
     display: flex;
@@ -4999,15 +4984,31 @@ textarea:focus {
 }
 
 .chain-legend-main {
-    background: #d4a76a;
+    background: #D4A76A;
 }
 
-.chain-legend-l1 {
-    background: #3b82f6;
+.chain-legend-upstream {
+    background: #3B82F6;
 }
 
-.chain-legend-l2 {
-    background: #a855f7;
+.chain-legend-downstream {
+    background: #60A5FA;
+}
+
+.chain-legend-peer {
+    background: #A855F7;
+}
+
+.chain-legend-competitor {
+    background: #F43F5E;
+}
+
+.chain-legend-etf {
+    background: #10B981;
+}
+
+.chain-legend-cross {
+    background: #F59E0B;
 }
 
 .chain-sources {
@@ -5049,7 +5050,230 @@ textarea:focus {
     .chain-title {
         font-size: 22px;
     }
-    .chain-graph-svg {
-        height: 440px;
+    #chain-3d-graph {
+        height: 400px;
+    }
+}
+
+/* =========================================
+   AI Scoring Table & Verdict UI
+   ========================================= */
+.ai-verdict-banner {
+    display: flex;
+    align-items: center;
+    padding: 14px 20px;
+    border-radius: 10px 10px 0 0;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ai-summary-card {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.ai-entry-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: var(--font-mono);
+}
+
+.ai-entry-table th {
+    padding: 8px 10px;
+    text-align: center;
+    color: var(--text-3);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ai-entry-table th:first-child {
+    text-align: left;
+    width: 50px;
+}
+
+.ai-entry-table td {
+    padding: 8px 10px;
+    text-align: center;
+    color: var(--text-1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.ai-entry-table td:first-child {
+    text-align: left;
+    color: var(--text-2);
+    font-size: 12px;
+    font-family: var(--font-sans);
+}
+
+.ai-entry-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Score bars */
+.ai-score-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.ai-score-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ai-score-label {
+    width: 56px;
+    font-size: 12px;
+    color: var(--text-2);
+    flex-shrink: 0;
+}
+
+.ai-score-track {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.ai-score-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.8s ease-out;
+}
+
+.ai-score-val {
+    width: 28px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-1);
+    font-family: var(--font-mono);
+}
+
+/* One-liner highlight */
+.ai-one-liner {
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: rgba(0, 217, 126, 0.06);
+    border: 1px solid rgba(0, 217, 126, 0.12);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-1);
+    line-height: 1.5;
+}
+
+/* Detail toggle */
+.ai-detail-toggle {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-2);
+    padding: 8px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+    width: 100%;
+    text-align: center;
+}
+
+.ai-detail-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-1);
+}
+
+/* =========================================
+   Watchlist Overview Table (Dashboard)
+   ========================================= */
+.watchlist-overview-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.watchlist-overview-table th {
+    padding: 8px 6px;
+    text-align: left;
+    color: var(--text-3);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-weight: 500;
+}
+
+.watchlist-overview-table td {
+    padding: 8px 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.watchlist-overview-table tbody tr {
+    transition: background 0.15s;
+}
+
+.watchlist-overview-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+/* Volatility bar (used in both dashboard and watchlist) */
+.watchlist-vol-bar {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.watchlist-vol-bar > div {
+    height: 100%;
+    background: var(--primary);
+    border-radius: 2px;
+    transition: width 0.5s ease-out;
+}
+
+/* Watchlist alert card (price movement) */
+.watchlist-alert-card {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-left-width: 3px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.watchlist-alert-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+/* =========================================
+   Responsive adjustments for new components
+   ========================================= */
+@media (max-width: 768px) {
+    .ai-entry-table {
+        font-size: 11px;
+    }
+    .ai-entry-table th,
+    .ai-entry-table td {
+        padding: 6px 4px;
+    }
+    .ai-verdict-banner {
+        padding: 10px 14px;
+    }
+    .ai-verdict-banner span:first-child {
+        font-size: 16px;
+    }
+    .watchlist-overview-table {
+        font-size: 12px;
     }
 }

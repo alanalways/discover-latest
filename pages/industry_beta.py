@@ -1,13 +1,15 @@
 """
-Industry Chain + Beta Network Page
+Industry Chain + Beta Network Page — 3D Force-Graph Edition
 """
 import html
 import json
 from typing import Any, Dict, List
 
 
-RELATION_GROUPS = ("upstream", "downstream", "peer", "competitor")
+RELATION_GROUPS = ("upstream", "downstream", "peer", "competitor", "etf_tracking", "cross_market")
 L1_GROUPS = {"upstream", "downstream"}
+L2_GROUPS = {"peer", "competitor"}
+L3_GROUPS = {"etf_tracking", "cross_market"}
 INVALID_TICKERS = {"", "NA", "N/A", "NONE", "NULL", "-", "--"}
 
 
@@ -64,6 +66,9 @@ def _build_graph_json(
                 "group": "main",
                 "beta": None,
                 "has_ticker": True,
+                "reason": "",
+                "relation_detail": "",
+                "confidence": None,
             }
         ],
         "links": [],
@@ -76,14 +81,25 @@ def _build_graph_json(
         rows = chain.get(group) or []
         if not isinstance(rows, list):
             continue
-        level = "L1" if group in L1_GROUPS else "L2"
+        if group in L1_GROUPS:
+            level = "L1"
+        elif group in L2_GROUPS:
+            level = "L2"
+        else:
+            level = "L3"
         for row in rows:
             if isinstance(row, dict):
                 ticker = _normalize_ticker(row.get("ticker"))
                 name = str(row.get("name") or row.get("company_name") or "").strip()
+                reason = str(row.get("reason") or "").strip()
+                relation_detail = str(row.get("relation_detail") or "").strip()
+                confidence_raw = row.get("confidence")
             else:
                 ticker = ""
                 name = str(row or "").strip()
+                reason = ""
+                relation_detail = ""
+                confidence_raw = None
 
             has_ticker = _valid_ticker(ticker)
             if has_ticker and ticker == main_symbol:
@@ -112,6 +128,13 @@ def _build_graph_json(
                 except Exception:
                     beta_val = None
 
+            confidence_val = None
+            try:
+                if confidence_raw is not None:
+                    confidence_val = max(0.0, min(1.0, float(confidence_raw)))
+            except Exception:
+                confidence_val = None
+
             graph["nodes"].append(
                 {
                     "id": node_id,
@@ -121,6 +144,9 @@ def _build_graph_json(
                     "group": group,
                     "beta": beta_val,
                     "has_ticker": has_ticker,
+                    "reason": reason,
+                    "relation_detail": relation_detail,
+                    "confidence": confidence_val,
                 }
             )
             graph["links"].append(
@@ -130,6 +156,7 @@ def _build_graph_json(
                     "beta": beta_val,
                     "level": level,
                     "group": group,
+                    "confidence": confidence_val,
                 }
             )
 
@@ -173,9 +200,13 @@ def create_industry_beta_page(
     )
     explain_title = "圖譜說明" if is_zh else "Graph Notes"
     explain_body = (
-        "中心節點為主標的；藍色 L1 為上游/下游直接連動，紫色 L2 為同業/競爭關聯。連線上的 β 值為該股票對主標的報酬序列估計 Beta。"
+        "中心節點為主標的；藍色 L1 為上游/下游直接連動，紫色 L2 為同業/競爭，"
+        "綠色為 ETF 追蹤連結，橙色為跨市場供應鏈。連線粗細依關聯信心值，"
+        "滑鼠懸停顯示關係說明與 Beta 值。可旋轉、縮放、平移操控 3D 圖譜。"
         if is_zh
-        else "Center node is the target stock; blue L1 nodes are upstream/downstream direct links; purple L2 nodes are peer/competitor links. Edge labels show estimated beta versus the target."
+        else "Center node is the target stock; blue L1 = upstream/downstream direct links; purple L2 = peer/competitor; "
+        "green = ETF tracking; orange = cross-market supply chain. Line thickness reflects confidence. "
+        "Hover for details. Rotate, zoom, and pan the 3D graph."
     )
     load_btn = "載入供應鏈圖譜" if is_zh else "Load Supply-Chain Graph"
     reload_btn = "重新載入" if is_zh else "Reload"
@@ -268,18 +299,26 @@ def create_industry_beta_page(
         sources_html = f"<p>{html.escape(source_empty)}</p>"
 
     legend_main = "主標的" if is_zh else "Core"
-    legend_l1 = "直接連動 L1" if is_zh else "Direct L1"
-    legend_l2 = "產業關聯 L2" if is_zh else "Related L2"
+    legend_upstream = "上游" if is_zh else "Upstream"
+    legend_downstream = "下游" if is_zh else "Downstream"
+    legend_peer = "同業" if is_zh else "Peer"
+    legend_competitor = "競爭" if is_zh else "Competitor"
+    legend_etf = "ETF 追蹤" if is_zh else "ETF Tracking"
+    legend_cross = "跨市場" if is_zh else "Cross-Market"
 
     graph_block = f"""
     <div class="chain-graph-container" id="chain-graph-mount">
-        <svg class="chain-graph-svg" id="chain-graph-svg"></svg>
+        <div id="chain-3d-graph"></div>
         <div class="chain-graph-tooltip" id="chain-graph-tooltip"></div>
     </div>
     <div class="chain-legend">
         <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-main"></span>{html.escape(legend_main)}</div>
-        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-l1"></span>{html.escape(legend_l1)}</div>
-        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-l2"></span>{html.escape(legend_l2)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-upstream"></span>{html.escape(legend_upstream)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-downstream"></span>{html.escape(legend_downstream)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-peer"></span>{html.escape(legend_peer)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-competitor"></span>{html.escape(legend_competitor)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-etf"></span>{html.escape(legend_etf)}</div>
+        <div class="chain-legend-item"><span class="chain-legend-dot chain-legend-cross"></span>{html.escape(legend_cross)}</div>
     </div>
     """
 
@@ -307,177 +346,134 @@ def create_industry_beta_page(
             @@SOURCES@@
         </div>
     </div>
-    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/3d-force-graph@1/dist/3d-force-graph.min.js"></script>
+    <script src="https://unpkg.com/three-spritetext@1"></script>
     <script>
     (function() {
         var graphData = @@GRAPH_JSON@@;
-        var mount = document.getElementById('chain-graph-mount');
-        var svgEl = document.getElementById('chain-graph-svg');
+        var mountEl = document.getElementById('chain-3d-graph');
         var tooltipEl = document.getElementById('chain-graph-tooltip');
-        if (!mount || !svgEl || !tooltipEl) return;
+        if (!mountEl || !tooltipEl) return;
         if (!graphData || !Array.isArray(graphData.nodes) || graphData.nodes.length <= 1) return;
 
-        function radius(d) {
-            if (d.level === 'main') return 40;
-            if (d.level === 'L1') return 28;
-            return 22;
+        var GROUP_COLORS = {
+            main: '#D4A76A',
+            upstream: '#3B82F6',
+            downstream: '#60A5FA',
+            peer: '#A855F7',
+            competitor: '#F43F5E',
+            etf_tracking: '#10B981',
+            cross_market: '#F59E0B'
+        };
+        var LEVEL_DISTANCE = { L1: 80, L2: 120, L3: 160 };
+        var NODE_VAL = { main: 40, L1: 18, L2: 12, L3: 8 };
+
+        function nodeColor(d) { return GROUP_COLORS[d.group] || '#888'; }
+        function nodeVal(d) { return NODE_VAL[d.level] || 10; }
+        function linkWidth(d) {
+            var c = (typeof d.confidence === 'number') ? d.confidence : 0.5;
+            return 0.5 + c * 3;
         }
-        function fill(d) {
-            if (d.level === 'main') return '#D4A76A';
-            if (d.level === 'L1') return '#3B82F6';
-            return '#A855F7';
+        function linkColor(d) {
+            var c = GROUP_COLORS[d.group] || '#888';
+            return c + '99';
         }
-        function stroke(d) {
-            if (d.level === 'main') return 'rgba(212,167,106,0.9)';
-            if (d.level === 'L1') return 'rgba(59,130,246,0.9)';
-            return 'rgba(168,85,247,0.9)';
+        function linkParticles(d) {
+            return (d.level === 'L2' || d.level === 'L3') ? 2 : 0;
         }
-        function tipHtml(d) {
-            var betaText = (typeof d.beta === 'number') ? ('β ' + d.beta.toFixed(2)) : 'β N/A';
-            var ticker = d.ticker || '';
-            return '<div class="tip-title">' + (d.name || ticker || d.id) + '</div>' +
-                (ticker ? '<div class="tip-line">' + ticker + '</div>' : '') +
-                '<div class="tip-line">' + betaText + '</div>' +
-                '<div class="tip-line">' + (d.group || d.level || '') + '</div>';
-        }
+        function linkDistance(d) { return LEVEL_DISTANCE[d.level] || 120; }
 
         function boot() {
-            if (typeof window.d3 === 'undefined') {
-                setTimeout(boot, 60);
+            if (typeof window.ForceGraph3D === 'undefined' || typeof window.SpriteText === 'undefined') {
+                setTimeout(boot, 80);
                 return;
             }
-            var d3 = window.d3;
-            var width = Math.max(360, mount.clientWidth);
-            var height = 500;
-            var svg = d3.select(svgEl);
-            svg.selectAll('*').remove();
-            svg.attr('viewBox', '0 0 ' + width + ' ' + height);
 
-            var defs = svg.append('defs');
-            var glow = defs.append('filter')
-                .attr('id', 'chain-main-glow')
-                .attr('x', '-50%')
-                .attr('y', '-50%')
-                .attr('width', '200%')
-                .attr('height', '200%');
-            glow.append('feGaussianBlur').attr('stdDeviation', 4).attr('result', 'blur');
-            var merge = glow.append('feMerge');
-            merge.append('feMergeNode').attr('in', 'blur');
-            merge.append('feMergeNode').attr('in', 'SourceGraphic');
+            var width = Math.max(360, mountEl.clientWidth);
+            var height = 560;
+            mountEl.style.height = height + 'px';
 
-            var zoomRoot = svg.append('g');
-            svg.call(
-                d3.zoom().scaleExtent([0.3, 3]).on('zoom', function(event) {
-                    zoomRoot.attr('transform', event.transform);
-                })
-            );
-
-            var links = zoomRoot.append('g')
-                .selectAll('line')
-                .data(graphData.links)
-                .enter()
-                .append('line')
-                .attr('stroke', function(d) { return d.level === 'L1' ? 'rgba(59,130,246,0.4)' : 'rgba(168,85,247,0.3)'; })
-                .attr('stroke-width', function(d) { return d.level === 'L1' ? 2 : 1.5; })
-                .attr('stroke-dasharray', function(d) { return d.level === 'L2' ? '8,4' : null; });
-
-            var betaLabels = zoomRoot.append('g')
-                .selectAll('text')
-                .data(graphData.links)
-                .enter()
-                .append('text')
-                .attr('class', 'chain-link-beta')
-                .attr('text-anchor', 'middle')
-                .text(function(d) { return (typeof d.beta === 'number') ? ('β ' + d.beta.toFixed(2)) : 'β N/A'; });
-
-            var simulation = d3.forceSimulation(graphData.nodes)
-                .force('center', d3.forceCenter(width / 2, height / 2))
-                .force('link', d3.forceLink(graphData.links)
-                    .id(function(d) { return d.id; })
-                    .distance(function(d) { return d.level === 'L1' ? 120 : 200; })
-                    .strength(function(d) { return d.level === 'L1' ? 0.9 : 0.55; }))
-                .force('charge', d3.forceManyBody().strength(-300))
-                .force('collide', d3.forceCollide().radius(function(d) { return radius(d) + 14; }));
-
-            var nodes = zoomRoot.append('g')
-                .selectAll('g')
-                .data(graphData.nodes)
-                .enter()
-                .append('g')
-                .attr('cursor', 'pointer')
-                .call(
-                    d3.drag()
-                        .on('start', function(event, d) {
-                            if (!event.active) simulation.alphaTarget(0.3).restart();
-                            d.fx = d.x;
-                            d.fy = d.y;
-                        })
-                        .on('drag', function(event, d) {
-                            d.fx = event.x;
-                            d.fy = event.y;
-                        })
-                        .on('end', function(event, d) {
-                            if (!event.active) simulation.alphaTarget(0);
-                            d.fx = null;
-                            d.fy = null;
-                        })
-                );
-
-            nodes.append('circle')
-                .attr('r', function(d) { return radius(d); })
-                .attr('fill', function(d) { return fill(d); })
-                .attr('fill-opacity', 0.26)
-                .attr('stroke', function(d) { return stroke(d); })
-                .attr('stroke-width', 2)
-                .attr('filter', function(d) { return d.level === 'main' ? 'url(#chain-main-glow)' : null; });
-
-            nodes.append('text')
-                .attr('class', 'chain-node-ticker')
-                .attr('text-anchor', 'middle')
-                .attr('dy', '0.36em')
-                .text(function(d) {
-                    if (d.ticker) return d.ticker;
-                    return d.name.length > 6 ? d.name.slice(0, 6) + '...' : d.name;
-                });
-
-            nodes.append('text')
-                .attr('class', 'chain-node-name')
-                .attr('text-anchor', 'middle')
-                .attr('dy', function(d) { return radius(d) + 16; })
-                .text(function(d) {
-                    if (!d.name) return '';
-                    return d.name.length > 12 ? d.name.slice(0, 12) + '...' : d.name;
-                });
-
-            nodes
-                .on('mouseover', function(event, d) {
+            var Graph = ForceGraph3D()(mountEl)
+                .graphData(graphData)
+                .backgroundColor('rgba(0,0,0,0)')
+                .width(width)
+                .height(height)
+                .nodeVal(nodeVal)
+                .nodeColor(nodeColor)
+                .nodeOpacity(0.92)
+                .nodeResolution(16)
+                .linkWidth(linkWidth)
+                .linkColor(linkColor)
+                .linkDirectionalParticles(linkParticles)
+                .linkDirectionalParticleWidth(1.2)
+                .linkDirectionalParticleSpeed(0.006)
+                .d3Force('charge', null)
+                .d3Force('link', null)
+                .d3Force('center', null)
+                .onNodeHover(function(node) {
+                    mountEl.style.cursor = node ? 'pointer' : 'default';
+                    if (!node) {
+                        tooltipEl.style.display = 'none';
+                        return;
+                    }
+                    var betaText = (typeof node.beta === 'number') ? ('β ' + node.beta.toFixed(2)) : 'β N/A';
+                    var groupLabel = node.group || node.level || '';
+                    var detailLine = node.relation_detail ? ('<div class="tip-line">' + node.relation_detail + '</div>') : '';
+                    var reasonLine = node.reason ? ('<div class="tip-line" style="color:#94a3b8;">' + node.reason + '</div>') : '';
+                    var confLine = (typeof node.confidence === 'number') ? ('<div class="tip-line">信心 ' + (node.confidence * 100).toFixed(0) + '%</div>') : '';
+                    tooltipEl.innerHTML =
+                        '<div class="tip-title">' + (node.name || node.ticker || node.id) + '</div>' +
+                        (node.ticker ? '<div class="tip-line">' + node.ticker + '</div>' : '') +
+                        '<div class="tip-line">' + betaText + ' · ' + groupLabel + '</div>' +
+                        detailLine + reasonLine + confLine;
                     tooltipEl.style.display = 'block';
-                    tooltipEl.innerHTML = tipHtml(d);
                 })
-                .on('mousemove', function(event) {
-                    var rect = mount.getBoundingClientRect();
-                    tooltipEl.style.left = (event.clientX - rect.left + 12) + 'px';
-                    tooltipEl.style.top = (event.clientY - rect.top + 12) + 'px';
+                .onNodeClick(function(node) {
+                    if (!node || !node.has_ticker || !node.ticker) return;
+                    if (typeof window.selectStock === 'function') window.selectStock(node.ticker);
                 })
-                .on('mouseout', function() { tooltipEl.style.display = 'none'; })
-                .on('click', function(event, d) {
-                    if (!d.has_ticker || !d.ticker) return;
-                    if (typeof window.selectStock === 'function') window.selectStock(d.ticker);
-                });
+                .nodeThreeObject(function(node) {
+                    var label = node.ticker || (node.name && node.name.length > 6 ? node.name.slice(0, 6) + '..' : node.name) || node.id;
+                    var sprite = new SpriteText(label);
+                    sprite.color = '#f8fafc';
+                    sprite.textHeight = node.level === 'main' ? 5 : 3.5;
+                    sprite.fontFace = 'IBM Plex Mono, monospace';
+                    sprite.fontWeight = '700';
+                    sprite.backgroundColor = nodeColor(node) + '44';
+                    sprite.borderRadius = 3;
+                    sprite.padding = 1.5;
+                    return sprite;
+                })
+                .nodeThreeObjectExtend(false);
 
-            simulation.on('tick', function() {
-                links
-                    .attr('x1', function(d) { return d.source.x; })
-                    .attr('y1', function(d) { return d.source.y; })
-                    .attr('x2', function(d) { return d.target.x; })
-                    .attr('y2', function(d) { return d.target.y; });
+            // Apply d3 forces after init
+            Graph.d3Force('charge', window.d3 ? d3.forceManyBody().strength(-120) : null);
+            Graph.d3Force('link').distance(linkDistance);
 
-                betaLabels
-                    .attr('x', function(d) { return (d.source.x + d.target.x) / 2; })
-                    .attr('y', function(d) { return (d.source.y + d.target.y) / 2; });
-
-                nodes.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+            // Track mouse for tooltip position
+            mountEl.addEventListener('mousemove', function(e) {
+                var rect = mountEl.getBoundingClientRect();
+                tooltipEl.style.left = (e.clientX - rect.left + 14) + 'px';
+                tooltipEl.style.top = (e.clientY - rect.top + 14) + 'px';
             });
+
+            // Auto-rotate on load for 3D showcase
+            var angle = 0;
+            var autoRotate = setInterval(function() {
+                angle += Math.PI / 90;
+                Graph.cameraPosition({
+                    x: 300 * Math.sin(angle),
+                    z: 300 * Math.cos(angle)
+                });
+                if (angle >= Math.PI * 2) clearInterval(autoRotate);
+            }, 40);
+
+            // Handle resize
+            var ro = new ResizeObserver(function() {
+                var w = Math.max(360, mountEl.clientWidth);
+                Graph.width(w);
+            });
+            ro.observe(mountEl);
         }
         boot();
     })();
