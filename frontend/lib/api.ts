@@ -235,6 +235,8 @@ export class ApiClient {
     private authLimitsCache: { token: string; expiresAt: number; data: AuthLimits } | null = null;
     private authLimitsInFlight: Promise<AuthLimits> | null = null;
     private readonly authLimitsTtlMs = 20_000;
+    // GET 請求去重：同一瞬間相同 endpoint 只發一次
+    private inflight = new Map<string, Promise<unknown>>();
 
     setToken(token: string | null) {
         this.token = token;
@@ -258,6 +260,25 @@ export class ApiClient {
     }
 
     async fetch<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+        const method = String((options as Record<string, unknown>).method || 'GET').toUpperCase();
+
+        // 只對 GET 做去重
+        if (method === 'GET') {
+            const key = endpoint;
+            const existing = this.inflight.get(key);
+            if (existing) return existing as Promise<T>;
+
+            const promise = this._doFetch<T>(endpoint, options).finally(() => {
+                this.inflight.delete(key);
+            });
+            this.inflight.set(key, promise);
+            return promise;
+        }
+
+        return this._doFetch<T>(endpoint, options);
+    }
+
+    private async _doFetch<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
         const { skipAuth, skipProgress, ...fetchOpts } = options;
         const method = String(fetchOpts.method || 'GET').toUpperCase();
         const shouldTrackProgress = !skipProgress && !['GET', 'HEAD', 'OPTIONS'].includes(method);

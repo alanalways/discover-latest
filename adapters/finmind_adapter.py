@@ -104,6 +104,15 @@ class FinMindAdapter:
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
             _FinMindRateLimiter(max_requests=550, window_seconds=3600),
         ]
+        # 共享連線池（覆用 TCP 連線，避免每次新建）
+        self._async_client = httpx.AsyncClient(
+            timeout=30.0,
+            limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+        )
+
+    async def close(self):
+        """關閉共享 httpx client"""
+        await self._async_client.aclose()
 
     @property
     def rate_limiter(self):
@@ -242,16 +251,15 @@ class FinMindAdapter:
             req_params["token"] = token
 
             try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(f"{self.BASE_URL}/data", params=req_params)
-                    limiter.record()
-                    resp.raise_for_status()
-                    result = resp.json()
-                    if result.get("status") == 200 and result.get("data"):
-                        self._available = True
-                        _set_cache(ckey, result["data"])  # 寫入快取
-                        return result["data"]
-                    return None
+                resp = await self._async_client.get(f"{self.BASE_URL}/data", params=req_params)
+                limiter.record()
+                resp.raise_for_status()
+                result = resp.json()
+                if result.get("status") == 200 and result.get("data"):
+                    self._available = True
+                    _set_cache(ckey, result["data"])  # 寫入快取
+                    return result["data"]
+                return None
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response else None
                 if status == 400 and dataset == "TaiwanStockMarketValue":

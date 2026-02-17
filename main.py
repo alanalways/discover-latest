@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
@@ -39,6 +40,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Boot] Preloader warning: {e}")
     yield
+    # 關閉連線池
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+        await finmind_adapter.close()
+    except Exception:
+        pass
     print("===== DiscoverLatest API Shutting Down =====")
 
 
@@ -81,6 +88,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── GZip 壓縮（>500 bytes 自動壓縮，瀏覽器自動解壓）──
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # ── 掛載 API Routes ──
 from routes.auth import router as auth_router

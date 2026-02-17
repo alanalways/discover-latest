@@ -307,13 +307,14 @@ function AnalysisContent() {
         }
         let idx = 0;
         setTypedAiResult('');
+        const CHARS_PER_TICK = 4;
         const timer = window.setInterval(() => {
-            idx += 1;
+            idx = Math.min(idx + CHARS_PER_TICK, aiResult.length);
             setTypedAiResult(aiResult.slice(0, idx));
             if (idx >= aiResult.length) {
                 window.clearInterval(timer);
             }
-        }, 12);
+        }, 32);
         return () => window.clearInterval(timer);
     }, [aiResult]);
 

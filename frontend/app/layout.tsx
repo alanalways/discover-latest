@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Script from 'next/script';
 import './globals.css';
 import ClientLayout from '@/components/layout/ClientLayout';
 
@@ -15,10 +14,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-TW">
-      <head>
-        {/* 專案大量使用 utility class，部署端提供 runtime Tailwind 相容層 */}
-        <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
-      </head>
       <body>
         <ClientLayout>
           {children}
