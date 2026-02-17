@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { Check, Crown, Gem, Star } from 'lucide-react';
+import { Check, Crown, Gem, Star, X } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/AuthProvider';
 import api, { ApiError } from '@/lib/api';
@@ -31,10 +31,12 @@ const PLANS: PlanItem[] = [
     icon: <Star size={24} />,
     color: 'var(--text-2)',
     features: [
-      '每日 2 次 AI 分析（精簡版）',
-      '基本技術圖與基礎資料查詢',
+      '每日 5 次 AI 分析',
+      '基本 K 線圖與基礎資料',
       '自選清單上限 5 檔',
       '回測期間上限 1 年',
+      '投資健檢（最多 3 筆持股）',
+      '價格提醒 1 組',
     ],
     cta: '目前方案',
     disabled: true,
@@ -48,10 +50,15 @@ const PLANS: PlanItem[] = [
     color: 'var(--accent)',
     popular: true,
     features: [
-      '每日 20 次 AI 分析（進階）',
-      '多策略技術判讀（EMA / RSI / MACD / 布林）',
-      '回測期間可到 3 年，含 DCA 參數',
-      '優先更新與更高 API 請求配額',
+      '每日 30 次 AI 分析',
+      '多指標技術判讀（EMA / RSI / MACD / 布林）',
+      '回測最長 3 年 + DCA 參數',
+      '投資健檢最多 20 筆 + 再平衡建議',
+      '自選清單 30 檔 + 自動更新',
+      '股票比較（2 檔同時）',
+      '籌碼分析 / 基本面圖表',
+      'AI 追問 3 輪',
+      '匯出 PDF',
     ],
     cta: '升級 Pro',
     disabled: false,
@@ -65,51 +72,59 @@ const PLANS: PlanItem[] = [
     color: 'var(--primary)',
     features: [
       '每日 200 次 AI 分析（完整深度版）',
-      '策略層級擴充（SMC / ICT / 多週期情境）',
-      '回測期間可到 5 年 + 完整權益曲線',
-      '專屬高優先級計算資源',
+      '全指標解鎖（含 KD / VWAP / SMC）',
+      '回測最長 5 年 + 權益曲線 + 馬丁格爾',
+      '投資健檢無上限 + 匯出報告',
+      '自選清單 100 檔 + 價格提醒 50 組',
+      '股票比較（4 檔同時）',
+      'AI 追問 10 輪 + AI 情緒分析',
+      '股票篩選器 / 快捷鍵',
+      '專屬高優先計算資源',
     ],
     cta: '升級 Premium',
     disabled: false,
   },
 ] as const;
 
-const FEATURE_MATRIX: Array<{ feature: string; free: string; pro: string; premium: string }> = [
-  { feature: '每日 AI 分析次數', free: '2 次（精簡）', pro: '20 次（進階）', premium: '200 次（完整）' },
-  { feature: 'AI 分析深度', free: '基礎重點', pro: '短中長線 + 技術面', premium: '多情境 + 進階策略拆解' },
-  { feature: '回測期間', free: '最長 1 年', pro: '最長 3 年', premium: '最長 5 年 + 權益曲線' },
-  { feature: '回測功能', free: '基本策略', pro: 'DCA + 多參數', premium: '完整策略組 + 明細' },
-  { feature: '自選清單上限', free: '5 檔', pro: '50 檔', premium: '200 檔' },
-  { feature: '投資健檢', free: '基礎建議', pro: '進階建議', premium: '完整風險與調整方案' },
-  { feature: '新聞焦點', free: '標準摘要', pro: '加強重點', premium: '完整市場連結摘要' },
-  { feature: '更新優先權', free: '標準', pro: '優先', premium: '最高優先' },
-];
+/* ── 功能比較表 ── */
+type MatrixRow = {
+  category: string;
+  feature: string;
+  free: string | boolean;
+  pro: string | boolean;
+  premium: string | boolean;
+};
 
-const FEATURE_DETAILS: Array<{
-  title: string;
-  free: string;
-  pro: string;
-  premium: string;
-}> = [
-    {
-      title: 'AI 深度分析',
-      free: '提供單次重點判讀，適合快速看方向。',
-      pro: '加入短中長線拆解與多指標交叉（EMA/RSI/MACD/布林）。',
-      premium: '提供完整情境推演（含進出場劇本、風險區間與資金配置建議）。',
-    },
-    {
-      title: '投資健檢',
-      free: '提供基本持倉體檢與風險提示。',
-      pro: '新增更完整的調整建議與部位優化方向。',
-      premium: '提供完整組合健檢、再平衡方案與多資產建議。',
-    },
-    {
-      title: '財經新聞焦點',
-      free: '標準新聞摘要與市場概況。',
-      pro: '加強主題重點與市場連結，縮短判讀時間。',
-      premium: '提供完整一分鐘市場重點、主題影響表與策略提示。',
-    },
-  ];
+const FEATURE_MATRIX: MatrixRow[] = [
+  // AI 分析
+  { category: 'AI 分析', feature: '每日 AI 分析次數', free: '5 次', pro: '30 次', premium: '200 次' },
+  { category: 'AI 分析', feature: 'AI 追問對話', free: false, pro: '3 輪', premium: '10 輪' },
+  { category: 'AI 分析', feature: 'AI 情緒分析', free: false, pro: false, premium: true },
+  // 技術指標
+  { category: '技術指標', feature: 'EMA / RSI / MACD / 布林', free: false, pro: true, premium: true },
+  { category: '技術指標', feature: 'KD / VWAP', free: false, pro: false, premium: true },
+  { category: '技術指標', feature: '同時疊加指標數', free: '0', pro: '3 個', premium: '不限' },
+  // 回測
+  { category: '回測模擬', feature: '回測最長期間', free: '1 年', pro: '3 年', premium: '5 年' },
+  { category: '回測模擬', feature: 'DCA 策略', free: false, pro: true, premium: true },
+  { category: '回測模擬', feature: '馬丁格爾策略', free: false, pro: false, premium: true },
+  { category: '回測模擬', feature: '回測比較 / 權益曲線', free: false, pro: false, premium: true },
+  // 投資健檢
+  { category: '投資健檢', feature: '健檢持股上限', free: '3 筆', pro: '20 筆', premium: '不限' },
+  { category: '投資健檢', feature: '再平衡建議', free: false, pro: true, premium: true },
+  { category: '投資健檢', feature: '匯出健檢報告', free: false, pro: false, premium: true },
+  // 自選 & 提醒
+  { category: '自選清單', feature: '自選清單上限', free: '5 檔', pro: '30 檔', premium: '100 檔' },
+  { category: '自選清單', feature: '自動更新報價', free: false, pro: true, premium: true },
+  { category: '自選清單', feature: '價格提醒', free: '1 組', pro: '10 組', premium: '50 組' },
+  // 其他
+  { category: '其他', feature: '股票比較', free: false, pro: '2 檔', premium: '4 檔' },
+  { category: '其他', feature: '籌碼分析 / 基本面圖表', free: false, pro: true, premium: true },
+  { category: '其他', feature: 'K 線 3-5 年長期', free: false, pro: true, premium: true },
+  { category: '其他', feature: '匯出 PDF', free: false, pro: true, premium: true },
+  { category: '其他', feature: '股票篩選器', free: false, pro: false, premium: true },
+  { category: '其他', feature: '快捷鍵', free: false, pro: true, premium: true },
+];
 
 export default function PricingPage() {
   const { isLoggedIn, setShowLoginModal } = useAuth();
@@ -184,13 +199,23 @@ export default function PricingPage() {
     }
   };
 
+  /* ── 分組 ── */
+  const categories = [...new Set(FEATURE_MATRIX.map((r) => r.category))];
+
+  /* ── 渲染格子內容 ── */
+  const renderCell = (val: string | boolean) => {
+    if (val === true) return <Check size={16} className={styles.cellYes} />;
+    if (val === false) return <X size={14} className={styles.cellNo} />;
+    return <span>{val}</span>;
+  };
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <h2 className={styles.title}>會員方案</h2>
         <p className={styles.subtitle}>
-          從「看盤」升級到「可執行策略」。Pro / Premium 會解鎖更高 AI 次數、更多技術與資金管理維度、
-          更長回測區間與進階決策提示，幫你把觀察轉成可落地的進出場計畫。
+          從「看盤」升級到「可執行策略」。Pro / Premium 解鎖更高 AI 分析次數、更多技術指標與資金管理維度、
+          更長回測區間與進階決策提示。
         </p>
 
         <div className={styles.currencyToggle}>
@@ -215,6 +240,7 @@ export default function PricingPage() {
         {error && <p className={styles.feedbackError}>{error}</p>}
       </div>
 
+      {/* ── 方案卡片 ── */}
       <div className={styles.planGrid}>
         {PLANS.map((plan) => (
           <div key={plan.id} className={`${styles.planCard} ${plan.popular ? styles.popular : ''}`}>
@@ -265,6 +291,7 @@ export default function PricingPage() {
         ))}
       </div>
 
+      {/* ── 功能比較表 ── */}
       <section className={styles.matrixSection}>
         <h3 className={styles.matrixTitle}>功能差異一覽</h3>
         <div className={styles.matrixWrap}>
@@ -278,30 +305,24 @@ export default function PricingPage() {
               </tr>
             </thead>
             <tbody>
-              {FEATURE_MATRIX.map((row) => (
-                <tr key={row.feature}>
-                  <td>{row.feature}</td>
-                  <td>{row.free}</td>
-                  <td>{row.pro}</td>
-                  <td>{row.premium}</td>
-                </tr>
-              ))}
+              {categories.map((cat) => {
+                const rows = FEATURE_MATRIX.filter((r) => r.category === cat);
+                return rows.map((row, idx) => (
+                  <tr key={row.feature}>
+                    {idx === 0 && (
+                      <td rowSpan={rows.length} className={styles.categoryCell}>
+                        {cat}
+                      </td>
+                    )}
+                    <td>{row.feature}</td>
+                    <td>{renderCell(row.free)}</td>
+                    <td>{renderCell(row.pro)}</td>
+                    <td>{renderCell(row.premium)}</td>
+                  </tr>
+                ));
+              })}
             </tbody>
           </table>
-        </div>
-      </section>
-
-      <section className={styles.detailSection}>
-        <h3 className={styles.matrixTitle}>重點功能分級說明</h3>
-        <div className={styles.detailGrid}>
-          {FEATURE_DETAILS.map((row) => (
-            <article key={row.title} className={styles.detailCard}>
-              <h4 className={styles.detailTitle}>{row.title}</h4>
-              <p><strong>Free：</strong>{row.free}</p>
-              <p><strong>Pro：</strong>{row.pro}</p>
-              <p><strong>Premium：</strong>{row.premium}</p>
-            </article>
-          ))}
         </div>
       </section>
 

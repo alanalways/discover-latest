@@ -205,43 +205,9 @@
     background: var(--accent-solid);
 }
 
-.faq {
-    text-align: center;
-}
-
+/* ── Matrix Table ── */
 .matrixSection {
     width: 100%;
-}
-
-.detailSection {
-    width: 100%;
-}
-
-.detailGrid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-}
-
-.detailCard {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 14px;
-}
-
-.detailTitle {
-    font-family: var(--font-heading);
-    font-size: 14px;
-    color: var(--text-1);
-    margin: 0 0 8px 0;
-}
-
-.detailCard p {
-    margin: 6px 0;
-    font-size: 12px;
-    color: var(--text-2);
-    line-height: 1.5;
 }
 
 .matrixTitle {
@@ -267,21 +233,60 @@
 
 .matrixTable th,
 .matrixTable td {
-    padding: 12px 14px;
+    padding: 10px 14px;
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     color: var(--text-2);
-    text-align: left;
+    text-align: center;
 }
 
 .matrixTable th {
     color: var(--text-1);
     font-weight: 700;
     background: rgba(255, 255, 255, 0.02);
+    position: sticky;
+    top: 0;
+}
+
+/* 功能名稱靠左 */
+.matrixTable td:nth-child(1),
+.matrixTable td:nth-child(2) {
+    text-align: left;
+}
+
+.matrixTable th:first-child {
+    text-align: left;
 }
 
 .matrixTable tbody tr:last-child td {
     border-bottom: none;
+}
+
+/* 分類欄 */
+.categoryCell {
+    font-weight: 700;
+    color: var(--text-1);
+    background: rgba(95, 117, 248, 0.04);
+    border-right: 2px solid var(--border);
+    vertical-align: top;
+    white-space: nowrap;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+}
+
+/* ✓ / ✗ 圖示 */
+.cellYes {
+    color: var(--success, #20d69c);
+}
+
+.cellNo {
+    color: var(--text-3, #5a6a80);
+    opacity: 0.4;
+}
+
+/* ── FAQ ── */
+.faq {
+    text-align: center;
 }
 
 .faqNote {
@@ -298,7 +303,7 @@
 }
 
 @media (max-width: 900px) {
-    .detailGrid {
-        grid-template-columns: 1fr;
+    .matrixTable {
+        min-width: 600px;
     }
 }
