@@ -388,7 +388,8 @@ def create_app():
             hasLoginUrl: !!window._supabaseLoginUrl
         }});
     </script>
-    <script src="https://unpkg.com/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>'''
+    <script src="https://unpkg.com/lightweight-charts@4.1.7/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>'''
     
     with gr.Blocks(
         title="DiscoverLatest 洞察運算",
@@ -666,6 +667,12 @@ def create_app():
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "chat_submit":
                     page = _handle_chat_submit(payload, cur_user, cur_symbol, lang)
+                    return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
+                elif action == "run_dexter":
+                    # 門禁：Dexter 深度研究需要 Premium
+                    if not can_access(tier, "ai_dexter"):
+                        return _gate_block("ai_dexter", cur_user, lang, cur_symbol, cur_watchlist)
+                    page = _handle_dexter_action(payload, cur_user, cur_symbol, lang)
                     return _result(page, gr.update(), cur_user, cur_symbol, lang, cur_watchlist)
                 elif action == "watchlist_add":
                     sym = payload.get("symbol", "").strip().upper()
@@ -1506,14 +1513,36 @@ def create_app():
                         b.classList.remove('btn-loading');
                         b.disabled = false;
                     });
-                    // Add entrance animation to new content
-                    var appRoot = document.getElementById('app-root');
-                    if (appRoot) {
-                        var mainContent = appRoot.querySelector('.main-content');
-                        if (mainContent) {
-                            mainContent.style.animation = 'none';
-                            mainContent.offsetHeight; // force reflow
-                            mainContent.style.animation = 'springFadeIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards';
+                    // GSAP: Kill orphaned tweens, then animate new content
+                    if (window.gsap) {
+                        gsap.killTweensOf('*');
+                        var appRoot = document.getElementById('app-root');
+                        if (appRoot) {
+                            var mc = appRoot.querySelector('.main-content');
+                            if (mc) {
+                                gsap.fromTo(mc, {opacity: 0, y: 18}, {opacity: 1, y: 0, duration: 0.45, ease: 'back.out(1.4)'});
+                            }
+                            // Stagger cards / chart-sections
+                            var cards = appRoot.querySelectorAll('.stat-card, .chart-section, .dexter-panel, .ai-unified-card');
+                            if (cards.length > 0) {
+                                gsap.fromTo(cards, {opacity: 0, y: 24}, {opacity: 1, y: 0, duration: 0.4, stagger: 0.06, ease: 'power3.out', delay: 0.1});
+                            }
+                            // Number roll effect for stat values
+                            var nums = appRoot.querySelectorAll('.stat-value');
+                            if (nums.length > 0) {
+                                gsap.fromTo(nums, {opacity: 0, scale: 0.85}, {opacity: 1, scale: 1, duration: 0.35, stagger: 0.04, ease: 'back.out(2)', delay: 0.2});
+                            }
+                        }
+                    } else {
+                        // Fallback: CSS animation if GSAP not loaded
+                        var appRoot = document.getElementById('app-root');
+                        if (appRoot) {
+                            var mainContent = appRoot.querySelector('.main-content');
+                            if (mainContent) {
+                                mainContent.style.animation = 'none';
+                                mainContent.offsetHeight;
+                                mainContent.style.animation = 'springFadeIn 0.5s cubic-bezier(0.34,1.56,0.64,1) forwards';
+                            }
                         }
                     }
                     if (_pageLoadingTimer) { clearTimeout(_pageLoadingTimer); _pageLoadingTimer = null; }

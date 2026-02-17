@@ -595,12 +595,22 @@ def _create_ai_unified_card(symbol: str, ai_result: Dict = None, lang: str = 'zh
             <p style="color:var(--danger);font-size:13px;margin:0;">{html.escape(ai_result["error"])}</p>
         </div>'''
 
+    # Dexter button (Premium only)
+    dexter_btn_html = f'''
+        <button class="dexter-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'run_dexter',symbol:'{symbol}'}},this)">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2M20 14h2M15 13v2M9 13v2"/></svg>
+            Dexter 深度研究 <span style="font-size:11px;opacity:0.7;margin-left:4px;">Premium</span>
+        </button>'''
+
     return f'''
     <div class="chart-section ai-unified-card" style="margin-bottom:24px;padding:24px;">
-        <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-            AI 智慧分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
-        </button>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <button class="ai-quick-btn" onclick="if(typeof dispatchAction==='function')dispatchAction({{action:'ai_analyze',symbol:'{symbol}'}},this)">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:6px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                AI 智慧分析 <span style="font-size:11px;opacity:0.7;margin-left:4px;">~20 秒</span>
+            </button>
+            {dexter_btn_html}
+        </div>
         <p style="color:var(--text-3);font-size:12px;margin-top:10px;">結合即時市場數據與 AI 模型生成綜合分析報告</p>
         {quick_result_html}
     </div>
