@@ -31,6 +31,10 @@ _market_cache: Dict = {"indices": None, "etfs": None, "ts": 0}
 _CACHE_TTL = 300  # 5 分鐘（原 60s → 降低 80% API 呼叫）
 _first_load = str((os.environ.get("MARKET_FIRST_LOAD_FALLBACK", "0") or "").strip()).lower() in {"1", "true", "yes", "on"}
 
+# Gemini grounding 快取 — 美股指數備用來源（TTL = 300s）
+_gemini_indices_cache: Dict = {"data": None, "ts": 0}
+_GEMINI_INDICES_TTL = 300
+
 # Top20 快取（TTL = 600s，大幅降低 API 呼叫量）
 _top20_cache: Dict = {"tw": None, "us": None, "ts": 0}
 _TOP20_CACHE_TTL = 180  # 3 分鐘（保留即時性，避免長時間顯示舊榜單）
@@ -290,6 +294,108 @@ def _pick_latest_and_prev(rows: List[Dict]) -> Optional[Dict[str, float]]:
 
 
 # ──────────────────────────────────────
+# Gemini grounding — 美股指數備用
+# ──────────────────────────────────────
+def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
+    """
+    使用 Gemini 2.5 Flash + Google Search grounding 取得美股指數即時數據。
+    回傳格式：{"SPX": {"value": 6000.0, "change": 10.5, "change_pct": 0.17}, ...}
+    TTL 快取 300s，不重複呼叫 API。
+    """
+    global _gemini_indices_cache
+    now = time.time()
+
+    if _gemini_indices_cache["data"] is not None and (now - _gemini_indices_cache["ts"]) < _GEMINI_INDICES_TTL:
+        return _gemini_indices_cache["data"]  # type: ignore[return-value]
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeoutError
+        from google import genai
+        from google.genai import types
+        from config.models import MODEL_GROUNDING
+        from services.gemini_service import gemini_service
+
+        api_key = gemini_service.get_api_key()
+        if not api_key:
+            logger.debug("[Market] Gemini US indices: no API key")
+            return {}
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        prompt = (
+            "Use Google Search to find today's closing or latest US stock market index values. "
+            "Return strict JSON only — no markdown, no explanation. "
+            "Schema: "
+            '{"SPX":{"value":number,"change":number,"change_pct":number},'
+            '"IXIC":{"value":number,"change":number,"change_pct":number},'
+            '"DJI":{"value":number,"change":number,"change_pct":number},'
+            '"SOX":{"value":number,"change":number,"change_pct":number}}. '
+            "value = current index level (e.g. 5900.5 for S&P 500), "
+            "change = point change vs previous close, "
+            "change_pct = percentage change vs previous close (e.g. 0.17 for +0.17%). "
+            f"Reference date: {today}."
+        )
+
+        def _run():
+            client = genai.Client(api_key=api_key)
+            return client.models.generate_content(
+                model=MODEL_GROUNDING,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.1,
+                    max_output_tokens=256,
+                ),
+            )
+
+        ex = ThreadPoolExecutor(max_workers=1)
+        fut = ex.submit(_run)
+        try:
+            response = fut.result(timeout=18)
+        except FuturesTimeoutError:
+            fut.cancel()
+            logger.debug("[Market] Gemini US indices: timeout")
+            return {}
+        except Exception as e:
+            logger.debug(f"[Market] Gemini US indices call error: {e}")
+            return {}
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
+
+        text_out = (response.text if response and getattr(response, "text", None) else "") or ""
+
+        from services.gemini_service import GeminiService
+        parsed = GeminiService._extract_json_object(text_out)
+        if not parsed:
+            logger.debug(f"[Market] Gemini US indices: empty/invalid JSON: {text_out[:120]}")
+            return {}
+
+        result: Dict[str, Dict] = {}
+        for key in ("SPX", "IXIC", "DJI", "SOX"):
+            entry = parsed.get(key)
+            if not isinstance(entry, dict):
+                continue
+            try:
+                val = float(entry["value"])
+                chg = float(entry.get("change", 0))
+                pct = float(entry.get("change_pct", 0))
+                if val > 0:
+                    result[key] = {"value": val, "change": chg, "change_pct": pct}
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        if result:
+            _gemini_indices_cache = {"data": result, "ts": now}
+            logger.info(f"[Market] Gemini US indices OK: {list(result.keys())}")
+
+        return result
+
+    except Exception as e:
+        logger.debug(f"[Market] Gemini US indices error: {e}")
+        return {}
+
+
+# ──────────────────────────────────────
 # Batch fetcher — FinMind only
 # ──────────────────────────────────────
 def _fetch_market_data() -> Dict[str, list]:
@@ -320,10 +426,12 @@ def _fetch_market_data() -> Dict[str, list]:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
+        # 美股指數：FinMind proxy ETF 價格 ≠ 指數點位，改用 Gemini grounding 取即時數值
+        gemini_us = _fetch_us_indices_via_gemini()
+
         for key, meta in _INDEX_TICKERS.items():
             try:
                 direct_symbol = meta.get("direct_symbol")
-                proxy_symbol = meta["proxy_symbol"]
                 fm_data = None
 
                 if meta["type"] == "tw":
@@ -334,34 +442,43 @@ def _fetch_market_data() -> Dict[str, list]:
                         except Exception:
                             fm_data = None
                     # Do NOT fall back to proxy ETF (0050 price ≠ TAIEX index level)
+                    picked = _pick_latest_and_prev(fm_data or [])
+                    if picked:
+                        price = picked["price"]
+                        chg = picked["change"]
+                        pct = picked["change_pct"]
+                        indices.append({
+                            "name": meta["name"],
+                            "symbol": meta["display"],
+                            "value": f"{price:,.2f}",
+                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                            "color": "green" if chg >= 0 else "red",
+                        })
+                    else:
+                        indices.append({"name": meta["name"], "symbol": meta["display"],
+                                        "value": "--", "change": "--", "change_pct": "--", "color": "gray"})
                 else:
-                    fm_data = finmind_adapter.get_us_stock_price_sync(proxy_symbol, start, end)
+                    # US indices: use Gemini grounding result (actual index levels)
+                    g = gemini_us.get(key)
+                    if g:
+                        price = g["value"]
+                        chg = g["change"]
+                        pct = g["change_pct"]
+                        indices.append({
+                            "name": meta["name"],
+                            "symbol": meta["display"],
+                            "value": f"{price:,.2f}",
+                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                            "color": "green" if chg >= 0 else "red",
+                        })
+                    else:
+                        indices.append({"name": meta["name"], "symbol": meta["display"],
+                                        "value": "--", "change": "--", "change_pct": "--", "color": "gray"})
 
-                picked = _pick_latest_and_prev(fm_data or [])
-                if picked:
-                    price = picked["price"]
-                    chg = picked["change"]
-                    pct = picked["change_pct"]
-                    indices.append({
-                        "name": meta["name"],
-                        "symbol": meta["display"],
-                        "value": f"{price:,.2f}",
-                        "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                        "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                        "color": "green" if chg >= 0 else "red",
-                    })
-                else:
-                    # No data available — placeholder (never stale hardcoded)
-                    indices.append({
-                        "name": meta["name"],
-                        "symbol": meta["display"],
-                        "value": "--",
-                        "change": "--",
-                        "change_pct": "--",
-                        "color": "gray",
-                    })
             except Exception as e:
-                logger.debug(f"[Market] FinMind index {meta.get('display')}: {e}")
+                logger.debug(f"[Market] index {meta.get('display')}: {e}")
                 indices.append({
                     "name": meta["name"],
                     "symbol": meta["display"],
