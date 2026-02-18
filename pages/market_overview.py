@@ -350,7 +350,7 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                     temperature=0.1,
-                    max_output_tokens=400,
+                    max_output_tokens=1024,
                 ),
             )
 
@@ -369,11 +369,20 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
             ex.shutdown(wait=False, cancel_futures=True)
 
         text_out = (response.text if response and getattr(response, "text", None) else "") or ""
+        logger.info(f"[Market] Gemini indices raw ({len(text_out)} chars): {text_out[:300]}")
 
+        # Strip markdown code blocks that Gemini sometimes wraps around JSON
+        import re as _re
+        stripped = text_out.strip()
+        if stripped.startswith("```"):
+            stripped = _re.sub(r"^```(?:json|JSON)?\s*", "", stripped)
+            stripped = _re.sub(r"\s*```\s*$", "", stripped)
+
+        # Extract JSON object from cleaned text
         from services.gemini_service import GeminiService
-        parsed = GeminiService._extract_json_object(text_out)
+        parsed = GeminiService._extract_json_object(stripped)
         if not parsed:
-            logger.warning(f"[Market] Gemini indices: empty/invalid JSON: {text_out[:200]}")
+            logger.warning(f"[Market] Gemini indices: empty/invalid JSON: {stripped[:300]}")
             return {}
 
         result: Dict[str, Dict] = {}
