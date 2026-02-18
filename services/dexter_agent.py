@@ -221,13 +221,17 @@ class DexterAgent:
             return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
-        """用 Gemini 2.5 Pro 綜合分析所有資料"""
+        """用 Gemini 綜合分析所有資料"""
         from config.models import MODEL_DEXTER
         from services.gemini_service import gemini_service
 
         api_key = gemini_service.get_api_key()
         if not api_key:
             return {"error": "Gemini API key missing"}
+
+        # 日誌：顯示使用的 key（遮蔽中間部分）
+        masked = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
+        print(f"[Dexter] model={MODEL_DEXTER} key={masked}")
 
         # 構建 context summary（不暴露資料來源名稱）
         summary_parts = []
