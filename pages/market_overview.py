@@ -40,9 +40,10 @@ _top20_refresh_lock = threading.Lock()
 # ──────────────────────────────────────
 # Ticker definitions
 # ──────────────────────────────────────
-# 指數採用 FinMind 可取代標的（proxy）估算
+# 指數：direct_symbol 為 FinMind 原生指數代號（優先嘗試）；
+# proxy_symbol 為 ETF 代號（僅用於確認資料可用性，不作為指數數值）。
 _INDEX_TICKERS = {
-    "TAIEX": {"name": "加權指數", "display": "TAIEX", "proxy_symbol": "0050", "type": "tw"},
+    "TAIEX": {"name": "加權指數", "display": "TAIEX", "direct_symbol": "Y9999", "proxy_symbol": "0050", "type": "tw"},
     "SPX":   {"name": "S&P 500",  "display": "SPX",   "proxy_symbol": "SPY",  "type": "us"},
     "IXIC":  {"name": "NASDAQ",   "display": "IXIC",  "proxy_symbol": "QQQ",  "type": "us"},
     "DJI":   {"name": "道瓊指數", "display": "DJI",   "proxy_symbol": "DIA",  "type": "us"},
@@ -69,11 +70,11 @@ _US_TOP_SYMBOLS = [
 # Realistic fallback data
 # ──────────────────────────────────────
 _FALLBACK_INDICES = [
-    {"name": "加權指數", "symbol": "TAIEX", "value": "23,128.56", "change": "+85.23", "change_pct": "+0.37%", "color": "green"},
-    {"name": "S&P 500",  "symbol": "SPX",   "value": "6,061.48", "change": "+34.55", "change_pct": "+0.57%", "color": "green"},
-    {"name": "NASDAQ",   "symbol": "IXIC",  "value": "19,654.02", "change": "+143.25", "change_pct": "+0.73%", "color": "green"},
-    {"name": "道瓊指數", "symbol": "DJI",   "value": "44,556.04", "change": "-22.16", "change_pct": "-0.05%", "color": "red"},
-    {"name": "費半指數", "symbol": "SOX",   "value": "5,042.16", "change": "+47.38", "change_pct": "+0.95%", "color": "green"},
+    {"name": "加權指數", "symbol": "TAIEX", "value": "--", "change": "--", "change_pct": "--", "color": "gray"},
+    {"name": "S&P 500",  "symbol": "SPX",   "value": "--", "change": "--", "change_pct": "--", "color": "gray"},
+    {"name": "NASDAQ",   "symbol": "IXIC",  "value": "--", "change": "--", "change_pct": "--", "color": "gray"},
+    {"name": "道瓊指數", "symbol": "DJI",   "value": "--", "change": "--", "change_pct": "--", "color": "gray"},
+    {"name": "費半指數", "symbol": "SOX",   "value": "--", "change": "--", "change_pct": "--", "color": "gray"},
 ]
 
 _FALLBACK_ETFS = [
@@ -313,19 +314,29 @@ def _fetch_market_data() -> Dict[str, list]:
     indices: list = []
     etfs: list = []
 
-    # ── 指數 + ETF：FinMind（指數用 proxy 標的估算）──
+    # ── 指數 + ETF：FinMind ──
     try:
         from adapters.finmind_adapter import finmind_adapter
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
-        for _, meta in _INDEX_TICKERS.items():
+        for key, meta in _INDEX_TICKERS.items():
             try:
+                direct_symbol = meta.get("direct_symbol")
                 proxy_symbol = meta["proxy_symbol"]
+                fm_data = None
+
                 if meta["type"] == "tw":
-                    fm_data = finmind_adapter.get_tw_stock_price_sync(proxy_symbol, start, end)
+                    # Try direct index symbol first (e.g. Y9999 = TAIEX on FinMind)
+                    if direct_symbol:
+                        try:
+                            fm_data = finmind_adapter.get_tw_stock_price_sync(direct_symbol, start, end)
+                        except Exception:
+                            fm_data = None
+                    # Do NOT fall back to proxy ETF (0050 price ≠ TAIEX index level)
                 else:
                     fm_data = finmind_adapter.get_us_stock_price_sync(proxy_symbol, start, end)
+
                 picked = _pick_latest_and_prev(fm_data or [])
                 if picked:
                     price = picked["price"]
@@ -339,8 +350,26 @@ def _fetch_market_data() -> Dict[str, list]:
                         "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
                         "color": "green" if chg >= 0 else "red",
                     })
+                else:
+                    # No data available — placeholder (never stale hardcoded)
+                    indices.append({
+                        "name": meta["name"],
+                        "symbol": meta["display"],
+                        "value": "--",
+                        "change": "--",
+                        "change_pct": "--",
+                        "color": "gray",
+                    })
             except Exception as e:
-                logger.debug(f"[Market] FinMind index proxy {meta.get('display')}: {e}")
+                logger.debug(f"[Market] FinMind index {meta.get('display')}: {e}")
+                indices.append({
+                    "name": meta["name"],
+                    "symbol": meta["display"],
+                    "value": "--",
+                    "change": "--",
+                    "change_pct": "--",
+                    "color": "gray",
+                })
 
         for sym, meta in _ETF_TICKERS.items():
             try:
@@ -366,9 +395,9 @@ def _fetch_market_data() -> Dict[str, list]:
     except Exception as e:
         logger.debug(f"[Market] FinMind batch error: {e}")
 
-    # Fallback
+    # Only use fallback structure if the entire block failed (e.g. import error)
     if not indices:
-        indices = list(_FALLBACK_INDICES)
+        indices = list(_FALLBACK_INDICES)  # _FALLBACK_INDICES now uses "--" values
     if not etfs:
         etfs = list(_FALLBACK_ETFS)
 

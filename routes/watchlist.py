@@ -54,7 +54,6 @@ async def get_watchlist_quotes(request: Request):
         return {"quotes": {}}
 
     from services.stock_service import stock_service
-    import math
 
     async def _fetch_quote(symbol: str) -> tuple[str, dict | None]:
         try:
@@ -76,20 +75,18 @@ async def get_watchlist_quotes(request: Request):
             change = price - prev_close if prev_close > 0 else 0.0
             change_pct = (change / prev_close * 100) if prev_close > 0 else 0.0
 
-            # 5-day annualized volatility
-            recent = history[-6:] if len(history) >= 6 else history
-            daily_returns = []
-            for i in range(1, len(recent)):
-                c_prev = _safe_float(recent[i - 1].get("close"))
-                c_curr = _safe_float(recent[i].get("close"))
-                if c_prev > 0 and c_curr > 0:
-                    daily_returns.append(c_curr / c_prev - 1)
-
+            # 5-day cumulative return (5日漲跌幅)
             vol_5d = 0.0
-            if len(daily_returns) >= 2:
-                mean = sum(daily_returns) / len(daily_returns)
-                variance = sum((r - mean) ** 2 for r in daily_returns) / (len(daily_returns) - 1)
-                vol_5d = math.sqrt(variance) * math.sqrt(252) * 100
+            if len(history) >= 6:
+                c_now = _safe_float(history[-1].get("close"))
+                c_5d_ago = _safe_float(history[-6].get("close"))
+                if c_now > 0 and c_5d_ago > 0:
+                    vol_5d = (c_now / c_5d_ago - 1) * 100
+            elif len(history) >= 2:
+                c_now = _safe_float(history[-1].get("close"))
+                c_start = _safe_float(history[0].get("close"))
+                if c_now > 0 and c_start > 0:
+                    vol_5d = (c_now / c_start - 1) * 100
 
             name = str(info.get("name") or info.get("shortName") or symbol)
 

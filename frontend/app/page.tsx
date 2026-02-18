@@ -105,11 +105,11 @@ type DashboardCachePayload = {
 const DASHBOARD_CACHE_KEY = 'dl:dashboard-cache:v2';
 
 const FALLBACK_INDICES: MarketItem[] = [
-  { name: '加權指數', symbol: 'TAIEX', value: '23,128.56', change: '+85.23', change_pct: '+0.37%', color: 'green' },
-  { name: 'S&P 500', symbol: 'SPX', value: '6,061.48', change: '+34.55', change_pct: '+0.57%', color: 'green' },
-  { name: 'NASDAQ', symbol: 'IXIC', value: '19,654.02', change: '+143.25', change_pct: '+0.73%', color: 'green' },
-  { name: '道瓊工業', symbol: 'DJI', value: '44,556.04', change: '-22.16', change_pct: '-0.05%', color: 'red' },
-  { name: '費城半導體', symbol: 'SOX', value: '5,042.16', change: '+47.38', change_pct: '+0.95%', color: 'green' },
+  { name: '加權指數', symbol: 'TAIEX', value: '--', change: '--', change_pct: '--', color: 'gray' },
+  { name: 'S&P 500', symbol: 'SPX', value: '--', change: '--', change_pct: '--', color: 'gray' },
+  { name: 'NASDAQ', symbol: 'IXIC', value: '--', change: '--', change_pct: '--', color: 'gray' },
+  { name: '道瓊工業', symbol: 'DJI', value: '--', change: '--', change_pct: '--', color: 'gray' },
+  { name: '費城半導體', symbol: 'SOX', value: '--', change: '--', change_pct: '--', color: 'gray' },
 ];
 
 
@@ -559,10 +559,16 @@ export default function Dashboard() {
                   <span className={styles.indexName}>{idx.name}</span>
                 </div>
                 <div className={styles.indexValue}>{idx.value}</div>
-                <div className={`${styles.indexChange} ${idx.color === 'green' ? styles.up : styles.down}`}>
-                  {idx.color === 'green' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                  {idx.change} ({idx.change_pct})
-                </div>
+                {idx.color === 'gray' ? (
+                  <div className={styles.indexChange} style={{ color: 'var(--text-3)' }}>
+                    {idx.change}
+                  </div>
+                ) : (
+                  <div className={`${styles.indexChange} ${idx.color === 'green' ? styles.up : styles.down}`}>
+                    {idx.color === 'green' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                    {idx.change} ({idx.change_pct})
+                  </div>
+                )}
               </div>
             ) : (
               <div key={i} className={`${styles.indexCard} ${styles.skeleton}`} />
