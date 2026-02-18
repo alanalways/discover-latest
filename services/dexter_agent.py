@@ -222,10 +222,10 @@ class DexterAgent:
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
         """用 Gemini 2.5 Pro 綜合分析所有資料"""
-        import os
         from config.models import MODEL_DEXTER
+        from services.gemini_service import gemini_service
 
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = gemini_service.get_api_key()
         if not api_key:
             return {"error": "Gemini API key missing"}
 
