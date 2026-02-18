@@ -274,13 +274,13 @@ class FinMindAdapter:
                     # Cool it down to avoid repeated noisy retries on every request path.
                     self._mark_dataset_cooldown(dataset, 3600, "HTTP 400（資料集暫不可用）")
                     return None
-                if status in (402, 429):
-                    cooldown = 900 if status == 402 else 120
-                    self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
-                    if status == 402:
-                        had_payment_limit = True
-                    elif status == 429:
-                        had_rate_limit = True
+                if status == 402:
+                    # 402 = 此 dataset 需付費方案，token 本身仍有效（不 cooldown token）
+                    had_payment_limit = True
+                    continue
+                if status == 429:
+                    self._mark_token_cooldown(token_idx, 120, "HTTP 429 速率限制")
+                    had_rate_limit = True
                     continue
                 logger.debug(f"[FinMind] 請求失敗: HTTP {status}: {e}")
                 self._available = False
@@ -291,8 +291,9 @@ class FinMindAdapter:
                 return None
 
         if had_payment_limit:
-            dataset_cooldown = 180 if dataset == "USStockPrice" else 120
-            self._mark_dataset_cooldown(dataset, dataset_cooldown, "所有 Token 付費限制或配額不足")
+            # 402: 只 cooldown dataset（token 對其他 dataset 仍可用）
+            dataset_cooldown = 3600 if dataset == "USStockPrice" else 300
+            self._mark_dataset_cooldown(dataset, dataset_cooldown, "此 dataset 需付費方案")
         elif had_rate_limit:
             self._mark_dataset_cooldown(dataset, 60, "所有 Token 速率限制")
         return None
@@ -571,13 +572,13 @@ class FinMindAdapter:
                 if status == 400 and dataset == "TaiwanStockMarketValue":
                     self._mark_dataset_cooldown(dataset, 3600, "HTTP 400（資料集暫不可用）")
                     return None
-                if status in (402, 429):
-                    cooldown = 900 if status == 402 else 120
-                    self._mark_token_cooldown(token_idx, cooldown, f"HTTP {status}")
-                    if status == 402:
-                        had_payment_limit = True
-                    elif status == 429:
-                        had_rate_limit = True
+                if status == 402:
+                    # 402 = 此 dataset 需付費方案，token 本身仍有效（不 cooldown token）
+                    had_payment_limit = True
+                    continue
+                if status == 429:
+                    self._mark_token_cooldown(token_idx, 120, "HTTP 429 速率限制")
+                    had_rate_limit = True
                     continue
                 logger.debug(f"[FinMind] 同步請求失敗: HTTP {status}: {e}")
                 return None
@@ -586,8 +587,9 @@ class FinMindAdapter:
                 return None
 
         if had_payment_limit:
-            dataset_cooldown = 180 if dataset == "USStockPrice" else 120
-            self._mark_dataset_cooldown(dataset, dataset_cooldown, "所有 Token 付費限制或配額不足")
+            # 402: 只 cooldown dataset（token 對其他 dataset 仍可用）
+            dataset_cooldown = 3600 if dataset == "USStockPrice" else 300
+            self._mark_dataset_cooldown(dataset, dataset_cooldown, "此 dataset 需付費方案")
         elif had_rate_limit:
             self._mark_dataset_cooldown(dataset, 60, "所有 Token 速率限制")
         return None
