@@ -6,11 +6,12 @@ DiscoverLatest 洞察運算 - Gemini 模型設定
 # 固定模型名稱（禁止散落在各處）
 MODEL_GROUNDING = "gemini-2.5-flash-preview-09-2025"
 MODEL_FINAL = "gemini-3-flash-preview"
+MODEL_DEXTER = "gemini-2.5-pro"
 
 
 def get_model_list():
     """取得所有允許使用的模型清單"""
-    return [MODEL_GROUNDING, MODEL_FINAL]
+    return [MODEL_GROUNDING, MODEL_FINAL, MODEL_DEXTER]
 
 
 async def validate_models_on_startup(genai_client):

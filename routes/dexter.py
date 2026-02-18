@@ -32,7 +32,7 @@ def _extract_user(auth_header: str) -> Optional[dict[str, Any]]:
 async def dexter_execute(req: DexterRequest, request: Request):
     """
     Dexter 深度研究：規劃 → 並行資料蒐集 → 驗證 → Gemini 綜合分析。
-    限 Premium 用戶使用。
+    限 Pro / Premium 用戶使用。
     """
     auth_header = request.headers.get("Authorization", "")
     user = _extract_user(auth_header)
@@ -43,7 +43,7 @@ async def dexter_execute(req: DexterRequest, request: Request):
     if not user_id:
         raise HTTPException(status_code=401, detail="缺少使用者 ID")
 
-    # 權限檢查：Premium only
+    # 權限檢查：Pro / Premium
     from services.feature_gate import can_access
     from services.rate_limiter import rate_limiter
 
@@ -51,7 +51,7 @@ async def dexter_execute(req: DexterRequest, request: Request):
     if not can_access(tier, "ai_dexter"):
         raise HTTPException(
             status_code=403,
-            detail="Dexter 深度研究僅限 Premium 用戶使用。",
+            detail="Dexter 深度研究僅限 Pro / Premium 用戶使用。",
         )
 
     # 頻率限制

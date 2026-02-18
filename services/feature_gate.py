@@ -23,7 +23,7 @@ FEATURE_ACCESS = {
     "ai_full_analysis":     {"free": True,  "pro": True,  "premium": True},
     "ai_followup":          {"free": False, "pro": True,  "premium": True},
     "ai_chat_rounds":       {"free": 0,     "pro": 3,     "premium": 10},
-    "ai_dexter":            {"free": False, "pro": False, "premium": True},
+    "ai_dexter":            {"free": False, "pro": True,  "premium": True},
     "ai_sentiment":         {"free": False, "pro": False, "premium": True},
 
     # ── 數據與工具 (Data & Tools) ──

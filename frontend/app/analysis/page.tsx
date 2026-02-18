@@ -1094,9 +1094,9 @@ function AnalysisContent() {
                         {/* ── Dexter 深度研究 ── */}
                         {(() => {
                             const tier = user?.tier || 'free';
-                            const isPremium = tier === 'premium';
+                            const canDexter = tier === 'pro' || tier === 'premium';
                             const handleDexter = async () => {
-                                if (dexterLoading || !isPremium) return;
+                                if (dexterLoading || !canDexter) return;
                                 setDexterLoading(true);
                                 setDexterResult(null);
                                 setDexterExpanded(true);
@@ -1208,14 +1208,14 @@ function AnalysisContent() {
                                                             borderRadius: 5,
                                                             background: 'linear-gradient(135deg, rgba(139,92,246,0.25), rgba(59,130,246,0.25))',
                                                             color: '#a78bfa', letterSpacing: 1.5, textTransform: 'uppercase',
-                                                        }}>Premium</span>
+                                                        }}>Pro</span>
                                                     </div>
                                                     <p style={{ fontSize: 12.5, color: 'var(--text-3)', margin: '3px 0 0' }}>
                                                         AI 自動規劃研究 → 並行蒐集數據 → 交叉驗證 → 完整分析報告
                                                     </p>
                                                 </div>
                                             </div>
-                                            {isPremium ? (
+                                            {canDexter ? (
                                                 <button
                                                     onClick={handleDexter}
                                                     disabled={dexterLoading}
@@ -1247,7 +1247,7 @@ function AnalysisContent() {
                                                     color: 'var(--text-3)', fontSize: 13,
                                                 }}>
                                                     <Lock size={14} />
-                                                    <span>升級至 Premium 解鎖</span>
+                                                    <span>升級至 Pro 解鎖</span>
                                                 </div>
                                             )}
                                         </div>
@@ -1273,88 +1273,19 @@ function AnalysisContent() {
                                                     </div>
                                                 )}
 
-                                                {/* 子任務 + 驗證 並排 */}
-                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-                                                    {/* 子任務執行 */}
-                                                    {(dexterLoading || (dexterResult?.tasks && dexterResult.tasks.length > 0)) && (
-                                                        <div style={{
-                                                            background: 'rgba(15,15,25,0.5)', borderRadius: 14,
-                                                            padding: '16px 18px', border: '1px solid rgba(255,255,255,0.06)',
-                                                            backdropFilter: 'blur(10px)',
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                                                <Zap size={15} style={{ color: '#facc15' }} />
-                                                                <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-1)', letterSpacing: 0.3 }}>子任務執行</span>
-                                                                {dexterResult?.tasks && (
-                                                                    <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
-                                                                        {dexterResult.tasks.filter(t => t.status === 'completed').length}/{dexterResult.tasks.length}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            {dexterLoading && !dexterResult && (
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 13 }}>
-                                                                    <span style={{ width: 12, height: 12, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
-                                                                    正在規劃研究任務…
-                                                                </div>
-                                                            )}
-                                                            {dexterResult?.tasks?.map((task, i) => (
-                                                                <div key={i} style={{
-                                                                    display: 'flex', alignItems: 'center', gap: 8,
-                                                                    padding: '7px 10px', fontSize: 13, color: 'var(--text-2)',
-                                                                    borderRadius: 8, marginBottom: 4,
-                                                                    background: task.status === 'completed' ? 'rgba(52,211,153,0.06)' : task.status === 'failed' ? 'rgba(248,113,113,0.06)' : 'transparent',
-                                                                }}>
-                                                                    {task.status === 'completed' ? (
-                                                                        <CheckCircle size={14} style={{ color: '#34d399', flexShrink: 0 }} />
-                                                                    ) : task.status === 'failed' ? (
-                                                                        <XCircle size={14} style={{ color: '#f87171', flexShrink: 0 }} />
-                                                                    ) : (
-                                                                        <Clock size={14} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
-                                                                    )}
-                                                                    <span style={{ flex: 1 }}>{task.name}</span>
-                                                                    <span style={{
-                                                                        fontSize: 10, color: 'var(--text-3)',
-                                                                        background: 'rgba(255,255,255,0.04)', padding: '2px 6px', borderRadius: 4,
-                                                                    }}>
-                                                                        {task.tool} {task.duration > 0 ? `· ${task.duration.toFixed(1)}s` : ''}
-                                                                    </span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-
-                                                    {/* 交叉驗證 */}
-                                                    {dexterResult?.validation && dexterResult.validation.length > 0 && (
-                                                        <div style={{
-                                                            background: 'rgba(15,15,25,0.5)', borderRadius: 14,
-                                                            padding: '16px 18px', border: '1px solid rgba(255,255,255,0.06)',
-                                                            backdropFilter: 'blur(10px)',
-                                                        }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                                                                <Activity size={15} style={{ color: '#34d399' }} />
-                                                                <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--text-1)', letterSpacing: 0.3 }}>交叉驗證</span>
-                                                                <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 'auto' }}>
-                                                                    {dexterResult.validation.filter(v => v.passed).length}/{dexterResult.validation.length} 通過
-                                                                </span>
-                                                            </div>
-                                                            {dexterResult.validation.map((v, i) => (
-                                                                <div key={i} style={{
-                                                                    display: 'flex', alignItems: 'center', gap: 8,
-                                                                    padding: '6px 10px', fontSize: 13, color: 'var(--text-2)',
-                                                                    borderRadius: 8, marginBottom: 3,
-                                                                    background: v.passed ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
-                                                                }}>
-                                                                    {v.passed ? (
-                                                                        <CheckCircle size={13} style={{ color: '#34d399' }} />
-                                                                    ) : (
-                                                                        <XCircle size={13} style={{ color: '#f87171' }} />
-                                                                    )}
-                                                                    <span>{v.label}</span>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                {/* 研究進度 */}
+                                                {dexterLoading && !dexterResult && (
+                                                    <div style={{
+                                                        background: 'rgba(15,15,25,0.5)', borderRadius: 14,
+                                                        padding: '20px 24px', border: '1px solid rgba(255,255,255,0.06)',
+                                                        backdropFilter: 'blur(10px)',
+                                                        display: 'flex', alignItems: 'center', gap: 12,
+                                                        color: 'var(--text-2)', fontSize: 14,
+                                                    }}>
+                                                        <span style={{ width: 16, height: 16, border: '2px solid currentColor', borderTopColor: 'transparent', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.8s linear infinite' }} />
+                                                        Dexter 正在蒐集數據並生成深度研究報告…
+                                                    </div>
+                                                )}
 
                                                 {/* 綜合分析報告 */}
                                                 {dexterResult?.analysis && (
@@ -1419,7 +1350,8 @@ function AnalysisContent() {
                         })()}
 
 
-                        <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
+                        {/* AI 智慧深度分析 — 僅 Free 用戶顯示（Pro/Premium 用 Dexter） */}
+                        {(!user?.tier || user.tier === 'free') && <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <svg className="w-32 h-32 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" /></svg>
                             </div>
@@ -1463,7 +1395,7 @@ function AnalysisContent() {
                                     {typedAiResult}
                                 </div>
                             )}
-                        </div>
+                        </div>}
                     </>
                 )}
             </div>

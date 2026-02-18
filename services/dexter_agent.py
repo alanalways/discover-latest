@@ -221,31 +221,52 @@ class DexterAgent:
             return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
-        """用 Gemini 綜合分析所有資料"""
-        tool = tool_registry.get_tool("gemini")
-        if not tool or not tool.adapter:
-            return {"error": "Gemini service unavailable"}
+        """用 Gemini 2.5 Pro 綜合分析所有資料"""
+        import os
+        from config.models import MODEL_DEXTER
 
-        # 構建 context summary 給 Gemini
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        if not api_key:
+            return {"error": "Gemini API key missing"}
+
+        # 構建 context summary（不暴露資料來源名稱）
         summary_parts = []
-        for task_name, data in context.items():
+        for _task_name, data in context.items():
             if isinstance(data, dict) and data.get("error"):
-                summary_parts.append(f"[{task_name}] 取得失敗: {data['error']}")
-            elif isinstance(data, list):
-                summary_parts.append(f"[{task_name}] {len(data)} 筆資料")
-                if data:
-                    summary_parts.append(f"  最新: {data[-1] if len(data) <= 3 else data[-3:]}")
-            elif isinstance(data, dict):
-                summary_parts.append(f"[{task_name}] {data}")
-
+                continue  # 跳過失敗的資料
+            elif isinstance(data, list) and data:
+                summary_parts.append(f"{len(data)} 筆數據")
+                summary_parts.append(f"  最新: {data[-1] if len(data) <= 3 else data[-3:]}")
+            elif isinstance(data, dict) and not data.get("error"):
+                summary_parts.append(str(data))
         context_text = "\n".join(summary_parts)
 
+        prompt = (
+            f"你是專業金融研究分析師。請針對 {symbol} 進行深度研究分析。\n"
+            f"以下是已蒐集的市場數據:\n{context_text}\n\n"
+            "請用繁體中文輸出完整的深度研究報告，包含：\n"
+            "1. 基本面分析（估值、營收、獲利能力）\n"
+            "2. 籌碼面分析（法人動向、融資融券）\n"
+            "3. 技術面觀察\n"
+            "4. 風險評估\n"
+            "5. 投資建議與目標價區間\n"
+            "禁止提及資料來源名稱或工具名稱。直接呈現分析結論。"
+        )
+
         try:
-            result = tool.adapter.generate_analysis(
-                symbol=symbol,
-                user_question=f"Dexter 深度研究查詢。以下是已蒐集的資料摘要:\n{context_text}",
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=api_key)
+            resp = client.models.generate_content(
+                model=MODEL_DEXTER,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=4096,
+                ),
             )
-            return result
+            text = resp.text.strip() if resp and getattr(resp, "text", None) else ""
+            return {"success": bool(text), "analysis": text}
         except Exception as e:
             return {"error": f"Gemini: {e}"}
 
