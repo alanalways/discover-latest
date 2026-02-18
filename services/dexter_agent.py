@@ -15,7 +15,7 @@ class DexterAgent:
     """Dexter 主引擎"""
 
     def __init__(self):
-        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._executor = ThreadPoolExecutor(max_workers=6)
 
     def execute(self, query: str, user_id: str, symbol: str = None) -> Dict:
         """

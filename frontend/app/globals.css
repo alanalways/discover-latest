@@ -5,7 +5,7 @@
  * Icons: Lucide React SVG
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap');
+/* Fonts loaded via <link> in layout.tsx (preconnect + non-blocking) */
 
 /* ─── Design Tokens ─── */
 :root {

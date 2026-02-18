@@ -92,6 +92,22 @@ app.add_middleware(
 # ── GZip 壓縮（>500 bytes 自動壓縮，瀏覽器自動解壓）──
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+
+# ── Cache-Control：靜態資源長快取，API 短快取 ──
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class CacheHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/_next/static/") or path.startswith("/static/"):
+            response.headers["Cache-Control"] = "public, max-age=2592000, immutable"
+        elif path.startswith("/api/market/"):
+            response.headers["Cache-Control"] = "public, max-age=30"
+        return response
+
+app.add_middleware(CacheHeaderMiddleware)
+
 # ── 掛載 API Routes ──
 from routes.auth import router as auth_router
 from routes.market import router as market_router
