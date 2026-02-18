@@ -8,35 +8,35 @@ import { api } from '@/lib/api';
 import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
 import {
-    Activity,
-    ArrowLeftRight,
-    BarChart2,
-    Gem,
+    Brain,
+    FlaskConical,
     Globe,
+    HeartPulse,
     HelpCircle,
-    History,
     LayoutDashboard,
-    LineChart,
-    Settings,
-    Shield,
-    User,
+    Scale,
+    Settings2,
+    ShieldCheck,
+    Sparkles,
+    Star,
+    TrendingUp,
     X,
 } from 'lucide-react';
 import styles from './Sidebar.module.css';
 
 const NAV_ITEMS = [
-    { icon: LayoutDashboard, label: '儀表板', href: '/' },
-    { icon: BarChart2, label: '自選清單', href: '/watchlist' },
-    { icon: LineChart, label: '深度分析', href: '/analysis' },
-    { icon: History, label: '回測模擬', href: '/backtest' },
-    { icon: Globe, label: '國際市場', href: '/market' },
-    { icon: ArrowLeftRight, label: '股票比較', href: '/compare' },
-    { icon: Activity, label: '投資健檢', href: '/portfolio' },
-    { icon: User, label: '投資風格測驗', href: '/quiz' },
+    { icon: LayoutDashboard, label: '儀表板',     href: '/' },
+    { icon: Star,            label: '自選清單',   href: '/watchlist' },
+    { icon: TrendingUp,      label: '深度分析',   href: '/analysis' },
+    { icon: FlaskConical,    label: '回測模擬',   href: '/backtest' },
+    { icon: Globe,           label: '國際市場',   href: '/market' },
+    { icon: Scale,           label: '股票比較',   href: '/compare' },
+    { icon: HeartPulse,      label: '投資健檢',   href: '/portfolio' },
+    { icon: Brain,           label: '投資風格測驗', href: '/quiz' },
 ];
 
 const BOTTOM_ITEMS = [
-    { icon: Settings, label: '設定', href: '/settings' },
+    { icon: Settings2,  label: '設定',   href: '/settings' },
     { icon: HelpCircle, label: '幫助中心', href: '/help' },
 ];
 
@@ -145,7 +145,16 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
         <aside className={`${styles.sidebar} ${isOpen ? styles.mobileOpen : ''}`}>
             <div className={styles.logo}>
                 <div className={styles.logoIcon}>
-                    <Gem size={20} />
+                    {/* Custom bar-chart logo mark */}
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <rect x="1"   y="12" width="3.5" height="7" rx="0.8" fill="currentColor" fillOpacity="0.5"/>
+                        <rect x="7"   y="7.5" width="3.5" height="11.5" rx="0.8" fill="currentColor" fillOpacity="0.75"/>
+                        <rect x="13"  y="3"   width="3.5" height="16" rx="0.8" fill="currentColor"/>
+                        <polyline points="2.75,11  8.75,7  14.75,2.5"
+                            fill="none" stroke="currentColor" strokeWidth="1.4"
+                            strokeLinecap="round" strokeLinejoin="round"/>
+                        <circle cx="14.75" cy="2.5" r="1.4" fill="currentColor"/>
+                    </svg>
                 </div>
                 <div className={styles.logoText}>
                     <span className={styles.logoTitle}>DiscoverLatest</span>
@@ -187,7 +196,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         onFocus={() => prefetchRoute('/admin')}
                         className={`${styles.navItem} ${pathname === '/admin' ? styles.navItemActive : ''}`}
                     >
-                        <Shield className={styles.navIcon} />
+                        <ShieldCheck className={styles.navIcon} />
                         <span>管理後台</span>
                     </Link>
                 )}
@@ -225,7 +234,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                     onFocus={() => prefetchRoute('/pricing')}
                     className={styles.upgradeBtn}
                 >
-                    <Gem size={14} />
+                    <Sparkles size={14} />
                     <span>升級至 Pro 版</span>
                 </Link>
             </div>
