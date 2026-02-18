@@ -229,6 +229,41 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/test-models")
+async def test_models():
+    """Test which Gemini models work with current API keys (temporary diagnostic)."""
+    from services.gemini_service import gemini_service
+
+    models_to_test = [
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-preview-09-2025",
+        "gemini-2.5-pro",
+        "gemini-3-flash-preview",
+    ]
+
+    results = []
+    for model_id in models_to_test:
+        key = gemini_service.get_api_key()
+        masked = f"{key[:4]}...{key[-4:]}" if key and len(key) > 8 else "no-key"
+        try:
+            from google import genai
+            from google.genai import types
+            client = genai.Client(api_key=key)
+            resp = client.models.generate_content(
+                model=model_id,
+                contents="說 hello",
+                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=20),
+            )
+            text = resp.text.strip() if resp and getattr(resp, "text", None) else "(empty)"
+            results.append({"model": model_id, "key": masked, "status": "OK", "response": text[:80]})
+        except Exception as e:
+            err_str = str(e)[:200]
+            status = "404" if "404" in err_str else ("429" if "429" in err_str else "ERROR")
+            results.append({"model": model_id, "key": masked, "status": status, "error": err_str})
+
+    return {"results": results}
+
+
 def _require_admin(request: Request) -> dict[str, Any]:
     """Verify admin access by session + allowlist emails."""
     auth_header = request.headers.get("Authorization", "")
