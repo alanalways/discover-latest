@@ -219,6 +219,8 @@ class FinMindAdapter:
         # 快取檢查
         dataset = params.get("dataset", "")
         if self._is_dataset_cooling_down(dataset):
+            data_id = params.get("data_id", "")
+            print(f"[FinMind] Cooldown skip: dataset={dataset} id={data_id}")
             return None
 
         data_id = params.get("data_id", "")
@@ -255,10 +257,15 @@ class FinMindAdapter:
                 limiter.record()
                 resp.raise_for_status()
                 result = resp.json()
-                if result.get("status") == 200 and result.get("data"):
+                api_status = result.get("status")
+                api_data = result.get("data")
+                if api_status == 200 and api_data:
                     self._available = True
-                    _set_cache(ckey, result["data"])  # 寫入快取
-                    return result["data"]
+                    _set_cache(ckey, api_data)
+                    return api_data
+                # 診斷：印出 FinMind 空結果原因
+                api_msg = result.get("msg", "")
+                print(f"[FinMind] Empty: dataset={dataset} id={data_id} status={api_status} data_len={len(api_data) if isinstance(api_data, list) else 'N/A'} msg={api_msg[:100]}")
                 return None
             except httpx.HTTPStatusError as e:
                 status = e.response.status_code if e.response else None

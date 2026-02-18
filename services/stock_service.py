@@ -453,7 +453,9 @@ class StockService:
             "history": history,
             "updated_at": datetime.now().isoformat()
         }
-        self._write_stock_data_cache(cache_key, payload)
+        # 只快取有 history 的結果，避免空結果被快取導致後續請求永遠拿不到資料
+        if history:
+            self._write_stock_data_cache(cache_key, payload)
         return payload
 
     async def get_stock_history(
@@ -608,54 +610,72 @@ class StockService:
         }
     
     async def _get_stock_history(
-        self, 
-        symbol: str, 
+        self,
+        symbol: str,
         market: str,
         period: str = "1y"
     ) -> List[Dict]:
-        """??甇瑕鞈?嚗??FinMind ??DB ??TWSE/TPEX/Yahoo嚗?"""
+        """取得歷史資料（FinMind → DB → 縮短期間重試）"""
         end_date = datetime.now()
         period_days = {"1mo": 30, "3mo": 90, "6mo": 180, "1y": 365, "2y": 730, "3y": 1095, "5y": 1825, "max": 3650}
-        start_date = end_date - timedelta(days=period_days.get(period, 365))
+        days = period_days.get(period, 365)
+        start_date = end_date - timedelta(days=days)
 
-        # ?啁??∪?蝙??FinMind
-        if market in ["TWSE", "TPEX", "US"]:
-            try:
-                if market in ["TWSE", "TPEX"]:
-                    fm_data = await finmind_adapter.get_tw_stock_price(
-                        symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-                    )
-                else:
-                    us_symbol = str(symbol or "").strip().upper()
-                    fm_data = await finmind_adapter.get_us_stock_price(
-                        us_symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
-                    )
-                    if (not fm_data) and "." in us_symbol:
-                        fm_data = await finmind_adapter.get_us_stock_price(
-                            us_symbol.replace(".", "-"),
-                            start_date.strftime("%Y-%m-%d"),
-                            end_date.strftime("%Y-%m-%d")
-                        )
-                if fm_data:
-                    print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
-                    return fm_data
-                else:
-                    print(f"[DataSource] FinMind ?蝛箄??? {symbol}")
-            except Exception as e:
-                print(f"[DataSource] FinMind failed ({symbol}): {e}")
+        # 嘗試 FinMind
+        fm_data = await self._fetch_finmind_history(symbol, market, start_date, end_date)
+        if fm_data:
+            print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
+            return fm_data
 
-        # Fallback: ?岫敺??澈??
+        # FinMind 空結果 → 嘗試縮短期間（1y→6mo→3mo）
+        fallback_periods = {"1y": 180, "2y": 365, "3y": 730, "5y": 1095}
+        fallback_days = fallback_periods.get(period)
+        if fallback_days and fallback_days < days:
+            shorter_start = end_date - timedelta(days=fallback_days)
+            fm_data = await self._fetch_finmind_history(symbol, market, shorter_start, end_date)
+            if fm_data:
+                print(f"[DataSource] FinMind OK (fallback): {symbol} ({len(fm_data)} rows)")
+                return fm_data
+
+        print(f"[DataSource] FinMind empty: {symbol} (period={period})")
+
+        # Fallback: Supabase DB
         try:
             result = await supabase.get_client().from_("stock_daily").select("*").eq("symbol", symbol).gte("date", start_date.strftime("%Y-%m-%d")).order("date", desc=False).execute()
-            
             if result.data and len(result.data) > 0:
                 print(f"[DataSource] Supabase DB OK: {symbol}")
                 return result.data
         except:
             pass
-        
-        # 銝?雿輻?嗡?憭靘?嚗雁??FinMind-only嚗?
+
         return []
+
+    async def _fetch_finmind_history(
+        self, symbol: str, market: str, start_date, end_date
+    ) -> List[Dict]:
+        """FinMind 資料抓取（單次嘗試）"""
+        if market not in ["TWSE", "TPEX", "US"]:
+            return []
+        try:
+            if market in ["TWSE", "TPEX"]:
+                return await finmind_adapter.get_tw_stock_price(
+                    symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+                ) or []
+            else:
+                us_symbol = str(symbol or "").strip().upper()
+                fm_data = await finmind_adapter.get_us_stock_price(
+                    us_symbol, start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
+                )
+                if (not fm_data) and "." in us_symbol:
+                    fm_data = await finmind_adapter.get_us_stock_price(
+                        us_symbol.replace(".", "-"),
+                        start_date.strftime("%Y-%m-%d"),
+                        end_date.strftime("%Y-%m-%d")
+                    )
+                return fm_data or []
+        except Exception as e:
+            print(f"[DataSource] FinMind failed ({symbol}): {e}")
+            return []
     
     async def search_symbols(self, query: str, limit: int = 20) -> List[Dict]:
         """???∠巨隞??嚗?∪? FinMind嚗? DB嚗? Yahoo嚗?"""
