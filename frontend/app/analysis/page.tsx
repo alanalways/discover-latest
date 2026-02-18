@@ -1350,8 +1350,8 @@ function AnalysisContent() {
                         })()}
 
 
-                        {/* AI 智慧深度分析 — 僅 Free 用戶顯示（Pro/Premium 用 Dexter） */}
-                        {(!user?.tier || user.tier === 'free') && <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
+                        {/* AI 智慧深度分析 — 所有用戶可用（2-stage pipeline） */}
+                        <div className="bg-gradient-to-br from-indigo-950/50 to-purple-950/50 rounded-2xl p-8 border border-indigo-500/20 shadow-2xl relative overflow-hidden group">
                             <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
                                 <svg className="w-32 h-32 text-indigo-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71L12 2z" /></svg>
                             </div>
@@ -1395,7 +1395,7 @@ function AnalysisContent() {
                                     {typedAiResult}
                                 </div>
                             )}
-                        </div>}
+                        </div>
                     </>
                 )}
             </div>

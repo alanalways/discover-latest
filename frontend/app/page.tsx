@@ -253,6 +253,7 @@ export default function Dashboard() {
   const [hours, setHours] = useState<{ tw: MarketHours; us: MarketHours } | null>(null);
   const [news, setNews] = useState<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
   const [watchlistQuotes, setWatchlistQuotes] = useState<Record<string, WatchlistQuote>>({});
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'gainers' | 'losers' | 'volume'>('gainers');
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
@@ -403,33 +404,37 @@ export default function Dashboard() {
     }, 0);
 
     const tier = user?.tier || 'free';
-    const refreshMs: Record<string, number> = {
-      free: 15 * 60_000,
-      pro: 5 * 60_000,
-      premium: 60_000,
-    };
 
-    const interval = setInterval(() => {
-      void fetchData();
-    }, refreshMs[tier] || refreshMs.free);
+    // Free 用戶不自動更新（手動按更新按鈕）；Pro 5分鐘、Premium 1分鐘
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (tier !== 'free') {
+      const refreshMs = tier === 'premium' ? 60_000 : 5 * 60_000;
+      interval = setInterval(() => {
+        void fetchData();
+      }, refreshMs);
+    }
 
     return () => {
       clearTimeout(bootstrapTimer);
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
     };
   }, [fetchData, user?.tier]);
 
   useEffect(() => {
     if (!user) {
       setWatchlistQuotes({});
+      setWatchlistLoading(false);
       return;
     }
     const fetchQuotes = async () => {
+      setWatchlistLoading(true);
       try {
         const res = await api.fetch<{ quotes: Record<string, WatchlistQuote> }>('/api/watchlist/quotes');
         if (res?.quotes) setWatchlistQuotes(res.quotes);
       } catch {
         // Silently ignore — user might not have watchlist
+      } finally {
+        setWatchlistLoading(false);
       }
     };
     void fetchQuotes();
@@ -566,8 +571,8 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* 我的自選股 — only for logged-in users with watchlist data */}
-      {user && Object.keys(watchlistQuotes).length > 0 && (
+      {/* 我的自選股 — 登入用戶立即顯示（含 loading skeleton） */}
+      {user && (watchlistLoading || Object.keys(watchlistQuotes).length > 0) && (
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>
             <Star size={18} /> 我的自選股
@@ -581,32 +586,45 @@ export default function Dashboard() {
                 <span style={{ textAlign: 'right' }}>漲跌%</span>
                 <span style={{ textAlign: 'right' }}>5日波動率</span>
               </div>
-              {Object.entries(watchlistQuotes).map(([symbol, q]) => {
-                const isUp = q.change_pct >= 0;
-                const volPct = Math.min(100, q.vol_5d);
-                return (
-                  <button
-                    type="button"
-                    key={symbol}
-                    className={`${styles.watchlistRow} ${styles.tableRowButton}`}
-                    onClick={() => navigateToAnalysis(symbol)}
-                    title={`前往 ${q.name || symbol} 深度分析`}
-                  >
-                    <span className={styles.stockSymbol}>{symbol}</span>
-                    <span className={styles.stockName}>{q.name || '-'}</span>
-                    <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-1)' }}>{q.price.toFixed(2)}</span>
-                    <span className={isUp ? styles.up : styles.down} style={{ textAlign: 'right', fontWeight: 600 }}>
-                      {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
-                    </span>
-                    <span style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-                      <span className={styles.volBar}>
-                        <span className={styles.volBarFill} style={{ width: `${volPct}%` }} />
+              {watchlistLoading && Object.keys(watchlistQuotes).length === 0 ? (
+                /* Loading skeleton */
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className={styles.watchlistRow} style={{ opacity: 0.4 }}>
+                    <span className={styles.stockSymbol} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 48, height: 16, display: 'inline-block' }} />
+                    <span className={styles.stockName} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
+                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block', marginLeft: 'auto' }} />
+                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block' }} />
+                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
+                  </div>
+                ))
+              ) : (
+                Object.entries(watchlistQuotes).map(([symbol, q]) => {
+                  const isUp = q.change_pct >= 0;
+                  const volPct = Math.min(100, q.vol_5d);
+                  return (
+                    <button
+                      type="button"
+                      key={symbol}
+                      className={`${styles.watchlistRow} ${styles.tableRowButton}`}
+                      onClick={() => navigateToAnalysis(symbol)}
+                      title={`前往 ${q.name || symbol} 深度分析`}
+                    >
+                      <span className={styles.stockSymbol}>{symbol}</span>
+                      <span className={styles.stockName}>{q.name || '-'}</span>
+                      <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-1)' }}>{q.price.toFixed(2)}</span>
+                      <span className={isUp ? styles.up : styles.down} style={{ textAlign: 'right', fontWeight: 600 }}>
+                        {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
                       </span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 36 }}>{q.vol_5d.toFixed(1)}%</span>
-                    </span>
-                  </button>
-                );
-              })}
+                      <span style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                        <span className={styles.volBar}>
+                          <span className={styles.volBarFill} style={{ width: `${volPct}%` }} />
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 36 }}>{q.vol_5d.toFixed(1)}%</span>
+                      </span>
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
         </section>
