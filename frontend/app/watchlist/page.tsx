@@ -22,6 +22,15 @@ interface QuoteData {
     vol_5d: number;
 }
 
+interface AlertModal {
+    symbol: string;
+}
+
+interface DeleteConfirmModal {
+    symbol: string;
+    alertId: string;
+}
+
 export default function WatchlistPage() {
     const router = useRouter();
     const [list, setList] = useState<WatchItem[]>([]);
@@ -31,6 +40,11 @@ export default function WatchlistPage() {
     const [addSymbol, setAddSymbol] = useState('');
     const [adding, setAdding] = useState(false);
     const [error, setError] = useState('');
+    const [alertModal, setAlertModal] = useState<AlertModal | null>(null);
+    const [alertPrice, setAlertPrice] = useState('');
+    const [alertDirection, setAlertDirection] = useState<'above' | 'below'>('above');
+    const [alertSubmitting, setAlertSubmitting] = useState(false);
+    const [deleteConfirmModal, setDeleteConfirmModal] = useState<DeleteConfirmModal | null>(null);
 
     const fetchList = useCallback(async () => {
         setLoading(true);
@@ -104,36 +118,47 @@ export default function WatchlistPage() {
         }
     };
 
-    const handleAlert = async (symbol: string) => {
+    const handleAlert = (symbol: string) => {
         const existing = alerts.find((alert) => alert.symbol === symbol);
         if (existing) {
-            const confirmed = window.confirm(`${symbol} 已有提醒，是否刪除？`);
-            if (!confirmed) return;
-            try {
-                await api.deleteAlert(existing.id);
-                setAlerts((prev) => prev.filter((alert) => alert.id !== existing.id));
-            } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : '刪除提醒失敗';
-                setError(msg);
-            }
+            setDeleteConfirmModal({ symbol, alertId: existing.id });
             return;
         }
+        setAlertPrice('');
+        setAlertDirection('above');
+        setAlertModal({ symbol });
+    };
 
-        const targetRaw = window.prompt(`設定 ${symbol} 的提醒價格`, '');
-        if (!targetRaw) return;
-        const targetPrice = Number(targetRaw);
+    const handleAlertSubmit = async () => {
+        if (!alertModal) return;
+        const targetPrice = Number(alertPrice);
         if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
             setError('提醒價格格式不正確');
             return;
         }
-        const directionRaw = window.prompt('提醒方向：above（漲破）或 below（跌破）', 'above');
-        const direction = directionRaw === 'below' ? 'below' : 'above';
+        setAlertSubmitting(true);
         try {
-            await api.addAlert(symbol, targetPrice, direction);
+            await api.addAlert(alertModal.symbol, targetPrice, alertDirection);
+            setAlertModal(null);
             await fetchList();
         } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : '新增提醒失敗';
             setError(msg);
+        } finally {
+            setAlertSubmitting(false);
+        }
+    };
+
+    const handleDeleteAlertConfirm = async () => {
+        if (!deleteConfirmModal) return;
+        try {
+            await api.deleteAlert(deleteConfirmModal.alertId);
+            setAlerts((prev) => prev.filter((alert) => alert.id !== deleteConfirmModal.alertId));
+            setDeleteConfirmModal(null);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '刪除提醒失敗';
+            setError(msg);
+            setDeleteConfirmModal(null);
         }
     };
 
@@ -143,6 +168,7 @@ export default function WatchlistPage() {
         .sort((a, b) => Math.abs(b[1].change_pct) - Math.abs(a[1].change_pct));
 
     return (
+        <>
         <div className={styles.container}>
             {/* 新增 */}
             <div className={styles.addBar}>
@@ -272,5 +298,72 @@ export default function WatchlistPage() {
                 )}
             </div>
         </div>
+
+        {/* 新增提醒 Modal */}
+        {alertModal && (
+            <div className={styles.modalOverlay} onClick={() => setAlertModal(null)}>
+                <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                    <div className={styles.modalTitle}>設定 {alertModal.symbol} 價格提醒</div>
+                    <div className={styles.modalField}>
+                        <label className={styles.modalLabel}>提醒價格</label>
+                        <input
+                            className={styles.modalInput}
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="輸入目標價格"
+                            value={alertPrice}
+                            onChange={(e) => setAlertPrice(e.target.value)}
+                            autoFocus
+                            onKeyDown={(e) => e.key === 'Enter' && void handleAlertSubmit()}
+                        />
+                    </div>
+                    <div className={styles.modalField}>
+                        <label className={styles.modalLabel}>提醒方向</label>
+                        <div className={styles.radioGroup}>
+                            <label className={styles.radioLabel}>
+                                <input
+                                    type="radio"
+                                    value="above"
+                                    checked={alertDirection === 'above'}
+                                    onChange={() => setAlertDirection('above')}
+                                />
+                                漲破（≥ 目標價）
+                            </label>
+                            <label className={styles.radioLabel}>
+                                <input
+                                    type="radio"
+                                    value="below"
+                                    checked={alertDirection === 'below'}
+                                    onChange={() => setAlertDirection('below')}
+                                />
+                                跌破（≤ 目標價）
+                            </label>
+                        </div>
+                    </div>
+                    <div className={styles.modalActions}>
+                        <button className={styles.modalCancel} onClick={() => setAlertModal(null)}>取消</button>
+                        <button className={styles.modalConfirm} onClick={() => void handleAlertSubmit()} disabled={alertSubmitting}>
+                            {alertSubmitting ? '設定中...' : '確認設定'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* 刪除提醒確認 Modal */}
+        {deleteConfirmModal && (
+            <div className={styles.modalOverlay} onClick={() => setDeleteConfirmModal(null)}>
+                <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+                    <div className={styles.modalTitle}>刪除 {deleteConfirmModal.symbol} 的價格提醒？</div>
+                    <p className={styles.modalDesc}>此操作無法復原。</p>
+                    <div className={styles.modalActions}>
+                        <button className={styles.modalCancel} onClick={() => setDeleteConfirmModal(null)}>取消</button>
+                        <button className={styles.modalConfirmDanger} onClick={() => void handleDeleteAlertConfirm()}>確認刪除</button>
+                    </div>
+                </div>
+            </div>
+        )}
+        </>
     );
 }

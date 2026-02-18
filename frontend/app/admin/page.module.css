@@ -209,8 +209,14 @@
     width: 180px;
 }
 
+.userTableWrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
 .userTable {
     font-size: 13px;
+    min-width: 600px;
 }
 
 .tableHeader {
@@ -225,6 +231,11 @@
     letter-spacing: 0.05em;
 }
 
+.tableHeaderExtended {
+    grid-template-columns: 2fr 1fr 1fr 1fr 60px 60px 60px 110px;
+    min-width: 860px;
+}
+
 .tableRow {
     display: grid;
     grid-template-columns: 2fr 1fr 1fr 120px;
@@ -232,6 +243,18 @@
     align-items: center;
     border-bottom: 1px solid var(--border-subtle);
     transition: background 0.1s;
+}
+
+.tableRowExtended {
+    grid-template-columns: 2fr 1fr 1fr 1fr 60px 60px 60px 110px;
+    min-width: 860px;
+}
+
+.tableNum {
+    color: var(--text-2);
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 12px;
 }
 
 .tableRow:hover {
@@ -330,6 +353,97 @@
     text-align: center;
     color: var(--text-3);
     font-size: 14px;
+}
+
+/* ── System Panel ── */
+.systemPanel {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.systemRow {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.systemMetric {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.systemLabel {
+    font-size: 11px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.systemValue {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-1);
+    font-family: var(--font-heading);
+}
+
+.latencyGreen {
+    font-size: 18px;
+    font-weight: 700;
+    color: #34d399;
+    font-family: var(--font-mono);
+}
+
+.latencyYellow {
+    font-size: 18px;
+    font-weight: 700;
+    color: #fbbf24;
+    font-family: var(--font-mono);
+}
+
+.latencyRed {
+    font-size: 18px;
+    font-weight: 700;
+    color: #f87171;
+    font-family: var(--font-mono);
+}
+
+.apiKeysSection {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 16px;
+}
+
+.apiKeysList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.apiKeyRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--bg-elevated);
+    border-radius: 8px;
+    gap: 12px;
+}
+
+.apiKeyMasked {
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-2);
+    word-break: break-all;
+}
+
+.apiKeyCalls {
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 @media (max-width: 768px) {

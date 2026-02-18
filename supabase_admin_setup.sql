@@ -64,7 +64,22 @@ CREATE TABLE IF NOT EXISTS public.portfolios (
   UNIQUE(user_id, symbol)
 );
 
+-- 5) 價格提醒 price_alerts
+CREATE TABLE IF NOT EXISTS public.price_alerts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  symbol TEXT NOT NULL,
+  target_price NUMERIC(12,4) NOT NULL,
+  condition TEXT NOT NULL CHECK (condition IN ('gte','lte')),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  triggered_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS price_alerts_user_idx ON public.price_alerts(user_id);
+
 -- RLS（可依需求調整）
 ALTER TABLE public.user_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ai_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.portfolios ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.price_alerts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON public.price_alerts TO service_role USING (TRUE) WITH CHECK (TRUE);

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -225,6 +226,52 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/admin/system")
+async def get_system_status(request: Request):
+    """System status: API key usage, Supabase latency, server uptime."""
+    _require_admin(request)
+    try:
+        from services.gemini_service import get_key_usage_stats
+        import main as _main
+
+        # API key usage
+        api_keys = get_key_usage_stats()
+
+        # Supabase latency
+        supabase_latency_ms: Optional[float] = None
+        try:
+            from adapters.supabase_adapter import supabase_adapter
+            import httpx as _httpx
+
+            url, _, service_key = supabase_adapter._get_config()
+            if url and service_key:
+                t0 = time.time()
+                with _httpx.Client(timeout=5.0) as _c:
+                    _c.get(
+                        f"{url}/rest/v1/users",
+                        headers={
+                            "apikey": service_key,
+                            "Authorization": f"Bearer {service_key}",
+                        },
+                        params={"select": "id", "limit": "1"},
+                    )
+                supabase_latency_ms = round((time.time() - t0) * 1000, 1)
+        except Exception:
+            supabase_latency_ms = None
+
+        # Server uptime
+        startup_time = getattr(_main, "_startup_time", None)
+        uptime_sec = round(time.time() - startup_time) if startup_time else None
+
+        return {
+            "api_keys": api_keys,
+            "supabase_latency_ms": supabase_latency_ms,
+            "server_uptime_sec": uptime_sec,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

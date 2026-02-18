@@ -317,6 +317,151 @@
     animation: spin 1s linear infinite;
 }
 
+/* ── Modal ── */
+.modalOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    padding: 16px;
+}
+
+.modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px 24px 20px;
+    width: 100%;
+    max-width: 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.modalTitle {
+    font-family: var(--font-heading);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-1);
+}
+
+.modalDesc {
+    font-size: 13px;
+    color: var(--text-3);
+    margin: 0;
+}
+
+.modalField {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.modalLabel {
+    font-size: 12px;
+    color: var(--text-3);
+    font-weight: 500;
+}
+
+.modalInput {
+    padding: 10px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-family: var(--font-mono);
+    font-size: 15px;
+    outline: none;
+    transition: border-color var(--duration-fast);
+}
+
+.modalInput:focus {
+    border-color: var(--accent);
+}
+
+.radioGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.radioLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.radioLabel input[type='radio'] {
+    accent-color: var(--accent);
+    width: 14px;
+    height: 14px;
+}
+
+.modalActions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 4px;
+}
+
+.modalCancel {
+    padding: 9px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-2);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all var(--duration-fast);
+}
+
+.modalCancel:hover {
+    background: var(--bg-hover);
+}
+
+.modalConfirm {
+    padding: 9px 18px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background var(--duration-fast);
+}
+
+.modalConfirm:hover {
+    background: var(--accent-solid);
+}
+
+.modalConfirm:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.modalConfirmDanger {
+    padding: 9px 18px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--danger);
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity var(--duration-fast);
+}
+
+.modalConfirmDanger:hover {
+    opacity: 0.85;
+}
+
 @media (max-width: 640px) {
     .listItem {
         grid-template-columns: 1fr auto auto;

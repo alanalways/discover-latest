@@ -16,6 +16,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import time
+_startup_time = time.time()
+
 # 將 backend/ 的上層目錄加入 sys.path，讓 services/adapters 可以 import
 ROOT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT_DIR))

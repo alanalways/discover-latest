@@ -24,6 +24,10 @@ interface UserItem {
   name?: string;
   tier: string;
   created_at?: string;
+  last_sign_in_at?: string;
+  ai_usage_today?: number;
+  ai_usage_total?: number;
+  watchlist_count?: number;
 }
 
 interface PendingUpgradeItem {
@@ -43,6 +47,17 @@ interface Stats {
   pending_upgrade_count?: number;
 }
 
+interface ApiKeyUsage {
+  masked: string;
+  calls: number;
+}
+
+interface SystemStatus {
+  api_keys: ApiKeyUsage[];
+  supabase_latency_ms: number | null;
+  server_uptime_sec: number | null;
+}
+
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
     if (error.status === 401) return '登入已失效，請重新登入後再試。';
@@ -59,6 +74,7 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<UserItem[]>([]);
   const [pending, setPending] = useState<PendingUpgradeItem[]>([]);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState('');
@@ -116,7 +132,7 @@ export default function AdminPage() {
     setLoading(true);
     setError('');
     try {
-      const [statsRes, usersRes, pendingRes] = await Promise.all([
+      const [statsRes, usersRes, pendingRes, sysRes] = await Promise.all([
         apiClient.fetch<Stats>('/api/admin/stats', { method: 'GET' }).catch(() => null),
         apiClient
           .fetch<{ users: UserItem[] }>('/api/admin/users', { method: 'GET' })
@@ -124,10 +140,12 @@ export default function AdminPage() {
         apiClient
           .fetch<{ pending: PendingUpgradeItem[] }>('/api/admin/upgrade-pending', { method: 'GET' })
           .catch(() => ({ pending: [] })),
+        apiClient.fetch<SystemStatus>('/api/admin/system', { method: 'GET' }).catch(() => null),
       ]);
       if (statsRes) setStats(statsRes);
       setUsers(usersRes?.users || []);
       setPending(pendingRes?.pending || []);
+      if (sysRes) setSystemStatus(sysRes);
     } catch (e) {
       console.error('[Admin] loadData failed:', e);
       setError(getErrorMessage(e, '載入管理資料失敗，請稍後再試。'));
@@ -410,15 +428,20 @@ export default function AdminPage() {
         {loading ? (
           <div className={styles.loadingText}>載入中...</div>
         ) : (
+          <div className={styles.userTableWrap}>
           <div className={styles.userTable}>
-            <div className={styles.tableHeader}>
+            <div className={`${styles.tableHeader} ${styles.tableHeaderExtended}`}>
               <span>Email</span>
               <span>名稱</span>
               <span>方案</span>
+              <span>最後上線</span>
+              <span>今日 AI</span>
+              <span>累計 AI</span>
+              <span>自選股</span>
               <span>操作</span>
             </div>
             {filteredUsers.map((u) => (
-              <div key={u.id} className={styles.tableRow}>
+              <div key={u.id} className={`${styles.tableRow} ${styles.tableRowExtended}`}>
                 <span className={styles.email}>
                   <span className={styles.mobileLabel}>Email</span>
                   {u.email}
@@ -430,6 +453,22 @@ export default function AdminPage() {
                 <span className={styles.tierCell}>
                   <span className={styles.mobileLabel}>方案</span>
                   {getTierIcon(u.tier)} {u.tier}
+                </span>
+                <span className={styles.tableMeta}>
+                  <span className={styles.mobileLabel}>最後上線</span>
+                  {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('zh-TW') : '-'}
+                </span>
+                <span className={styles.tableNum}>
+                  <span className={styles.mobileLabel}>今日 AI</span>
+                  {u.ai_usage_today ?? 0}
+                </span>
+                <span className={styles.tableNum}>
+                  <span className={styles.mobileLabel}>累計 AI</span>
+                  {u.ai_usage_total ?? 0}
+                </span>
+                <span className={styles.tableNum}>
+                  <span className={styles.mobileLabel}>自選股</span>
+                  {u.watchlist_count ?? 0}
                 </span>
                 <select
                   value={u.tier}
@@ -444,6 +483,61 @@ export default function AdminPage() {
             ))}
             {filteredUsers.length === 0 && <div className={styles.emptyRow}>沒有符合條件的使用者。</div>}
           </div>
+          </div>
+        )}
+      </div>
+
+      {/* System Status Panel */}
+      <div className={styles.section} style={{ marginTop: 16 }}>
+        <div className={styles.sectionHeader}>
+          <h3>系統狀態</h3>
+        </div>
+        {systemStatus ? (
+          <div className={styles.systemPanel}>
+            <div className={styles.systemRow}>
+              <div className={styles.systemMetric}>
+                <span className={styles.systemLabel}>Supabase 延遲</span>
+                {systemStatus.supabase_latency_ms !== null ? (
+                  <span className={
+                    systemStatus.supabase_latency_ms < 100 ? styles.latencyGreen
+                    : systemStatus.supabase_latency_ms < 300 ? styles.latencyYellow
+                    : styles.latencyRed
+                  }>
+                    {systemStatus.supabase_latency_ms} ms
+                  </span>
+                ) : (
+                  <span className={styles.latencyRed}>N/A</span>
+                )}
+              </div>
+              <div className={styles.systemMetric}>
+                <span className={styles.systemLabel}>伺服器啟動時長</span>
+                <span className={styles.systemValue}>
+                  {systemStatus.server_uptime_sec !== null
+                    ? systemStatus.server_uptime_sec >= 3600
+                      ? `${Math.floor(systemStatus.server_uptime_sec / 3600)}h ${Math.floor((systemStatus.server_uptime_sec % 3600) / 60)}m`
+                      : systemStatus.server_uptime_sec >= 60
+                      ? `${Math.floor(systemStatus.server_uptime_sec / 60)}m`
+                      : `${systemStatus.server_uptime_sec}s`
+                    : 'N/A'}
+                </span>
+              </div>
+            </div>
+            {systemStatus.api_keys.length > 0 && (
+              <div className={styles.apiKeysSection}>
+                <div className={styles.systemLabel} style={{ marginBottom: 8 }}>API Key 使用量</div>
+                <div className={styles.apiKeysList}>
+                  {systemStatus.api_keys.map((k) => (
+                    <div key={k.masked} className={styles.apiKeyRow}>
+                      <span className={styles.apiKeyMasked}>{k.masked}</span>
+                      <span className={styles.apiKeyCalls}>{k.calls} 次</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className={styles.loadingText}>載入中...</div>
         )}
       </div>
     </div>

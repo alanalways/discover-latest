@@ -97,6 +97,8 @@ TIER_EXTRA = {
 _key_pool: List[str] = []
 _key_index = 0
 _key_lock = threading.Lock()
+_key_usage_counts: Dict[str, int] = {}
+_key_usage_lock = threading.Lock()
 
 _metrics_cache: Dict[str, Dict[str, Any]] = {}
 _metrics_cache_lock = threading.Lock()
@@ -146,6 +148,13 @@ def _load_key_pool() -> List[str]:
     return []
 
 
+def _mask_key(key: str) -> str:
+    """Return a masked version of the key for display: first 8 + ... + last 4 chars."""
+    if not key or len(key) < 12:
+        return key[:4] + "..." if key else "***"
+    return key[:8] + "..." + key[-4:]
+
+
 def _get_next_key() -> str:
     global _key_index
     pool = _load_key_pool()
@@ -154,7 +163,18 @@ def _get_next_key() -> str:
     with _key_lock:
         key = pool[_key_index % len(pool)]
         _key_index += 1
+    # Record usage count
+    masked = _mask_key(key)
+    with _key_usage_lock:
+        _key_usage_counts[masked] = _key_usage_counts.get(masked, 0) + 1
     return key
+
+
+def get_key_usage_stats() -> List[Dict[str, Any]]:
+    """Return API key usage counts as [{"masked": str, "calls": int}, ...]."""
+    with _key_usage_lock:
+        snapshot = dict(_key_usage_counts)
+    return [{"masked": k, "calls": v} for k, v in sorted(snapshot.items(), key=lambda x: -x[1])]
 
 
 class GeminiService:

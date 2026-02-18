@@ -375,7 +375,7 @@ class SupabaseAdapter:
         return {"tier": "free", "expires_at": None}
 
     def get_all_users(self) -> List[Dict[str, Any]]:
-        """??????????????????"""
+        """取得所有使用者（含 last_sign_in_at, ai_usage_today, ai_usage_total, watchlist_count）"""
         public_users = self._request(
             "GET",
             "users",
@@ -398,11 +398,15 @@ class SupabaseAdapter:
                     "name": row.get("name") or "",
                     "tier": row.get("tier") or "free",
                     "created_at": row.get("created_at"),
+                    "last_sign_in_at": None,
+                    "ai_usage_today": 0,
+                    "ai_usage_total": 0,
+                    "watchlist_count": 0,
                 }
 
-        # ??? auth.users?????public.users ?????????????????????
+        # Fetch auth.users to fill gaps + last_sign_in_at
         auth_users: List[Dict[str, Any]] = []
-        for page in range(1, 11):  # ????? 2000 ??
+        for page in range(1, 11):  # up to 2000 users
             rows = self.auth_admin_list_users(page=page, per_page=200)
             if not rows:
                 break
@@ -425,13 +429,77 @@ class SupabaseAdapter:
             )
             email = row.get("email") or (merged.get(uid) or {}).get("email") or ""
             created_at = row.get("created_at") or (merged.get(uid) or {}).get("created_at")
+            last_sign_in_at = row.get("last_sign_in_at")
             merged[uid] = {
                 "id": uid,
                 "email": email,
                 "name": name,
                 "tier": tier,
                 "created_at": created_at,
+                "last_sign_in_at": last_sign_in_at,
+                "ai_usage_today": (merged.get(uid) or {}).get("ai_usage_today", 0),
+                "ai_usage_total": (merged.get(uid) or {}).get("ai_usage_total", 0),
+                "watchlist_count": (merged.get(uid) or {}).get("watchlist_count", 0),
             }
+
+        # Batch fetch ai_usage (today + total) — avoid N+1
+        today = self._ai_usage_today()
+        try:
+            ai_all = self._request(
+                "GET",
+                "ai_usage",
+                params={"select": "user_id,date,count"},
+                use_service_key=True,
+                silent=True,
+            )
+            if isinstance(ai_all, list):
+                ai_today_map: Dict[str, int] = {}
+                ai_total_map: Dict[str, int] = {}
+                for row in ai_all:
+                    if not isinstance(row, dict):
+                        continue
+                    uid = str(row.get("user_id") or "").strip()
+                    if not uid:
+                        continue
+                    try:
+                        cnt = int(row.get("count") or 0)
+                    except Exception:
+                        cnt = 0
+                    ai_total_map[uid] = ai_total_map.get(uid, 0) + cnt
+                    if str(row.get("date") or "") == today:
+                        ai_today_map[uid] = ai_today_map.get(uid, 0) + cnt
+                for uid, user_row in merged.items():
+                    user_row["ai_usage_today"] = ai_today_map.get(uid, 0)
+                    user_row["ai_usage_total"] = ai_total_map.get(uid, 0)
+        except Exception:
+            pass
+
+        # Batch fetch watchlist counts
+        try:
+            for table in ("watchlist", "watchlists"):
+                wl_all = self._request(
+                    "GET",
+                    table,
+                    params={"select": "user_id"},
+                    use_service_key=True,
+                    silent=True,
+                )
+                if isinstance(wl_all, list) and wl_all:
+                    wl_count_map: Dict[str, int] = {}
+                    for row in wl_all:
+                        if not isinstance(row, dict):
+                            continue
+                        uid = str(row.get("user_id") or "").strip()
+                        if uid:
+                            wl_count_map[uid] = wl_count_map.get(uid, 0) + 1
+                    for uid, user_row in merged.items():
+                        user_row["watchlist_count"] = max(
+                            user_row.get("watchlist_count", 0),
+                            wl_count_map.get(uid, 0),
+                        )
+                    break  # stop after first working table
+        except Exception:
+            pass
 
         users = list(merged.values())
         users.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
@@ -666,11 +734,14 @@ class SupabaseAdapter:
             pass
         return any_success
 
-    def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> bool:
-        """?????????direction=above|below"""
+    def add_alert(self, user_id: str, symbol: str, target_price: float, direction: str) -> tuple:
+        """新增價格提醒 direction=above|below，回傳 (ok: bool, err: str)"""
         condition = "gte" if direction == "above" else "lte"
         result = self.create_user_alert(user_id, symbol, target_price, condition)
-        return bool(result and result.get("success"))
+        if result and result.get("success"):
+            return True, ""
+        err = (result or {}).get("error", "Supabase 寫入失敗")
+        return False, str(err)[:200]
 
     def delete_alert(self, alert_id: str, user_id: str) -> bool:
         """????????"""

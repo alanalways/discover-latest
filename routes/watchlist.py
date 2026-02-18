@@ -221,16 +221,14 @@ async def add_alert(req: AlertAddRequest, request: Request):
         else:
             raise HTTPException(status_code=400, detail="direction 只接受 above/below/gte/lte")
 
-        ok = bool(
-            supabase_adapter.add_alert(
-                user_id=user_id,
-                symbol=symbol,
-                target_price=req.target_price,
-                direction=normalized_direction,
-            )
+        ok, err_detail = supabase_adapter.add_alert(
+            user_id=user_id,
+            symbol=symbol,
+            target_price=req.target_price,
+            direction=normalized_direction,
         )
         if not ok:
-            raise HTTPException(status_code=500, detail="新增價格提醒失敗")
+            raise HTTPException(status_code=500, detail=f"新增價格提醒失敗: {err_detail}")
         return {"success": True}
     except HTTPException:
         raise
