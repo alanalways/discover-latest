@@ -154,6 +154,19 @@
     color: #c4b5fd;
 }
 
+.personalityBadge {
+    display: none;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    background: rgba(167, 139, 250, 0.1);
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    border-radius: 999px;
+    font-size: 11px;
+    color: #c4b5fd;
+    white-space: nowrap;
+}
+
 .userMenuWrap {
     position: relative;
 }
@@ -275,6 +288,10 @@
     }
 
     .tierBadge {
+        display: inline-flex;
+    }
+
+    .personalityBadge {
         display: inline-flex;
     }
 }

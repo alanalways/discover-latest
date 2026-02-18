@@ -9,6 +9,13 @@ import { startRouteProgress } from '@/components/layout/RouteProgress';
 import api from '@/lib/api';
 import styles from './Topbar.module.css';
 
+const PERSONALITY_EMOJI: Record<string, string> = {
+    guardian: '🛡️',
+    hunter: '🎯',
+    surfer: '🏄',
+    explorer: '🔍',
+};
+
 interface TopbarProps {
     onMenuClick?: () => void;
 }
@@ -165,6 +172,16 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
                     {user ? (
                         <>
                             <span className={tierClassName}>{tierLabel}</span>
+
+                            {user.investorProfile && (
+                                <span
+                                    className={styles.personalityBadge}
+                                    title={user.investorProfile.name}
+                                >
+                                    {PERSONALITY_EMOJI[user.investorProfile.type] ?? '✨'}{' '}
+                                    {user.investorProfile.name}
+                                </span>
+                            )}
 
                             <div className={styles.userMenuWrap} ref={userMenuRef}>
                                 <button

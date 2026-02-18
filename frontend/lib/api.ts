@@ -606,6 +606,7 @@ export class ApiClient {
     async submitInvestorQuiz(answers: number[], occupation: string = 'other', income: string = '50k_100k') {
         return this.fetch<{
             success: boolean;
+            saved?: boolean;
             profile: {
                 primary: string;
                 secondary: string;
@@ -619,7 +620,6 @@ export class ApiClient {
         }>('/api/growth/investor-quiz', {
             method: 'POST',
             body: JSON.stringify({ answers, occupation, income }),
-            skipAuth: true,
         });
     }
 

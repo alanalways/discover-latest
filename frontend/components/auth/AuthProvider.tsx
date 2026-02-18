@@ -10,6 +10,7 @@ interface User {
     picture?: string;
     tier: 'free' | 'pro' | 'premium';
     createdAt?: string;
+    investorProfile?: { type: string; name: string };
     userMetadata?: {
         full_name?: string;
         avatar_url?: string;
@@ -17,6 +18,7 @@ interface User {
         is_admin?: boolean;
         role?: string;
         roles?: string[];
+        investor_profile?: { type: string; name: string };
     };
     appMetadata?: {
         is_admin?: boolean;
@@ -42,6 +44,7 @@ function normalizeUser(raw: unknown): User | null {
             is_admin?: boolean;
             role?: string;
             roles?: string[];
+            investor_profile?: { type: string; name: string };
         };
         app_metadata?: {
             is_admin?: boolean;
@@ -57,6 +60,13 @@ function normalizeUser(raw: unknown): User | null {
     const tier = data.tier || metadata.tier || 'free';
     const name = data.name || metadata.full_name || data.email || '使用者';
     const picture = data.picture || data.avatar_url || metadata.avatar_url;
+    const rawProfile = metadata.investor_profile;
+    const investorProfile =
+        rawProfile && typeof rawProfile === 'object' &&
+        typeof (rawProfile as { type?: unknown }).type === 'string' &&
+        typeof (rawProfile as { name?: unknown }).name === 'string'
+            ? { type: (rawProfile as { type: string }).type, name: (rawProfile as { name: string }).name }
+            : undefined;
 
     return {
         id: data.id,
@@ -65,6 +75,7 @@ function normalizeUser(raw: unknown): User | null {
         picture,
         tier,
         createdAt: data.created_at,
+        investorProfile,
         userMetadata: metadata,
         appMetadata,
     };

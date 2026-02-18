@@ -830,6 +830,20 @@ class SupabaseAdapter:
             return str(user.get("tier")).strip().lower()
         return 'free'
     
+    def save_investor_profile(self, user_id: str, profile_type: str, profile_name: str) -> bool:
+        """儲存投資人個性至 auth.users.user_metadata.investor_profile"""
+        try:
+            auth_user = self.auth_admin_get_user_by_id(user_id) or {}
+            metadata = auth_user.get("user_metadata") if isinstance(auth_user.get("user_metadata"), dict) else {}
+            metadata["investor_profile"] = {"type": profile_type, "name": profile_name}
+            result = self._auth_admin_request(
+                "PUT", f"admin/users/{user_id}",
+                json={"user_metadata": metadata},
+            )
+            return result is not None
+        except Exception:
+            return False
+
     def update_user_tier(self, user_id: str, tier: str, expires_at: Optional[str] = None) -> bool:
         """???????????? admin ?????"""
         ok = False

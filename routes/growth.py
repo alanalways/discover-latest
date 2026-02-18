@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from services.investor_quiz import calculate_profile
@@ -20,14 +20,44 @@ class InvestorQuizRequest(BaseModel):
     income: str = "50k_100k"
 
 
+def _extract_user_id_optional(auth_header: str) -> Optional[str]:
+    """可選 Auth：token 存在就解析 user_id，失敗靜默回 None。"""
+    if not auth_header.startswith("Bearer "):
+        return None
+    token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        return None
+    try:
+        from services.auth_service import auth_service
+        user = auth_service.verify_session(token)
+        return user.get("id") if user else None
+    except Exception:
+        return None
+
+
 @router.post("/growth/investor-quiz")
-async def investor_quiz(req: InvestorQuizRequest):
+async def investor_quiz(req: InvestorQuizRequest, request: Request):
     profile = calculate_profile(
         answers=req.answers,
         occupation=req.occupation,
         income=req.income,
     )
-    return {"success": True, "profile": profile}
+
+    saved = False
+    auth_header = request.headers.get("Authorization", "")
+    user_id = _extract_user_id_optional(auth_header)
+    if user_id:
+        try:
+            from adapters.supabase_adapter import supabase_adapter
+            saved = supabase_adapter.save_investor_profile(
+                user_id=user_id,
+                profile_type=profile["primary"],
+                profile_name=profile["profile_name"],
+            )
+        except Exception:
+            saved = False
+
+    return {"success": True, "profile": profile, "saved": saved}
 
 
 @router.get("/growth/scanner")

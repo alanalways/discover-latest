@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ChevronRight, Loader2, Sparkles, User } from 'lucide-react';
 import api from '@/lib/api';
+import { useAuth } from '@/components/auth/AuthProvider';
 import styles from './page.module.css';
 
 /* ── Constants ── */
@@ -92,11 +93,13 @@ const PROFILE_DETAIL: Record<string, { emoji: string; desc: string; tips: string
 
 /* ── Component ── */
 export default function QuizPage() {
+    const { user, refreshUser } = useAuth();
     const [step, setStep] = useState(0); // 0 = intro, 1..10 = 問題, 11 = 補充, 12 = 結果
     const [answers, setAnswers] = useState<number[]>(new Array(10).fill(0));
     const [occupation, setOccupation] = useState('salaried');
     const [income, setIncome] = useState('50k_100k');
     const [loading, setLoading] = useState(false);
+    const [profileSaved, setProfileSaved] = useState(false);
     const [profile, setProfile] = useState<{
         primary: string;
         secondary: string;
@@ -123,7 +126,11 @@ export default function QuizPage() {
             const res = await api.submitInvestorQuiz(answers, occupation, income);
             if (res.success && res.profile) {
                 setProfile(res.profile);
+                setProfileSaved(res.saved === true);
                 setStep(12);
+                if (res.saved && user) {
+                    void refreshUser();
+                }
             }
         } catch {
             // 靜默失敗
@@ -136,6 +143,7 @@ export default function QuizPage() {
         setStep(0);
         setAnswers(new Array(10).fill(0));
         setProfile(null);
+        setProfileSaved(false);
     };
 
     /* ── Intro ── */
@@ -281,6 +289,10 @@ export default function QuizPage() {
                             ))}
                         </ul>
                     </div>
+
+                    {profileSaved && (
+                        <p className={styles.savedNotice}>✓ 已儲存到您的個人資料</p>
+                    )}
 
                     <div className={styles.resultActions}>
                         <button className={styles.restartBtn} onClick={restart}>
