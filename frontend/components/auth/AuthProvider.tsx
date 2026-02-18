@@ -85,6 +85,7 @@ interface AuthContextType {
     user: User | null;
     token: string | null;
     isLoggedIn: boolean;
+    isInitialized: boolean;
     login: (token: string) => Promise<void>;
     logout: () => void;
     refreshUser: () => Promise<void>;
@@ -96,6 +97,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     token: null,
     isLoggedIn: false,
+    isInitialized: false,
     login: async () => { },
     logout: () => { },
     refreshUser: async () => { },
@@ -109,6 +111,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     const [user, setUser] = useState<User | null>(null);
     const [token, setToken] = useState<string | null>(null);
     const [showLoginModal, setShowLoginModal] = useState(false);
+    const [isInitialized, setIsInitialized] = useState(false);
 
     const clearAuthState = useCallback((redirectHome: boolean) => {
         setUser(null);
@@ -152,10 +155,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     // 初始化檢查 Token
     useEffect(() => {
         const storedToken = typeof window !== 'undefined' ? localStorage.getItem('dl_token') : null;
-        if (!storedToken) return;
+        if (!storedToken) {
+            setIsInitialized(true);
+            return;
+        }
         setToken(storedToken);
         api.setToken(storedToken);
-        void fetchUser();
+        void fetchUser().finally(() => setIsInitialized(true));
     }, [fetchUser]);
 
     useEffect(() => {
@@ -210,6 +216,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
             user,
             token,
             isLoggedIn: !!user,
+            isInitialized,
             login,
             logout,
             refreshUser,

@@ -47,11 +47,11 @@ _top20_refresh_lock = threading.Lock()
 # 指數：direct_symbol 為 FinMind 原生指數代號（優先嘗試）；
 # proxy_symbol 為 ETF 代號（僅用於確認資料可用性，不作為指數數值）。
 _INDEX_TICKERS = {
-    "TAIEX": {"name": "加權指數", "display": "TAIEX", "direct_symbol": "Y9999", "proxy_symbol": "0050", "type": "tw"},
-    "SPX":   {"name": "S&P 500",  "display": "SPX",   "proxy_symbol": "SPY",  "type": "us"},
-    "IXIC":  {"name": "NASDAQ",   "display": "IXIC",  "proxy_symbol": "QQQ",  "type": "us"},
-    "DJI":   {"name": "道瓊指數", "display": "DJI",   "proxy_symbol": "DIA",  "type": "us"},
-    "SOX":   {"name": "費半指數", "display": "SOX",   "proxy_symbol": "SOXX", "type": "us"},
+    "TAIEX": {"name": "加權指數", "display": "TAIEX"},
+    "SPX":   {"name": "S&P 500",  "display": "SPX"},
+    "IXIC":  {"name": "NASDAQ",   "display": "IXIC"},
+    "DJI":   {"name": "道瓊指數", "display": "DJI"},
+    "SOX":   {"name": "費半指數", "display": "SOX"},
 }
 
 _ETF_TICKERS = {
@@ -296,10 +296,10 @@ def _pick_latest_and_prev(rows: List[Dict]) -> Optional[Dict[str, float]]:
 # ──────────────────────────────────────
 # Gemini grounding — 美股指數備用
 # ──────────────────────────────────────
-def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
+def _fetch_indices_via_gemini() -> Dict[str, Dict]:
     """
-    使用 Gemini 2.5 Flash + Google Search grounding 取得美股指數即時數據。
-    回傳格式：{"SPX": {"value": 6000.0, "change": 10.5, "change_pct": 0.17}, ...}
+    使用 Gemini 2.5 Flash + Google Search grounding 取得全球主要指數即時數據。
+    回傳格式：{"TAIEX": {"value": 23000.0, "change": 100.5, "change_pct": 0.44}, "SPX": {...}, ...}
     TTL 快取 300s，不重複呼叫 API。
     """
     global _gemini_indices_cache
@@ -318,19 +318,25 @@ def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
 
         api_key = gemini_service.get_api_key()
         if not api_key:
-            logger.debug("[Market] Gemini US indices: no API key")
+            logger.warning("[Market] Gemini indices: no API key configured")
             return {}
 
         today = datetime.now().strftime("%Y-%m-%d")
         prompt = (
-            "Use Google Search to find today's closing or latest US stock market index values. "
+            "Use Google Search to find today's closing or latest stock market index values for: "
+            "1) Taiwan Weighted Index (TAIEX / 加權指數), "
+            "2) S&P 500 (SPX), "
+            "3) NASDAQ Composite (IXIC), "
+            "4) Dow Jones Industrial Average (DJI), "
+            "5) Philadelphia Semiconductor Index (SOX). "
             "Return strict JSON only — no markdown, no explanation. "
             "Schema: "
-            '{"SPX":{"value":number,"change":number,"change_pct":number},'
+            '{"TAIEX":{"value":number,"change":number,"change_pct":number},'
+            '"SPX":{"value":number,"change":number,"change_pct":number},'
             '"IXIC":{"value":number,"change":number,"change_pct":number},'
             '"DJI":{"value":number,"change":number,"change_pct":number},'
             '"SOX":{"value":number,"change":number,"change_pct":number}}. '
-            "value = current index level (e.g. 5900.5 for S&P 500), "
+            "value = current index level (e.g. 23000 for TAIEX, 5900 for S&P 500), "
             "change = point change vs previous close, "
             "change_pct = percentage change vs previous close (e.g. 0.17 for +0.17%). "
             f"Reference date: {today}."
@@ -344,7 +350,7 @@ def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                     temperature=0.1,
-                    max_output_tokens=256,
+                    max_output_tokens=400,
                 ),
             )
 
@@ -354,10 +360,10 @@ def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
             response = fut.result(timeout=18)
         except FuturesTimeoutError:
             fut.cancel()
-            logger.debug("[Market] Gemini US indices: timeout")
+            logger.warning("[Market] Gemini indices: timeout (18s)")
             return {}
         except Exception as e:
-            logger.debug(f"[Market] Gemini US indices call error: {e}")
+            logger.warning(f"[Market] Gemini indices call error: {e}")
             return {}
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
@@ -367,11 +373,11 @@ def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
         from services.gemini_service import GeminiService
         parsed = GeminiService._extract_json_object(text_out)
         if not parsed:
-            logger.debug(f"[Market] Gemini US indices: empty/invalid JSON: {text_out[:120]}")
+            logger.warning(f"[Market] Gemini indices: empty/invalid JSON: {text_out[:200]}")
             return {}
 
         result: Dict[str, Dict] = {}
-        for key in ("SPX", "IXIC", "DJI", "SOX"):
+        for key in ("TAIEX", "SPX", "IXIC", "DJI", "SOX"):
             entry = parsed.get(key)
             if not isinstance(entry, dict):
                 continue
@@ -386,12 +392,14 @@ def _fetch_us_indices_via_gemini() -> Dict[str, Dict]:
 
         if result:
             _gemini_indices_cache = {"data": result, "ts": now}
-            logger.info(f"[Market] Gemini US indices OK: {list(result.keys())}")
+            logger.info(f"[Market] Gemini indices OK: {list(result.keys())}")
+        else:
+            logger.warning(f"[Market] Gemini indices: parsed OK but no valid entries. Raw: {text_out[:200]}")
 
         return result
 
     except Exception as e:
-        logger.debug(f"[Market] Gemini US indices error: {e}")
+        logger.warning(f"[Market] Gemini indices error: {e}")
         return {}
 
 
@@ -426,67 +434,27 @@ def _fetch_market_data() -> Dict[str, list]:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
-        # 美股指數：FinMind proxy ETF 價格 ≠ 指數點位，改用 Gemini grounding 取即時數值
-        gemini_us = _fetch_us_indices_via_gemini()
+        # 全部指數（含 TAIEX）改用 Gemini grounding 取即時數值
+        # FinMind free plan 無法取得指數點位，proxy ETF 價格 ≠ 指數
+        gemini_idx = _fetch_indices_via_gemini()
 
         for key, meta in _INDEX_TICKERS.items():
-            try:
-                direct_symbol = meta.get("direct_symbol")
-                fm_data = None
-
-                if meta["type"] == "tw":
-                    # Try direct index symbol first (e.g. Y9999 = TAIEX on FinMind)
-                    if direct_symbol:
-                        try:
-                            fm_data = finmind_adapter.get_tw_stock_price_sync(direct_symbol, start, end)
-                        except Exception:
-                            fm_data = None
-                    # Do NOT fall back to proxy ETF (0050 price ≠ TAIEX index level)
-                    picked = _pick_latest_and_prev(fm_data or [])
-                    if picked:
-                        price = picked["price"]
-                        chg = picked["change"]
-                        pct = picked["change_pct"]
-                        indices.append({
-                            "name": meta["name"],
-                            "symbol": meta["display"],
-                            "value": f"{price:,.2f}",
-                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                            "color": "green" if chg >= 0 else "red",
-                        })
-                    else:
-                        indices.append({"name": meta["name"], "symbol": meta["display"],
-                                        "value": "--", "change": "--", "change_pct": "--", "color": "gray"})
-                else:
-                    # US indices: use Gemini grounding result (actual index levels)
-                    g = gemini_us.get(key)
-                    if g:
-                        price = g["value"]
-                        chg = g["change"]
-                        pct = g["change_pct"]
-                        indices.append({
-                            "name": meta["name"],
-                            "symbol": meta["display"],
-                            "value": f"{price:,.2f}",
-                            "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
-                            "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
-                            "color": "green" if chg >= 0 else "red",
-                        })
-                    else:
-                        indices.append({"name": meta["name"], "symbol": meta["display"],
-                                        "value": "--", "change": "--", "change_pct": "--", "color": "gray"})
-
-            except Exception as e:
-                logger.debug(f"[Market] index {meta.get('display')}: {e}")
+            g = gemini_idx.get(key)
+            if g:
+                price = g["value"]
+                chg = g["change"]
+                pct = g["change_pct"]
                 indices.append({
                     "name": meta["name"],
                     "symbol": meta["display"],
-                    "value": "--",
-                    "change": "--",
-                    "change_pct": "--",
-                    "color": "gray",
+                    "value": f"{price:,.2f}",
+                    "change": f"{'+' if chg >= 0 else ''}{chg:,.2f}",
+                    "change_pct": f"{'+' if pct >= 0 else ''}{pct:.2f}%",
+                    "color": "green" if chg >= 0 else "red",
                 })
+            else:
+                indices.append({"name": meta["name"], "symbol": meta["display"],
+                                "value": "--", "change": "--", "change_pct": "--", "color": "gray"})
 
         for sym, meta in _ETF_TICKERS.items():
             try:
@@ -508,9 +476,9 @@ def _fetch_market_data() -> Dict[str, list]:
                         "color": "green" if chg >= 0 else "red",
                     })
             except Exception as e:
-                logger.debug(f"[Market] FinMind ETF {sym}: {e}")
+                logger.warning(f"[Market] FinMind ETF {sym}: {e}")
     except Exception as e:
-        logger.debug(f"[Market] FinMind batch error: {e}")
+        logger.warning(f"[Market] FinMind batch error: {e}")
 
     # Only use fallback structure if the entire block failed (e.g. import error)
     if not indices:

@@ -331,6 +331,22 @@ a,
   touch-action: manipulation;
 }
 
+/* ─── Auth Gate — Content Blur ─── */
+.dl-gated {
+  filter: blur(7px);
+  pointer-events: none;
+  user-select: none;
+  opacity: 0.5;
+  transition: filter 0.4s ease, opacity 0.4s ease;
+}
+
+.dl-init-loading {
+  position: fixed;
+  inset: 0;
+  background: var(--bg-void);
+  z-index: 200;
+}
+
 @media (min-width: 768px) {
   .dl-main {
     margin-left: var(--sidebar-w);
