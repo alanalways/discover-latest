@@ -6,7 +6,7 @@ DiscoverLatest 洞察運算 - Gemini 模型設定
 # 固定模型名稱（禁止散落在各處）
 MODEL_GROUNDING = "gemini-2.5-flash-preview-09-2025"
 MODEL_FINAL = "gemini-3-flash-preview"
-MODEL_DEXTER = "gemini-2.5-flash"
+MODEL_DEXTER = "gemini-2.5-pro"
 
 
 def get_model_list():

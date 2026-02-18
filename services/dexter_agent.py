@@ -221,7 +221,7 @@ class DexterAgent:
             return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
-        """用 Gemini 綜合分析所有資料"""
+        """Stage1 grounding search + Stage2 綜合分析（同普通 AI 分析流程）"""
         from config.models import MODEL_DEXTER
         from services.gemini_service import gemini_service
 
@@ -229,15 +229,14 @@ class DexterAgent:
         if not api_key:
             return {"error": "Gemini API key missing"}
 
-        # 日誌：顯示使用的 key（遮蔽中間部分）
         masked = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
         print(f"[Dexter] model={MODEL_DEXTER} key={masked}")
 
-        # 構建 context summary（不暴露資料來源名稱）
+        # 構建 context summary
         summary_parts = []
         for _task_name, data in context.items():
             if isinstance(data, dict) and data.get("error"):
-                continue  # 跳過失敗的資料
+                continue
             elif isinstance(data, list) and data:
                 summary_parts.append(f"{len(data)} 筆數據")
                 summary_parts.append(f"  最新: {data[-1] if len(data) <= 3 else data[-3:]}")
@@ -245,32 +244,85 @@ class DexterAgent:
                 summary_parts.append(str(data))
         context_text = "\n".join(summary_parts)
 
-        prompt = (
-            f"你是專業金融研究分析師。請針對 {symbol} 進行深度研究分析。\n"
-            f"以下是已蒐集的市場數據:\n{context_text}\n\n"
-            "請用繁體中文輸出完整的深度研究報告，包含：\n"
-            "1. 基本面分析（估值、營收、獲利能力）\n"
-            "2. 籌碼面分析（法人動向、融資融券）\n"
-            "3. 技術面觀察\n"
-            "4. 風險評估\n"
-            "5. 投資建議與目標價區間\n"
-            "禁止提及資料來源名稱或工具名稱。直接呈現分析結論。"
-        )
-
         try:
             from google import genai
             from google.genai import types
-            client = genai.Client(api_key=api_key)
-            resp = client.models.generate_content(
+
+            # ── Stage 1: Grounding Search ──
+            print(f"[Dexter] Stage 1: grounding search for {symbol}")
+            stage1_prompt = (
+                f"用 Google Search 搜尋 {symbol} 最新資訊 請用繁體中文輸出\n"
+                "必查 當前股價 當日漲跌幅 成交量 近五日走勢\n"
+                "必查 財報 法說 公司公告 訂單 評級 產業消息 同業動態\n"
+                "必查 利率 匯率 油價 地緣政治等宏觀因素\n"
+                "每條格式 日期｜事件｜對股價影響｜來源\n"
+                "若找不到證據請寫 尚無足夠證據 最後附 120 字新聞總結\n"
+                "禁止 markdown 裝飾符號\n"
+                f"背景資料 {context_text}\n"
+            )
+
+            key1 = gemini_service.get_api_key()
+            client1 = genai.Client(api_key=key1)
+            grounding_text = ""
+            try:
+                resp1 = client1.models.generate_content(
+                    model=MODEL_DEXTER,
+                    contents=stage1_prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        temperature=0.2,
+                        max_output_tokens=800,
+                    ),
+                )
+                grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
+            except Exception as e1:
+                print(f"[Dexter] Stage 1 grounding failed: {e1}, trying without grounding")
+                try:
+                    resp1 = client1.models.generate_content(
+                        model=MODEL_DEXTER,
+                        contents=stage1_prompt,
+                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
+                    )
+                    grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
+                except Exception as e1b:
+                    grounding_text = f"搜尋失敗: {type(e1b).__name__}"
+
+            print(f"[Dexter] Stage 1 done: {len(grounding_text)} chars")
+
+            # ── Stage 2: 綜合分析 ──
+            print(f"[Dexter] Stage 2: synthesis for {symbol}")
+            grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
+
+            stage2_prompt = (
+                "你是專業金融研究分析師 30 年經驗 風格冷靜 執行導向 數據驅動\n"
+                "語言 全文繁體中文 禁止英文句子 技術縮寫除外\n"
+                "格式 純文字列點 禁止任何 markdown 符號\n"
+                "禁止提及資料來源名稱或工具名稱 直接呈現分析結論\n\n"
+                f"標的 {symbol}\n"
+                f"已蒐集的市場數據:\n{context_text}\n\n"
+                f"最新搜尋證據:\n{grounding_compact}\n\n"
+                "請輸出完整的深度研究報告 包含:\n"
+                "1. 基本面分析（估值 營收 獲利能力）\n"
+                "2. 籌碼面分析（法人動向 融資融券）\n"
+                "3. 技術面觀察\n"
+                "4. 風險評估\n"
+                "5. 投資建議與目標價區間\n"
+            )
+
+            key2 = gemini_service.get_api_key()
+            client2 = genai.Client(api_key=key2)
+            resp2 = client2.models.generate_content(
                 model=MODEL_DEXTER,
-                contents=prompt,
+                contents=stage2_prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
                     max_output_tokens=4096,
                 ),
             )
-            text = resp.text.strip() if resp and getattr(resp, "text", None) else ""
+            text = resp2.text.strip() if resp2 and getattr(resp2, "text", None) else ""
+            print(f"[Dexter] Stage 2 done: {len(text)} chars")
             return {"success": bool(text), "analysis": text}
+
         except Exception as e:
             return {"error": f"Gemini: {e}"}
 
