@@ -221,16 +221,13 @@ class DexterAgent:
             return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
-        """Stage1 grounding search + Stage2 綜合分析（同普通 AI 分析流程）"""
-        from config.models import MODEL_DEXTER
+        """Stage1 grounding (flash) + Stage2 深度分析 (pro)"""
+        from config.models import MODEL_GROUNDING, MODEL_DEXTER
         from services.gemini_service import gemini_service
 
         api_key = gemini_service.get_api_key()
         if not api_key:
             return {"error": "Gemini API key missing"}
-
-        masked = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
-        print(f"[Dexter] model={MODEL_DEXTER} key={masked}")
 
         # 構建 context summary
         summary_parts = []
@@ -248,8 +245,11 @@ class DexterAgent:
             from google import genai
             from google.genai import types
 
-            # ── Stage 1: Grounding Search ──
-            print(f"[Dexter] Stage 1: grounding search for {symbol}")
+            # ── Stage 1: Grounding Search (flash) ──
+            key1 = gemini_service.get_api_key()
+            masked1 = f"{key1[:4]}...{key1[-4:]}" if len(key1) > 8 else "****"
+            print(f"[Dexter] Stage 1: model={MODEL_GROUNDING} key={masked1}")
+
             stage1_prompt = (
                 f"用 Google Search 搜尋 {symbol} 最新資訊 請用繁體中文輸出\n"
                 "必查 當前股價 當日漲跌幅 成交量 近五日走勢\n"
@@ -261,12 +261,11 @@ class DexterAgent:
                 f"背景資料 {context_text}\n"
             )
 
-            key1 = gemini_service.get_api_key()
             client1 = genai.Client(api_key=key1)
             grounding_text = ""
             try:
                 resp1 = client1.models.generate_content(
-                    model=MODEL_DEXTER,
+                    model=MODEL_GROUNDING,
                     contents=stage1_prompt,
                     config=types.GenerateContentConfig(
                         tools=[types.Tool(google_search=types.GoogleSearch())],
@@ -276,10 +275,10 @@ class DexterAgent:
                 )
                 grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
             except Exception as e1:
-                print(f"[Dexter] Stage 1 grounding failed: {e1}, trying without grounding")
+                print(f"[Dexter] Stage 1 grounding failed: {e1}, fallback no-search")
                 try:
                     resp1 = client1.models.generate_content(
-                        model=MODEL_DEXTER,
+                        model=MODEL_GROUNDING,
                         contents=stage1_prompt,
                         config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
                     )
@@ -289,8 +288,11 @@ class DexterAgent:
 
             print(f"[Dexter] Stage 1 done: {len(grounding_text)} chars")
 
-            # ── Stage 2: 綜合分析 ──
-            print(f"[Dexter] Stage 2: synthesis for {symbol}")
+            # ── Stage 2: 深度分析 (pro) ──
+            key2 = gemini_service.get_api_key()
+            masked2 = f"{key2[:4]}...{key2[-4:]}" if len(key2) > 8 else "****"
+            print(f"[Dexter] Stage 2: model={MODEL_DEXTER} key={masked2}")
+
             grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
 
             stage2_prompt = (
@@ -309,7 +311,6 @@ class DexterAgent:
                 "5. 投資建議與目標價區間\n"
             )
 
-            key2 = gemini_service.get_api_key()
             client2 = genai.Client(api_key=key2)
             resp2 = client2.models.generate_content(
                 model=MODEL_DEXTER,
