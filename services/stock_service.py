@@ -17,6 +17,7 @@ from adapters import (
 )
 
 _STOCK_DATA_CACHE_TTL_SEC = max(30, int((os.environ.get("STOCK_DATA_CACHE_TTL_SEC") or "300").strip() or 300))
+_STOCK_DATA_CACHE_TTL_OFF_HOURS = max(300, int((os.environ.get("STOCK_DATA_CACHE_TTL_OFF_HOURS") or "14400").strip() or 14400))
 _STOCK_DATA_CACHE_MAXSIZE = max(32, int((os.environ.get("STOCK_DATA_CACHE_MAXSIZE") or "256").strip() or 256))
 _stock_data_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _stock_data_cache_lock = threading.Lock()
@@ -199,19 +200,46 @@ class StockService:
 
     def _read_stock_data_cache(self, key: str) -> Optional[Dict[str, Any]]:
         now = datetime.now().timestamp()
+        # 智慧 cache TTL：非交易時段延長到 4 小時
+        market_tag = key.split("|")[1] if "|" in key else ""
+        ttl = self._smart_cache_ttl(market_tag)
         with _stock_data_cache_lock:
             row = _stock_data_cache.get(key)
             if not isinstance(row, dict):
                 return None
             ts = float(row.get("ts") or 0.0)
             payload = row.get("payload")
-            if ts <= 0 or (now - ts) > _STOCK_DATA_CACHE_TTL_SEC:
+            if ts <= 0 or (now - ts) > ttl:
                 _stock_data_cache.pop(key, None)
                 return None
             if not isinstance(payload, dict):
                 return None
             _stock_data_cache.move_to_end(key)
             return copy.deepcopy(payload)
+
+    @staticmethod
+    def _smart_cache_ttl(market: str) -> int:
+        """非交易時段延長 cache TTL，避免收盤後重複呼叫外部 API"""
+        now = datetime.now()
+        weekday = now.weekday()  # 0=Mon, 6=Sun
+        hour = now.hour
+        minute = now.minute
+        current_minutes = hour * 60 + minute
+
+        market_upper = (market or "").strip().upper()
+
+        if market_upper in ("TWSE", "TPEX"):
+            # 台股交易時間：09:00-13:30（週一到週五）
+            if weekday < 5 and 9 * 60 <= current_minutes <= 13 * 60 + 30:
+                return _STOCK_DATA_CACHE_TTL_SEC
+        elif market_upper == "US":
+            # 美股交易時間（台灣時間約 21:30-04:00 隔天）
+            if weekday < 5 and (current_minutes >= 21 * 60 + 30 or current_minutes <= 4 * 60):
+                return _STOCK_DATA_CACHE_TTL_SEC
+        else:
+            return _STOCK_DATA_CACHE_TTL_SEC
+
+        return _STOCK_DATA_CACHE_TTL_OFF_HOURS
 
     def _write_stock_data_cache(self, key: str, payload: Dict[str, Any]) -> None:
         with _stock_data_cache_lock:

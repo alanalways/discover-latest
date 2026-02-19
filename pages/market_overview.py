@@ -41,6 +41,38 @@ _TOP20_CACHE_TTL = 180  # 3 分鐘（保留即時性，避免長時間顯示舊�
 _top20_refresh_running = False
 _top20_refresh_lock = threading.Lock()
 
+# ── DiskCache 整合：冷啟動時從磁碟恢復快取 ──
+try:
+    from services import disk_cache as _disk_cache
+
+    def _restore_from_disk():
+        """冷啟動時從磁碟恢復指數和 Top20 快取"""
+        global _market_cache, _top20_cache
+        try:
+            cached_market = _disk_cache.get("market_overview:indices")
+            if cached_market and isinstance(cached_market, dict):
+                _market_cache["indices"] = cached_market.get("indices")
+                _market_cache["etfs"] = cached_market.get("etfs")
+                _market_cache["ts"] = cached_market.get("ts", 0)
+                logger.info("Market indices restored from disk cache")
+        except Exception as e:
+            logger.debug("DiskCache restore indices failed: %s", e)
+        try:
+            cached_top20 = _disk_cache.get("market_overview:top20")
+            if cached_top20 and isinstance(cached_top20, dict):
+                _top20_cache["tw"] = cached_top20.get("tw")
+                _top20_cache["us"] = cached_top20.get("us")
+                _top20_cache["ts"] = cached_top20.get("ts", 0)
+                logger.info("Top20 restored from disk cache")
+        except Exception as e:
+            logger.debug("DiskCache restore top20 failed: %s", e)
+
+    _restore_from_disk()
+
+    _DISK_CACHE_AVAILABLE = True
+except ImportError:
+    _DISK_CACHE_AVAILABLE = False
+
 # ──────────────────────────────────────
 # Ticker definitions
 # ──────────────────────────────────────
@@ -431,6 +463,12 @@ def _fetch_market_data() -> Dict[str, list]:
         indices = list(_FALLBACK_INDICES)
         etfs = list(_FALLBACK_ETFS)
         _market_cache = {"indices": indices, "etfs": etfs, "ts": now}
+        # 磁碟持久化
+        if _DISK_CACHE_AVAILABLE:
+            try:
+                _disk_cache.set("market_overview:indices", {"indices": indices, "etfs": etfs, "ts": now}, ttl=3600)
+            except Exception:
+                pass
         return {"indices": indices, "etfs": etfs}
 
     # Subsequent loads: fetch real data
@@ -499,6 +537,12 @@ def _fetch_market_data() -> Dict[str, list]:
     indices.sort(key=lambda x: idx_order.index(x["symbol"]) if x["symbol"] in idx_order else 99)
 
     _market_cache = {"indices": indices, "etfs": etfs, "ts": now}
+    # 磁碟持久化
+    if _DISK_CACHE_AVAILABLE:
+        try:
+            _disk_cache.set("market_overview:indices", {"indices": indices, "etfs": etfs, "ts": now}, ttl=3600)
+        except Exception:
+            pass
     return {"indices": indices, "etfs": etfs}
 
 

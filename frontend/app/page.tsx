@@ -16,6 +16,7 @@ import {
 import styles from './page.module.css';
 import api from '@/lib/api';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
+import FullScreenLoader from '@/components/layout/FullScreenLoader';
 
 interface MarketItem {
   name: string;
@@ -102,7 +103,7 @@ type DashboardCachePayload = {
   lastUpdate?: string;
 };
 
-const DASHBOARD_CACHE_KEY = 'dl:dashboard-cache:v2';
+// 快取已移除 — 一律全屏 loading 等待真實資料
 
 const FALLBACK_INDICES: MarketItem[] = [
   { name: '加權指數', symbol: 'TAIEX', value: '--', change: '--', change_pct: '--', color: 'gray' },
@@ -114,13 +115,13 @@ const FALLBACK_INDICES: MarketItem[] = [
 
 
 const FALLBACK_TOP20_TW_ROWS: Top20Stock[] = [
-  '2330','2454','2317','2382','2308','2303','2603','2609','2881','2882',
-  '2891','2886','2412','1301','1303','2002','3711','2357','3034','2379',
+  '2330', '2454', '2317', '2382', '2308', '2303', '2603', '2609', '2881', '2882',
+  '2891', '2886', '2412', '1301', '1303', '2002', '3711', '2357', '3034', '2379',
 ].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
 const FALLBACK_TOP20_US_ROWS: Top20Stock[] = [
-  'AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','AMD','NFLX',
-  'JPM','V','MA','WMT','PG','COST','KO','PEP','QCOM','TXN',
+  'AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'AVGO', 'AMD', 'NFLX',
+  'JPM', 'V', 'MA', 'WMT', 'PG', 'COST', 'KO', 'PEP', 'QCOM', 'TXN',
 ].map((symbol) => ({ symbol, name: symbol, change_pct: 0, volume: 0 }));
 
 const toBucket = (rows: Top20Stock[]): Top20Bucket => ({
@@ -136,7 +137,7 @@ const FALLBACK_NEWS_BRIEF = [
   '若遇到資料源延遲，系統會先顯示上一版新聞摘要，避免畫面空白。',
 ];
 
-let dashboardMemoryCache: DashboardCachePayload | null = null;
+// dashboardMemoryCache 已移除 — 不再使用快取 hydrate
 
 function toMinutes(text: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(String(text || '').trim());
@@ -243,7 +244,6 @@ function normalizeTop20Bucket(raw: unknown, fallback: Top20Bucket): Top20Bucket 
 export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
-  const hydratedFromCacheRef = useRef(false);
   const newsRef = useRef<NewsBrief>({ brief: FALLBACK_NEWS_BRIEF, items: [] });
 
   const [indices, setIndices] = useState<MarketItem[]>(FALLBACK_INDICES);
@@ -259,6 +259,11 @@ export default function Dashboard() {
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
   const [lastUpdate, setLastUpdate] = useState('');
   const [error, setError] = useState('');
+  // 全屏 loading 狀態
+  const [fullLoading, setFullLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadMessage, setLoadMessage] = useState('正在連線伺服器…');
+  const initialLoadDone = useRef(false);
 
   const navigateToAnalysis = useCallback((rawSymbol: string) => {
     const symbol = String(rawSymbol || '').trim().toUpperCase();
@@ -276,22 +281,14 @@ export default function Dashboard() {
     newsRef.current = news;
   }, [news]);
 
-  const hydrateFromPayload = useCallback((payload: DashboardCachePayload) => {
-    if (Array.isArray(payload.indices) && payload.indices.length > 0) setIndices(payload.indices);
-    if (payload.hours) setHours(payload.hours);
-    if (payload.top20Tw) setTop20Tw(normalizeTop20Bucket(payload.top20Tw, FALLBACK_TOP20_TW));
-    if (payload.top20Us) setTop20Us(normalizeTop20Bucket(payload.top20Us, FALLBACK_TOP20_US));
-    if (payload.top20Meta) setTop20Meta(payload.top20Meta);
-    if (payload.news) setNews(payload.news);
-    if (payload.lastUpdate) setLastUpdate(payload.lastUpdate);
-    hydratedFromCacheRef.current = true;
-    setLoading(false);
-  }, []);
-
   const fetchData = useCallback(async () => {
-    if (!hydratedFromCacheRef.current) {
-      setLoading(true);
+    const isInitial = !initialLoadDone.current;
+    if (isInitial) {
+      setFullLoading(true);
+      setLoadProgress(5);
+      setLoadMessage('正在連線伺服器…');
     }
+    setLoading(true);
     setError('');
 
     const marketFallback: MarketOverviewResponse = { indices: FALLBACK_INDICES };
@@ -299,28 +296,15 @@ export default function Dashboard() {
     const newsFallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
 
     try {
-      const top20Promise = withTimeout<Top20Response>(
-        api.getMarketTop20().catch(() => top20Fallback),
-        4500,
-        top20Fallback
-      );
-      const newsPromise = withTimeout<NewsBrief>(
-        api.getNewsBrief().catch(() => newsFallback),
-        3000,
-        newsFallback
-      );
+      // ── Stage 1：指數 + 開市狀態（最快回應，約 1-3s）──
+      if (isInitial) {
+        setLoadProgress(15);
+        setLoadMessage('正在取得市場指數…');
+      }
 
       const [marketRes, hoursRes] = await Promise.all([
-        withTimeout<MarketOverviewResponse>(
-          api.getMarketOverview().catch(() => marketFallback),
-          3500,
-          marketFallback
-        ),
-        withTimeout<{ tw: MarketHours; us: MarketHours } | null>(
-          api.getMarketHours().catch(() => null),
-          2500,
-          null
-        ),
+        api.getMarketOverview().catch(() => marketFallback),
+        api.getMarketHours().catch(() => null as { tw: MarketHours; us: MarketHours } | null),
       ]);
 
       const safeIndices = (marketRes.indices && marketRes.indices.length > 0) ? marketRes.indices : FALLBACK_INDICES;
@@ -328,10 +312,24 @@ export default function Dashboard() {
       if (hoursRes) setHours(hoursRes);
       const updatedAt = new Date().toLocaleTimeString('zh-TW');
       setLastUpdate(updatedAt);
-      setLoading(false);
 
-      const top20Res = await top20Promise;
-      const newsRes = await newsPromise;
+      // Stage 1 完成 → 降低全屏到半透明，指數已可見
+      if (isInitial) {
+        setLoadProgress(50);
+        setLoadMessage('正在載入排行榜和新聞…');
+      }
+
+      // ── Stage 2：Top20 + 新聞（背景並行，約 3-8s）──
+      const [top20Res, newsRes] = await Promise.all([
+        api.getMarketTop20().catch(() => top20Fallback),
+        api.getNewsBrief().catch(() => newsFallback),
+      ]);
+
+      if (isInitial) {
+        setLoadProgress(90);
+        setLoadMessage('正在處理資料…');
+      }
+
       const tw = normalizeTop20Bucket((top20Res as Top20Response)?.tw, FALLBACK_TOP20_TW);
       const us = normalizeTop20Bucket((top20Res as Top20Response)?.us, FALLBACK_TOP20_US);
       const meta = ((top20Res as Top20Response)?.meta || {}) as Top20Meta;
@@ -342,61 +340,32 @@ export default function Dashboard() {
       setTop20Us(us);
       setTop20Meta(meta);
 
-      const payload: DashboardCachePayload = {
-        indices: safeIndices,
-        hours: hoursRes || null,
-        top20Tw: tw,
-        top20Us: us,
-        top20Meta: meta,
-        news: stableNews,
-        lastUpdate: updatedAt,
-      };
-
-      dashboardMemoryCache = payload;
-      try {
-        sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(payload));
-      } catch {
-        // Ignore cache write error.
+      // ── Stage 3：完成 ──
+      if (isInitial) {
+        setLoadProgress(100);
+        setLoadMessage('完成！');
+        await new Promise(r => setTimeout(r, 350));
+        setFullLoading(false);
+        initialLoadDone.current = true;
       }
+      setLoading(false);
     } catch (err) {
       console.error('Dashboard fetch error:', err);
-      setError('資料載入失敗，已切換為快取/備援資料');
+      setError('資料載入失敗，請重新整理頁面');
       setIndices((prev) => (prev.length ? prev : FALLBACK_INDICES));
       setTop20Tw((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_TW));
       setTop20Us((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_US));
       setNews((prev) => (prev?.brief?.length ? prev : { brief: FALLBACK_NEWS_BRIEF, items: [] }));
       setLoading(false);
+      if (isInitial) {
+        setFullLoading(false);
+        initialLoadDone.current = true;
+      }
     }
   }, []);
 
-  useEffect(() => {
-    const rafIds: number[] = [];
-    const scheduleHydrate = (payload: DashboardCachePayload) => {
-      const rafId = window.requestAnimationFrame(() => {
-        hydrateFromPayload(payload);
-      });
-      rafIds.push(rafId);
-    };
-
-    if (dashboardMemoryCache) {
-      scheduleHydrate(dashboardMemoryCache);
-    }
-
-    try {
-      const raw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as DashboardCachePayload;
-        dashboardMemoryCache = parsed;
-        scheduleHydrate(parsed);
-      }
-    } catch {
-      // Ignore invalid cache payload.
-    }
-
-    return () => {
-      rafIds.forEach((id) => window.cancelAnimationFrame(id));
-    };
-  }, [hydrateFromPayload]);
+  // sessionStorage / memory cache hydrate 已移除
+  // 一律等 fetchData 完成後才顯示真實資料
 
   useEffect(() => {
     const bootstrapTimer = window.setTimeout(() => {
@@ -454,254 +423,257 @@ export default function Dashboard() {
       : '';
 
   return (
-    <div className={styles.container}>
-      <div className={styles.statusBar}>
-        <div className={styles.statusLeft}>
-          <Activity size={16} className={styles.statusIcon} />
-          <span>市場概覽</span>
-          {hours && (
-            <>
-              <span className={`${styles.marketStatus} ${twSession.open ? styles.open : styles.closed}`}>
-                台股 {twSession.label}
-              </span>
-              <span className={`${styles.marketStatus} ${usSession.open ? styles.open : styles.closed}`}>
-                美股 {usSession.label}
-              </span>
-            </>
-          )}
-        </div>
-        <div className={styles.statusRight}>
-          {lastUpdate && (
-            <span className={styles.updateTime}>
-              <Clock size={12} /> {lastUpdate}
-            </span>
-          )}
-          <button className={styles.refreshBtn} onClick={() => void fetchData()} disabled={loading}>
-            <RefreshCw size={14} className={loading ? styles.spinning : ''} /> 更新
-          </button>
-        </div>
-      </div>
-
-      <section className={styles.newsSection}>
-        <div className={styles.newsHeader}>
-          <h3 className={styles.sectionTitle}>
-            <Activity size={18} /> 財經新聞焦點
-          </h3>
-          <span className={styles.newsMeta}>
-            系統依交易時段自動更新並快取，焦點為台美股連動重點
-          </span>
-        </div>
-        <div className={styles.newsGrid}>
-          <div className={styles.newsBriefCard}>
-            <p className={styles.newsOneMinute}>
-              {sanitizeNewsText(news.one_minute_brief || FALLBACK_NEWS_BRIEF[0])}
-            </p>
-            {(news.brief && news.brief.length ? news.brief : FALLBACK_NEWS_BRIEF).slice(0, 3).map((line, idx) => (
-              <p key={`${line}-${idx}`} className={styles.newsBullet}>
-                {sanitizeNewsText(line)}
-              </p>
-            ))}
-            {Array.isArray(news.table) && news.table.length > 0 && (
-              <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
-                <table style={{ width: '100%', fontSize: 12 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>主題</th>
-                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>影響</th>
-                      <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>重點</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {news.table.slice(0, 4).map((row, idx) => (
-                      <tr key={`${row.theme || 'theme'}-${idx}`}>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.theme || '-')}</td>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.impact || '-')}</td>
-                        <td style={{ padding: '4px 0', verticalAlign: 'top', opacity: 0.9 }}>{sanitizeNewsText(row.why || '-')}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <div className={styles.newsListCard}>
-            {visibleNewsItems.map((item) => (
-              <a
-                key={`${item.url}-${item.title}`}
-                href={item.url}
-                target="_blank"
-                rel="noreferrer"
-                className={styles.newsLink}
-              >
-                <span className={styles.newsTitle}>{cleanNewsTitle(item.title)}</span>
-                <span className={styles.newsImpact}>
-                  {buildNewsImpactLine(item)}
+    <>
+      <FullScreenLoader visible={fullLoading} progress={loadProgress} message={loadMessage} />
+      <div className={styles.container}>
+        <div className={styles.statusBar}>
+          <div className={styles.statusLeft}>
+            <Activity size={16} className={styles.statusIcon} />
+            <span>市場概覽</span>
+            {hours && (
+              <>
+                <span className={`${styles.marketStatus} ${twSession.open ? styles.open : styles.closed}`}>
+                  台股 {twSession.label}
                 </span>
-              </a>
-            ))}
-            {visibleNewsItems.length === 0 && (
-              <div className={styles.newsEmpty}>暫無可顯示新聞，系統將於下次更新自動補齊。</div>
+                <span className={`${styles.marketStatus} ${usSession.open ? styles.open : styles.closed}`}>
+                  美股 {usSession.label}
+                </span>
+              </>
             )}
           </div>
+          <div className={styles.statusRight}>
+            {lastUpdate && (
+              <span className={styles.updateTime}>
+                <Clock size={12} /> {lastUpdate}
+              </span>
+            )}
+            <button className={styles.refreshBtn} onClick={() => void fetchData()} disabled={loading}>
+              <RefreshCw size={14} className={loading ? styles.spinning : ''} /> 更新
+            </button>
+          </div>
         </div>
-      </section>
 
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>
-          <Globe size={18} /> 主要指數
-        </h3>
-        <div className={styles.indexGrid}>
-          {(indices.length ? indices : (loading ? Array(5).fill(null) : FALLBACK_INDICES)).map((idx, i) => (
-            idx ? (
-              <div key={idx.symbol} className={styles.indexCard}>
-                <div className={styles.indexHeader}>
-                  <span className={styles.indexSymbol}>{idx.symbol}</span>
-                  <span className={styles.indexName}>{idx.name}</span>
+        <section className={styles.newsSection}>
+          <div className={styles.newsHeader}>
+            <h3 className={styles.sectionTitle}>
+              <Activity size={18} /> 財經新聞焦點
+            </h3>
+            <span className={styles.newsMeta}>
+              系統依交易時段自動更新並快取，焦點為台美股連動重點
+            </span>
+          </div>
+          <div className={styles.newsGrid}>
+            <div className={styles.newsBriefCard}>
+              <p className={styles.newsOneMinute}>
+                {sanitizeNewsText(news.one_minute_brief || FALLBACK_NEWS_BRIEF[0])}
+              </p>
+              {(news.brief && news.brief.length ? news.brief : FALLBACK_NEWS_BRIEF).slice(0, 3).map((line, idx) => (
+                <p key={`${line}-${idx}`} className={styles.newsBullet}>
+                  {sanitizeNewsText(line)}
+                </p>
+              ))}
+              {Array.isArray(news.table) && news.table.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 10 }}>
+                  <table style={{ width: '100%', fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>主題</th>
+                        <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>影響</th>
+                        <th style={{ textAlign: 'left', opacity: 0.7, paddingBottom: 4 }}>重點</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {news.table.slice(0, 4).map((row, idx) => (
+                        <tr key={`${row.theme || 'theme'}-${idx}`}>
+                          <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.theme || '-')}</td>
+                          <td style={{ padding: '4px 0', verticalAlign: 'top' }}>{sanitizeNewsText(row.impact || '-')}</td>
+                          <td style={{ padding: '4px 0', verticalAlign: 'top', opacity: 0.9 }}>{sanitizeNewsText(row.why || '-')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-                <div className={styles.indexValue}>{idx.value}</div>
-                {idx.color === 'gray' ? (
-                  <div className={styles.indexChange} style={{ color: 'var(--text-3)' }}>
-                    {idx.change}
-                  </div>
-                ) : (
-                  <div className={`${styles.indexChange} ${idx.color === 'green' ? styles.up : styles.down}`}>
-                    {idx.color === 'green' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-                    {idx.change} ({idx.change_pct})
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div key={i} className={`${styles.indexCard} ${styles.skeleton}`} />
-            )
-          ))}
-        </div>
-      </section>
-
-      {/* 我的自選股 — 登入用戶立即顯示（含 loading skeleton） */}
-      {user && (watchlistLoading || Object.keys(watchlistQuotes).length > 0) && (
-        <section className={styles.section}>
-          <h3 className={styles.sectionTitle}>
-            <Star size={18} /> 我的自選股
-          </h3>
-          <div className={styles.watchlistSection}>
-            <div className={styles.watchlistTable}>
-              <div className={styles.watchlistHeader}>
-                <span>代號</span>
-                <span>名稱</span>
-                <span style={{ textAlign: 'right' }}>價格</span>
-                <span style={{ textAlign: 'right' }}>漲跌%</span>
-                <span style={{ textAlign: 'right' }}>5日波動率</span>
-              </div>
-              {watchlistLoading && Object.keys(watchlistQuotes).length === 0 ? (
-                /* Loading skeleton */
-                Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className={styles.watchlistRow} style={{ opacity: 0.4 }}>
-                    <span className={styles.stockSymbol} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 48, height: 16, display: 'inline-block' }} />
-                    <span className={styles.stockName} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
-                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block', marginLeft: 'auto' }} />
-                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block' }} />
-                    <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
-                  </div>
-                ))
-              ) : (
-                Object.entries(watchlistQuotes).map(([symbol, q]) => {
-                  const isUp = q.change_pct >= 0;
-                  const volPct = Math.min(100, q.vol_5d);
-                  return (
-                    <button
-                      type="button"
-                      key={symbol}
-                      className={`${styles.watchlistRow} ${styles.tableRowButton}`}
-                      onClick={() => navigateToAnalysis(symbol)}
-                      title={`前往 ${q.name || symbol} 深度分析`}
-                    >
-                      <span className={styles.stockSymbol}>{symbol}</span>
-                      <span className={styles.stockName}>{q.name || '-'}</span>
-                      <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-1)' }}>{q.price.toFixed(2)}</span>
-                      <span className={isUp ? styles.up : styles.down} style={{ textAlign: 'right', fontWeight: 600 }}>
-                        {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
-                      </span>
-                      <span style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-                        <span className={styles.volBar}>
-                          <span className={styles.volBarFill} style={{ width: `${volPct}%` }} />
-                        </span>
-                        <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 36 }}>{q.vol_5d.toFixed(1)}%</span>
-                      </span>
-                    </button>
-                  );
-                })
+              )}
+            </div>
+            <div className={styles.newsListCard}>
+              {visibleNewsItems.map((item) => (
+                <a
+                  key={`${item.url}-${item.title}`}
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={styles.newsLink}
+                >
+                  <span className={styles.newsTitle}>{cleanNewsTitle(item.title)}</span>
+                  <span className={styles.newsImpact}>
+                    {buildNewsImpactLine(item)}
+                  </span>
+                </a>
+              ))}
+              {visibleNewsItems.length === 0 && (
+                <div className={styles.newsEmpty}>暫無可顯示新聞，系統將於下次更新自動補齊。</div>
               )}
             </div>
           </div>
         </section>
-      )}
 
-      <section className={styles.section}>
-        <div className={styles.top20Header}>
+        <section className={styles.section}>
           <h3 className={styles.sectionTitle}>
-            <TrendingUp size={18} /> Top 10 排行
+            <Globe size={18} /> 主要指數
           </h3>
-          <div className={styles.tabGroup}>
-            <button className={`${styles.tabBtn} ${activeMarket === 'tw' ? styles.tabActive : ''}`} onClick={() => setActiveMarket('tw')}>
-              台股
-            </button>
-            <button className={`${styles.tabBtn} ${activeMarket === 'us' ? styles.tabActive : ''}`} onClick={() => setActiveMarket('us')}>
-              美股
-            </button>
-          </div>
-          <div className={styles.tabGroup}>
-            <button className={`${styles.tabBtn} ${activeTab === 'gainers' ? styles.tabActive : ''}`} onClick={() => setActiveTab('gainers')}>
-              漲幅
-            </button>
-            <button className={`${styles.tabBtn} ${activeTab === 'losers' ? styles.tabActive : ''}`} onClick={() => setActiveTab('losers')}>
-              跌幅
-            </button>
-            <button className={`${styles.tabBtn} ${activeTab === 'volume' ? styles.tabActive : ''}`} onClick={() => setActiveTab('volume')}>
-              成交量
-            </button>
-          </div>
-          {top20Hint && <div className={styles.newsMeta}>{top20Hint}</div>}
-        </div>
-
-        <div className={styles.top20Table}>
-          <div className={styles.tableHeader}>
-            <span className={styles.colRank}>#</span>
-            <span className={styles.colName}>股票</span>
-            <span className={styles.colValue}>{activeTab === 'volume' ? '成交量' : '漲跌幅'}</span>
-          </div>
-          {top20Data[activeTab].slice(0, 10).map((stock, i) => (
-            <button
-              type="button"
-              key={`${stock.symbol}-${i}`}
-              className={`${styles.tableRow} ${styles.tableRowButton}`}
-              onClick={() => navigateToAnalysis(stock.symbol)}
-              title={`前往 ${stock.name} (${stock.symbol}) 深度分析`}
-            >
-              <span className={styles.colRank}>{i + 1}</span>
-              <span className={styles.colName}>
-                <span className={styles.stockSymbol}>{stock.symbol}</span>
-                <span className={styles.stockName}>{stock.name}</span>
-              </span>
-              <span className={`${styles.colValue} ${activeTab === 'volume' ? '' : (stock.change_pct || 0) >= 0 ? styles.up : styles.down}`}>
-                {activeTab === 'volume'
-                  ? formatVolume(stock.volume)
-                  : (
-                    ((stock.change_pct || 0) === 0 && (stock.volume || 0) === 0)
-                      ? '--'
-                      : `${(stock.change_pct || 0) >= 0 ? '+' : ''}${(stock.change_pct || 0).toFixed(2)}%`
+          <div className={styles.indexGrid}>
+            {(indices.length ? indices : (loading ? Array(5).fill(null) : FALLBACK_INDICES)).map((idx, i) => (
+              idx ? (
+                <div key={idx.symbol} className={styles.indexCard}>
+                  <div className={styles.indexHeader}>
+                    <span className={styles.indexSymbol}>{idx.symbol}</span>
+                    <span className={styles.indexName}>{idx.name}</span>
+                  </div>
+                  <div className={styles.indexValue}>{idx.value}</div>
+                  {idx.color === 'gray' ? (
+                    <div className={styles.indexChange} style={{ color: 'var(--text-3)' }}>
+                      {idx.change}
+                    </div>
+                  ) : (
+                    <div className={`${styles.indexChange} ${idx.color === 'green' ? styles.up : styles.down}`}>
+                      {idx.color === 'green' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                      {idx.change} ({idx.change_pct})
+                    </div>
                   )}
-              </span>
-            </button>
-          ))}
+                </div>
+              ) : (
+                <div key={i} className={`${styles.indexCard} ${styles.skeleton}`} />
+              )
+            ))}
+          </div>
+        </section>
 
-          {top20Data[activeTab].length === 0 && (
-            <div className={styles.emptyRow}>
-              {loading ? '資料載入中…' : (error || '暫無資料')}
+        {/* 我的自選股 — 登入用戶立即顯示（含 loading skeleton） */}
+        {user && (watchlistLoading || Object.keys(watchlistQuotes).length > 0) && (
+          <section className={styles.section}>
+            <h3 className={styles.sectionTitle}>
+              <Star size={18} /> 我的自選股
+            </h3>
+            <div className={styles.watchlistSection}>
+              <div className={styles.watchlistTable}>
+                <div className={styles.watchlistHeader}>
+                  <span>代號</span>
+                  <span>名稱</span>
+                  <span style={{ textAlign: 'right' }}>價格</span>
+                  <span style={{ textAlign: 'right' }}>漲跌%</span>
+                  <span style={{ textAlign: 'right' }}>5日波動率</span>
+                </div>
+                {watchlistLoading && Object.keys(watchlistQuotes).length === 0 ? (
+                  /* Loading skeleton */
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className={styles.watchlistRow} style={{ opacity: 0.4 }}>
+                      <span className={styles.stockSymbol} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 48, height: 16, display: 'inline-block' }} />
+                      <span className={styles.stockName} style={{ background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
+                      <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block', marginLeft: 'auto' }} />
+                      <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 60, height: 16, display: 'inline-block' }} />
+                      <span style={{ textAlign: 'right', background: 'var(--bg-hover)', borderRadius: 4, width: 80, height: 16, display: 'inline-block' }} />
+                    </div>
+                  ))
+                ) : (
+                  Object.entries(watchlistQuotes).map(([symbol, q]) => {
+                    const isUp = q.change_pct >= 0;
+                    const volPct = Math.min(100, q.vol_5d);
+                    return (
+                      <button
+                        type="button"
+                        key={symbol}
+                        className={`${styles.watchlistRow} ${styles.tableRowButton}`}
+                        onClick={() => navigateToAnalysis(symbol)}
+                        title={`前往 ${q.name || symbol} 深度分析`}
+                      >
+                        <span className={styles.stockSymbol}>{symbol}</span>
+                        <span className={styles.stockName}>{q.name || '-'}</span>
+                        <span style={{ textAlign: 'right', fontWeight: 600, color: 'var(--text-1)' }}>{q.price.toFixed(2)}</span>
+                        <span className={isUp ? styles.up : styles.down} style={{ textAlign: 'right', fontWeight: 600 }}>
+                          {isUp ? '+' : ''}{q.change_pct.toFixed(2)}%
+                        </span>
+                        <span style={{ textAlign: 'right', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                          <span className={styles.volBar}>
+                            <span className={styles.volBarFill} style={{ width: `${volPct}%` }} />
+                          </span>
+                          <span style={{ fontSize: 11, color: 'var(--text-3)', minWidth: 36 }}>{q.vol_5d.toFixed(1)}%</span>
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </section>
-    </div>
+          </section>
+        )}
+
+        <section className={styles.section}>
+          <div className={styles.top20Header}>
+            <h3 className={styles.sectionTitle}>
+              <TrendingUp size={18} /> Top 10 排行
+            </h3>
+            <div className={styles.tabGroup}>
+              <button className={`${styles.tabBtn} ${activeMarket === 'tw' ? styles.tabActive : ''}`} onClick={() => setActiveMarket('tw')}>
+                台股
+              </button>
+              <button className={`${styles.tabBtn} ${activeMarket === 'us' ? styles.tabActive : ''}`} onClick={() => setActiveMarket('us')}>
+                美股
+              </button>
+            </div>
+            <div className={styles.tabGroup}>
+              <button className={`${styles.tabBtn} ${activeTab === 'gainers' ? styles.tabActive : ''}`} onClick={() => setActiveTab('gainers')}>
+                漲幅
+              </button>
+              <button className={`${styles.tabBtn} ${activeTab === 'losers' ? styles.tabActive : ''}`} onClick={() => setActiveTab('losers')}>
+                跌幅
+              </button>
+              <button className={`${styles.tabBtn} ${activeTab === 'volume' ? styles.tabActive : ''}`} onClick={() => setActiveTab('volume')}>
+                成交量
+              </button>
+            </div>
+            {top20Hint && <div className={styles.newsMeta}>{top20Hint}</div>}
+          </div>
+
+          <div className={styles.top20Table}>
+            <div className={styles.tableHeader}>
+              <span className={styles.colRank}>#</span>
+              <span className={styles.colName}>股票</span>
+              <span className={styles.colValue}>{activeTab === 'volume' ? '成交量' : '漲跌幅'}</span>
+            </div>
+            {top20Data[activeTab].slice(0, 10).map((stock, i) => (
+              <button
+                type="button"
+                key={`${stock.symbol}-${i}`}
+                className={`${styles.tableRow} ${styles.tableRowButton}`}
+                onClick={() => navigateToAnalysis(stock.symbol)}
+                title={`前往 ${stock.name} (${stock.symbol}) 深度分析`}
+              >
+                <span className={styles.colRank}>{i + 1}</span>
+                <span className={styles.colName}>
+                  <span className={styles.stockSymbol}>{stock.symbol}</span>
+                  <span className={styles.stockName}>{stock.name}</span>
+                </span>
+                <span className={`${styles.colValue} ${activeTab === 'volume' ? '' : (stock.change_pct || 0) >= 0 ? styles.up : styles.down}`}>
+                  {activeTab === 'volume'
+                    ? formatVolume(stock.volume)
+                    : (
+                      ((stock.change_pct || 0) === 0 && (stock.volume || 0) === 0)
+                        ? '--'
+                        : `${(stock.change_pct || 0) >= 0 ? '+' : ''}${(stock.change_pct || 0).toFixed(2)}%`
+                    )}
+                </span>
+              </button>
+            ))}
+
+            {top20Data[activeTab].length === 0 && (
+              <div className={styles.emptyRow}>
+                {loading ? '資料載入中…' : (error || '暫無資料')}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </>
   );
 }
 

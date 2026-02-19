@@ -280,8 +280,8 @@ export class ApiClient {
 
     private async _doFetch<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
         const { skipAuth, skipProgress, ...fetchOpts } = options;
-        const method = String(fetchOpts.method || 'GET').toUpperCase();
-        const shouldTrackProgress = !skipProgress && !['GET', 'HEAD', 'OPTIONS'].includes(method);
+        // 所有 API 呼叫都觸發 progress（包含 GET）
+        const shouldTrackProgress = !skipProgress;
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
             ...(fetchOpts.headers as Record<string, string>),
@@ -810,6 +810,58 @@ interface UpgradeStatusResponse {
     success: boolean;
     has_pending: boolean;
     pending?: PendingUpgradeInfo | null;
+}
+
+/**
+ * SSE 即時市場串流工具
+ * 使用 EventSource 連接後端 SSE 端點，接收即時市場資料推送
+ *
+ * @example
+ * const cleanup = createMarketStream({
+ *   onSnapshot: (data) => setIndices(data.indices),
+ *   onUpdate: (data) => setIndices(data.indices),
+ *   onError: (err) => console.error(err),
+ * });
+ * // 清理時呼叫
+ * cleanup();
+ */
+export function createMarketStream(handlers: {
+    onSnapshot?: (data: Record<string, unknown>) => void;
+    onUpdate?: (data: Record<string, unknown>) => void;
+    onError?: (error: string) => void;
+}): () => void {
+    const url = `${API_BASE}/api/market/stream`;
+    const es = new EventSource(url);
+
+    es.addEventListener('snapshot', (e: MessageEvent) => {
+        try {
+            const data = JSON.parse(e.data);
+            handlers.onSnapshot?.(data);
+        } catch {
+            // ignore parse error
+        }
+    });
+
+    es.addEventListener('update', (e: MessageEvent) => {
+        try {
+            const data = JSON.parse(e.data);
+            handlers.onUpdate?.(data);
+        } catch {
+            // ignore parse error
+        }
+    });
+
+    es.addEventListener('error', () => {
+        handlers.onError?.('SSE connection error');
+    });
+
+    es.onerror = () => {
+        handlers.onError?.('SSE connection lost');
+    };
+
+    return () => {
+        es.close();
+    };
 }
 
 // 全域單例

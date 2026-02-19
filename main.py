@@ -123,6 +123,7 @@ from routes.admin import router as admin_router
 from routes.billing import router as billing_router
 from routes.growth import router as growth_router
 from routes.dexter import router as dexter_router
+from routes.sse import router as sse_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -135,6 +136,7 @@ app.include_router(admin_router,    prefix="/api", tags=["Admin"])
 app.include_router(billing_router,  prefix="/api", tags=["Billing"])
 app.include_router(growth_router,   prefix="/api", tags=["Growth"])
 app.include_router(dexter_router,   prefix="/api", tags=["Dexter"])
+app.include_router(sse_router,      prefix="/api", tags=["SSE"])
 
 
 # ── Health Check ──
