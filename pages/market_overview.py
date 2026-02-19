@@ -420,17 +420,24 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
             clean_json = _re.sub(r',\s*([\]}])', r'\1', stripped.strip())
             parsed = json.loads(clean_json)
             if not isinstance(parsed, dict):
+                logger.info(f"[Market] Gemini parse step1: not a dict, type={type(parsed).__name__}")
                 parsed = None
-        except Exception:
-            pass
+            else:
+                logger.info(f"[Market] Gemini parse step1 OK: {list(parsed.keys())}")
+        except Exception as e1:
+            logger.info(f"[Market] Gemini parse step1 failed: {e1}")
 
         # 嘗試 2: 用 GeminiService._extract_json_object
         if not parsed:
             try:
                 from services.gemini_service import GeminiService
                 parsed = GeminiService._extract_json_object(stripped)
-            except Exception:
-                pass
+                if parsed:
+                    logger.info(f"[Market] Gemini parse step2 OK: {list(parsed.keys())}")
+                else:
+                    logger.info("[Market] Gemini parse step2: returned empty")
+            except Exception as e2:
+                logger.info(f"[Market] Gemini parse step2 failed: {e2}")
 
         # 嘗試 3: 正則提取個別指數值（最後手段）
         if not parsed:
@@ -448,9 +455,13 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
                         }
                     except (ValueError, IndexError):
                         pass
+            if parsed:
+                logger.info(f"[Market] Gemini parse step3 (regex) OK: {list(parsed.keys())}")
+            else:
+                logger.info("[Market] Gemini parse step3 (regex): no matches found")
 
         if not parsed:
-            logger.warning(f"[Market] Gemini indices: empty/invalid JSON: {stripped[:300]}")
+            logger.warning(f"[Market] Gemini indices: ALL 3 parse steps failed. Raw ({len(stripped)} chars): {stripped[:500]}")
             return {}
 
         result: Dict[str, Dict] = {}
@@ -492,19 +503,14 @@ def _fetch_market_data() -> Dict[str, list]:
     if _market_cache["indices"] is not None and (now - _market_cache["ts"]) < _CACHE_TTL:
         return {"indices": _market_cache["indices"], "etfs": _market_cache["etfs"]}
 
-    # FIRST LOAD: return fallback instantly (no network calls)
+    # FIRST LOAD: return fallback instantly — 但 ts=0 讓下次請求立刻觸發真正取資料
     if _first_load:
         _first_load = False
-        logger.info("[Market] First load → using fallback data for instant startup")
+        logger.info("[Market] First load → using fallback data for instant startup (cache ts=0 for immediate refresh)")
         indices = list(_FALLBACK_INDICES)
         etfs = list(_FALLBACK_ETFS)
-        _market_cache = {"indices": indices, "etfs": etfs, "ts": now}
-        # 磁碟持久化
-        if _DISK_CACHE_AVAILABLE:
-            try:
-                _disk_cache.set("market_overview:indices", {"indices": indices, "etfs": etfs, "ts": now}, ttl=3600)
-            except Exception:
-                pass
+        # ts=0 → 下次請求馬上過期，立刻真正去抓 Gemini 指數
+        _market_cache = {"indices": indices, "etfs": etfs, "ts": 0}
         return {"indices": indices, "etfs": etfs}
 
     # Subsequent loads: fetch real data
