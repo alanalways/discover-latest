@@ -327,191 +327,99 @@ def _pick_latest_and_prev(rows: List[Dict]) -> Optional[Dict[str, float]]:
 
 
 # ──────────────────────────────────────
-# Gemini grounding — 美股指數備用
+# yfinance — 直接取得指數即時報價
 # ──────────────────────────────────────
-def _fetch_indices_via_gemini() -> Dict[str, Dict]:
+# Yahoo Finance ticker 對應表
+_YF_INDEX_MAP = {
+    "TAIEX": "^TWII",   # 台灣加權指數
+    "SPX":   "^GSPC",   # S&P 500
+    "IXIC":  "^IXIC",   # NASDAQ Composite
+    "DJI":   "^DJI",    # 道瓊工業指數
+    "SOX":   "^SOX",    # 費城半導體指數
+}
+
+_indices_cache: Dict[str, Any] = {"data": None, "ts": 0}
+_INDICES_CACHE_TTL = 300  # 5 分鐘
+
+def _fetch_indices_via_yfinance() -> Dict[str, Dict]:
     """
-    使用 Gemini 2.5 Flash + Google Search grounding 取得全球主要指數即時數據。
-    回傳格式：{"TAIEX": {"value": 23000.0, "change": 100.5, "change_pct": 0.44}, "SPX": {...}, ...}
-    TTL 快取 300s，不重複呼叫 API。
+    使用 yfinance 直接取得全球主要指數最新報價。
+    回傳格式：{"TAIEX": {"value": 23000.0, "change": 100.5, "change_pct": 0.44}, ...}
+    TTL 快取 300s。
     """
-    global _gemini_indices_cache
+    global _indices_cache
     now = time.time()
 
-    if _gemini_indices_cache["data"] is not None and (now - _gemini_indices_cache["ts"]) < _GEMINI_INDICES_TTL:
-        return _gemini_indices_cache["data"]  # type: ignore[return-value]
+    # 快取命中
+    if _indices_cache["data"] is not None and (now - _indices_cache["ts"]) < _INDICES_CACHE_TTL:
+        return _indices_cache["data"]
+
+    result: Dict[str, Dict] = {}
 
     try:
-        from concurrent.futures import ThreadPoolExecutor
-        from concurrent.futures import TimeoutError as FuturesTimeoutError
-        from google import genai
-        from google.genai import types
-        from config.models import MODEL_GROUNDING
-        from services.gemini_service import gemini_service
+        import yfinance as yf
 
-        api_key = gemini_service.get_api_key()
-        if not api_key:
-            logger.warning("[Market] Gemini indices: no API key configured")
-            return {}
+        yf_tickers = list(_YF_INDEX_MAP.values())  # ["^TWII", "^GSPC", ...]
+        logger.info(f"[Market] yfinance: fetching indices {yf_tickers}")
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        prompt = (
-            "Use Google Search to find today's closing or latest stock market index values for: "
-            "1) Taiwan Weighted Index (TAIEX / 加權指數), "
-            "2) S&P 500 (SPX), "
-            "3) NASDAQ Composite (IXIC), "
-            "4) Dow Jones Industrial Average (DJI), "
-            "5) Philadelphia Semiconductor Index (SOX). "
-            "Return strict JSON only — no markdown, no explanation. "
-            "Schema: "
-            '{"TAIEX":{"value":number,"change":number,"change_pct":number},'
-            '"SPX":{"value":number,"change":number,"change_pct":number},'
-            '"IXIC":{"value":number,"change":number,"change_pct":number},'
-            '"DJI":{"value":number,"change":number,"change_pct":number},'
-            '"SOX":{"value":number,"change":number,"change_pct":number}}. '
-            "value = current index level (e.g. 23000 for TAIEX, 5900 for S&P 500), "
-            "change = point change vs previous close, "
-            "change_pct = percentage change vs previous close (e.g. 0.17 for +0.17%). "
-            f"Reference date: {today}."
+        # 批次下載最近 5 天的收盤資料（取最新 2 天算漲跌）
+        df = yf.download(
+            tickers=yf_tickers,
+            period="5d",
+            interval="1d",
+            group_by="ticker",
+            progress=False,
+            threads=True,
         )
 
-        def _run():
-            client = genai.Client(api_key=api_key)
-            return client.models.generate_content(
-                model=MODEL_GROUNDING,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
-                    temperature=0.1,
-                    max_output_tokens=2048,
-                ),
-            )
+        if df is None or df.empty:
+            logger.warning("[Market] yfinance: download returned empty DataFrame")
+            return result
 
-        ex = ThreadPoolExecutor(max_workers=1)
-        fut = ex.submit(_run)
-        try:
-            response = fut.result(timeout=25)
-        except FuturesTimeoutError:
-            fut.cancel()
-            logger.warning("[Market] Gemini indices: timeout (25s)")
-            return {}
-        except Exception as e:
-            logger.warning(f"[Market] Gemini indices call error: {e}")
-            return {}
-        finally:
-            ex.shutdown(wait=False, cancel_futures=True)
-
-        # 合併所有 parts 的文字（避免只取第一個 part 造成截斷）
-        text_out = ""
-        try:
-            if response and hasattr(response, "candidates") and response.candidates:
-                candidate = response.candidates[0]
-                # 記錄 finish_reason
-                finish_reason = getattr(candidate, "finish_reason", "unknown")
-                logger.info(f"[Market] Gemini indices finish_reason={finish_reason}")
-
-                if hasattr(candidate, "content") and candidate.content and hasattr(candidate.content, "parts"):
-                    parts = candidate.content.parts or []
-                    logger.info(f"[Market] Gemini indices parts count={len(parts)}")
-                    for part in parts:
-                        if hasattr(part, "text") and part.text:
-                            text_out += part.text
-                else:
-                    # fallback 到 response.text
-                    text_out = (response.text if hasattr(response, "text") else "") or ""
-            else:
-                text_out = (getattr(response, "text", None) or "") if response else ""
-        except Exception as e:
-            logger.warning(f"[Market] Gemini indices text extraction error: {e}")
-            text_out = (getattr(response, "text", None) or "") if response else ""
-
-        logger.info(f"[Market] Gemini indices raw ({len(text_out)} chars): {text_out[:500]}")
-
-        # Strip markdown code blocks that Gemini sometimes wraps around JSON
-        import re as _re
-        stripped = text_out.strip()
-        if stripped.startswith("```"):
-            stripped = _re.sub(r"^```(?:json|JSON)?\s*", "", stripped)
-            stripped = _re.sub(r"\s*```\s*$", "", stripped)
-
-        # ── 容錯 JSON 解析 ──
-        parsed = None
-
-        # 嘗試 1: 清理 trailing commas 後直接 json.loads
-        try:
-            # 移除 Gemini 常見的 trailing commas（如 {"a": 1,} → {"a": 1}）
-            clean_json = _re.sub(r',\s*([\]}])', r'\1', stripped.strip())
-            parsed = json.loads(clean_json)
-            if not isinstance(parsed, dict):
-                logger.info(f"[Market] Gemini parse step1: not a dict, type={type(parsed).__name__}")
-                parsed = None
-            else:
-                logger.info(f"[Market] Gemini parse step1 OK: {list(parsed.keys())}")
-        except Exception as e1:
-            logger.info(f"[Market] Gemini parse step1 failed: {e1}")
-
-        # 嘗試 2: 用 GeminiService._extract_json_object
-        if not parsed:
+        for our_key, yf_sym in _YF_INDEX_MAP.items():
             try:
-                from services.gemini_service import GeminiService
-                parsed = GeminiService._extract_json_object(stripped)
-                if parsed:
-                    logger.info(f"[Market] Gemini parse step2 OK: {list(parsed.keys())}")
+                # 取得該指數的 Close 欄
+                if len(_YF_INDEX_MAP) == 1:
+                    # 只下載一檔時 df 沒有 ticker 分層
+                    close_series = df["Close"].dropna()
                 else:
-                    logger.info("[Market] Gemini parse step2: returned empty")
-            except Exception as e2:
-                logger.info(f"[Market] Gemini parse step2 failed: {e2}")
+                    close_series = df[(yf_sym, "Close")].dropna()
 
-        # 嘗試 3: 正則提取個別指數值（最後手段）
-        if not parsed:
-            parsed = {}
-            for idx_key in ("TAIEX", "SPX", "IXIC", "DJI", "SOX"):
-                # 匹配 "TAIEX": {"value": 12345.67, "change": ...}
-                pattern = rf'"{idx_key}"\s*:\s*\{{[^}}]*?"value"\s*:\s*([\d.]+)[^}}]*?"change"\s*:\s*(-?[\d.]+)[^}}]*?"change_pct"\s*:\s*(-?[\d.]+)'
-                m = _re.search(pattern, stripped)
-                if m:
-                    try:
-                        parsed[idx_key] = {
-                            "value": float(m.group(1)),
-                            "change": float(m.group(2)),
-                            "change_pct": float(m.group(3)),
-                        }
-                    except (ValueError, IndexError):
-                        pass
-            if parsed:
-                logger.info(f"[Market] Gemini parse step3 (regex) OK: {list(parsed.keys())}")
-            else:
-                logger.info("[Market] Gemini parse step3 (regex): no matches found")
+                if len(close_series) < 2:
+                    logger.warning(f"[Market] yfinance: {yf_sym} not enough data ({len(close_series)} rows)")
+                    continue
 
-        if not parsed:
-            logger.warning(f"[Market] Gemini indices: ALL 3 parse steps failed. Raw ({len(stripped)} chars): {stripped[:500]}")
-            return {}
+                latest = float(close_series.iloc[-1])
+                prev = float(close_series.iloc[-2])
 
-        result: Dict[str, Dict] = {}
-        for key in ("TAIEX", "SPX", "IXIC", "DJI", "SOX"):
-            entry = parsed.get(key)
-            if not isinstance(entry, dict):
-                continue
-            try:
-                val = float(entry["value"])
-                chg = float(entry.get("change", 0))
-                pct = float(entry.get("change_pct", 0))
-                if val > 0:
-                    result[key] = {"value": val, "change": chg, "change_pct": pct}
-            except (KeyError, TypeError, ValueError):
+                if latest <= 0 or prev <= 0:
+                    continue
+
+                chg = latest - prev
+                pct = (chg / prev) * 100.0
+
+                result[our_key] = {
+                    "value": latest,
+                    "change": chg,
+                    "change_pct": pct,
+                }
+            except Exception as e:
+                logger.warning(f"[Market] yfinance: {yf_sym} parse error: {e}")
                 continue
 
         if result:
-            _gemini_indices_cache = {"data": result, "ts": now}
-            logger.info(f"[Market] Gemini indices OK: {list(result.keys())}")
+            _indices_cache = {"data": result, "ts": now}
+            idx_summary = ', '.join(f'{k}={v["value"]:,.2f}' for k, v in result.items())
+            logger.info(f"[Market] yfinance indices OK: {idx_summary}")
         else:
-            logger.warning(f"[Market] Gemini indices: parsed OK but no valid entries. Raw: {text_out[:200]}")
+            logger.warning("[Market] yfinance: no valid index data extracted")
 
-        return result
-
+    except ImportError:
+        logger.warning("[Market] yfinance not installed — pip install yfinance")
     except Exception as e:
-        logger.warning(f"[Market] Gemini indices error: {e}")
-        return {}
+        logger.warning(f"[Market] yfinance indices error: {e}")
+
+    return result
 
 
 # ──────────────────────────────────────
@@ -546,12 +454,11 @@ def _fetch_market_data() -> Dict[str, list]:
         end = datetime.now().strftime("%Y-%m-%d")
         start = (datetime.now() - timedelta(days=21)).strftime("%Y-%m-%d")
 
-        # 全部指數（含 TAIEX）改用 Gemini grounding 取即時數值
-        # FinMind free plan 無法取得指數點位，proxy ETF 價格 ≠ 指數
-        gemini_idx = _fetch_indices_via_gemini()
+        # 全部指數改用 yfinance 直接取得即時數值（取代 Gemini grounding）
+        yf_idx = _fetch_indices_via_yfinance()
 
         for key, meta in _INDEX_TICKERS.items():
-            g = gemini_idx.get(key)
+            g = yf_idx.get(key)
             if g:
                 price = g["value"]
                 chg = g["change"]
