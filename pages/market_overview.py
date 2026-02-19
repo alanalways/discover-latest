@@ -359,40 +359,26 @@ def _fetch_indices_via_yfinance() -> Dict[str, Dict]:
     try:
         import yfinance as yf
 
-        yf_tickers = list(_YF_INDEX_MAP.values())  # ["^TWII", "^GSPC", ...]
-        logger.info(f"[Market] yfinance: fetching indices {yf_tickers}")
-
-        # 批次下載最近 5 天的收盤資料（取最新 2 天算漲跌）
-        df = yf.download(
-            tickers=yf_tickers,
-            period="5d",
-            interval="1d",
-            group_by="ticker",
-            progress=False,
-            threads=True,
-        )
-
-        if df is None or df.empty:
-            logger.warning("[Market] yfinance: download returned empty DataFrame")
-            return result
-
+        # 逐一取得每個指數（避免 batch download 的 MultiIndex 問題）
         for our_key, yf_sym in _YF_INDEX_MAP.items():
             try:
-                # 取得該指數的 Close 欄
-                if len(_YF_INDEX_MAP) == 1:
-                    # 只下載一檔時 df 沒有 ticker 分層
-                    close_series = df["Close"].dropna()
-                else:
-                    close_series = df[(yf_sym, "Close")].dropna()
+                ticker = yf.Ticker(yf_sym)
+                hist = ticker.history(period="5d")
 
-                if len(close_series) < 2:
-                    logger.warning(f"[Market] yfinance: {yf_sym} not enough data ({len(close_series)} rows)")
+                if hist is None or hist.empty or len(hist) < 2:
+                    logger.warning(f"[Market] yfinance: {yf_sym} → hist empty or < 2 rows")
                     continue
 
-                latest = float(close_series.iloc[-1])
-                prev = float(close_series.iloc[-2])
+                close_col = hist["Close"].dropna()
+                if len(close_col) < 2:
+                    logger.warning(f"[Market] yfinance: {yf_sym} → Close has < 2 values")
+                    continue
+
+                latest = float(close_col.iloc[-1])
+                prev = float(close_col.iloc[-2])
 
                 if latest <= 0 or prev <= 0:
+                    logger.warning(f"[Market] yfinance: {yf_sym} → invalid prices latest={latest} prev={prev}")
                     continue
 
                 chg = latest - prev
@@ -403,14 +389,16 @@ def _fetch_indices_via_yfinance() -> Dict[str, Dict]:
                     "change": chg,
                     "change_pct": pct,
                 }
+                logger.info(f"[Market] yfinance: {yf_sym} → {our_key}={latest:,.2f} ({chg:+,.2f}, {pct:+.2f}%)")
+
             except Exception as e:
-                logger.warning(f"[Market] yfinance: {yf_sym} parse error: {e}")
+                logger.warning(f"[Market] yfinance: {yf_sym} error: {e}")
                 continue
 
         if result:
             _indices_cache = {"data": result, "ts": now}
             idx_summary = ', '.join(f'{k}={v["value"]:,.2f}' for k, v in result.items())
-            logger.info(f"[Market] yfinance indices OK: {idx_summary}")
+            logger.info(f"[Market] yfinance indices OK ({len(result)}/5): {idx_summary}")
         else:
             logger.warning("[Market] yfinance: no valid index data extracted")
 
