@@ -383,17 +383,17 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
                 config=types.GenerateContentConfig(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                     temperature=0.1,
-                    max_output_tokens=1024,
+                    max_output_tokens=2048,
                 ),
             )
 
         ex = ThreadPoolExecutor(max_workers=1)
         fut = ex.submit(_run)
         try:
-            response = fut.result(timeout=18)
+            response = fut.result(timeout=25)
         except FuturesTimeoutError:
             fut.cancel()
-            logger.warning("[Market] Gemini indices: timeout (18s)")
+            logger.warning("[Market] Gemini indices: timeout (25s)")
             return {}
         except Exception as e:
             logger.warning(f"[Market] Gemini indices call error: {e}")
@@ -401,8 +401,31 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
 
-        text_out = (response.text if response and getattr(response, "text", None) else "") or ""
-        logger.info(f"[Market] Gemini indices raw ({len(text_out)} chars): {text_out[:300]}")
+        # 合併所有 parts 的文字（避免只取第一個 part 造成截斷）
+        text_out = ""
+        try:
+            if response and hasattr(response, "candidates") and response.candidates:
+                candidate = response.candidates[0]
+                # 記錄 finish_reason
+                finish_reason = getattr(candidate, "finish_reason", "unknown")
+                logger.info(f"[Market] Gemini indices finish_reason={finish_reason}")
+
+                if hasattr(candidate, "content") and candidate.content and hasattr(candidate.content, "parts"):
+                    parts = candidate.content.parts or []
+                    logger.info(f"[Market] Gemini indices parts count={len(parts)}")
+                    for part in parts:
+                        if hasattr(part, "text") and part.text:
+                            text_out += part.text
+                else:
+                    # fallback 到 response.text
+                    text_out = (response.text if hasattr(response, "text") else "") or ""
+            else:
+                text_out = (getattr(response, "text", None) or "") if response else ""
+        except Exception as e:
+            logger.warning(f"[Market] Gemini indices text extraction error: {e}")
+            text_out = (getattr(response, "text", None) or "") if response else ""
+
+        logger.info(f"[Market] Gemini indices raw ({len(text_out)} chars): {text_out[:500]}")
 
         # Strip markdown code blocks that Gemini sometimes wraps around JSON
         import re as _re
