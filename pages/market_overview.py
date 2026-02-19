@@ -6,6 +6,7 @@ import logging
 import time
 import traceback
 import os
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -410,9 +411,44 @@ def _fetch_indices_via_gemini() -> Dict[str, Dict]:
             stripped = _re.sub(r"^```(?:json|JSON)?\s*", "", stripped)
             stripped = _re.sub(r"\s*```\s*$", "", stripped)
 
-        # Extract JSON object from cleaned text
-        from services.gemini_service import GeminiService
-        parsed = GeminiService._extract_json_object(stripped)
+        # ── 容錯 JSON 解析 ──
+        parsed = None
+
+        # 嘗試 1: 清理 trailing commas 後直接 json.loads
+        try:
+            # 移除 Gemini 常見的 trailing commas（如 {"a": 1,} → {"a": 1}）
+            clean_json = _re.sub(r',\s*([\]}])', r'\1', stripped.strip())
+            parsed = json.loads(clean_json)
+            if not isinstance(parsed, dict):
+                parsed = None
+        except Exception:
+            pass
+
+        # 嘗試 2: 用 GeminiService._extract_json_object
+        if not parsed:
+            try:
+                from services.gemini_service import GeminiService
+                parsed = GeminiService._extract_json_object(stripped)
+            except Exception:
+                pass
+
+        # 嘗試 3: 正則提取個別指數值（最後手段）
+        if not parsed:
+            parsed = {}
+            for idx_key in ("TAIEX", "SPX", "IXIC", "DJI", "SOX"):
+                # 匹配 "TAIEX": {"value": 12345.67, "change": ...}
+                pattern = rf'"{idx_key}"\s*:\s*\{{[^}}]*?"value"\s*:\s*([\d.]+)[^}}]*?"change"\s*:\s*(-?[\d.]+)[^}}]*?"change_pct"\s*:\s*(-?[\d.]+)'
+                m = _re.search(pattern, stripped)
+                if m:
+                    try:
+                        parsed[idx_key] = {
+                            "value": float(m.group(1)),
+                            "change": float(m.group(2)),
+                            "change_pct": float(m.group(3)),
+                        }
+                    except (ValueError, IndexError):
+                        pass
+
         if not parsed:
             logger.warning(f"[Market] Gemini indices: empty/invalid JSON: {stripped[:300]}")
             return {}
