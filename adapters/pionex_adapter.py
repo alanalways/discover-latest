@@ -129,36 +129,87 @@ class PionexAdapter:
             ticker = ticker_map.get(symbol)
             if not ticker:
                 continue
-
-            base = symbol.split("_")[0]
-            close = float(ticker.get("close", 0))
-            open_price = float(ticker.get("open", 0))
-
-            # 計算漲跌
-            change = close - open_price
-            change_pct = (change / open_price * 100) if open_price > 0 else 0
-
-            results.append({
-                "symbol": symbol,
-                "name": CRYPTO_NAMES.get(base, base),
-                "base": base,
-                "quote": "USDT",
-                "price": close,
-                "price_str": self._format_price(close),
-                "open": open_price,
-                "high": float(ticker.get("high", 0)),
-                "low": float(ticker.get("low", 0)),
-                "change": round(change, 4),
-                "change_pct": round(change_pct, 2),
-                "change_str": f"{'+' if change >= 0 else ''}{change_pct:.2f}%",
-                "color": "green" if change >= 0 else "red",
-                "volume": float(ticker.get("volume", 0)),
-                "amount": float(ticker.get("amount", 0)),
-                "count": int(ticker.get("count", 0)),
-                "time": int(ticker.get("time", 0)),
-            })
+            item = self._build_ticker_item(ticker)
+            if item:
+                results.append(item)
 
         return results
+
+    async def get_top_gainers(self, limit: int = 10, force: bool = False) -> List[Dict]:
+        """
+        取得 24h 漲幅前 N 名（僅 USDT 計價 + 最低成交額門檻）
+        過濾垃圾幣：成交額至少 $100,000 USDT
+        """
+        all_tickers = await self.get_all_tickers(force=force)
+        if not all_tickers:
+            return []
+
+        MIN_AMOUNT = 100_000  # 最低成交額門檻（USDT）
+
+        candidates = []
+        for ticker in all_tickers:
+            symbol = ticker.get("symbol", "")
+            # 只看 USDT 計價的現貨
+            if not symbol.endswith("_USDT"):
+                continue
+
+            open_price = float(ticker.get("open", 0))
+            close = float(ticker.get("close", 0))
+            amount = float(ticker.get("amount", 0))
+
+            # 過濾無效或低流動性
+            if open_price <= 0 or close <= 0 or amount < MIN_AMOUNT:
+                continue
+
+            change_pct = (close - open_price) / open_price * 100
+            candidates.append((change_pct, ticker))
+
+        # 按漲幅排序（降序）
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for _, ticker in candidates[:limit]:
+            item = self._build_ticker_item(ticker)
+            if item:
+                results.append(item)
+
+        return results
+
+    def _build_ticker_item(self, ticker: Dict) -> Optional[Dict]:
+        """將原始 ticker 轉為統一的前端結構"""
+        symbol = ticker.get("symbol", "")
+        if not symbol:
+            return None
+
+        parts = symbol.split("_")
+        base = parts[0] if parts else symbol
+        quote = parts[1] if len(parts) > 1 else "USDT"
+
+        close = float(ticker.get("close", 0))
+        open_price = float(ticker.get("open", 0))
+
+        change = close - open_price
+        change_pct = (change / open_price * 100) if open_price > 0 else 0
+
+        return {
+            "symbol": symbol,
+            "name": CRYPTO_NAMES.get(base, base),
+            "base": base,
+            "quote": quote,
+            "price": close,
+            "price_str": self._format_price(close),
+            "open": open_price,
+            "high": float(ticker.get("high", 0)),
+            "low": float(ticker.get("low", 0)),
+            "change": round(change, 4),
+            "change_pct": round(change_pct, 2),
+            "change_str": f"{'+' if change >= 0 else ''}{change_pct:.2f}%",
+            "color": "green" if change >= 0 else "red",
+            "volume": float(ticker.get("volume", 0)),
+            "amount": float(ticker.get("amount", 0)),
+            "count": int(ticker.get("count", 0)),
+            "time": int(ticker.get("time", 0)),
+        }
 
     async def get_ticker(self, symbol: str) -> Optional[Dict]:
         """取得單一交易對 ticker"""

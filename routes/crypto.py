@@ -14,17 +14,18 @@ router = APIRouter()
 @router.get("/crypto/tickers")
 async def get_crypto_tickers():
     """
-    取得主流加密貨幣即時行情
-    包含 BTC, ETH, SOL, BNB, XRP, DOGE, ADA, AVAX, DOT, MATIC
+    取得加密貨幣即時行情
+    回傳兩組：24h 漲幅前 10 名 + 主流幣前 10 名
     """
     try:
         from adapters.pionex_adapter import pionex_adapter
 
-        tickers = await pionex_adapter.get_top_cryptos()
+        gainers = await pionex_adapter.get_top_gainers(limit=10)
+        majors = await pionex_adapter.get_top_cryptos()
         return {
             "success": True,
-            "tickers": tickers,
-            "count": len(tickers),
+            "gainers": gainers,
+            "majors": majors,
             "source": "pionex",
         }
     except Exception as e:

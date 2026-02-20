@@ -153,18 +153,54 @@
     background: rgba(239, 68, 68, 0.2);
 }
 
+/* 區塊 */
+.section {
+    margin-bottom: 40px;
+}
+
+.sectionHeader {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.sectionIconHot {
+    color: #f97316;
+}
+
+.sectionIconStar {
+    color: #facc15;
+}
+
+.sectionTitle {
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: var(--text-primary, #e5e5e5);
+    margin: 0;
+}
+
+.sectionSubtitle {
+    font-size: 0.72rem;
+    color: var(--text-tertiary, #666);
+    margin-left: 4px;
+    padding: 2px 8px;
+    background: var(--bg-card, #1a1a2e);
+    border-radius: 4px;
+}
+
 /* 卡片網格 */
 .cardGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
-    margin-bottom: 32px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+    margin-bottom: 20px;
 }
 
 .loadingGrid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
 }
 
 .skeletonCard {
@@ -192,7 +228,7 @@
     background: var(--bg-card, #1a1a2e);
     border: 1px solid var(--border-subtle, #2a2a4a);
     border-radius: 14px;
-    padding: 20px;
+    padding: 18px;
     transition: all 0.25s;
     position: relative;
     overflow: hidden;
@@ -223,11 +259,26 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
+/* 排名 badge */
+.rankBadge {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    padding: 2px 7px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    border-radius: 6px;
+    font-variant-numeric: tabular-nums;
+}
+
 .cardHeader {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: 14px;
+    margin-bottom: 12px;
 }
 
 .coinInfo {
@@ -237,13 +288,13 @@
 }
 
 .coinBase {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     font-weight: 700;
     color: var(--text-primary, #e5e5e5);
 }
 
 .coinName {
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-secondary, #888);
 }
 
@@ -276,11 +327,11 @@
     display: flex;
     align-items: baseline;
     gap: 6px;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
 }
 
 .price {
-    font-size: 1.6rem;
+    font-size: 1.5rem;
     font-weight: 700;
     color: var(--text-primary, #e5e5e5);
     font-variant-numeric: tabular-nums;
@@ -326,17 +377,6 @@
 }
 
 /* 表格區 */
-.tableSection {
-    margin-top: 8px;
-}
-
-.sectionTitle {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--text-primary, #e5e5e5);
-    margin: 0 0 16px;
-}
-
 .tableWrap {
     overflow-x: auto;
     border-radius: 12px;
@@ -383,6 +423,19 @@
 
 .alignRight {
     text-align: right !important;
+}
+
+.tableRank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #f97316;
+    background: rgba(249, 115, 22, 0.08);
+    border-radius: 6px;
 }
 
 .tableCoinBase {

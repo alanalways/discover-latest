@@ -1,7 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, TrendingUp, TrendingDown, Minus, Bitcoin, Clock } from 'lucide-react';
+import {
+    RefreshCw,
+    TrendingUp,
+    TrendingDown,
+    Minus,
+    Bitcoin,
+    Clock,
+    Flame,
+    Star,
+} from 'lucide-react';
 import styles from './page.module.css';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
@@ -30,7 +39,8 @@ interface CryptoTicker {
 }
 
 export default function CryptoPage() {
-    const [tickers, setTickers] = useState<CryptoTicker[]>([]);
+    const [gainers, setGainers] = useState<CryptoTicker[]>([]);
+    const [majors, setMajors] = useState<CryptoTicker[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -48,8 +58,9 @@ export default function CryptoPage() {
             const res = await fetch(`${API_BASE}/api/crypto/tickers`);
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
-            if (data.success && data.tickers) {
-                setTickers(data.tickers);
+            if (data.success) {
+                setGainers(data.gainers || []);
+                setMajors(data.majors || []);
                 setLastRefresh(new Date());
                 setCountdown(REFRESH_INTERVAL_MS / 1000);
             } else {
@@ -66,11 +77,9 @@ export default function CryptoPage() {
     // 首次載入 + 5 分鐘自動刷新
     useEffect(() => {
         fetchTickers(true);
-
         timerRef.current = setInterval(() => {
             fetchTickers(false);
         }, REFRESH_INTERVAL_MS);
-
         return () => {
             if (timerRef.current) clearInterval(timerRef.current);
         };
@@ -79,20 +88,14 @@ export default function CryptoPage() {
     // 倒數計時器
     useEffect(() => {
         countdownRef.current = setInterval(() => {
-            setCountdown((prev) => {
-                if (prev <= 1) return REFRESH_INTERVAL_MS / 1000;
-                return prev - 1;
-            });
+            setCountdown((prev) => (prev <= 1 ? REFRESH_INTERVAL_MS / 1000 : prev - 1));
         }, 1000);
-
         return () => {
             if (countdownRef.current) clearInterval(countdownRef.current);
         };
     }, []);
 
-    const handleManualRefresh = () => {
-        fetchTickers(false);
-    };
+    const handleManualRefresh = () => fetchTickers(false);
 
     const formatVolume = (vol: number): string => {
         if (vol >= 1_000_000_000) return `${(vol / 1_000_000_000).toFixed(2)}B`;
@@ -118,6 +121,120 @@ export default function CryptoPage() {
         if (pct < 0) return <TrendingDown size={14} />;
         return <Minus size={14} />;
     };
+
+    // 共用卡片渲染
+    const renderCard = (t: CryptoTicker, rank?: number) => (
+        <div
+            key={t.symbol}
+            className={`${styles.cryptoCard} ${t.change_pct > 0 ? styles.cardUp : t.change_pct < 0 ? styles.cardDown : ''
+                }`}
+        >
+            {rank !== undefined && <span className={styles.rankBadge}>#{rank}</span>}
+            <div className={styles.cardHeader}>
+                <div className={styles.coinInfo}>
+                    <span className={styles.coinBase}>{t.base}</span>
+                    <span className={styles.coinName}>{t.name}</span>
+                </div>
+                <div
+                    className={`${styles.changeBadge} ${t.change_pct > 0
+                            ? styles.changeUp
+                            : t.change_pct < 0
+                                ? styles.changeDown
+                                : styles.changeFlat
+                        }`}
+                >
+                    <ChangeIcon pct={t.change_pct} />
+                    <span>{t.change_str}</span>
+                </div>
+            </div>
+
+            <div className={styles.priceSection}>
+                <span className={styles.price}>${t.price_str}</span>
+                <span className={styles.quote}>USDT</span>
+            </div>
+
+            <div className={styles.statsRow}>
+                <div className={styles.statItem}>
+                    <span className={styles.statLabel}>最高</span>
+                    <span className={styles.statValue}>${t.high.toLocaleString()}</span>
+                </div>
+                <div className={styles.statItem}>
+                    <span className={styles.statLabel}>最低</span>
+                    <span className={styles.statValue}>${t.low.toLocaleString()}</span>
+                </div>
+            </div>
+
+            <div className={styles.volumeRow}>
+                <div className={styles.statItem}>
+                    <span className={styles.statLabel}>成交量</span>
+                    <span className={styles.statValue}>
+                        {formatVolume(t.volume)} {t.base}
+                    </span>
+                </div>
+                <div className={styles.statItem}>
+                    <span className={styles.statLabel}>成交額</span>
+                    <span className={styles.statValue}>{formatAmount(t.amount)}</span>
+                </div>
+            </div>
+        </div>
+    );
+
+    // 共用表格渲染
+    const renderTable = (items: CryptoTicker[], showRank = false) => (
+        <div className={styles.tableWrap}>
+            <table className={styles.table}>
+                <thead>
+                    <tr>
+                        {showRank && <th>#</th>}
+                        <th>幣種</th>
+                        <th>名稱</th>
+                        <th className={styles.alignRight}>價格 (USDT)</th>
+                        <th className={styles.alignRight}>24h 漲跌</th>
+                        <th className={styles.alignRight}>24h 最高</th>
+                        <th className={styles.alignRight}>24h 最低</th>
+                        <th className={styles.alignRight}>成交量</th>
+                        <th className={styles.alignRight}>成交額</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {items.map((t, idx) => (
+                        <tr key={t.symbol}>
+                            {showRank && (
+                                <td>
+                                    <span className={styles.tableRank}>{idx + 1}</span>
+                                </td>
+                            )}
+                            <td>
+                                <span className={styles.tableCoinBase}>{t.base}</span>
+                            </td>
+                            <td className={styles.tableCoinName}>{t.name}</td>
+                            <td className={styles.alignRight}>
+                                <span className={styles.tablePrice}>${t.price_str}</span>
+                            </td>
+                            <td className={styles.alignRight}>
+                                <span
+                                    className={`${styles.tableChange} ${t.change_pct > 0
+                                            ? styles.textUp
+                                            : t.change_pct < 0
+                                                ? styles.textDown
+                                                : ''
+                                        }`}
+                                >
+                                    {t.change_str}
+                                </span>
+                            </td>
+                            <td className={styles.alignRight}>${t.high.toLocaleString()}</td>
+                            <td className={styles.alignRight}>${t.low.toLocaleString()}</td>
+                            <td className={styles.alignRight}>
+                                {formatVolume(t.volume)} {t.base}
+                            </td>
+                            <td className={styles.alignRight}>{formatAmount(t.amount)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
 
     return (
         <div className={styles.container}>
@@ -175,115 +292,30 @@ export default function CryptoPage() {
                 </div>
             ) : (
                 <>
-                    {/* 主流幣卡片 */}
-                    <div className={styles.cardGrid}>
-                        {tickers.map((t) => (
-                            <div
-                                key={t.symbol}
-                                className={`${styles.cryptoCard} ${t.change_pct > 0 ? styles.cardUp : t.change_pct < 0 ? styles.cardDown : ''
-                                    }`}
-                            >
-                                <div className={styles.cardHeader}>
-                                    <div className={styles.coinInfo}>
-                                        <span className={styles.coinBase}>{t.base}</span>
-                                        <span className={styles.coinName}>{t.name}</span>
-                                    </div>
-                                    <div
-                                        className={`${styles.changeBadge} ${t.change_pct > 0
-                                                ? styles.changeUp
-                                                : t.change_pct < 0
-                                                    ? styles.changeDown
-                                                    : styles.changeFlat
-                                            }`}
-                                    >
-                                        <ChangeIcon pct={t.change_pct} />
-                                        <span>{t.change_str}</span>
-                                    </div>
-                                </div>
-
-                                <div className={styles.priceSection}>
-                                    <span className={styles.price}>${t.price_str}</span>
-                                    <span className={styles.quote}>USDT</span>
-                                </div>
-
-                                <div className={styles.statsRow}>
-                                    <div className={styles.statItem}>
-                                        <span className={styles.statLabel}>最高</span>
-                                        <span className={styles.statValue}>${t.high.toLocaleString()}</span>
-                                    </div>
-                                    <div className={styles.statItem}>
-                                        <span className={styles.statLabel}>最低</span>
-                                        <span className={styles.statValue}>${t.low.toLocaleString()}</span>
-                                    </div>
-                                </div>
-
-                                <div className={styles.volumeRow}>
-                                    <div className={styles.statItem}>
-                                        <span className={styles.statLabel}>成交量</span>
-                                        <span className={styles.statValue}>
-                                            {formatVolume(t.volume)} {t.base}
-                                        </span>
-                                    </div>
-                                    <div className={styles.statItem}>
-                                        <span className={styles.statLabel}>成交額</span>
-                                        <span className={styles.statValue}>{formatAmount(t.amount)}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* 行情表格 */}
-                    <div className={styles.tableSection}>
-                        <h2 className={styles.sectionTitle}>詳細行情</h2>
-                        <div className={styles.tableWrap}>
-                            <table className={styles.table}>
-                                <thead>
-                                    <tr>
-                                        <th>幣種</th>
-                                        <th>名稱</th>
-                                        <th className={styles.alignRight}>價格 (USDT)</th>
-                                        <th className={styles.alignRight}>24h 漲跌</th>
-                                        <th className={styles.alignRight}>24h 最高</th>
-                                        <th className={styles.alignRight}>24h 最低</th>
-                                        <th className={styles.alignRight}>成交量</th>
-                                        <th className={styles.alignRight}>成交額</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {tickers.map((t) => (
-                                        <tr key={t.symbol}>
-                                            <td>
-                                                <span className={styles.tableCoinBase}>{t.base}</span>
-                                            </td>
-                                            <td className={styles.tableCoinName}>{t.name}</td>
-                                            <td className={styles.alignRight}>
-                                                <span className={styles.tablePrice}>${t.price_str}</span>
-                                            </td>
-                                            <td className={styles.alignRight}>
-                                                <span
-                                                    className={`${styles.tableChange} ${t.change_pct > 0
-                                                            ? styles.textUp
-                                                            : t.change_pct < 0
-                                                                ? styles.textDown
-                                                                : ''
-                                                        }`}
-                                                >
-                                                    {t.change_str}
-                                                </span>
-                                            </td>
-                                            <td className={styles.alignRight}>${t.high.toLocaleString()}</td>
-                                            <td className={styles.alignRight}>${t.low.toLocaleString()}</td>
-                                            <td className={styles.alignRight}>
-                                                {formatVolume(t.volume)} {t.base}
-                                            </td>
-                                            <td className={styles.alignRight}>{formatAmount(t.amount)}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                    {/* ── 區塊一：24h 漲幅前 10 名 ── */}
+                    <section className={styles.section}>
+                        <div className={styles.sectionHeader}>
+                            <Flame size={18} className={styles.sectionIconHot} />
+                            <h2 className={styles.sectionTitle}>24h 漲幅前 10 名</h2>
+                            <span className={styles.sectionSubtitle}>成交額 ≥ $100K USDT</span>
                         </div>
-                    </div>
+                        <div className={styles.cardGrid}>
+                            {gainers.map((t, idx) => renderCard(t, idx + 1))}
+                        </div>
+                        {renderTable(gainers, true)}
+                    </section>
+
+                    {/* ── 區塊二：主流幣前 10 名 ── */}
+                    <section className={styles.section}>
+                        <div className={styles.sectionHeader}>
+                            <Star size={18} className={styles.sectionIconStar} />
+                            <h2 className={styles.sectionTitle}>主流幣前 10 名</h2>
+                        </div>
+                        <div className={styles.cardGrid}>
+                            {majors.map((t) => renderCard(t))}
+                        </div>
+                        {renderTable(majors, false)}
+                    </section>
                 </>
             )}
         </div>
