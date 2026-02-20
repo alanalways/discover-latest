@@ -2,6 +2,7 @@
 Dexter Agent — 自主型金融研究代理
 調用 FinMind / TWSE / TPEX / Yahoo / Gemini 執行多步研究
 """
+import logging
 import time
 import traceback
 from typing import Dict, List, Any, Optional
@@ -10,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from services.tool_registry import tool_registry
 
+logger = logging.getLogger(__name__)
 
 class DexterAgent:
     """Dexter 主引擎"""
@@ -65,7 +67,7 @@ class DexterAgent:
 
         except Exception as e:
             log["error"] = f"Dexter 執行錯誤: {type(e).__name__}: {e}"
-            traceback.print_exc()
+            logger.exception("Dexter task execution error")
 
         return log
 
@@ -247,8 +249,7 @@ class DexterAgent:
 
             # ── Stage 1: Grounding Search (flash) ──
             key1 = gemini_service.get_api_key()
-            masked1 = f"{key1[:4]}...{key1[-4:]}" if len(key1) > 8 else "****"
-            print(f"[Dexter] Stage 1: model={MODEL_GROUNDING} key={masked1}")
+            logger.info("[Dexter] Stage 1: model=%s", MODEL_GROUNDING)
 
             stage1_prompt = (
                 f"用 Google Search 搜尋 {symbol} 最新資訊 請用繁體中文輸出\n"
@@ -275,7 +276,7 @@ class DexterAgent:
                 )
                 grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
             except Exception as e1:
-                print(f"[Dexter] Stage 1 grounding failed: {e1}, fallback no-search")
+                logger.warning("[Dexter] Stage 1 grounding failed: %s, fallback no-search", e1)
                 try:
                     resp1 = client1.models.generate_content(
                         model=MODEL_GROUNDING,
@@ -286,12 +287,11 @@ class DexterAgent:
                 except Exception as e1b:
                     grounding_text = f"搜尋失敗: {type(e1b).__name__}"
 
-            print(f"[Dexter] Stage 1 done: {len(grounding_text)} chars")
+            logger.info("[Dexter] Stage 1 done: %d chars", len(grounding_text))
 
             # ── Stage 2: 深度分析 (pro) ──
             key2 = gemini_service.get_api_key()
-            masked2 = f"{key2[:4]}...{key2[-4:]}" if len(key2) > 8 else "****"
-            print(f"[Dexter] Stage 2: model={MODEL_DEXTER} key={masked2}")
+            logger.info("[Dexter] Stage 2: model=%s", MODEL_DEXTER)
 
             grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
 
@@ -321,7 +321,7 @@ class DexterAgent:
                 ),
             )
             text = resp2.text.strip() if resp2 and getattr(resp2, "text", None) else ""
-            print(f"[Dexter] Stage 2 done: {len(text)} chars")
+            logger.info("[Dexter] Stage 2 done: %d chars", len(text))
             return {"success": bool(text), "analysis": text}
 
         except Exception as e:

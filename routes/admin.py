@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any, Optional
@@ -9,9 +10,11 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-_DEFAULT_ADMIN_EMAIL = "cmshj30326@gmail.com"
+# 管理員 email 從環境變數讀取，不硬編碼於原始碼
+_DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "")
 
 
 class TierUpdateRequest(BaseModel):
@@ -147,9 +150,9 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
         from adapters.supabase_adapter import supabase_adapter
         from services.auth_service import auth_service
 
-        print(
-            f"[AdminModeration] approve requested "
-            f"by={actor.get('email') or actor.get('id')} target={user_id} tier={req.tier or ''}"
+        logger.info(
+            "[AdminModeration] approve requested by=%s target=%s tier=%s",
+            actor.get('email') or actor.get('id'), user_id, req.tier or ''
         )
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
@@ -199,9 +202,9 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
     try:
         from adapters.supabase_adapter import supabase_adapter
 
-        print(
-            f"[AdminModeration] reject requested "
-            f"by={actor.get('email') or actor.get('id')} target={user_id}"
+        logger.info(
+            "[AdminModeration] reject requested by=%s target=%s",
+            actor.get('email') or actor.get('id'), user_id
         )
 
         pending = supabase_adapter.get_pending_upgrade_request(user_id)
@@ -241,30 +244,21 @@ async def get_system_status(request: Request):
         # API key usage
         api_keys = get_key_usage_stats()
 
-        # Supabase latency
+        # Supabase latency（不暴露 service_key，封裝到 adapter 方法）
         supabase_latency_ms: Optional[float] = None
         try:
             from adapters.supabase_adapter import supabase_adapter
-            import httpx as _httpx
 
-            url, _, service_key = supabase_adapter._get_config()
-            if url and service_key:
-                t0 = time.time()
-                with _httpx.Client(timeout=5.0) as _c:
-                    _c.get(
-                        f"{url}/rest/v1/users",
-                        headers={
-                            "apikey": service_key,
-                            "Authorization": f"Bearer {service_key}",
-                        },
-                        params={"select": "id", "limit": "1"},
-                    )
-                supabase_latency_ms = round((time.time() - t0) * 1000, 1)
+            t0 = time.time()
+            # 使用 adapter 內部方法測試連線，不直接操作 key
+            supabase_adapter.get_all_users()  # 簡單查詢測延遲
+            supabase_latency_ms = round((time.time() - t0) * 1000, 1)
         except Exception:
             supabase_latency_ms = None
 
-        # Server uptime
-        startup_time = getattr(_main, "_startup_time", None)
+        # Server uptime（使用 app.state 而非全域變數）
+        from fastapi import Request as _Req
+        startup_time = getattr(request.app.state, 'startup_time', None)
         uptime_sec = round(time.time() - startup_time) if startup_time else None
 
         return {

@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { getAdminEmailsFromEnv, isAdminUser } from '@/lib/admin';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
 import {
+    Bitcoin,
     Brain,
     FlaskConical,
     Globe,
@@ -25,18 +26,19 @@ import {
 import styles from './Sidebar.module.css';
 
 const NAV_ITEMS = [
-    { icon: LayoutDashboard, label: '儀表板',     href: '/' },
-    { icon: Star,            label: '自選清單',   href: '/watchlist' },
-    { icon: TrendingUp,      label: '深度分析',   href: '/analysis' },
-    { icon: FlaskConical,    label: '回測模擬',   href: '/backtest' },
-    { icon: Globe,           label: '國際市場',   href: '/market' },
-    { icon: Scale,           label: '股票比較',   href: '/compare' },
-    { icon: HeartPulse,      label: '投資健檢',   href: '/portfolio' },
-    { icon: Brain,           label: '投資風格測驗', href: '/quiz' },
+    { icon: LayoutDashboard, label: '儀表板', href: '/' },
+    { icon: Star, label: '自選清單', href: '/watchlist' },
+    { icon: TrendingUp, label: '深度分析', href: '/analysis' },
+    { icon: FlaskConical, label: '回測模擬', href: '/backtest' },
+    { icon: Globe, label: '國際市場', href: '/market' },
+    { icon: Bitcoin, label: '加密貨幣', href: '/crypto', badge: 'Beta' },
+    { icon: Scale, label: '股票比較', href: '/compare' },
+    { icon: HeartPulse, label: '投資健檢', href: '/portfolio' },
+    { icon: Brain, label: '投資風格測驗', href: '/quiz' },
 ];
 
 const BOTTOM_ITEMS = [
-    { icon: Settings2,  label: '設定',   href: '/settings' },
+    { icon: Settings2, label: '設定', href: '/settings' },
     { icon: HelpCircle, label: '幫助中心', href: '/help' },
 ];
 
@@ -147,13 +149,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 <div className={styles.logoIcon}>
                     {/* Custom bar-chart logo mark */}
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                        <rect x="1"   y="12" width="3.5" height="7" rx="0.8" fill="currentColor" fillOpacity="0.5"/>
-                        <rect x="7"   y="7.5" width="3.5" height="11.5" rx="0.8" fill="currentColor" fillOpacity="0.75"/>
-                        <rect x="13"  y="3"   width="3.5" height="16" rx="0.8" fill="currentColor"/>
+                        <rect x="1" y="12" width="3.5" height="7" rx="0.8" fill="currentColor" fillOpacity="0.5" />
+                        <rect x="7" y="7.5" width="3.5" height="11.5" rx="0.8" fill="currentColor" fillOpacity="0.75" />
+                        <rect x="13" y="3" width="3.5" height="16" rx="0.8" fill="currentColor" />
                         <polyline points="2.75,11  8.75,7  14.75,2.5"
                             fill="none" stroke="currentColor" strokeWidth="1.4"
-                            strokeLinecap="round" strokeLinejoin="round"/>
-                        <circle cx="14.75" cy="2.5" r="1.4" fill="currentColor"/>
+                            strokeLinecap="round" strokeLinejoin="round" />
+                        <circle cx="14.75" cy="2.5" r="1.4" fill="currentColor" />
                     </svg>
                 </div>
                 <div className={styles.logoText}>
@@ -182,6 +184,9 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                         >
                             <item.icon className={styles.navIcon} />
                             <span>{item.label}</span>
+                            {'badge' in item && item.badge && (
+                                <span className={styles.navBadge}>{item.badge}</span>
+                            )}
                         </Link>
                     );
                 })}

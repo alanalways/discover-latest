@@ -2,22 +2,24 @@
 DiscoverLatest API — FastAPI 後端入口
 包裝現有 services/adapters，提供 REST API
 """
+import logging
 import os
 import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
 
+logger = logging.getLogger(__name__)
+
 load_dotenv()
 
 import time
-_startup_time = time.time()
 
 # 將 backend/ 的上層目錄加入 sys.path，讓 services/adapters 可以 import
 ROOT_DIR = Path(__file__).resolve().parent
@@ -27,21 +29,22 @@ sys.path.insert(0, str(ROOT_DIR))
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """啟動 / 關閉事件"""
-    print("===== DiscoverLatest API Starting =====")
+    app.state.startup_time = time.time()
+    logger.info("===== DiscoverLatest API Starting =====")
     # 預載入 adapters（觸發快取初始化）
     try:
         from adapters.finmind_adapter import finmind_adapter
         from adapters.supabase_adapter import supabase_adapter
-        print("[Boot] Adapters loaded")
+        logger.info("[Boot] Adapters loaded")
     except Exception as e:
-        print(f"[Boot] Adapter load warning: {e}")
+        logger.warning("[Boot] Adapter load warning: %s", e)
     try:
         from services.preloader import start_preload
 
         start_preload()
-        print("[Boot] Preloader started")
+        logger.info("[Boot] Preloader started")
     except Exception as e:
-        print(f"[Boot] Preloader warning: {e}")
+        logger.warning("[Boot] Preloader warning: %s", e)
     yield
     # 關閉連線池
     try:
@@ -49,7 +52,7 @@ async def lifespan(app: FastAPI):
         await finmind_adapter.close()
     except Exception:
         pass
-    print("===== DiscoverLatest API Shutting Down =====")
+    logger.info("===== DiscoverLatest API Shutting Down =====")
 
 
 app = FastAPI(
@@ -75,11 +78,7 @@ def _parse_allowed_origins() -> list[str]:
         "http://127.0.0.1:3000",
     ])
 
-    deduped = []
-    for o in origins:
-        if o and o not in deduped:
-            deduped.append(o)
-    return deduped
+    return list(dict.fromkeys(o for o in origins if o))
 
 
 # ── CORS（允許前端跨域請求）──
@@ -124,6 +123,7 @@ from routes.billing import router as billing_router
 from routes.growth import router as growth_router
 from routes.dexter import router as dexter_router
 from routes.sse import router as sse_router
+from routes.crypto import router as crypto_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -137,12 +137,13 @@ app.include_router(billing_router,  prefix="/api", tags=["Billing"])
 app.include_router(growth_router,   prefix="/api", tags=["Growth"])
 app.include_router(dexter_router,   prefix="/api", tags=["Dexter"])
 app.include_router(sse_router,      prefix="/api", tags=["SSE"])
+app.include_router(crypto_router,   prefix="/api", tags=["Crypto"])
 
 
 # ── Health Check ──
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": "2.0.0"}
+    return {"status": "ok", "version": app.version}
 
 
 # ── 靜態檔案 serve（Next.js build output）──
@@ -168,8 +169,12 @@ if FRONTEND_DIR.exists():
         3. 加 .html 的檔案（如 analysis → analysis.html）
         4. fallback → index.html
         """
+        # 防止路徑穿越攻擊
+        file_path = (FRONTEND_DIR / full_path).resolve()
+        if not str(file_path).startswith(str(FRONTEND_DIR.resolve())):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
         # 直接匹配檔案
-        file_path = FRONTEND_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path))
 
@@ -195,4 +200,5 @@ if FRONTEND_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 7860))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    debug = os.environ.get("DEBUG", "").lower() in ("1", "true")
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=debug)

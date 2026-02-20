@@ -26,6 +26,7 @@ const PAGE_TITLES: Record<string, string> = {
     '/analysis': '深度分析',
     '/backtest': '回測模擬',
     '/market': '國際市場',
+    '/crypto': '加密貨幣',
     '/compare': '股票比較',
     '/portfolio': '投資健檢',
     '/pricing': '方案升級',

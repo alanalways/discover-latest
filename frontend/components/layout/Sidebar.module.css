@@ -223,6 +223,20 @@
     flex-shrink: 0;
 }
 
+.navBadge {
+    margin-left: auto;
+    padding: 1px 6px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: 4px;
+    line-height: 1.4;
+}
+
 /* 底部升級按鈕 */
 .upgradeSection {
     padding: 12px;

@@ -2,12 +2,18 @@
 Auth Service - 認證與授權服務
 Google OAuth via Supabase Auth + RBAC (custom claims + RLS)
 """
+import logging
 import os
 import hashlib
 import time
 from datetime import datetime
 from typing import Optional, Dict, Any, Tuple, List
+
+import httpx
+
 from adapters.supabase_adapter import supabase_adapter
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService:
@@ -47,7 +53,7 @@ class AuthService:
             url = os.environ.get("SUPABASE_URL", "")
             anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
             if not url or not anon_key:
-                print(f"[Auth] verify_google_token: 缺少 Supabase 設定")
+                logger.warning("[Auth] verify_google_token: 缺少 Supabase 設定")
                 return None
 
             import httpx
@@ -64,7 +70,7 @@ class AuthService:
                         "id_token": id_token,
                     },
                 )
-                print(f"[Auth] verify_google_token: status={resp.status_code}")
+                logger.info("[Auth] verify_google_token: status=%d", resp.status_code)
                 if resp.status_code == 200:
                     data = resp.json()
                     user = data.get("user")
@@ -74,9 +80,9 @@ class AuthService:
                         return user
                 else:
                     detail = resp.text[:300]
-                    print(f"[Auth] verify_google_token 失敗: {detail}")
+                    logger.warning("[Auth] verify_google_token 失敗: %s", detail)
         except Exception as e:
-            print(f"[Auth] verify_google_token 錯誤: {type(e).__name__}: {e}")
+            logger.warning("[Auth] verify_google_token 錯誤: %s: %s", type(e).__name__, e)
         return None
 
     def exchange_code_for_session(self, code: str) -> Optional[Dict]:
@@ -87,7 +93,7 @@ class AuthService:
             url = os.environ.get("SUPABASE_URL", "")
             anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
             if not url or not anon_key:
-                print(f"[Auth] 缺少 Supabase 設定: URL={bool(url)}, ANON_KEY={bool(anon_key)}")
+                logger.warning("[Auth] 缺少 Supabase 設定: URL=%s, ANON_KEY=%s", bool(url), bool(anon_key))
                 return None
             import httpx
             with httpx.Client(timeout=15.0) as client:
@@ -103,7 +109,7 @@ class AuthService:
                         "code_verifier": "",  # 伺服器端不需要 verifier
                     },
                 )
-                print(f"[Auth] PKCE token exchange: status={resp.status_code}")
+                logger.info("[Auth] PKCE token exchange: status=%d", resp.status_code)
                 if resp.status_code == 200:
                     data = resp.json()
                     access_token = data.get("access_token", "")
@@ -116,9 +122,9 @@ class AuthService:
                         if data.get("user"):
                             return data["user"]
                 else:
-                    print(f"[Auth] PKCE exchange 失敗: {resp.text[:300]}")
+                    logger.warning("[Auth] PKCE exchange 失敗: %s", resp.text[:300])
         except Exception as e:
-            print(f"[Auth] PKCE exchange 錯誤: {type(e).__name__}: {e}")
+            logger.warning("[Auth] PKCE exchange 錯誤: %s: %s", type(e).__name__, e)
         return None
 
     def exchange_code_for_token(self, code: str) -> Optional[str]:
@@ -153,12 +159,12 @@ class AuthService:
                     },
                     json={"code": code, "code_verifier": ""},
                 )
-                print(f"[Auth] code exchange fallback: status={resp2.status_code}")
+                logger.info("[Auth] code exchange fallback: status=%d", resp2.status_code)
                 if resp2.status_code == 200:
                     return resp2.json().get("access_token")
-                print(f"[Auth] code exchange 全部失敗: pkce={resp.status_code}, authcode={resp2.status_code}")
+                logger.warning("[Auth] code exchange 全部失敗: pkce=%d, authcode=%d", resp.status_code, resp2.status_code)
         except Exception as e:
-            print(f"[Auth] code exchange 錯誤: {type(e).__name__}: {e}")
+            logger.warning("[Auth] code exchange 錯誤: %s: %s", type(e).__name__, e)
         return None
 
     def verify_session(self, access_token: str) -> Optional[Dict]:
@@ -169,7 +175,7 @@ class AuthService:
             url = os.environ.get("SUPABASE_URL", "")
             anon_key = os.environ.get("SUPABASE_ANON_KEY", "")
             if not url or not anon_key:
-                print(f"[Auth] 缺少 Supabase 設定: URL={bool(url)}, ANON_KEY={bool(anon_key)}")
+                logger.warning("[Auth] 缺少 Supabase 設定: URL=%s, ANON_KEY=%s", bool(url), bool(anon_key))
                 return None
             import httpx
             with httpx.Client(timeout=10.0) as client:
@@ -188,9 +194,9 @@ class AuthService:
                     # 過期 token 由前端自動清除，不需要持續刷錯誤 log
                     if resp.status_code in (401, 403) and ("token is expired" in lowered or "bad_jwt" in lowered):
                         return None
-                    print(f"[Auth] Session 驗證回應: status={resp.status_code}, body={body_preview}")
+                    logger.info("[Auth] Session 驗證回應: status=%d, body=%s", resp.status_code, body_preview)
         except Exception as e:
-            print(f"[Auth] Session 驗證失敗: {type(e).__name__}: {e}")
+            logger.warning("[Auth] Session 驗證失敗: %s: %s", type(e).__name__, e)
         return None
 
     def get_user_role(self, user_data: Dict) -> str:

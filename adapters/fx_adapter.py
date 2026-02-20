@@ -43,7 +43,7 @@ class FXAdapter:
         # 檢查快取
         if cache_key in self._cache:
             cache_time = self._cache_time.get(cache_key)
-            if cache_time and (datetime.now() - cache_time).seconds < self.CACHE_TTL:
+            if cache_time and (datetime.now() - cache_time).total_seconds() < self.CACHE_TTL:
                 rates = self._cache[cache_key]
                 return rates.get(to_currency)
         
@@ -98,7 +98,7 @@ class FXAdapter:
         # 檢查快取
         if base_currency in self._cache:
             cache_time = self._cache_time.get(base_currency)
-            if cache_time and (datetime.now() - cache_time).seconds < self.CACHE_TTL:
+            if cache_time and (datetime.now() - cache_time).total_seconds() < self.CACHE_TTL:
                 return self._cache[base_currency]
         
         try:
