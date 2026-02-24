@@ -83,3 +83,15 @@ ALTER TABLE public.ai_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.portfolios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.price_alerts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "service_role_all" ON public.price_alerts TO service_role USING (TRUE) WITH CHECK (TRUE);
+
+-- 6) public.users 表的 RLS 政策（確保 service_role 完整存取）
+-- 若 public.users 啟用了 RLS 但沒有 service_role policy，Admin API 會查不到任何使用者
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "service_role_all" ON public.users TO service_role USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY "users_select_own" ON public.users FOR SELECT TO authenticated USING (auth.uid() = id);
+
+-- 7) 確保所有啟用 RLS 的表都有 service_role policy
+CREATE POLICY "service_role_all" ON public.user_subscriptions TO service_role USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY "service_role_all" ON public.ai_usage TO service_role USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY "service_role_all" ON public.portfolios TO service_role USING (TRUE) WITH CHECK (TRUE);
+

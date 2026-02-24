@@ -74,10 +74,24 @@ async def list_users(request: Request):
     _require_admin(request)
     try:
         from adapters.supabase_adapter import supabase_adapter
+        import os
 
         users = supabase_adapter.get_all_users()
-        return {"users": users or []}
+
+        # 回傳診斷資訊，讓前端知道各步驟有沒有問題
+        diagnostic = {
+            "user_count": len(users) if users else 0,
+            "supabase_url_set": bool(os.environ.get("SUPABASE_URL")),
+            "service_key_set": bool(os.environ.get("SUPABASE_SERVICE_ROLE_KEY")),
+            "anon_key_set": bool(os.environ.get("SUPABASE_ANON_KEY")),
+        }
+
+        if not users:
+            logger.warning("[Admin] /admin/users 回傳空列表，diagnostic=%s", diagnostic)
+
+        return {"users": users or [], "diagnostic": diagnostic}
     except Exception as e:
+        logger.error("[Admin] /admin/users 例外: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -81,6 +81,7 @@ export default function AdminPage() {
   const [success, setSuccess] = useState('');
   const [moderatingUserId, setModeratingUserId] = useState<string | null>(null);
   const [hiddenPendingUntil, setHiddenPendingUntil] = useState<Record<string, number>>({});
+  const [diagnostic, setDiagnostic] = useState<Record<string, unknown> | null>(null);
 
   const adminEmails = useMemo(() => {
     return getAdminEmailsFromEnv();
@@ -131,21 +132,39 @@ export default function AdminPage() {
   const loadData = async () => {
     setLoading(true);
     setError('');
+    const errors: string[] = [];
     try {
       const [statsRes, usersRes, pendingRes, sysRes] = await Promise.all([
-        apiClient.fetch<Stats>('/api/admin/stats', { method: 'GET' }).catch(() => null),
+        apiClient.fetch<Stats>('/api/admin/stats', { method: 'GET' }).catch((e) => {
+          errors.push(`統計: ${getErrorMessage(e, '載入失敗')}`);
+          return null;
+        }),
         apiClient
-          .fetch<{ users: UserItem[] }>('/api/admin/users', { method: 'GET' })
-          .catch(() => ({ users: [] })),
+          .fetch<{ users: UserItem[]; diagnostic?: Record<string, unknown> }>('/api/admin/users', { method: 'GET' })
+          .catch((e) => {
+            errors.push(`用戶列表: ${getErrorMessage(e, '載入失敗')}`);
+            return null;
+          }),
         apiClient
           .fetch<{ pending: PendingUpgradeItem[] }>('/api/admin/upgrade-pending', { method: 'GET' })
-          .catch(() => ({ pending: [] })),
-        apiClient.fetch<SystemStatus>('/api/admin/system', { method: 'GET' }).catch(() => null),
+          .catch((e) => {
+            errors.push(`待審列表: ${getErrorMessage(e, '載入失敗')}`);
+            return null;
+          }),
+        apiClient.fetch<SystemStatus>('/api/admin/system', { method: 'GET' }).catch((e) => {
+          errors.push(`系統狀態: ${getErrorMessage(e, '載入失敗')}`);
+          return null;
+        }),
       ]);
       if (statsRes) setStats(statsRes);
       setUsers(usersRes?.users || []);
+      if (usersRes?.diagnostic) setDiagnostic(usersRes.diagnostic);
       setPending(pendingRes?.pending || []);
       if (sysRes) setSystemStatus(sysRes);
+
+      if (errors.length > 0) {
+        setError(errors.join(' ｜ '));
+      }
     } catch (e) {
       console.error('[Admin] loadData failed:', e);
       setError(getErrorMessage(e, '載入管理資料失敗，請稍後再試。'));
@@ -429,60 +448,97 @@ export default function AdminPage() {
           <div className={styles.loadingText}>載入中...</div>
         ) : (
           <div className={styles.userTableWrap}>
-          <div className={styles.userTable}>
-            <div className={`${styles.tableHeader} ${styles.tableHeaderExtended}`}>
-              <span>Email</span>
-              <span>名稱</span>
-              <span>方案</span>
-              <span>最後上線</span>
-              <span>今日 AI</span>
-              <span>累計 AI</span>
-              <span>自選股</span>
-              <span>操作</span>
-            </div>
-            {filteredUsers.map((u) => (
-              <div key={u.id} className={`${styles.tableRow} ${styles.tableRowExtended}`}>
-                <span className={styles.email}>
-                  <span className={styles.mobileLabel}>Email</span>
-                  {u.email}
-                </span>
-                <span className={styles.tableMeta}>
-                  <span className={styles.mobileLabel}>名稱</span>
-                  {u.name || '-'}
-                </span>
-                <span className={styles.tierCell}>
-                  <span className={styles.mobileLabel}>方案</span>
-                  {getTierIcon(u.tier)} {u.tier}
-                </span>
-                <span className={styles.tableMeta}>
-                  <span className={styles.mobileLabel}>最後上線</span>
-                  {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('zh-TW') : '-'}
-                </span>
-                <span className={styles.tableNum}>
-                  <span className={styles.mobileLabel}>今日 AI</span>
-                  {u.ai_usage_today ?? 0}
-                </span>
-                <span className={styles.tableNum}>
-                  <span className={styles.mobileLabel}>累計 AI</span>
-                  {u.ai_usage_total ?? 0}
-                </span>
-                <span className={styles.tableNum}>
-                  <span className={styles.mobileLabel}>自選股</span>
-                  {u.watchlist_count ?? 0}
-                </span>
-                <select
-                  value={u.tier}
-                  onChange={(e) => void handleTierChange(u.id, e.target.value)}
-                  className={styles.tierSelect}
-                >
-                  <option value="free">Free</option>
-                  <option value="pro">Pro</option>
-                  <option value="premium">Premium</option>
-                </select>
+            <div className={styles.userTable}>
+              <div className={`${styles.tableHeader} ${styles.tableHeaderExtended}`}>
+                <span>Email</span>
+                <span>名稱</span>
+                <span>方案</span>
+                <span>最後上線</span>
+                <span>今日 AI</span>
+                <span>累計 AI</span>
+                <span>自選股</span>
+                <span>操作</span>
               </div>
-            ))}
-            {filteredUsers.length === 0 && <div className={styles.emptyRow}>沒有符合條件的使用者。</div>}
-          </div>
+              {filteredUsers.map((u) => (
+                <div key={u.id} className={`${styles.tableRow} ${styles.tableRowExtended}`}>
+                  <span className={styles.email}>
+                    <span className={styles.mobileLabel}>Email</span>
+                    {u.email}
+                  </span>
+                  <span className={styles.tableMeta}>
+                    <span className={styles.mobileLabel}>名稱</span>
+                    {u.name || '-'}
+                  </span>
+                  <span className={styles.tierCell}>
+                    <span className={styles.mobileLabel}>方案</span>
+                    {getTierIcon(u.tier)} {u.tier}
+                  </span>
+                  <span className={styles.tableMeta}>
+                    <span className={styles.mobileLabel}>最後上線</span>
+                    {u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleDateString('zh-TW') : '-'}
+                  </span>
+                  <span className={styles.tableNum}>
+                    <span className={styles.mobileLabel}>今日 AI</span>
+                    {u.ai_usage_today ?? 0}
+                  </span>
+                  <span className={styles.tableNum}>
+                    <span className={styles.mobileLabel}>累計 AI</span>
+                    {u.ai_usage_total ?? 0}
+                  </span>
+                  <span className={styles.tableNum}>
+                    <span className={styles.mobileLabel}>自選股</span>
+                    {u.watchlist_count ?? 0}
+                  </span>
+                  <select
+                    value={u.tier}
+                    onChange={(e) => void handleTierChange(u.id, e.target.value)}
+                    className={styles.tierSelect}
+                  >
+                    <option value="free">Free</option>
+                    <option value="pro">Pro</option>
+                    <option value="premium">Premium</option>
+                  </select>
+                </div>
+              ))}
+              {filteredUsers.length === 0 && (
+                <>
+                  <div className={styles.emptyRow}>沒有符合條件的使用者。</div>
+                  {diagnostic && users.length === 0 && (
+                    <div className={styles.emptyRow} style={{
+                      textAlign: 'left',
+                      fontSize: '0.82rem',
+                      color: '#b0b0b0',
+                      lineHeight: '1.7',
+                      borderTop: '1px solid rgba(255,255,255,0.06)',
+                      marginTop: 8,
+                      paddingTop: 8,
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4, color: '#ffaa44' }}>🔍 診斷資訊</div>
+                      {Object.entries(diagnostic).map(([k, v]) => (
+                        <div key={k}>
+                          <span style={{ color: '#888' }}>{k}:</span>{' '}
+                          <span style={{
+                            color:
+                              v === false || v === 'FAILED' || v === 'FAILED_PAGE1'
+                                ? '#ff6b6b'
+                                : v === true || (typeof v === 'number' && v > 0)
+                                  ? '#51cf66'
+                                  : '#ccc',
+                          }}>
+                            {String(v)}
+                          </span>
+                        </div>
+                      ))}
+                      <div style={{ marginTop: 6, color: '#888', fontSize: '0.78rem' }}>
+                        💡 若 service_key_set=false，請檢查 SUPABASE_SERVICE_ROLE_KEY 環境變數。
+                        <br />
+                        若 user_count=0 且 key 都正常，可能是 public.users 表的 RLS 阻擋了查詢。
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -500,8 +556,8 @@ export default function AdminPage() {
                 {systemStatus.supabase_latency_ms !== null ? (
                   <span className={
                     systemStatus.supabase_latency_ms < 100 ? styles.latencyGreen
-                    : systemStatus.supabase_latency_ms < 300 ? styles.latencyYellow
-                    : styles.latencyRed
+                      : systemStatus.supabase_latency_ms < 300 ? styles.latencyYellow
+                        : styles.latencyRed
                   }>
                     {systemStatus.supabase_latency_ms} ms
                   </span>
@@ -516,8 +572,8 @@ export default function AdminPage() {
                     ? systemStatus.server_uptime_sec >= 3600
                       ? `${Math.floor(systemStatus.server_uptime_sec / 3600)}h ${Math.floor((systemStatus.server_uptime_sec % 3600) / 60)}m`
                       : systemStatus.server_uptime_sec >= 60
-                      ? `${Math.floor(systemStatus.server_uptime_sec / 60)}m`
-                      : `${systemStatus.server_uptime_sec}s`
+                        ? `${Math.floor(systemStatus.server_uptime_sec / 60)}m`
+                        : `${systemStatus.server_uptime_sec}s`
                     : 'N/A'}
                 </span>
               </div>

@@ -73,9 +73,10 @@ class SupabaseAdapter:
         json: Any = None,
         params: Optional[Dict[str, Any]] = None,
     ) -> Optional[Any]:
-        """Auth Admin API??? SUPABASE_SERVICE_ROLE_KEY??"""
+        """Auth Admin API（需要 SUPABASE_SERVICE_ROLE_KEY）"""
         url, _, service_key = self._get_config()
         if not url or not service_key:
+            logger.warning("[Supabase Auth Admin] 缺少設定: URL=%s, SERVICE_KEY=%s", bool(url), bool(service_key))
             return None
         try:
             with httpx.Client(timeout=15.0) as client:
@@ -91,10 +92,15 @@ class SupabaseAdapter:
                     params=params or {},
                 )
                 if resp.status_code < 200 or resp.status_code >= 300:
+                    body_preview = (resp.text or "")[:300]
+                    logger.warning(
+                        "[Supabase Auth Admin] %s %s 失敗: HTTP %d, body=%s",
+                        method, path, resp.status_code, body_preview,
+                    )
                     return None
                 return resp.json() if resp.text else {}
         except Exception as e:
-            logger.debug(f"[Supabase Auth Admin] {method} {path} ???: {type(e).__name__}")
+            logger.warning("[Supabase Auth Admin] %s %s 例外: %s: %s", method, path, type(e).__name__, e)
             return None
     
     def _rpc(self, name: str, params: Dict) -> Optional[Any]:
@@ -166,11 +172,11 @@ class SupabaseAdapter:
             return None
 
     def _log_request_error(self, key: str, message: str, min_interval_sec: float = 180.0) -> None:
-        """??????????????????????"""
+        """節流式錯誤 log，避免短時間內重複輸出"""
         now = time.time()
         last = self._error_log_throttle.get(key, 0.0)
         if now - last >= min_interval_sec:
-            logger.debug(message)
+            logger.warning(message)
             self._error_log_throttle[key] = now
     
     # ===== Vault ??? =====
@@ -376,6 +382,10 @@ class SupabaseAdapter:
 
     def get_all_users(self) -> List[Dict[str, Any]]:
         """取得所有使用者（含 last_sign_in_at, ai_usage_today, ai_usage_total, watchlist_count）"""
+        # 診斷用：紀錄各步驟的狀態，方便 admin 排查
+        diag: Dict[str, Any] = {}
+
+        # Step 1: 查 public.users
         public_users = self._request(
             "GET",
             "users",
@@ -385,6 +395,15 @@ class SupabaseAdapter:
             },
             use_service_key=True,
         )
+        if public_users is None:
+            logger.warning("[Admin.get_all_users] Step1 public.users 查詢失敗（可能 RLS 阻擋或表不存在）")
+            diag["public_users"] = "FAILED"
+        elif isinstance(public_users, list):
+            diag["public_users"] = len(public_users)
+        else:
+            logger.warning("[Admin.get_all_users] Step1 public.users 回傳非預期格式: %s", type(public_users).__name__)
+            diag["public_users"] = f"UNEXPECTED:{type(public_users).__name__}"
+
         merged: Dict[str, Dict[str, Any]] = {}
 
         if public_users and isinstance(public_users, list):
@@ -404,15 +423,22 @@ class SupabaseAdapter:
                     "watchlist_count": 0,
                 }
 
-        # Fetch auth.users to fill gaps + last_sign_in_at
+        # Step 2: 查 auth.users（Auth Admin API）
         auth_users: List[Dict[str, Any]] = []
         for page in range(1, 11):  # up to 2000 users
             rows = self.auth_admin_list_users(page=page, per_page=200)
             if not rows:
+                if page == 1:
+                    logger.warning("[Admin.get_all_users] Step2 auth_admin_list_users 第一頁即為空（SERVICE_ROLE_KEY 可能有誤）")
+                    diag["auth_users"] = "FAILED_PAGE1"
                 break
             auth_users.extend(rows)
             if len(rows) < 200:
                 break
+        if auth_users:
+            diag["auth_users"] = len(auth_users)
+        elif "auth_users" not in diag:
+            diag["auth_users"] = 0
 
         for row in auth_users:
             uid = row.get("id")
@@ -442,7 +468,7 @@ class SupabaseAdapter:
                 "watchlist_count": (merged.get(uid) or {}).get("watchlist_count", 0),
             }
 
-        # Batch fetch ai_usage (today + total) — avoid N+1
+        # Step 3: Batch fetch ai_usage (today + total) — avoid N+1
         today = self._ai_usage_today()
         try:
             ai_all = self._request(
@@ -452,7 +478,11 @@ class SupabaseAdapter:
                 use_service_key=True,
                 silent=True,
             )
-            if isinstance(ai_all, list):
+            if ai_all is None:
+                logger.warning("[Admin.get_all_users] Step3 ai_usage 查詢失敗")
+                diag["ai_usage"] = "FAILED"
+            elif isinstance(ai_all, list):
+                diag["ai_usage"] = len(ai_all)
                 ai_today_map: Dict[str, int] = {}
                 ai_total_map: Dict[str, int] = {}
                 for row in ai_all:
@@ -471,11 +501,13 @@ class SupabaseAdapter:
                 for uid, user_row in merged.items():
                     user_row["ai_usage_today"] = ai_today_map.get(uid, 0)
                     user_row["ai_usage_total"] = ai_total_map.get(uid, 0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[Admin.get_all_users] Step3 ai_usage 例外: %s", exc)
+            diag["ai_usage"] = f"ERROR:{type(exc).__name__}"
 
-        # Batch fetch watchlist counts
+        # Step 4: Batch fetch watchlist counts
         try:
+            wl_found = False
             for table in ("watchlist", "watchlists"):
                 wl_all = self._request(
                     "GET",
@@ -485,6 +517,8 @@ class SupabaseAdapter:
                     silent=True,
                 )
                 if isinstance(wl_all, list) and wl_all:
+                    wl_found = True
+                    diag["watchlist"] = f"{table}:{len(wl_all)}"
                     wl_count_map: Dict[str, int] = {}
                     for row in wl_all:
                         if not isinstance(row, dict):
@@ -498,11 +532,20 @@ class SupabaseAdapter:
                             wl_count_map.get(uid, 0),
                         )
                     break  # stop after first working table
-        except Exception:
-            pass
+            if not wl_found:
+                diag["watchlist"] = "EMPTY_OR_FAILED"
+        except Exception as exc:
+            logger.warning("[Admin.get_all_users] Step4 watchlist 例外: %s", exc)
+            diag["watchlist"] = f"ERROR:{type(exc).__name__}"
 
         users = list(merged.values())
         users.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
+
+        # 輸出診斷摘要
+        logger.info(
+            "[Admin.get_all_users] 完成: merged=%d, diag=%s",
+            len(users), diag,
+        )
         return users
 
     # ===== ?????? (watchlist/watchlists) =====
