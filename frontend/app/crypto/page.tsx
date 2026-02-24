@@ -12,6 +12,7 @@ import {
     Star,
 } from 'lucide-react';
 import styles from './page.module.css';
+import api from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
 
@@ -64,7 +65,7 @@ export default function CryptoPage() {
         setAnalysisSymbol(symbol.split('_')[0] || symbol);
 
         try {
-            const token = localStorage.getItem('dl_token') || sessionStorage.getItem('dl_token');
+            const token = api.getToken();
             const res = await fetch(`${API_BASE}/api/crypto/ai-analysis`, {
                 method: 'POST',
                 headers: {
