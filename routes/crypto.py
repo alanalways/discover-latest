@@ -288,33 +288,49 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
 
 
 def _call_gemini_crypto(prompt: str) -> str:
-    """直接呼叫 Gemini 生成加密貨幣分析（輕量、快速）"""
+    """直接呼叫 Gemini 生成加密貨幣分析（輕量、快速、含重試）"""
+    import time as _time
+
     try:
         from services.gemini_service import gemini_service
         from google import genai
         from google.genai import types
+    except Exception:
+        return ""
 
+    max_retries = 3
+    for attempt in range(max_retries):
         api_key = gemini_service._get_api_key()
         if not api_key:
             return ""
 
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3,
-                max_output_tokens=1500,
-            ),
-        )
+        try:
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.3,
+                    max_output_tokens=1500,
+                ),
+            )
 
-        text = (getattr(response, "text", "") or "").strip()
-        # 清理 markdown 符號
-        for token in ("**", "***", "```", "__", "~~", "##", "###", "> "):
-            text = text.replace(token, "")
-        return text
-    except Exception as e:
-        logger.warning("[Crypto] Gemini 呼叫失敗: %s", e)
-        return ""
+            text = (getattr(response, "text", "") or "").strip()
+            # 清理 markdown 符號
+            for token in ("**", "***", "```", "__", "~~", "##", "###", "> "):
+                text = text.replace(token, "")
+            return text
+        except Exception as e:
+            err_str = str(e)
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                wait = min(2 ** attempt, 4)
+                logger.info("[Crypto] Gemini 429，換 key 重試 (%d/%d)，等 %ds", attempt + 1, max_retries, wait)
+                _time.sleep(wait)
+                continue
+            logger.warning("[Crypto] Gemini 呼叫失敗: %s", e)
+            return ""
+
+    logger.warning("[Crypto] Gemini 所有 key 都 quota exhausted")
+    return ""
 
 
