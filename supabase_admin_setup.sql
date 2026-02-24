@@ -95,3 +95,12 @@ CREATE POLICY "service_role_all" ON public.user_subscriptions TO service_role US
 CREATE POLICY "service_role_all" ON public.ai_usage TO service_role USING (TRUE) WITH CHECK (TRUE);
 CREATE POLICY "service_role_all" ON public.portfolios TO service_role USING (TRUE) WITH CHECK (TRUE);
 
+-- 8) 資料庫大小查詢 RPC（用於容量偵測）
+CREATE OR REPLACE FUNCTION get_db_size_mb()
+RETURNS TABLE(size_mb NUMERIC) AS $$
+BEGIN
+    RETURN QUERY SELECT ROUND(pg_database_size(current_database()) / 1024.0 / 1024.0, 2) AS size_mb;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+

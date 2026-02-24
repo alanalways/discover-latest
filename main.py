@@ -38,6 +38,17 @@ async def lifespan(app: FastAPI):
         logger.info("[Boot] Adapters loaded")
     except Exception as e:
         logger.warning("[Boot] Adapter load warning: %s", e)
+
+    # 初始化本地 SQLite 儲存 + 同步排程
+    try:
+        from adapters.local_store import local_store
+        from services.sync_scheduler import sync_scheduler
+        sync_scheduler.initial_sync()
+        sync_scheduler.start()
+        logger.info("[Boot] LocalStore + SyncScheduler 初始化完成")
+    except Exception as e:
+        logger.warning("[Boot] LocalStore/SyncScheduler 初始化警告: %s", e)
+
     try:
         from services.preloader import start_preload
 
@@ -50,6 +61,12 @@ async def lifespan(app: FastAPI):
     try:
         from adapters.finmind_adapter import finmind_adapter
         await finmind_adapter.close()
+    except Exception:
+        pass
+    # 停止同步排程
+    try:
+        from services.sync_scheduler import sync_scheduler
+        sync_scheduler.stop()
     except Exception:
         pass
     logger.info("===== DiscoverLatest API Shutting Down =====")

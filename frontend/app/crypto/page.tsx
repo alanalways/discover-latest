@@ -49,6 +49,47 @@ export default function CryptoPage() {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // AI 深度分析
+    const [analyzingSymbol, setAnalyzingSymbol] = useState<string | null>(null);
+    const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+    const [analysisSymbol, setAnalysisSymbol] = useState<string>('');
+    const [analysisLoading, setAnalysisLoading] = useState(false);
+    const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+    const handleAiAnalysis = async (symbol: string) => {
+        setAnalyzingSymbol(symbol);
+        setAnalysisLoading(true);
+        setAnalysisError(null);
+        setAnalysisResult(null);
+        setAnalysisSymbol(symbol.split('_')[0] || symbol);
+
+        try {
+            const token = localStorage.getItem('dl_token') || sessionStorage.getItem('dl_token');
+            const res = await fetch(`${API_BASE}/api/crypto/ai-analysis`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ symbol, interval: '1D', limit: 100 }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }));
+                throw new Error(err.detail || `HTTP ${res.status}`);
+            }
+            const data = await res.json();
+            if (data.analysis) {
+                setAnalysisResult(data.analysis);
+            } else {
+                throw new Error('AI 分析未產出結果，請稍後再試');
+            }
+        } catch (err) {
+            setAnalysisError(err instanceof Error ? err.message : '分析失敗');
+        } finally {
+            setAnalysisLoading(false);
+        }
+    };
+
     const fetchTickers = useCallback(async (showLoading = false) => {
         if (showLoading) setLoading(true);
         setIsRefreshing(true);
@@ -137,10 +178,10 @@ export default function CryptoPage() {
                 </div>
                 <div
                     className={`${styles.changeBadge} ${t.change_pct > 0
-                            ? styles.changeUp
-                            : t.change_pct < 0
-                                ? styles.changeDown
-                                : styles.changeFlat
+                        ? styles.changeUp
+                        : t.change_pct < 0
+                            ? styles.changeDown
+                            : styles.changeFlat
                         }`}
                 >
                     <ChangeIcon pct={t.change_pct} />
@@ -176,6 +217,30 @@ export default function CryptoPage() {
                     <span className={styles.statValue}>{formatAmount(t.amount)}</span>
                 </div>
             </div>
+
+            <button
+                className={styles.aiAnalysisBtn}
+                onClick={(e) => { e.stopPropagation(); handleAiAnalysis(t.symbol); }}
+                disabled={analysisLoading && analyzingSymbol === t.symbol}
+                style={{
+                    width: '100%',
+                    marginTop: 8,
+                    padding: '6px 0',
+                    background: 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))',
+                    border: '1px solid rgba(99,102,241,0.3)',
+                    borderRadius: 6,
+                    color: '#a78bfa',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    opacity: (analysisLoading && analyzingSymbol === t.symbol) ? 0.6 : 1,
+                }}
+                onMouseEnter={(e) => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, rgba(99,102,241,0.3), rgba(139,92,246,0.3))'; }}
+                onMouseLeave={(e) => { (e.target as HTMLElement).style.background = 'linear-gradient(135deg, rgba(99,102,241,0.15), rgba(139,92,246,0.15))'; }}
+            >
+                {(analysisLoading && analyzingSymbol === t.symbol) ? '⏳ 分析中...' : '🤖 AI 深度分析'}
+            </button>
         </div>
     );
 
@@ -214,10 +279,10 @@ export default function CryptoPage() {
                             <td className={styles.alignRight}>
                                 <span
                                     className={`${styles.tableChange} ${t.change_pct > 0
-                                            ? styles.textUp
-                                            : t.change_pct < 0
-                                                ? styles.textDown
-                                                : ''
+                                        ? styles.textUp
+                                        : t.change_pct < 0
+                                            ? styles.textDown
+                                            : ''
                                         }`}
                                 >
                                     {t.change_str}
@@ -316,6 +381,65 @@ export default function CryptoPage() {
                         </div>
                         {renderTable(majors, false)}
                     </section>
+
+                    {/* ── AI 分析結果面板 ── */}
+                    {(analysisResult || analysisLoading || analysisError) && (
+                        <section style={{
+                            marginTop: 24,
+                            padding: '20px 24px',
+                            background: 'rgba(15, 15, 25, 0.9)',
+                            border: '1px solid rgba(99, 102, 241, 0.25)',
+                            borderRadius: 12,
+                            backdropFilter: 'blur(12px)',
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <h3 style={{ margin: 0, color: '#a78bfa', fontSize: '1rem' }}>
+                                    🤖 {analysisSymbol} AI 深度分析
+                                </h3>
+                                <button
+                                    onClick={() => { setAnalysisResult(null); setAnalysisError(null); setAnalyzingSymbol(null); }}
+                                    style={{
+                                        background: 'rgba(255,255,255,0.06)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
+                                        borderRadius: 6,
+                                        color: '#888',
+                                        padding: '4px 12px',
+                                        cursor: 'pointer',
+                                        fontSize: '0.78rem',
+                                    }}
+                                >
+                                    ✕ 關閉
+                                </button>
+                            </div>
+
+                            {analysisLoading && (
+                                <div style={{ textAlign: 'center', padding: 24, color: '#888' }}>
+                                    <div style={{ fontSize: '1.5rem', marginBottom: 8 }}>⏳</div>
+                                    <div>AI 正在分析 {analysisSymbol} 的技術面與市場數據...</div>
+                                    <div style={{ fontSize: '0.78rem', marginTop: 4, color: '#666' }}>通常需要 10-30 秒</div>
+                                </div>
+                            )}
+
+                            {analysisError && (
+                                <div style={{ color: '#ff6b6b', padding: 12, background: 'rgba(255,107,107,0.08)', borderRadius: 8 }}>
+                                    ⚠️ {analysisError}
+                                </div>
+                            )}
+
+                            {analysisResult && (
+                                <div style={{
+                                    whiteSpace: 'pre-wrap',
+                                    lineHeight: 1.7,
+                                    fontSize: '0.88rem',
+                                    color: '#d0d0d0',
+                                    maxHeight: 600,
+                                    overflowY: 'auto',
+                                }}>
+                                    {analysisResult}
+                                </div>
+                            )}
+                        </section>
+                    )}
                 </>
             )}
         </div>

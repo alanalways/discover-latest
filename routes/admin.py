@@ -258,27 +258,39 @@ async def get_system_status(request: Request):
         # API key usage
         api_keys = get_key_usage_stats()
 
-        # Supabase latency（不暴露 service_key，封裝到 adapter 方法）
+        # Supabase latency — 輕量 ping（SELECT id LIMIT 1），不再用 get_all_users()
         supabase_latency_ms: Optional[float] = None
         try:
             from adapters.supabase_adapter import supabase_adapter
 
             t0 = time.time()
-            # 使用 adapter 內部方法測試連線，不直接操作 key
-            supabase_adapter.get_all_users()  # 簡單查詢測延遲
+            supabase_adapter._request(
+                "GET", "users",
+                params={"select": "id", "limit": "1"},
+                use_service_key=True, silent=True,
+            )
             supabase_latency_ms = round((time.time() - t0) * 1000, 1)
         except Exception:
             supabase_latency_ms = None
 
-        # Server uptime（使用 app.state 而非全域變數）
+        # Server uptime
         from fastapi import Request as _Req
         startup_time = getattr(request.app.state, 'startup_time', None)
         uptime_sec = round(time.time() - startup_time) if startup_time else None
+
+        # 本地 SQLite 統計
+        local_stats = {}
+        try:
+            from adapters.local_store import local_store
+            local_stats = local_store.get_stats()
+        except Exception:
+            pass
 
         return {
             "api_keys": api_keys,
             "supabase_latency_ms": supabase_latency_ms,
             "server_uptime_sec": uptime_sec,
+            "local_store_stats": local_stats,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
