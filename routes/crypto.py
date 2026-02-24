@@ -294,6 +294,7 @@ def _call_gemini_crypto(prompt: str) -> str:
 
     try:
         from services.gemini_service import gemini_service, _load_key_pool, _mask_key
+        from config.models import MODEL_FINAL
         from google import genai
         from google.genai import types
     except Exception:
@@ -311,7 +312,7 @@ def _call_gemini_crypto(prompt: str) -> str:
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=MODEL_FINAL,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
