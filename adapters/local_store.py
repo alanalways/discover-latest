@@ -14,17 +14,21 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-# HuggingFace Spaces 持久化路徑
-_HF_DATA_DIR = "/data"
+# 儲存路徑：HF free tier 用 /tmp（ephemeral），本地開發用 .cache
 _LOCAL_FALLBACK = os.path.join(os.getcwd(), ".cache")
 
 
 def _db_path() -> str:
-    """決定 SQLite 檔案路徑"""
-    if os.path.isdir(_HF_DATA_DIR) and os.access(_HF_DATA_DIR, os.W_OK):
-        return os.path.join(_HF_DATA_DIR, "discover.db")
-    os.makedirs(_LOCAL_FALLBACK, exist_ok=True)
-    return os.path.join(_LOCAL_FALLBACK, "discover.db")
+    """決定 SQLite 檔案路徑：/tmp（HF）或 .cache（本地開發）"""
+    # HuggingFace 環境（偵測 SPACE_ID 環境變數）
+    if os.environ.get("SPACE_ID"):
+        return "/tmp/discover.db"
+    # 本地開發
+    try:
+        os.makedirs(_LOCAL_FALLBACK, exist_ok=True)
+        return os.path.join(_LOCAL_FALLBACK, "discover.db")
+    except Exception:
+        return "/tmp/discover.db"
 
 
 class LocalStore:

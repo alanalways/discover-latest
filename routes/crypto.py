@@ -187,7 +187,7 @@ def _build_crypto_technical_snapshot(klines: list) -> str:
 
 @router.post("/crypto/ai-analysis")
 async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
-    """加密貨幣 AI 深度分析"""
+    """加密貨幣 AI 深度分析（專屬 prompt，不走股票 pipeline）"""
     symbol = req.symbol.upper().replace("-", "_")
     if "_" not in symbol:
         symbol = f"{symbol}_USDT"
@@ -216,7 +216,6 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
 
     try:
         from adapters.pionex_adapter import pionex_adapter
-        from services.gemini_service import gemini_service
         import asyncio
 
         # 取得 K 線數據
@@ -230,50 +229,53 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
         # 建立技術指標
         tech_snapshot = _build_crypto_technical_snapshot(klines)
 
-        # 組裝給 AI 的資料
+        # 組裝幣種資訊
         base_symbol = symbol.split("_")[0] if "_" in symbol else symbol
-        crypto_info = {
-            "symbol": symbol,
-            "name": base_symbol,
-            "asset_type": "cryptocurrency",
-            "exchange": "Pionex (Multi-exchange aggregator)",
-        }
+        ticker_info = ""
         if ticker:
-            crypto_info.update({
-                "price": float(ticker.get("close", 0)),
-                "open": float(ticker.get("open", 0)),
-                "high_24h": float(ticker.get("high", 0)),
-                "low_24h": float(ticker.get("low", 0)),
-                "volume_24h": float(ticker.get("volume", 0)),
-            })
+            price = float(ticker.get("close", 0))
+            open_p = float(ticker.get("open", 0))
+            high = float(ticker.get("high", 0))
+            low = float(ticker.get("low", 0))
+            vol = float(ticker.get("volume", 0))
+            change_pct = ((price - open_p) / open_p * 100) if open_p > 0 else 0
+            ticker_info = (
+                f"現價: {price:.6g} USDT | 24h漲跌: {change_pct:+.2f}% | "
+                f"24h高: {high:.6g} | 24h低: {low:.6g} | 成交量: {vol:.2f}"
+            )
 
-        # 呼叫 Gemini AI 分析
-        result = await asyncio.to_thread(
-            gemini_service.generate_analysis,
-            symbol=symbol,
-            stock_info=crypto_info,
-            smc_summary="Crypto asset - SMC N/A",
-            prediction_summary=tech_snapshot,
-            macro_data=None,
-            user_question="",
-            tier=tier,
-            investor_profile=None,
-            progress_callback=None,
+        # 加密貨幣專屬 prompt（輕量、快速、不需要股票相關指標）
+        crypto_prompt = (
+            f"你是加密貨幣分析師。請用繁體中文分析 {base_symbol} ({symbol})。\n\n"
+            f"即時行情: {ticker_info}\n"
+            f"技術指標: {tech_snapshot}\n"
+            f"K線數量: {len(klines)} 根（{req.interval} 週期）\n\n"
+            "請依以下架構分析（禁止使用 markdown 裝飾符號如 ** ## ``` 等）：\n\n"
+            "1. 市場概況\n"
+            f"   分析 {base_symbol} 當前市場表現、價格走勢、成交量變化\n\n"
+            "2. 技術面分析\n"
+            "   根據提供的 RSI、SMA、成交量等指標判斷趨勢方向與強度\n\n"
+            "3. 支撐與壓力\n"
+            "   根據近期高低點標示關鍵價位區間\n\n"
+            "4. 交易策略建議\n"
+            "   給出短期（1-3天）和中期（1-2週）的操作建議，包含進場區間、停損和目標價\n\n"
+            "5. 風險提示\n"
+            "   列出主要風險因素\n\n"
+            "總長度至少 300 字。語氣專業冷靜，像經驗豐富的交易員。"
         )
 
-        analysis_text = ""
-        success = False
-        if isinstance(result, dict):
-            analysis_text = str(result.get("analysis", "")).strip()
-            success = bool(result.get("success"))
+        # 直接呼叫 Gemini（不走股票分析 pipeline）
+        analysis_text = await asyncio.to_thread(
+            _call_gemini_crypto, crypto_prompt
+        )
 
         if analysis_text and len(analysis_text) > 50:
             rate_limiter.record_request(user_id)
 
         return {
-            "success": success or bool(analysis_text),
+            "success": bool(analysis_text and len(analysis_text) > 50),
             "symbol": symbol,
-            "analysis": analysis_text,
+            "analysis": analysis_text or "分析暫時無法產出，請稍後再試。",
             "tech_snapshot": tech_snapshot,
             "kline_count": len(klines),
         }
@@ -283,4 +285,36 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
     except Exception as e:
         logger.exception("[Crypto] AI analysis error")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _call_gemini_crypto(prompt: str) -> str:
+    """直接呼叫 Gemini 生成加密貨幣分析（輕量、快速）"""
+    try:
+        from services.gemini_service import gemini_service
+        from google import genai
+        from google.genai import types
+
+        api_key = gemini_service._get_api_key()
+        if not api_key:
+            return ""
+
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.3,
+                max_output_tokens=1500,
+            ),
+        )
+
+        text = (getattr(response, "text", "") or "").strip()
+        # 清理 markdown 符號
+        for token in ("**", "***", "```", "__", "~~", "##", "###", "> "):
+            text = text.replace(token, "")
+        return text
+    except Exception as e:
+        logger.warning("[Crypto] Gemini 呼叫失敗: %s", e)
+        return ""
+
 

@@ -1,12 +1,14 @@
 """
-同步排程器 — 管理 SQLite ↔ Supabase 的資料同步
-- 啟動時：若 SQLite 為空，從 Supabase 拉取完整資料
-- 每日凌晨 3 點（UTC+8）：SQLite → Supabase 備份
-- 每月 1 號：清理 Supabase 90 天前的 ai_usage 舊資料
+同步排程器 — 管理 SQLite 持久化與 Supabase 備份
+- 啟動時：從 HF Dataset Repo 下載 SQLite → /tmp，若無則從 Supabase 拉取
+- 每小時：SQLite → HF Dataset Repo 上傳備份
+- 每日凌晨 3 點：SQLite → Supabase 備份
+- 每月 1 號：清理 Supabase 90 天前的舊資料
 - 即時偵測：Supabase 容量不足 10% 時自動整理
 """
 import logging
 import os
+import shutil
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -16,13 +18,18 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 
 _TZ = "Asia/Taipei"
-_DAILY_HOUR = 3  # 每日備份時間（凌晨 3 點）
-_CLEANUP_RETAIN_DAYS = 90  # 保留天數
+_DAILY_HOUR = 3  # 每日 Supabase 備份時間（凌晨 3 點）
+_CLEANUP_RETAIN_DAYS = 90
 _CHECK_INTERVAL_SEC = 3600  # 每小時檢查一次
 
-# Supabase 免費方案資料庫大小上限（500 MB）
+# HF Dataset Repo 設定
+_HF_REPO_ID = os.environ.get("HF_DATASET_REPO", "")  # 如 "alanalways/discover-latest-data"
+_HF_DB_FILENAME = "discover.db"
+_SQLITE_PATH = "/tmp/discover.db"
+
+# Supabase 容量上限
 _SUPABASE_FREE_LIMIT_MB = 500
-_CAPACITY_THRESHOLD = 0.10  # 剩餘低於 10% 觸發清理
+_CAPACITY_THRESHOLD = 0.10
 
 
 class SyncScheduler:
@@ -30,11 +37,11 @@ class SyncScheduler:
     def __init__(self):
         self._running = False
         self._thread: Optional[threading.Thread] = None
-        self._last_backup: Optional[str] = None
+        self._last_backup_supabase: Optional[str] = None
+        self._last_backup_hf: Optional[float] = None
         self._last_cleanup: Optional[str] = None
 
     def start(self):
-        """啟動同步排程（daemon thread）"""
         if self._running:
             return
         self._running = True
@@ -45,21 +52,36 @@ class SyncScheduler:
     def stop(self):
         self._running = False
 
-    # ────────────────────── 首次同步 ──────────────────────
+    # ────────────────────── 首次同步：還原 SQLite ──────────────────────
 
     def initial_sync(self):
-        """啟動時若 SQLite 為空，從 Supabase 完整拉取"""
-        try:
-            from adapters.local_store import local_store
+        """啟動時還原 SQLite：HF Dataset Repo → Supabase fallback"""
+        from adapters.local_store import local_store
+
+        # 1. 嘗試從 HF Dataset Repo 下載
+        if self._download_from_hf():
+            # 重新初始化 local_store（因為 db 檔案被替換了）
+            local_store._init_db()
             if not local_store.is_empty():
                 stats = local_store.get_stats()
-                logger.info("[SyncScheduler] SQLite 已有資料，跳過初始同步: %s", stats)
+                logger.info("[SyncScheduler] 從 HF Dataset Repo 還原成功: %s", stats)
                 return
 
-            logger.info("[SyncScheduler] SQLite 為空，從 Supabase 拉取初始資料...")
+        # 2. HF 無資料 → 從 Supabase 拉取
+        if not local_store.is_empty():
+            stats = local_store.get_stats()
+            logger.info("[SyncScheduler] SQLite 已有資料: %s", stats)
+            return
+
+        logger.info("[SyncScheduler] SQLite 為空，從 Supabase 拉取...")
+        self._sync_from_supabase(local_store)
+
+    def _sync_from_supabase(self, local_store):
+        """從 Supabase 拉取完整資料到 SQLite"""
+        try:
             from adapters.supabase_adapter import supabase_adapter
 
-            # 拉 auth.users → 匯入 local users
+            # 拉 auth.users
             users_data = supabase_adapter.get_all_users()
             if users_data:
                 local_store.import_users(users_data)
@@ -90,23 +112,110 @@ class SyncScheduler:
                         )
 
             stats = local_store.get_stats()
-            logger.info("[SyncScheduler] 初始同步完成: %s", stats)
+            logger.info("[SyncScheduler] Supabase 同步完成: %s", stats)
         except Exception as e:
-            logger.warning("[SyncScheduler] 初始同步失敗: %s", e)
+            logger.warning("[SyncScheduler] Supabase 同步失敗: %s", e)
+
+    # ────────────────────── HF Dataset Repo 操作 ──────────────────────
+
+    def _get_hf_api(self):
+        """取得 HfApi 實例（需要 HF_TOKEN 環境變數）"""
+        try:
+            from huggingface_hub import HfApi
+            token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+            if not token:
+                logger.debug("[SyncScheduler] 未設定 HF_TOKEN，HF 備份停用")
+                return None
+            return HfApi(token=token)
+        except ImportError:
+            logger.debug("[SyncScheduler] huggingface_hub 未安裝")
+            return None
+
+    def _get_repo_id(self) -> str:
+        """取得 Dataset Repo ID"""
+        if _HF_REPO_ID:
+            return _HF_REPO_ID
+        # 自動從 SPACE_ID 推算（如 alanalways/discover-latest-v2 → alanalways/discover-latest-data）
+        space_id = os.environ.get("SPACE_ID", "")
+        if "/" in space_id:
+            owner = space_id.split("/")[0]
+            return f"{owner}/discover-latest-data"
+        return ""
+
+    def _download_from_hf(self) -> bool:
+        """從 HF Dataset Repo 下載 SQLite"""
+        api = self._get_hf_api()
+        repo_id = self._get_repo_id()
+        if not api or not repo_id:
+            return False
+
+        try:
+            from huggingface_hub import hf_hub_download
+            token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+            local_path = hf_hub_download(
+                repo_id=repo_id,
+                filename=_HF_DB_FILENAME,
+                repo_type="dataset",
+                token=token,
+                local_dir="/tmp",
+                local_dir_use_symlinks=False,
+            )
+            # hf_hub_download 可能下載到不同位置，確保在 /tmp/discover.db
+            if local_path and os.path.isfile(local_path) and local_path != _SQLITE_PATH:
+                shutil.copy2(local_path, _SQLITE_PATH)
+            logger.info("[SyncScheduler] HF Dataset Repo 下載成功: %s", repo_id)
+            return True
+        except Exception as e:
+            logger.info("[SyncScheduler] HF Dataset Repo 下載失敗（可能是首次）: %s", e)
+            return False
+
+    def _upload_to_hf(self) -> bool:
+        """上傳 SQLite 到 HF Dataset Repo"""
+        api = self._get_hf_api()
+        repo_id = self._get_repo_id()
+        if not api or not repo_id:
+            return False
+
+        if not os.path.isfile(_SQLITE_PATH):
+            return False
+
+        try:
+            # 確保 repo 存在
+            try:
+                api.create_repo(repo_id=repo_id, repo_type="dataset", exist_ok=True, private=True)
+            except Exception:
+                pass
+
+            api.upload_file(
+                path_or_fileobj=_SQLITE_PATH,
+                path_in_repo=_HF_DB_FILENAME,
+                repo_id=repo_id,
+                repo_type="dataset",
+                commit_message=f"Auto backup {self._now().strftime('%Y-%m-%d %H:%M')}",
+            )
+            logger.info("[SyncScheduler] HF Dataset Repo 上傳成功: %s", repo_id)
+            return True
+        except Exception as e:
+            logger.warning("[SyncScheduler] HF Dataset Repo 上傳失敗: %s", e)
+            return False
 
     # ────────────────────── 主循環 ──────────────────────
 
     def _loop(self):
-        """排程主循環"""
         while self._running:
             try:
                 now = self._now()
 
-                # 每日備份
+                # 每小時：上傳到 HF Dataset Repo
+                if self._last_backup_hf is None or (time.time() - self._last_backup_hf) > 3600:
+                    if self._upload_to_hf():
+                        self._last_backup_hf = time.time()
+
+                # 每日備份到 Supabase
                 today_key = now.strftime("%Y-%m-%d")
-                if now.hour >= _DAILY_HOUR and self._last_backup != today_key:
-                    self._do_backup()
-                    self._last_backup = today_key
+                if now.hour >= _DAILY_HOUR and self._last_backup_supabase != today_key:
+                    self._do_supabase_backup()
+                    self._last_backup_supabase = today_key
 
                 # 每月清理（每月 1 號）
                 month_key = now.strftime("%Y-%m")
@@ -122,20 +231,17 @@ class SyncScheduler:
 
             time.sleep(_CHECK_INTERVAL_SEC)
 
-    # ────────────────────── 每日備份 ──────────────────────
+    # ────────────────────── Supabase 每日備份 ──────────────────────
 
-    def _do_backup(self):
-        """SQLite → Supabase 每日備份"""
-        logger.info("[SyncScheduler] 開始每日備份...")
+    def _do_supabase_backup(self):
+        logger.info("[SyncScheduler] 開始每日 Supabase 備份...")
         try:
             from adapters.local_store import local_store
             from adapters.supabase_adapter import supabase_adapter
 
             data = local_store.export_all()
 
-            # 備份 users
-            users = data.get("users", [])
-            for u in users:
+            for u in data.get("users", []):
                 uid = u.get("id")
                 if not uid:
                     continue
@@ -147,9 +253,7 @@ class SyncScheduler:
                     use_service_key=True, silent=True,
                 )
 
-            # 備份 ai_usage
-            ai_rows = data.get("ai_usage", [])
-            for r in ai_rows:
+            for r in data.get("ai_usage", []):
                 supabase_adapter._request(
                     "POST", "ai_usage",
                     params={"on_conflict": "user_id,date"},
@@ -158,9 +262,7 @@ class SyncScheduler:
                     use_service_key=True, silent=True,
                 )
 
-            # 備份 user_subscriptions
-            subs = data.get("user_subscriptions", [])
-            for s in subs:
+            for s in data.get("user_subscriptions", []):
                 supabase_adapter._request(
                     "POST", "user_subscriptions",
                     params={"on_conflict": "user_id"},
@@ -169,21 +271,16 @@ class SyncScheduler:
                     use_service_key=True, silent=True,
                 )
 
-            logger.info(
-                "[SyncScheduler] 每日備份完成: users=%d, ai_usage=%d, subs=%d",
-                len(users), len(ai_rows), len(subs),
-            )
+            logger.info("[SyncScheduler] Supabase 備份完成")
         except Exception as e:
-            logger.warning("[SyncScheduler] 每日備份失敗: %s", e)
+            logger.warning("[SyncScheduler] Supabase 備份失敗: %s", e)
 
     # ────────────────────── 每月清理 ──────────────────────
 
     def _do_cleanup(self):
-        """清理 Supabase 中超過 90 天的 ai_usage 記錄"""
         logger.info("[SyncScheduler] 開始每月清理...")
         try:
             from adapters.supabase_adapter import supabase_adapter
-
             cutoff = (self._now() - timedelta(days=_CLEANUP_RETAIN_DAYS)).strftime("%Y-%m-%d")
             supabase_adapter._request(
                 "DELETE", "ai_usage",
@@ -197,13 +294,8 @@ class SyncScheduler:
     # ────────────────────── 容量偵測 ──────────────────────
 
     def _check_capacity(self):
-        """檢查 Supabase 容量，低於 10% 時自動清理"""
         try:
             from adapters.supabase_adapter import supabase_adapter
-
-            # 透過 RPC 或 pg_database_size 取得容量
-            # Supabase 免費方案沒有直接 API，用估算法：
-            # 查詢各表行數估算大小
             size_mb = self._estimate_supabase_size_mb(supabase_adapter)
             if size_mb is None:
                 return
@@ -212,22 +304,17 @@ class SyncScheduler:
 
             if remaining_pct < _CAPACITY_THRESHOLD:
                 logger.warning(
-                    "[SyncScheduler] ⚠️ Supabase 容量不足! 已用 %.1f MB / %d MB（剩餘 %.1f%%），啟動緊急清理",
+                    "[SyncScheduler] ⚠️ Supabase 容量不足! %.1fMB/%dMB（剩餘 %.1f%%），啟動緊急清理",
                     size_mb, _SUPABASE_FREE_LIMIT_MB, remaining_pct * 100,
                 )
                 self._emergency_cleanup(supabase_adapter)
             else:
-                logger.debug(
-                    "[SyncScheduler] Supabase 容量正常: %.1f MB / %d MB（剩餘 %.1f%%）",
-                    size_mb, _SUPABASE_FREE_LIMIT_MB, remaining_pct * 100,
-                )
+                logger.debug("[SyncScheduler] Supabase 容量: %.1fMB/%dMB", size_mb, _SUPABASE_FREE_LIMIT_MB)
         except Exception as e:
             logger.debug("[SyncScheduler] 容量檢測略過: %s", e)
 
     def _estimate_supabase_size_mb(self, adapter) -> Optional[float]:
-        """估算 Supabase 資料庫大小（透過 RPC 查詢 pg_database_size）"""
         try:
-            # 嘗試呼叫 pg_database_size RPC（需在 Supabase SQL Editor 建立）
             result = adapter._rpc("get_db_size_mb", {})
             if isinstance(result, (int, float)):
                 return float(result)
@@ -236,39 +323,19 @@ class SyncScheduler:
                 size = row.get("size_mb") or row.get("size") or row.get("result")
                 if size is not None:
                     return float(size)
-            # RPC 不存在時用行數粗估（每行約 0.5KB）
-            total_rows = 0
-            for table in ("users", "user_subscriptions", "ai_usage", "watchlist", "portfolios", "price_alerts"):
-                rows = adapter._request(
-                    "GET", table,
-                    params={"select": "count", "limit": "1"},
-                    use_service_key=True, silent=True,
-                )
-                # Supabase HEAD count 或 array length
-                if isinstance(rows, list):
-                    # 用 Prefer: count=exact 的話會在 response header，這裡用粗估
-                    pass
-            # 粗估失敗就回 None
             return None
         except Exception:
             return None
 
     def _emergency_cleanup(self, adapter):
-        """緊急清理：刪除 30 天前的 ai_usage + 60 天前的 portfolios 快照"""
         try:
-            cutoff_30 = (self._now() - timedelta(days=30)).strftime("%Y-%m-%d")
-            cutoff_60 = (self._now() - timedelta(days=60)).strftime("%Y-%m-%d")
-
-            # 刪除 30 天前 ai_usage
+            cutoff = (self._now() - timedelta(days=30)).strftime("%Y-%m-%d")
             adapter._request(
                 "DELETE", "ai_usage",
-                params={"date": f"lt.{cutoff_30}"},
+                params={"date": f"lt.{cutoff}"},
                 use_service_key=True, silent=True,
             )
-            logger.info("[SyncScheduler] 緊急清理: 刪除 ai_usage %s 以前", cutoff_30)
-
-            # 如有其他大表也可以清理
-            logger.info("[SyncScheduler] 緊急清理完成")
+            logger.info("[SyncScheduler] 緊急清理完成（ai_usage %s 以前）", cutoff)
         except Exception as e:
             logger.warning("[SyncScheduler] 緊急清理失敗: %s", e)
 
