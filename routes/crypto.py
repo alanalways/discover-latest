@@ -290,20 +290,24 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
 def _call_gemini_crypto(prompt: str) -> str:
     """直接呼叫 Gemini 生成加密貨幣分析（輕量、快速、含重試）"""
     import time as _time
+    import re as _re
 
     try:
-        from services.gemini_service import gemini_service
+        from services.gemini_service import gemini_service, _load_key_pool, _mask_key
         from google import genai
         from google.genai import types
     except Exception:
         return ""
 
-    max_retries = 3
+    pool_size = len(_load_key_pool())
+    max_retries = max(pool_size, 3)  # 至少嘗試所有 key
+
     for attempt in range(max_retries):
         api_key = gemini_service._get_api_key()
         if not api_key:
             return ""
 
+        masked = _mask_key(api_key)
         try:
             client = genai.Client(api_key=api_key)
             response = client.models.generate_content(
@@ -316,21 +320,28 @@ def _call_gemini_crypto(prompt: str) -> str:
             )
 
             text = (getattr(response, "text", "") or "").strip()
-            # 清理 markdown 符號
             for token in ("**", "***", "```", "__", "~~", "##", "###", "> "):
                 text = text.replace(token, "")
+            if text:
+                logger.info("[Crypto] Gemini 成功 (key=%s, attempt=%d)", masked, attempt + 1)
             return text
         except Exception as e:
             err_str = str(e)
             if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                wait = min(2 ** attempt, 4)
-                logger.info("[Crypto] Gemini 429，換 key 重試 (%d/%d)，等 %ds", attempt + 1, max_retries, wait)
+                # 嘗試從錯誤訊息解析建議等待時間
+                wait_match = _re.search(r"retry in ([\d.]+)s", err_str)
+                wait = float(wait_match.group(1)) if wait_match else min(2 ** attempt, 4)
+                wait = min(wait, 5)  # 最多等 5 秒
+                logger.info(
+                    "[Crypto] key=%s 429 quota exhausted (%d/%d)，等 %.1fs",
+                    masked, attempt + 1, max_retries, wait,
+                )
                 _time.sleep(wait)
                 continue
-            logger.warning("[Crypto] Gemini 呼叫失敗: %s", e)
+            logger.warning("[Crypto] Gemini 呼叫失敗 (key=%s): %s", masked, e)
             return ""
 
-    logger.warning("[Crypto] Gemini 所有 key 都 quota exhausted")
+    logger.warning("[Crypto] 所有 %d 把 key 都 quota exhausted，無法生成分析", pool_size)
     return ""
 
 
