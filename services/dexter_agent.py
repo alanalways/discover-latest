@@ -246,69 +246,67 @@ class DexterAgent:
         try:
             from google import genai
             from google.genai import types
+            from services.gemini_service import (
+                build_stage1_prompt, UNIFIED_SYSTEM_PROMPT, TIER_EXTRA,
+                GeminiService,
+            )
+            from datetime import datetime as _dt
 
             # ── Stage 1: Grounding Search (flash) ──
-            key1 = gemini_service.get_api_key()
-            logger.info("[Dexter] Stage 1: model=%s", MODEL_GROUNDING)
+            # 先查 grounding cache，命中則跳過 Stage1 省 1 次 API call
+            grounding_cache_key = str(symbol or "").strip().upper()
+            cached_grounding = gemini_service._read_grounding_cache(grounding_cache_key)
+            if cached_grounding:
+                grounding_text = str(cached_grounding.get("text") or "")
+                logger.info("[Dexter] Stage 1 cache HIT for %s: %d chars", symbol, len(grounding_text))
+            else:
+                key1 = gemini_service.get_api_key()
+                logger.info("[Dexter] Stage 1: model=%s", MODEL_GROUNDING)
+                stage1_prompt = build_stage1_prompt(symbol, context_text)
 
-            stage1_prompt = (
-                f"用 Google Search 搜尋 {symbol} 最新資訊 請用繁體中文輸出\n"
-                "必查 當前股價 當日漲跌幅 成交量 近五日走勢\n"
-                "必查 財報 法說 公司公告 訂單 評級 產業消息 同業動態\n"
-                "必查 利率 匯率 油價 地緣政治等宏觀因素\n"
-                "每條格式 日期｜事件｜對股價影響｜來源\n"
-                "若找不到證據請寫 尚無足夠證據 最後附 120 字新聞總結\n"
-                "禁止 markdown 裝飾符號\n"
-                f"背景資料 {context_text}\n"
-            )
-
-            client1 = genai.Client(api_key=key1)
-            grounding_text = ""
-            try:
-                resp1 = client1.models.generate_content(
-                    model=MODEL_GROUNDING,
-                    contents=stage1_prompt,
-                    config=types.GenerateContentConfig(
-                        tools=[types.Tool(google_search=types.GoogleSearch())],
-                        temperature=0.2,
-                        max_output_tokens=800,
-                    ),
-                )
-                grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
-            except Exception as e1:
-                logger.warning("[Dexter] Stage 1 grounding failed: %s, fallback no-search", e1)
+                client1 = genai.Client(api_key=key1)
+                grounding_text = ""
                 try:
                     resp1 = client1.models.generate_content(
                         model=MODEL_GROUNDING,
                         contents=stage1_prompt,
-                        config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
+                        config=types.GenerateContentConfig(
+                            tools=[types.Tool(google_search=types.GoogleSearch())],
+                            temperature=0.2,
+                            max_output_tokens=800,
+                        ),
                     )
                     grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
-                except Exception as e1b:
-                    grounding_text = f"搜尋失敗: {type(e1b).__name__}"
+                except Exception as e1:
+                    logger.warning("[Dexter] Stage 1 grounding failed: %s, fallback no-search", e1)
+                    try:
+                        resp1 = client1.models.generate_content(
+                            model=MODEL_GROUNDING,
+                            contents=stage1_prompt,
+                            config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
+                        )
+                        grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
+                    except Exception as e1b:
+                        grounding_text = f"搜尋失敗: {type(e1b).__name__}"
 
-            logger.info("[Dexter] Stage 1 done: %d chars", len(grounding_text))
+                # 寫入 grounding cache 供其他模組共用
+                gemini_service._write_grounding_cache(grounding_cache_key, grounding_text, [])
+                logger.info("[Dexter] Stage 1 done: %d chars", len(grounding_text))
 
-            # ── Stage 2: 深度分析 (pro) ──
+            # ── Stage 2: 深度分析 (pro) — 使用統一 7 章節結構 ──
             key2 = gemini_service.get_api_key()
             logger.info("[Dexter] Stage 2: model=%s", MODEL_DEXTER)
 
             grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
+            today_str = _dt.now().strftime("%Y-%m-%d")
 
             stage2_prompt = (
-                "你是專業金融研究分析師 30 年經驗 風格冷靜 執行導向 數據驅動\n"
-                "語言 全文繁體中文 禁止英文句子 技術縮寫除外\n"
-                "格式 純文字列點 禁止任何 markdown 符號\n"
+                f"{UNIFIED_SYSTEM_PROMPT.replace('{today}', today_str)}\n"
+                f"{TIER_EXTRA['pro']}\n"
                 "禁止提及資料來源名稱或工具名稱 直接呈現分析結論\n\n"
                 f"標的 {symbol}\n"
                 f"已蒐集的市場數據:\n{context_text}\n\n"
-                f"最新搜尋證據:\n{grounding_compact}\n\n"
-                "請輸出完整的深度研究報告 包含:\n"
-                "1. 基本面分析（估值 營收 獲利能力）\n"
-                "2. 籌碼面分析（法人動向 融資融券）\n"
-                "3. 技術面觀察\n"
-                "4. 風險評估\n"
-                "5. 投資建議與目標價區間\n"
+                f"stage1 證據:\n{grounding_compact}\n"
             )
 
             client2 = genai.Client(api_key=key2)
@@ -322,7 +320,15 @@ class DexterAgent:
             )
             text = resp2.text.strip() if resp2 and getattr(resp2, "text", None) else ""
             logger.info("[Dexter] Stage 2 done: %d chars", len(text))
-            return {"success": bool(text), "analysis": text}
+
+            # 提取 JSON 摘要
+            summary_data = None
+            try:
+                summary_data, text = GeminiService._extract_summary_json(text)
+            except Exception:
+                pass
+
+            return {"success": bool(text), "analysis": text, "summary": summary_data or {}}
 
         except Exception as e:
             return {"error": f"Gemini: {e}"}

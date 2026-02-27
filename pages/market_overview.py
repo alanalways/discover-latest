@@ -692,6 +692,127 @@ def _get_top20_nonblocking() -> Dict:
 
 
 # ──────────────────────────────────────
+# ──────────────────────────────────────
+# 資金走向及大戶持倉（三大法人買賣超）
+# ──────────────────────────────────────
+_FUND_FLOW_SYMBOLS = ["2330", "2317", "2454", "2308", "2303", "2881", "2882", "2891", "2886", "2412"]
+_fund_flow_cache: Dict = {"data": None, "ts": 0}
+_FUND_FLOW_CACHE_TTL = 600  # 10 分鐘
+
+
+def _get_fund_flow_data() -> List[Dict]:
+    """抓取台股重點個股近 5 日三大法人買賣超"""
+    global _fund_flow_cache
+    now = time.time()
+    if _fund_flow_cache["data"] is not None and (now - _fund_flow_cache["ts"]) < _FUND_FLOW_CACHE_TTL:
+        return _fund_flow_cache["data"]
+
+    try:
+        from adapters.finmind_adapter import finmind_adapter
+    except Exception:
+        return []
+
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+
+    def _fetch_one(sym: str) -> Optional[Dict]:
+        try:
+            rows = finmind_adapter.get_tw_institutional_sync(sym, start_date, end_date)
+            if not rows:
+                return None
+            # 取最近 5 個交易日（每日可能有多條: 外資/投信/自營商）
+            dates = sorted(set(r.get("date", "") for r in rows))[-5:]
+            foreign_net = 0
+            trust_net = 0
+            for r in rows:
+                if r.get("date", "") not in dates:
+                    continue
+                name = r.get("name", "")
+                buy = float(r.get("buy", 0))
+                sell = float(r.get("sell", 0))
+                net = buy - sell
+                if "外資" in name or "Foreign" in name:
+                    foreign_net += net
+                elif "投信" in name or "Investment_Trust" in name:
+                    trust_net += net
+            name = _TW_STOCK_NAMES.get(sym, sym)
+            return {
+                "symbol": sym,
+                "name": name,
+                "foreign_net": int(foreign_net),
+                "trust_net": int(trust_net),
+                "total_net": int(foreign_net + trust_net),
+            }
+        except Exception as e:
+            logger.debug("Fund flow fetch failed for %s: %s", sym, e)
+            return None
+
+    results = []
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {executor.submit(_fetch_one, sym): sym for sym in _FUND_FLOW_SYMBOLS}
+        for future in as_completed(futures):
+            try:
+                row = future.result(timeout=8)
+                if row:
+                    results.append(row)
+            except Exception:
+                pass
+
+    # 按合計淨買排序
+    results.sort(key=lambda x: x.get("total_net", 0), reverse=True)
+    _fund_flow_cache["data"] = results
+    _fund_flow_cache["ts"] = time.time()
+    return results
+
+
+def _build_fund_flow_section(fund_data: List[Dict]) -> str:
+    """建構資金走向 HTML 表格"""
+    if not fund_data:
+        return ""
+
+    def _fmt_val(v: int) -> str:
+        """格式化張數（正數綠▲、負數紅▼）"""
+        if v > 0:
+            return f'<span style="color:#22c55e;">▲ {v:,}</span>'
+        elif v < 0:
+            return f'<span style="color:#ef4444;">▼ {v:,}</span>'
+        else:
+            return f'<span style="color:var(--text-3);">0</span>'
+
+    rows_html = ""
+    for item in fund_data:
+        sym = item["symbol"]
+        rows_html += f'''<tr style="border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;"
+            onclick="if(typeof navigateToStock==='function')navigateToStock('{sym}')">
+            <td style="padding:10px 8px;font-family:var(--font-mono);color:var(--accent);">{sym}</td>
+            <td style="padding:10px 8px;color:var(--text-1);">{item["name"]}</td>
+            <td style="padding:10px 8px;text-align:right;">{_fmt_val(item["foreign_net"])}</td>
+            <td style="padding:10px 8px;text-align:right;">{_fmt_val(item["trust_net"])}</td>
+            <td style="padding:10px 8px;text-align:right;font-weight:600;">{_fmt_val(item["total_net"])}</td>
+        </tr>'''
+
+    return f'''
+    <div class="market-section">
+        <h2 class="section-title" style="display:flex;align-items:center;gap:8px;">
+            <span class="section-icon">💰</span>
+            資金走向及大戶持倉
+        </h2>
+        <div class="chart-section" style="margin-bottom:20px;">
+            <p style="color:var(--text-3);font-size:12px;margin:0 0 12px;">近 5 個交易日三大法人買賣超（單位：張）</p>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr>
+                    <th style="padding:8px 6px;text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">代號</th>
+                    <th style="padding:8px 6px;text-align:left;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">名稱</th>
+                    <th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">外資(5日)</th>
+                    <th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">投信(5日)</th>
+                    <th style="padding:8px 6px;text-align:right;color:var(--text-3);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid rgba(255,255,255,0.06);">合計</th>
+                </tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+    </div>'''
+
+
 # Page builder
 # ──────────────────────────────────────
 def create_market_overview_page(lang: str = "zh-TW", watchlist: list = None):
@@ -888,6 +1009,10 @@ def create_market_overview_page(lang: str = "zh-TW", watchlist: list = None):
                 </div>
             </div>'''
 
+    # ---------- 資金走向 ----------
+    fund_flow_data = _get_fund_flow_data()
+    fund_flow_html = _build_fund_flow_section(fund_flow_data)
+
     # ---------- Assemble page HTML ----------
     page_html = f'''
     <div class="market-page">
@@ -928,6 +1053,9 @@ def create_market_overview_page(lang: str = "zh-TW", watchlist: list = None):
 
         <!-- ⭐ 自選股行情（登入且有自選股時顯示）-->
         {watchlist_section_html}
+
+        <!-- 💰 資金走向及大戶持倉 -->
+        {fund_flow_html}
 
         <!-- 📊 Top 10 排行 -->
         <div class="market-section">

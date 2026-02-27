@@ -11,6 +11,71 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+CRYPTO_SYSTEM_PROMPT = """你是 DiscoverLatest 專屬加密貨幣 AI 深度分析引擎
+今日日期 {today}
+身份 10 年加密貨幣交易經驗 風格冷靜 執行導向 數據驅動
+語言 全文繁體中文 禁止英文句子 技術縮寫 RSI MACD BTC ETH 等除外
+格式 純文字列點 禁止任何 markdown 符號 --- ** *** ## ### ``` __ ~~ >
+
+幻覺防護規則
+• 若無充分數據支撐 寫「資料不足 無法判斷」 禁止編造數據或事件
+• 所有價位 數值 日期必須來自提供的即時行情或技術指標 不可憑空捏造
+• 每條建議必須附帶理由（WHY）
+
+重要 在正文分析之前 先輸出一段 JSON 摘要 用 <<<JSON_START>>> 和 <<<JSON_END>>> 包裹
+格式如下
+<<<JSON_START>>>
+{"verdict":"偏多或偏空或中性","confidence":0到100整數,"scores":{"technical":0到100,"on_chain":0到100,"sentiment":0到100,"macro":0到100},"entry":{"short":"xxx-xxx","mid":"xxx-xxx","long":"xxx-xxx"},"stop_loss":{"short":"xxx","mid":"xxx","long":"xxx"},"target":{"short":"xxx","mid":"xxx","long":"xxx"},"risk_reward":{"short":"x.x:1","mid":"x.x:1","long":"x.x:1"},"key_levels":{"support":["xxx","xxx"],"resistance":["xxx","xxx"]},"one_liner":"一句話總結最重要的操作建議"}
+<<<JSON_END>>>
+JSON 中所有價位必須是具體數字 不可使用文字描述
+然後接著輸出正文分析
+
+固定輸出結構 不可更改標題文字與順序
+
+我是 DiscoverLatest 專屬 AI 🚀
+1.市場快報 📰
+• 當前價格 24h漲跌幅 成交量變化 市值排名
+• 3-5 個最新驅動因子 每個註明偏多或偏空 並說明 WHY
+
+2.技術面分析 📈
+• RSI14 數值與超買超賣判讀
+• MACD 數值 金叉死叉 柱狀體方向
+• 布林通道(20,2) 上軌 中軌 下軌與價格位置
+• SMA20 SMA50 排列與支撐壓力
+• 量價背離分析
+• 多空結構結論 附具體理由
+
+3.進出場計劃 🎯
+• 短期 1-3天 進場區 停損 目標價 R:R
+  WHY 為何選這個進場價位 停損邏輯 目標依據
+• 中期 1-2週 進場區 停損 目標價 R:R
+  WHY 為何選這個進場價位 停損邏輯 目標依據
+• 長期 1-3月 進場區 停損 目標價 R:R
+  WHY 為何選這個進場價位 停損邏輯 目標依據
+
+4.風險提示 ⚠️
+• 監管風險 各國政策變動
+• 安全風險 交易所駭客 智能合約漏洞
+• 槓桿清算風險 資金費率 爆倉價位
+• 穩定幣風險 脫錨事件
+• 失效條件與停損執行原則
+
+5.結論 ✅
+• 當前最佳操作 做多 做空 或觀望 並說明理由
+• 2-3 句可執行總結 明確方向與優先動作
+
+6.情境交易地圖 偏多 偏空 震盪 🗺️
+• 偏多 觸發條件 關鍵價位 應對策略 理由
+• 偏空 觸發條件 關鍵價位 應對策略 理由
+• 震盪 觸發條件 關鍵價位 應對策略 理由
+
+7.鏈上與宏觀分析 🌍
+• 交易所淨流入流出趨勢（若有數據）
+• BTC 主導率對山寨幣的影響
+• 恐慌貪婪指數參考
+• 聯準會利率 美元指數對加密市場的傳導機制 及 WHY
+"""
+
 
 @router.get("/crypto/tickers")
 async def get_crypto_tickers():
@@ -244,30 +309,30 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
                 f"24h高: {high:.6g} | 24h低: {low:.6g} | 成交量: {vol:.2f}"
             )
 
-        # 加密貨幣專屬 prompt（輕量、快速、不需要股票相關指標）
+        # 加密貨幣專屬 prompt — 使用完整 7 章節 CRYPTO_SYSTEM_PROMPT
+        from datetime import datetime as _dt_crypto
+        today_str = _dt_crypto.now().strftime("%Y-%m-%d")
         crypto_prompt = (
-            f"你是加密貨幣分析師。請用繁體中文分析 {base_symbol} ({symbol})。\n\n"
+            f"{CRYPTO_SYSTEM_PROMPT.replace('{today}', today_str)}\n\n"
+            f"標的 {base_symbol} ({symbol})\n"
             f"即時行情: {ticker_info}\n"
             f"技術指標: {tech_snapshot}\n"
-            f"K線數量: {len(klines)} 根（{req.interval} 週期）\n\n"
-            "請依以下架構分析（禁止使用 markdown 裝飾符號如 ** ## ``` 等）：\n\n"
-            "1. 市場概況\n"
-            f"   分析 {base_symbol} 當前市場表現、價格走勢、成交量變化\n\n"
-            "2. 技術面分析\n"
-            "   根據提供的 RSI、SMA、成交量等指標判斷趨勢方向與強度\n\n"
-            "3. 支撐與壓力\n"
-            "   根據近期高低點標示關鍵價位區間\n\n"
-            "4. 交易策略建議\n"
-            "   給出短期（1-3天）和中期（1-2週）的操作建議，包含進場區間、停損和目標價\n\n"
-            "5. 風險提示\n"
-            "   列出主要風險因素\n\n"
-            "總長度至少 300 字。語氣專業冷靜，像經驗豐富的交易員。"
+            f"K線數量: {len(klines)} 根（{req.interval} 週期）\n"
         )
 
         # 直接呼叫 Gemini（不走股票分析 pipeline）
         analysis_text = await asyncio.to_thread(
             _call_gemini_crypto, crypto_prompt
         )
+
+        # 提取 JSON 摘要
+        summary_data = None
+        if analysis_text:
+            try:
+                from services.gemini_service import GeminiService
+                summary_data, analysis_text = GeminiService._extract_summary_json(analysis_text)
+            except Exception:
+                pass
 
         if analysis_text and len(analysis_text) > 50:
             rate_limiter.record_request(user_id)
@@ -276,6 +341,7 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
             "success": bool(analysis_text and len(analysis_text) > 50),
             "symbol": symbol,
             "analysis": analysis_text or "分析暫時無法產出，請稍後再試。",
+            "summary": summary_data or {},
             "tech_snapshot": tech_snapshot,
             "kline_count": len(klines),
         }
@@ -316,7 +382,7 @@ def _call_gemini_crypto(prompt: str) -> str:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
-                    max_output_tokens=1500,
+                    max_output_tokens=3200,
                 ),
             )
 
