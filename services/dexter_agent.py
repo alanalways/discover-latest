@@ -251,7 +251,7 @@ class DexterAgent:
             from google.genai import types
             from services.gemini_service import (
                 build_stage1_prompt, UNIFIED_SYSTEM_PROMPT, TIER_EXTRA,
-                GeminiService,
+                GeminiService, safe_response_text,
             )
             from datetime import datetime as _dt
 
@@ -279,7 +279,7 @@ class DexterAgent:
                             max_output_tokens=800,
                         ),
                     )
-                    grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
+                    grounding_text = safe_response_text(resp1)
                 except Exception as e1:
                     logger.warning("[Dexter] Stage 1 grounding failed: %s, fallback no-search", e1)
                     try:
@@ -288,7 +288,7 @@ class DexterAgent:
                             contents=stage1_prompt,
                             config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=800),
                         )
-                        grounding_text = resp1.text.strip() if resp1 and getattr(resp1, "text", None) else ""
+                        grounding_text = safe_response_text(resp1)
                     except Exception as e1b:
                         grounding_text = f"搜尋失敗: {type(e1b).__name__}"
 
@@ -323,7 +323,7 @@ class DexterAgent:
                     max_output_tokens=max_tokens,
                 ),
             )
-            text = resp2.text.strip() if resp2 and getattr(resp2, "text", None) else ""
+            text = safe_response_text(resp2)
             logger.info("[Dexter] Stage 2 done: %d chars", len(text))
 
             # 提取 JSON 摘要

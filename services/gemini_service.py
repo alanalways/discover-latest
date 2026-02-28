@@ -27,6 +27,43 @@ GEMINI_ANALYSIS_CACHE_MAXSIZE = max(32, int(os.environ.get("GEMINI_ANALYSIS_CACH
 GEMINI_METRICS_CACHE_MAXSIZE = max(16, int(os.environ.get("GEMINI_METRICS_CACHE_MAXSIZE", "100")))
 GEMINI_INDUSTRY_CACHE_MAXSIZE = max(16, int(os.environ.get("GEMINI_INDUSTRY_CACHE_MAXSIZE", "50")))
 
+
+def safe_response_text(resp: Any) -> str:
+    """Extract text from a Gemini response, handling unknown FinishReason gracefully.
+
+    The google.genai SDK may raise ValueError when accessing .text if the
+    response contains only tool-call parts or has an unrecognised finish
+    reason (e.g. TOO_MANY_TOOL_CALLS).  This helper falls back to manually
+    concatenating text parts from candidates.
+    """
+    if resp is None:
+        return ""
+    # Fast path: normal .text access
+    try:
+        t = resp.text
+        if t:
+            return t.strip()
+    except (ValueError, AttributeError, TypeError):
+        pass
+    # Fallback: iterate candidates → parts → text
+    try:
+        for candidate in (getattr(resp, "candidates", None) or []):
+            content = getattr(candidate, "content", None)
+            if not content:
+                continue
+            parts = getattr(content, "parts", None) or []
+            texts = []
+            for part in parts:
+                t = getattr(part, "text", None)
+                if t:
+                    texts.append(str(t))
+            if texts:
+                return "\n".join(texts).strip()
+    except Exception:
+        pass
+    return ""
+
+
 INTRO_LINE = "\u6211\u662f DiscoverLatest \u5c08\u5c6c AI \U0001F680"
 S1 = "1.\u5e02\u5834\u5feb\u5831 \U0001F4F0"
 S2 = "2.\u6280\u8853\u9762\u5206\u6790 \U0001F4C8"
@@ -1187,7 +1224,7 @@ class GeminiService:
                 f1 = ex1.submit(_run_stage1)
                 try:
                     stage1_resp = f1.result(timeout=stage1_timeout_sec)
-                    grounding_text = stage1_resp.text.strip() if stage1_resp and getattr(stage1_resp, "text", None) else ""
+                    grounding_text = safe_response_text(stage1_resp)
                     candidates = getattr(stage1_resp, "candidates", None) or []
                     if candidates:
                         gm = getattr(candidates[0], "grounding_metadata", None)
@@ -1310,7 +1347,7 @@ class GeminiService:
             f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
             try:
                 stage2_resp = f2.result(timeout=stage2_timeout_sec)
-                raw_analysis = stage2_resp.text.strip() if stage2_resp and getattr(stage2_resp, "text", None) else ""
+                raw_analysis = safe_response_text(stage2_resp)
                 summary_data, raw_analysis = self._extract_summary_json(raw_analysis)
                 analysis = self._ensure_smc_section(self._sanitize_analysis_text(raw_analysis), smc_summary)
 
