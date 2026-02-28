@@ -603,6 +603,24 @@ class GeminiService:
         pattern = r'<<<JSON_START>>>\s*(.*?)\s*<<<JSON_END>>>'
         match = re.search(pattern, raw_text, flags=re.DOTALL)
         if not match:
+            # Fallback: JSON_START 存在但 JSON_END 被截斷
+            start_marker = "<<<JSON_START>>>"
+            start_idx = raw_text.find(start_marker)
+            if start_idx >= 0:
+                # 移除從 JSON_START 到文末或到下一段正文（以 "我是" 或 "1." 開頭）之間的內容
+                after = raw_text[start_idx + len(start_marker):]
+                # 嘗試找正文起始點
+                text_start = None
+                for anchor in ["我是 DiscoverLatest", "1.市場快報", "1. 市場快報"]:
+                    pos = after.find(anchor)
+                    if pos >= 0:
+                        text_start = pos
+                        break
+                if text_start is not None:
+                    cleaned = raw_text[:start_idx].strip() + "\n" + after[text_start:].strip()
+                else:
+                    cleaned = raw_text[:start_idx].strip()
+                return None, cleaned.strip()
             return None, raw_text
         json_str = match.group(1).strip()
         cleaned = raw_text[:match.start()] + raw_text[match.end():]

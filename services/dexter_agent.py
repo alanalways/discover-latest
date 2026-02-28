@@ -19,13 +19,14 @@ class DexterAgent:
     def __init__(self):
         self._executor = ThreadPoolExecutor(max_workers=6)
 
-    def execute(self, query: str, user_id: str, symbol: str = None) -> Dict:
+    def execute(self, query: str, user_id: str, symbol: str = None, tier: str = "free") -> Dict:
         """
         完整執行流程：規劃 → 執行 → 驗證 → 綜合分析
 
         Returns:
             execution_log dict for dexter_panel rendering
         """
+        self._current_tier = str(tier or "free").strip().lower()
         start_time = time.time()
         log = {
             "query": query,
@@ -223,9 +224,11 @@ class DexterAgent:
             return {"error": f"FinMind: {e}"}
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
-        """Stage1 grounding (flash) + Stage2 深度分析 (pro)"""
+        """Stage1 grounding (flash) + Stage2 深度分析"""
         from config.models import MODEL_GROUNDING, MODEL_DEXTER
         from services.gemini_service import gemini_service
+
+        tier_norm = getattr(self, "_current_tier", "free") or "free"
 
         api_key = gemini_service.get_api_key()
         if not api_key:
@@ -293,16 +296,18 @@ class DexterAgent:
                 gemini_service._write_grounding_cache(grounding_cache_key, grounding_text, [])
                 logger.info("[Dexter] Stage 1 done: %d chars", len(grounding_text))
 
-            # ── Stage 2: 深度分析 (pro) — 使用統一 7 章節結構 ──
+            # ── Stage 2: 深度分析 — 使用統一 7 章節結構 + tier-based 深度 ──
             key2 = gemini_service.get_api_key()
-            logger.info("[Dexter] Stage 2: model=%s", MODEL_DEXTER)
+            logger.info("[Dexter] Stage 2: model=%s, tier=%s", MODEL_DEXTER, tier_norm)
 
             grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
             today_str = _dt.now().strftime("%Y-%m-%d")
+            tier_extra = TIER_EXTRA.get(tier_norm, TIER_EXTRA["free"])
+            max_tokens = 2048 if tier_norm == "free" else (3200 if tier_norm == "pro" else 4096)
 
             stage2_prompt = (
                 f"{UNIFIED_SYSTEM_PROMPT.replace('{today}', today_str)}\n"
-                f"{TIER_EXTRA['pro']}\n"
+                f"{tier_extra}\n"
                 "禁止提及資料來源名稱或工具名稱 直接呈現分析結論\n\n"
                 f"標的 {symbol}\n"
                 f"已蒐集的市場數據:\n{context_text}\n\n"
@@ -315,7 +320,7 @@ class DexterAgent:
                 contents=stage2_prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.3,
-                    max_output_tokens=4096,
+                    max_output_tokens=max_tokens,
                 ),
             )
             text = resp2.text.strip() if resp2 and getattr(resp2, "text", None) else ""

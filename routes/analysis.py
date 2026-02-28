@@ -367,46 +367,48 @@ async def _run_ai_analysis_pipeline(
             pass
 
     emit(24, "stage1", "grounding_and_synthesis_started")
-    # P4b-8: 注入投資人格至 AI prompt
-    _investor_profile = None
-    if user_id:
-        try:
-            from adapters.supabase_data import supabase_data_adapter
-            _investor_profile = supabase_data_adapter.get_investor_profile(user_id)
-        except Exception:
-            pass
 
-    result = await asyncio.to_thread(
-        gemini_service.generate_analysis,
-        symbol=req.symbol,
-        stock_info=info_payload,
-        smc_summary=smc_summary,
-        prediction_summary=tech_snapshot,
-        macro_data=None,
-        user_question="",
+    # 使用 Dexter 引擎（多源資料蒐集 + Gemini 綜合分析）
+    from services.dexter_agent import dexter_agent
+
+    dexter_result = await asyncio.to_thread(
+        dexter_agent.execute,
+        f"深度分析 {req.symbol}",
+        user_id,
+        req.symbol,
         tier=tier,
-        investor_profile=_investor_profile,
-        progress_callback=on_model_progress,
     )
 
+    # 將 Dexter 回傳格式映射回 AI 分析回傳格式
     analysis_text = ""
     success = False
     error_text = ""
     quality_pass = False
+    result = {}
 
-    if isinstance(result, dict):
-        raw_analysis = result.get("analysis", "")
+    if isinstance(dexter_result, dict):
+        raw_analysis = dexter_result.get("analysis", "")
         if isinstance(raw_analysis, str):
             analysis_text = raw_analysis.strip()
         elif raw_analysis is not None:
             analysis_text = str(raw_analysis).strip()
-        success = bool(result.get("success"))
-        quality_pass = bool(result.get("quality_pass"))
-        raw_error = result.get("error")
-        if isinstance(raw_error, str):
-            error_text = raw_error.strip()
-    elif result is not None:
-        analysis_text = str(result).strip()
+
+        error_text = str(dexter_result.get("error") or "").strip()
+        success = bool(analysis_text and not error_text)
+        quality_pass = success and len(analysis_text) >= _tier_min_chars(tier)
+
+        # 組裝相容格式
+        result = {
+            "success": success,
+            "analysis": analysis_text,
+            "summary": dexter_result.get("summary", {}),
+            "grounding_sources": [],
+            "quality_pass": quality_pass,
+            "degraded": not quality_pass and bool(analysis_text),
+            "tasks": dexter_result.get("tasks", []),
+            "validation": dexter_result.get("validation", []),
+            "error": error_text or None,
+        }
 
     min_chars = _tier_min_chars(tier)
     has_usable_text = len(analysis_text) >= min_chars
