@@ -193,6 +193,15 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
             if still_visible:
                 raise HTTPException(status_code=500, detail="清除待審核申請失敗")
 
+        # 通知用戶升級已核准
+        try:
+            from services.email_service import email_service
+            email_service.notify_user_upgrade_approved(
+                pending.get("email", ""), pending.get("name", ""), tier
+            )
+        except Exception:
+            logger.warning("[Admin] email notify_user_upgrade_approved failed", exc_info=True)
+
         return {
             "success": True,
             "user_id": user_id,
@@ -235,6 +244,15 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
             still_visible = any(str((row or {}).get("user_id") or "").strip() == user_id for row in pending_rows)
             if still_visible:
                 raise HTTPException(status_code=500, detail="清除待審核申請失敗")
+
+        # 通知用戶升級已拒絕
+        try:
+            from services.email_service import email_service
+            email_service.notify_user_upgrade_rejected(
+                pending.get("email", ""), pending.get("name", ""), pending.get("plan", "")
+            )
+        except Exception:
+            logger.warning("[Admin] email notify_user_upgrade_rejected failed", exc_info=True)
 
         return {
             "success": True,
