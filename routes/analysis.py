@@ -285,10 +285,6 @@ async def _run_ai_analysis_pipeline(
     if not can_access(tier, "ai_analysis"):
         raise HTTPException(status_code=403, detail="Current plan does not allow AI analysis.")
 
-    allowed, reason = rate_limiter.can_make_request(user_id)
-    if not allowed:
-        raise HTTPException(status_code=429, detail=reason or "Daily AI quota reached.")
-
     emit(6, "prepare", "validating_request")
 
     stock_data = await stock_service.get_stock_data_for_analysis(req.symbol, req.period)
@@ -415,7 +411,9 @@ async def _run_ai_analysis_pipeline(
     should_charge = quality_pass and has_usable_text and success
 
     if should_charge:
-        rate_limiter.record_request(user_id)
+        charged, charge_reason = rate_limiter.acquire_request(user_id)
+        if not charged:
+            result["quota_exhausted"] = True
         emit(100, "done", "analysis_completed", char_count=len(analysis_text), min_chars=min_chars)
     else:
         if analysis_text:

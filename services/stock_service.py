@@ -511,9 +511,12 @@ class StockService:
         if symbol.isdigit() and 4 <= len(symbol) <= 6:
             # ??閰行閰Ｘ?血鞈?摨急?閮?
             try:
-                result = await supabase.get_client().from_("symbol_index").select("market").eq("symbol", symbol).limit(1).execute()
-                if result.data:
-                    return result.data[0]["market"]
+                result = supabase.get_client().table("symbol_index").select("market").eq("symbol", symbol).limit(1).execute()
+                data = result.data
+                if isinstance(data, list) and data:
+                    return str(data[0].get("market") or "").upper() or "TWSE"
+                if isinstance(data, dict):
+                    return str(data.get("market") or "").upper() or "TWSE"
             except:
                 pass
             
@@ -669,10 +672,12 @@ class StockService:
 
         # Fallback: Supabase DB
         try:
-            result = await supabase.get_client().from_("stock_daily").select("*").eq("symbol", symbol).gte("date", start_date.strftime("%Y-%m-%d")).order("date", desc=False).execute()
-            if result.data and len(result.data) > 0:
+            result = supabase.get_client().table("stock_daily").select("*").eq("symbol", symbol).gte("date", start_date.strftime("%Y-%m-%d")).order("date", desc=False).execute()
+            data = result.data
+            rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+            if rows:
                 print(f"[DataSource] Supabase DB OK: {symbol}")
-                return result.data
+                return rows
         except:
             pass
 
@@ -730,10 +735,12 @@ class StockService:
 
         # 敺??澈鋆?
         try:
-            db_result = await supabase.get_client().from_("symbol_index").select("*").or_(f"symbol.ilike.%{query_stripped}%,name.ilike.%{query_stripped}%").limit(limit - len(results)).execute()
-            if db_result.data:
+            db_result = supabase.get_client().table("symbol_index").select("*").or_(f"symbol.ilike.%{query_stripped}%,name.ilike.%{query_stripped}%").limit(limit - len(results)).execute()
+            data = db_result.data
+            rows = data if isinstance(data, list) else ([data] if isinstance(data, dict) else [])
+            if rows:
                 existing = {r["symbol"] for r in results}
-                for d in db_result.data:
+                for d in rows:
                     if d.get("symbol") not in existing:
                         results.append(d)
         except Exception as e:
@@ -1105,7 +1112,7 @@ class StockService:
         count = 0
         for stock in stocks:
             try:
-                await supabase.get_client().from_("symbol_index").upsert({
+                supabase.get_client().table("symbol_index").upsert({
                     "symbol": stock.get("symbol"),
                     "name": stock.get("name"),
                     "market": market,
@@ -1126,4 +1133,3 @@ class StockService:
 
 # ?桐?
 stock_service = StockService()
-

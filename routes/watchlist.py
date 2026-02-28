@@ -472,29 +472,29 @@ async def _run_portfolio_health(
 
     ai_assessment = ""
     if include_ai == 1:
-        # 扣除 AI 使用次數
-        try:
-            from adapters.supabase_data import supabase_data_adapter
-            supabase_data_adapter.increment_ai_usage(user_id)
-        except Exception:
-            pass
-        ai_assessment = await _build_portfolio_ai_assessment(
-            analysis_day=analysis_day,
-            summary={
-                "total_market_value": round(total_market_value, 2),
-                "total_cost": round(total_cost, 2),
-                "total_pnl_pct": round(total_pnl_pct, 2),
-                "diversification_score": diversification_score,
-                "max_weight_pct": round(max_weight_pct, 2),
-                "risk_level": risk_level,
-            },
-            holdings=sorted_by_weight,
-            suggestions=suggestions,
-            benchmark_label=benchmark_label,
-            benchmark_return=round(benchmark_return, 2),
-            user_tier=user_tier,
-            rebalance=rebalance,
-        )
+        # 先檢查 AI 額度（原子操作），不通過則跳過 AI 部分
+        from services.rate_limiter import rate_limiter as _rl
+        _quota_ok, _ = _rl.acquire_request(user_id)
+        if not _quota_ok:
+            include_ai = 0  # 額度不足，跳過 AI
+        else:
+            ai_assessment = await _build_portfolio_ai_assessment(
+                analysis_day=analysis_day,
+                summary={
+                    "total_market_value": round(total_market_value, 2),
+                    "total_cost": round(total_cost, 2),
+                    "total_pnl_pct": round(total_pnl_pct, 2),
+                    "diversification_score": diversification_score,
+                    "max_weight_pct": round(max_weight_pct, 2),
+                    "risk_level": risk_level,
+                },
+                holdings=sorted_by_weight,
+                suggestions=suggestions,
+                benchmark_label=benchmark_label,
+                benchmark_return=round(benchmark_return, 2),
+                user_tier=user_tier,
+                rebalance=rebalance,
+            )
 
     return {
         "portfolio": sorted_by_weight,

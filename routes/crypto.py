@@ -275,7 +275,7 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
     # 檢查額度
     from services.rate_limiter import rate_limiter
     tier = rate_limiter.check_and_downgrade(user_id)
-    allowed, reason = rate_limiter.can_make_request(user_id)
+    allowed, reason = rate_limiter.acquire_request(user_id)
     if not allowed:
         raise HTTPException(status_code=429, detail=reason or "今日 AI 分析次數已達上限")
 
@@ -333,9 +333,6 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
                 summary_data, analysis_text = GeminiService._extract_summary_json(analysis_text)
             except Exception:
                 pass
-
-        if analysis_text and len(analysis_text) > 50:
-            rate_limiter.record_request(user_id)
 
         return {
             "success": bool(analysis_text and len(analysis_text) > 50),

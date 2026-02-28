@@ -63,6 +63,10 @@ _CACHE_TTL = {
     "_default": 600,               # 預設 10 分鐘
 }
 
+# search_tw_stocks 用的快取（避免重複拉全量 TaiwanStockInfo）
+_stock_info_cache: Dict[str, Any] = {"data": None, "ts": 0}
+_STOCK_INFO_CACHE_TTL = 3600  # 1 小時，與 TaiwanStockInfo 的 TTL 一致
+
 
 def _cache_key(dataset: str, data_id: str = "", extra: str = "") -> str:
     return f"{dataset}:{data_id}:{extra}"

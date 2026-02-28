@@ -122,10 +122,14 @@ class SupabaseAdapter:
             logger.debug(f"[Supabase RPC] {name} ???: {type(e).__name__}")
             return None
     
+    def rpc_call(self, name: str, params: Dict) -> Optional[Any]:
+        """Public alias for _rpc (used by supabase_data.py)."""
+        return self._rpc(name, params)
+
     def _request(
-        self, 
-        method: str, 
-        endpoint: str, 
+        self,
+        method: str,
+        endpoint: str,
         params: Dict = None,
         json: Any = None,
         use_service_key: bool = False,
@@ -1921,6 +1925,11 @@ class TableQuery:
         self._params[column] = f"ilike.{pattern}"
         return self
     
+    def or_(self, filter_str: str):
+        """PostgREST `or` filter, e.g. or_("symbol.ilike.%2330%,name.ilike.%2330%")"""
+        self._params["or"] = f"({filter_str})"
+        return self
+
     def order(self, column: str, desc: bool = False):
         order_str = f"{column}.desc" if desc else column
         self._params["order"] = order_str

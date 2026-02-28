@@ -187,6 +187,14 @@ async def get_auth_config():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+_ALLOWED_REDIRECT_HOSTS = {
+    "huggingface.co",
+    "alanalways-discover-latest-v2.hf.space",
+    "localhost",
+    "127.0.0.1",
+}
+
+
 @router.get("/auth/google/start")
 async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
     """開始 Google OAuth（前端直接導向此端點）"""
@@ -196,7 +204,16 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
 
     space_url = os.environ.get("SPACE_URL", "").strip().rstrip("/")
     default_redirect = f"{space_url}/auth/callback" if space_url else "https://alanalways-discover-latest-v2.hf.space/auth/callback"
-    callback_url = (redirect_to or default_redirect).strip()
+
+    # Validate redirect_to against allowlist to prevent open redirect
+    callback_url = default_redirect
+    if redirect_to:
+        try:
+            parsed_redirect = urlparse(redirect_to.strip())
+            if parsed_redirect.hostname in _ALLOWED_REDIRECT_HOSTS:
+                callback_url = redirect_to.strip()
+        except Exception:
+            pass
     oauth_prompt = (os.environ.get("GOOGLE_OAUTH_PROMPT", "select_account") or "").strip()
     oauth_scopes = (os.environ.get("GOOGLE_OAUTH_SCOPES", "email profile") or "").strip()
     params_dict = {
@@ -226,7 +243,7 @@ async def auth_diagnose(request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Session 已過期")
 
-    admin_email = (os.environ.get("ADMIN_EMAIL", "alanalways@gmail.com") or "").strip().lower()
+    admin_email = (os.environ.get("DEFAULT_ADMIN_EMAIL", "cmshj30326@gmail.com") or "").strip().lower()
     user_email = str(user.get("email") or "").strip().lower()
     is_admin_user = bool(auth_service.is_admin(user) or (admin_email and user_email == admin_email))
     if not is_admin_user:

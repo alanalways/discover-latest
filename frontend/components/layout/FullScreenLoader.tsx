@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity } from 'lucide-react';
 import styles from './FullScreenLoader.module.css';
 
@@ -18,24 +18,35 @@ interface FullScreenLoaderProps {
  * 遮蓋整個畫面，確保使用者不會看到過期/不確定的快取資料
  */
 export default function FullScreenLoader({ visible, progress, message }: FullScreenLoaderProps) {
-    // 退場動畫：visible 變 false 後先播動畫再移除 DOM
-    const [mounted, setMounted] = useState(visible);
-    const [exiting, setExiting] = useState(false);
+    // exitDone: true once the 350ms exit animation completes
+    const [exitDone, setExitDone] = useState(!visible);
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const startExitTimer = useCallback(() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+            setExitDone(true);
+            timerRef.current = null;
+        }, 350);
+    }, []);
+
+    // When visible changes: if it just turned off, start exit timer
     useEffect(() => {
-        if (visible) {
-            setMounted(true);
-            setExiting(false);
-        } else if (mounted) {
-            // 開始退場動畫
-            setExiting(true);
-            const timer = setTimeout(() => {
-                setMounted(false);
-                setExiting(false);
-            }, 350); // 配合 CSS overlayOut 動畫
-            return () => clearTimeout(timer);
+        if (!visible) {
+            startExitTimer();
         }
-    }, [visible, mounted]);
+        return () => {
+            if (timerRef.current) clearTimeout(timerRef.current);
+        };
+    }, [visible, startExitTimer]);
+
+    // When visible turns on, reset exit state immediately (derived, not in effect)
+    if (visible && exitDone) {
+        setExitDone(false);
+    }
+
+    const mounted = visible || !exitDone;
+    const exiting = !visible && !exitDone;
 
     if (!mounted) return null;
 

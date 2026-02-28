@@ -47,8 +47,8 @@ async def dexter_execute(req: DexterRequest, request: Request):
 
     tier = rate_limiter.check_and_downgrade(user_id)
 
-    # 頻率限制
-    allowed, reason = rate_limiter.can_make_request(user_id)
+    # 頻率限制（原子操作避免競態）
+    allowed, reason = rate_limiter.acquire_request(user_id)
     if not allowed:
         raise HTTPException(status_code=429, detail=reason or "今日額度已用完")
 
@@ -64,9 +64,5 @@ async def dexter_execute(req: DexterRequest, request: Request):
     result = await asyncio.to_thread(
         dexter_agent.execute, query, user_id, symbol, tier=tier
     )
-
-    # 成功執行才扣額度
-    if isinstance(result, dict) and not result.get("error"):
-        rate_limiter.record_request(user_id)
 
     return result
