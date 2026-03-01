@@ -13,7 +13,7 @@ type AdminUserLike = {
 };
 
 export function getAdminEmailsFromEnv() {
-    const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || '';
+    const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || 'cmshj30326@gmail.com';
     if (!raw.trim()) return [];
     return raw
         .split(',')
