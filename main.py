@@ -127,6 +127,24 @@ class CacheHeaderMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CacheHeaderMiddleware)
 
+# ── SLO Middleware（G06/C20：全路由打點） ──
+class SloMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        latency = time.time() - start
+        path = request.url.path
+        if path.startswith("/api/"):
+            try:
+                from services.slo_monitor import slo_monitor
+                success = 200 <= response.status_code < 500
+                slo_monitor.record_request(path, latency, success, response.status_code)
+            except Exception:
+                pass
+        return response
+
+app.add_middleware(SloMiddleware)
+
 # ── 掛載 API Routes ──
 from routes.auth import router as auth_router
 from routes.market import router as market_router
@@ -141,6 +159,7 @@ from routes.growth import router as growth_router
 from routes.dexter import router as dexter_router
 from routes.sse import router as sse_router
 from routes.crypto import router as crypto_router
+from routes.user import router as user_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -155,12 +174,23 @@ app.include_router(growth_router,   prefix="/api", tags=["Growth"])
 app.include_router(dexter_router,   prefix="/api", tags=["Dexter"])
 app.include_router(sse_router,      prefix="/api", tags=["SSE"])
 app.include_router(crypto_router,   prefix="/api", tags=["Crypto"])
+app.include_router(user_router,     prefix="/api", tags=["User"])
 
 
 # ── Health Check ──
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "version": app.version}
+
+
+@app.get("/api/system/slo-report")
+async def slo_report():
+    """SLO 報告（C20）"""
+    try:
+        from services.slo_monitor import slo_monitor
+        return slo_monitor.get_slo_report()
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ── 靜態檔案 serve（Next.js build output）──

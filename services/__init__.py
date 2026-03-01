@@ -35,4 +35,19 @@ __all__ = [
     # Budget Manager
     "BudgetManager",
     "budget_manager",
+    # Phase 3: Portfolio Risk
+    "portfolio_optimizer",
+    "risk_metrics",
+    "stress_test",
+    # Phase 4: Customization
+    "strategy_templates",
+    "pretrade_checker",
+    # Phase 5: Signal Loop
+    "signal_evaluator",
+    "slo_monitor",
+    # Phase 6: Event Calendar
+    "event_calendar",
+    # Circuit Breaker
+    "gemini_circuit_breaker",
 ]
+

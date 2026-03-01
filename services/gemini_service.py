@@ -1218,6 +1218,34 @@ class GeminiService:
     ) -> Dict[str, Any]:
         emit = lambda p, s, m, **kw: self._emit_progress(progress_callback, p, s, m, **kw)
 
+        # Circuit Breaker check — 斷路器 OPEN 時直接走降級路徑
+        try:
+            from services.gemini_circuit_breaker import gemini_breaker
+            if not gemini_breaker.is_available:
+                gemini_breaker.record_short_circuit()
+                emit(50, "circuit_open", "gemini_api_circuit_open_degraded")
+                logger.warning("Circuit breaker OPEN for %s — using degraded path", symbol)
+                fallback = self._build_fallback_from_grounding(
+                    symbol=symbol, grounding_text="",
+                    tier=tier, stock_info=stock_info,
+                    smc_summary=smc_summary, prediction_summary=prediction_summary,
+                )
+                fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
+                fallback = self._pad_to_min_chars(fallback, tier)
+                emit(100, "done", "analysis_completed_circuit_breaker")
+                return {
+                    "success": bool(fallback),
+                    "error": None,
+                    "analysis": fallback,
+                    "grounding_sources": [],
+                    "quality_pass": self._quality_ok(fallback, tier),
+                    "degraded": True,
+                    "circuit_breaker": True,
+                    "mode": "degraded",
+                }
+        except ImportError:
+            pass
+
         # Budget Manager check — return budget_exhausted if daily Gemini quota used up
         try:
             from services.budget_manager import budget_manager
@@ -1316,14 +1344,32 @@ class GeminiService:
                                     }
                                 )
                     logger.info("Stage 1 completed for %s in %.1fs", symbol, time.time() - stage1_started)
+                    # Circuit breaker: record stage1 success
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb1
+                        _gb1.record_success()
+                    except ImportError:
+                        pass
                 except FuturesTimeoutError:
                     f1.cancel()
                     stage1_timeout_hit = True
                     grounding_text = "Grounding timeout."
                     logger.warning("Stage 1 timeout after %.1fs for %s", stage1_timeout_sec, symbol)
+                    # Circuit breaker: record stage1 timeout
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb1
+                        _gb1.record_failure("stage1_timeout")
+                    except ImportError:
+                        pass
                 except Exception as e:
                     grounding_text = f"Grounding failed: {type(e).__name__}"
                     logger.warning("Stage 1 error for %s: %s: %s", symbol, type(e).__name__, e)
+                    # Circuit breaker: record stage1 error
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb1
+                        _gb1.record_failure(f"stage1_{type(e).__name__}")
+                    except ImportError:
+                        pass
                 finally:
                     ex1.shutdown(wait=False, cancel_futures=True)
 
@@ -1432,9 +1478,51 @@ class GeminiService:
             stage2_timeout_sec = min(GEMINI_TIMEOUT_STAGE2, max(10.0, remaining - 2.0))
             stage2_timeout_sec = min(stage2_timeout_sec, max(1.0, total_deadline - time.time() - 1.0))
             ex2 = ThreadPoolExecutor(max_workers=1)
-            f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
-            try:
-                stage2_resp = f2.result(timeout=stage2_timeout_sec)
+            # Stage2 with auto-retry (max 2 attempts)
+            _stage2_max_retries = 2
+            _stage2_attempt = 0
+            stage2_resp = None
+            _stage2_last_error = None
+
+            while _stage2_attempt < _stage2_max_retries:
+                _stage2_attempt += 1
+                _remaining_for_retry = total_deadline - time.time()
+                if _remaining_for_retry <= 3.0:
+                    break  # 沒時間重試了
+                _retry_timeout = min(stage2_timeout_sec, max(8.0, _remaining_for_retry - 2.0))
+
+                ex2 = ThreadPoolExecutor(max_workers=1)
+                f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
+                try:
+                    stage2_resp = f2.result(timeout=_retry_timeout)
+                    _stage2_last_error = None
+                    break  # 成功，跳出重試迴圈
+                except FuturesTimeoutError:
+                    f2.cancel()
+                    _stage2_last_error = "timeout"
+                    logger.warning(
+                        "Stage 2 attempt %d/%d timeout after %.1fs for %s",
+                        _stage2_attempt, _stage2_max_retries, _retry_timeout, symbol,
+                    )
+                except Exception as e:
+                    _stage2_last_error = type(e).__name__
+                    logger.warning(
+                        "Stage 2 attempt %d/%d error for %s: %s",
+                        _stage2_attempt, _stage2_max_retries, symbol, e,
+                    )
+                finally:
+                    ex2.shutdown(wait=False, cancel_futures=True)
+
+                # 指數退避等待（只在還要重試時）
+                if _stage2_attempt < _stage2_max_retries:
+                    _backoff = min(3.0, 1.0 * (2 ** (_stage2_attempt - 1)))
+                    if total_deadline - time.time() > _backoff + 5.0:
+                        time.sleep(_backoff)
+                        emit(60 + _stage2_attempt * 5, "retry", f"stage2_retry_{_stage2_attempt}")
+
+            # 處理 Stage2 結果
+            if stage2_resp is not None:
+              try:
                 raw_analysis = safe_response_text(stage2_resp)
                 # B09: Try structured JSON parse first, fallback to <<<JSON_START>>> extraction
                 summary_data = None
@@ -1483,6 +1571,12 @@ class GeminiService:
                     }
 
                 logger.info("Stage 2 completed for %s, %d chars", symbol, len(analysis))
+                # Circuit breaker: record stage2 success
+                try:
+                    from services.gemini_circuit_breaker import gemini_breaker as _gb2
+                    _gb2.record_success()
+                except ImportError:
+                    pass
                 try:
                     from services.budget_manager import budget_manager
                     budget_manager.consume("gemini")
@@ -1505,6 +1599,7 @@ class GeminiService:
                         "stage1_timeout": stage1_timeout_hit,
                         "stage2_timeout_sec": round(stage2_timeout_sec, 2),
                         "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
+                        "stage2_attempts": _stage2_attempt,
                     },
                 }
                 self._write_analysis_cache(cache_key, payload)
@@ -1517,10 +1612,20 @@ class GeminiService:
                     total_ms=payload["timings"]["total_ms"],
                 )
                 return payload
-            except FuturesTimeoutError:
-                f2.cancel()
-                logger.warning("Stage 2 timeout after %.1fs for %s", stage2_timeout_sec, symbol)
-                emit(86, "timeout", "stage2_timeout_local_fallback")
+              except Exception:
+                pass  # 結構解析失敗，由後續 _extract_summary_json 處理
+
+            # Stage2 全部重試失敗 — 走降級路徑
+            if stage2_resp is None:
+                _err_type = _stage2_last_error or "unknown"
+                logger.warning("Stage 2 all %d attempts failed for %s (%s)", _stage2_max_retries, symbol, _err_type)
+                # Circuit breaker: record stage2 failure
+                try:
+                    from services.gemini_circuit_breaker import gemini_breaker as _gb2
+                    _gb2.record_failure(f"stage2_{_err_type}")
+                except ImportError:
+                    pass
+                emit(86, "fallback", f"stage2_all_retries_failed_{_err_type}")
                 fallback = self._build_fallback_from_grounding(
                     symbol=symbol,
                     grounding_text=grounding_text,
@@ -1534,8 +1639,8 @@ class GeminiService:
                 quality_pass = self._quality_ok(fallback, tier)
                 payload = {
                     "success": bool(fallback) and quality_pass,
-                    "degraded": False,
-                    "error": None if quality_pass else f"stage2_timeout_{GEMINI_TIMEOUT_STAGE2}s",
+                    "degraded": True,
+                    "error": None if quality_pass else f"stage2_{_err_type}",
                     "analysis": fallback,
                     "grounding_text": grounding_text,
                     "grounding_sources": grounding_sources,
@@ -1544,9 +1649,10 @@ class GeminiService:
                         "stage1_ms": stage1_ms,
                         "stage2_ms": int((time.time() - stage2_started) * 1000),
                         "total_ms": int((time.time() - started) * 1000),
-                        "stage2_timeout": True,
+                        "stage2_timeout": _err_type == "timeout",
                         "stage2_timeout_sec": round(stage2_timeout_sec, 2),
                         "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
+                        "stage2_attempts": _stage2_attempt,
                     },
                 }
                 if quality_pass:
@@ -1554,57 +1660,14 @@ class GeminiService:
                     emit(
                         100,
                         "done",
-                        "analysis_completed_guaranteed",
+                        "analysis_completed_fallback",
                         char_count=len(fallback or ""),
                         min_chars=self._tier_min_chars(tier),
                         total_ms=payload["timings"]["total_ms"],
                     )
                 else:
-                    emit(100, "error", "timeout_and_quality_failed")
+                    emit(100, "error", f"stage2_all_failed_{_err_type}")
                 return payload
-            except Exception as e:
-                logger.warning("Stage 2 error for %s: %s", symbol, e)
-                emit(86, "error", f"stage2_error_{type(e).__name__}_local_fallback")
-                fallback = self._build_fallback_from_grounding(
-                    symbol=symbol,
-                    grounding_text=grounding_text,
-                    tier=tier,
-                    stock_info=stock_info,
-                    smc_summary=smc_summary,
-                    prediction_summary=prediction_summary,
-                )
-                fallback = self._ensure_smc_section(self._sanitize_analysis_text(fallback), smc_summary)
-                fallback = self._pad_to_min_chars(fallback, tier)
-                quality_pass = self._quality_ok(fallback, tier)
-                payload = {
-                    "success": bool(fallback) and quality_pass,
-                    "error": None if quality_pass else f"stage2_error_{type(e).__name__}",
-                    "analysis": fallback,
-                    "grounding_sources": grounding_sources,
-                    "quality_pass": quality_pass,
-                    "degraded": False,
-                    "timings": {
-                        "stage1_ms": stage1_ms,
-                        "stage2_ms": int((time.time() - stage2_started) * 1000),
-                        "total_ms": int((time.time() - started) * 1000),
-                        "total_timeout_sec": GEMINI_TOTAL_TIMEOUT,
-                    },
-                }
-                if quality_pass:
-                    self._write_analysis_cache(cache_key, payload)
-                    emit(
-                        100,
-                        "done",
-                        "analysis_completed_after_error_fallback",
-                        char_count=len(fallback or ""),
-                        min_chars=self._tier_min_chars(tier),
-                        total_ms=payload["timings"]["total_ms"],
-                    )
-                else:
-                    emit(100, "error", f"stage2_error_{type(e).__name__}")
-                return payload
-            finally:
-                ex2.shutdown(wait=False, cancel_futures=True)
 
     def quick_summary(self, symbol: str, max_tokens: int = 120) -> str:
         api_key = self._get_api_key()

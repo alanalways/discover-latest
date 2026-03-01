@@ -365,17 +365,30 @@ async def _run_ai_analysis_pipeline(
 
     emit(24, "stage1", "grounding_and_synthesis_started")
 
-    # Budget check — if Gemini budget exhausted, use degraded analysis
+    # Circuit Breaker check — if Gemini API is in OPEN state, skip directly to degraded
     _use_degraded = False
+    _circuit_breaker_triggered = False
     try:
-        from services.budget_manager import budget_manager
-        if not budget_manager.check_budget("gemini"):
+        from services.gemini_circuit_breaker import gemini_breaker
+        if not gemini_breaker.is_available:
             _use_degraded = True
-    except Exception:
+            _circuit_breaker_triggered = True
+            gemini_breaker.record_short_circuit()
+    except ImportError:
         pass
 
+    # Budget check — if Gemini budget exhausted, use degraded analysis
+    if not _use_degraded:
+        try:
+            from services.budget_manager import budget_manager
+            if not budget_manager.check_budget("gemini"):
+                _use_degraded = True
+        except Exception:
+            pass
+
     if _use_degraded:
-        emit(50, "degraded", "budget_exhausted_using_rules")
+        _reason = "circuit_breaker_open" if _circuit_breaker_triggered else "budget_exhausted"
+        emit(50, "degraded", f"{_reason}_using_rules")
         from services.degradation import get_degraded_analysis
         closes = [float(h.get("close", 0) or 0) for h in history_payload if float(h.get("close", 0) or 0) > 0]
         highs = [float(h.get("high", 0) or 0) for h in history_payload if float(h.get("high", 0) or 0) > 0]
@@ -385,7 +398,7 @@ async def _run_ai_analysis_pipeline(
         emit(100, "done", "analysis_completed_degraded")
         return {
             "analysis": degraded_text,
-            "result": {"success": True, "analysis": degraded_text, "mode": "degraded", "degraded": True},
+            "result": {"success": True, "analysis": degraded_text, "mode": "degraded", "degraded": True, "circuit_breaker": _circuit_breaker_triggered},
             "charged": False,
             "degraded": True,
             "success": True,

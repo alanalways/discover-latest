@@ -230,6 +230,21 @@ class DexterAgent:
 
         tier_norm = getattr(self, "_current_tier", "free") or "free"
 
+        # Circuit Breaker check — OPEN 時直接回傳降級分析
+        try:
+            from services.gemini_circuit_breaker import gemini_breaker
+            if not gemini_breaker.is_available:
+                gemini_breaker.record_short_circuit()
+                logger.warning("[Dexter] Circuit breaker OPEN — skipping Gemini for %s", symbol)
+                return {
+                    "success": False,
+                    "error": "circuit_breaker_open",
+                    "analysis": "",
+                    "circuit_breaker": True,
+                }
+        except ImportError:
+            pass
+
         api_key = gemini_service.get_api_key()
         if not api_key:
             return {"error": "Gemini API key missing"}
@@ -280,8 +295,20 @@ class DexterAgent:
                         ),
                     )
                     grounding_text = safe_response_text(resp1)
+                    # Circuit breaker: record stage1 success
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb
+                        _gb.record_success()
+                    except ImportError:
+                        pass
                 except Exception as e1:
                     logger.warning("[Dexter] Stage 1 grounding failed: %s, fallback no-search", e1)
+                    # Circuit breaker: record stage1 failure
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb
+                        _gb.record_failure(f"dexter_stage1_{type(e1).__name__}")
+                    except ImportError:
+                        pass
                     try:
                         resp1 = client1.models.generate_content(
                             model=MODEL_GROUNDING,
@@ -314,16 +341,47 @@ class DexterAgent:
                 f"stage1 證據:\n{grounding_compact}\n"
             )
 
-            client2 = genai.Client(api_key=key2)
-            resp2 = client2.models.generate_content(
-                model=MODEL_DEXTER,
-                contents=stage2_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.3,
-                    max_output_tokens=max_tokens,
-                ),
-            )
-            text = safe_response_text(resp2)
+            # Stage2 with auto-retry (max 2 attempts)
+            text = ""
+            _stage2_last_error = None
+            for attempt in range(1, 3):
+                try:
+                    client2 = genai.Client(api_key=key2)
+                    resp2 = client2.models.generate_content(
+                        model=MODEL_DEXTER,
+                        contents=stage2_prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.3,
+                            max_output_tokens=max_tokens,
+                        ),
+                    )
+                    text = safe_response_text(resp2)
+                    _stage2_last_error = None
+                    # Circuit breaker: record stage2 success
+                    try:
+                        from services.gemini_circuit_breaker import gemini_breaker as _gb
+                        _gb.record_success()
+                    except ImportError:
+                        pass
+                    break  # 成功
+                except Exception as e2:
+                    _stage2_last_error = e2
+                    logger.warning(
+                        "[Dexter] Stage 2 attempt %d/2 failed for %s: %s", attempt, symbol, e2
+                    )
+                    if attempt < 2:
+                        import time as _time
+                        _time.sleep(1.5)  # 簡單退避
+
+            if _stage2_last_error is not None:
+                # 全部重試失敗
+                try:
+                    from services.gemini_circuit_breaker import gemini_breaker as _gb
+                    _gb.record_failure(f"dexter_stage2_{type(_stage2_last_error).__name__}")
+                except ImportError:
+                    pass
+                return {"error": f"Gemini: {_stage2_last_error}"}
+
             logger.info("[Dexter] Stage 2 done: %d chars", len(text))
 
             # 提取 JSON 摘要

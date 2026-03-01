@@ -314,6 +314,33 @@ async def get_system_status(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/admin/circuit-breaker")
+async def get_circuit_breaker_status(request: Request):
+    """Get Gemini API circuit breaker status."""
+    _require_admin(request)
+    try:
+        from services.gemini_circuit_breaker import gemini_breaker
+        return gemini_breaker.get_status()
+    except ImportError:
+        return {"state": "unavailable", "error": "circuit breaker module not loaded"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/admin/circuit-breaker/reset")
+async def reset_circuit_breaker(request: Request):
+    """Force close the circuit breaker (restore normal API access)."""
+    _require_admin(request)
+    try:
+        from services.gemini_circuit_breaker import gemini_breaker
+        gemini_breaker.force_close()
+        return {"success": True, "state": gemini_breaker.state.value, "message": "Circuit breaker 已重置為 CLOSED"}
+    except ImportError:
+        raise HTTPException(status_code=500, detail="circuit breaker module not loaded")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 def _require_admin(request: Request) -> dict[str, Any]:
     """Verify admin access by session + allowlist emails."""
     auth_header = request.headers.get("Authorization", "")

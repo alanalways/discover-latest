@@ -1894,6 +1894,223 @@ class SupabaseAdapter:
         """??? table ???????????????"""
         return TableQuery(self, name)
 
+    # ===== Phase 3-6: User Profiles =====
+
+    def get_user_profile(self, user_id: str) -> Optional[Dict[str, Any]]:
+        result = self._request(
+            "GET", "user_profiles",
+            params={"user_id": f"eq.{user_id}", "select": "*", "limit": "1"},
+            use_service_key=True, silent=True,
+        )
+        if isinstance(result, list) and result:
+            return result[0]
+        return None
+
+    def upsert_user_profile(self, user_id: str, data: Dict[str, Any]) -> bool:
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            payload = {"user_id": user_id, **data}
+            with httpx.Client(timeout=30.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "resolution=merge-duplicates"
+                resp = client.post(
+                    f"{url}/rest/v1/user_profiles",
+                    headers=headers, json=payload,
+                    params={"on_conflict": "user_id"},
+                )
+                return resp.is_success
+        except Exception:
+            return False
+
+    # ===== Phase 4: Strategy Templates =====
+
+    def get_strategy_templates(self, user_id: str) -> List[Dict[str, Any]]:
+        result = self._request(
+            "GET", "strategy_templates",
+            params={"user_id": f"eq.{user_id}", "select": "*", "order": "created_at.desc"},
+            use_service_key=True, silent=True,
+        )
+        return result if isinstance(result, list) else []
+
+    def create_strategy_template(self, user_id: str, data: Dict[str, Any]) -> Optional[str]:
+        url, _, _ = self._get_config()
+        if not url:
+            return None
+        try:
+            payload = {
+                "user_id": user_id, "name": data.get("name", ""),
+                "entry_rules": json.dumps(data.get("entry_rules", [])),
+                "exit_rules": json.dumps(data.get("exit_rules", [])),
+                "stop_loss_pct": data.get("stop_loss_pct"),
+                "take_profit_pct": data.get("take_profit_pct"),
+                "max_position_pct": data.get("max_position_pct", 25),
+                "tags": json.dumps(data.get("tags", [])),
+            }
+            with httpx.Client(timeout=30.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "return=representation"
+                resp = client.post(f"{url}/rest/v1/strategy_templates", headers=headers, json=payload)
+                if resp.is_success and resp.text:
+                    result = resp.json()
+                    if isinstance(result, list) and result:
+                        return result[0].get("id")
+            return None
+        except Exception:
+            return None
+
+    def delete_strategy_template(self, user_id: str, template_id: str) -> bool:
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.delete(
+                    f"{url}/rest/v1/strategy_templates",
+                    headers=self._get_headers(use_service_key=True),
+                    params={"id": f"eq.{template_id}", "user_id": f"eq.{user_id}"},
+                )
+                return resp.status_code in (200, 204)
+        except Exception:
+            return False
+
+    # ===== Phase 4: Trade Journal =====
+
+    def get_trade_journal(self, user_id: str) -> List[Dict[str, Any]]:
+        result = self._request(
+            "GET", "trade_journal",
+            params={"user_id": f"eq.{user_id}", "select": "*", "order": "created_at.desc", "limit": "200"},
+            use_service_key=True, silent=True,
+        )
+        return result if isinstance(result, list) else []
+
+    def add_trade_journal_entry(self, user_id: str, data: Dict[str, Any]) -> Optional[str]:
+        url, _, _ = self._get_config()
+        if not url:
+            return None
+        try:
+            payload = {"user_id": user_id, **{k: v for k, v in data.items() if v is not None}}
+            with httpx.Client(timeout=30.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "return=representation"
+                resp = client.post(f"{url}/rest/v1/trade_journal", headers=headers, json=payload)
+                if resp.is_success and resp.text:
+                    result = resp.json()
+                    if isinstance(result, list) and result:
+                        return result[0].get("id")
+            return None
+        except Exception:
+            return None
+
+    # ===== Phase 5: Signal History =====
+
+    def insert_signal_history(self, record: Dict[str, Any]) -> bool:
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            payload = {
+                "symbol": record.get("symbol"), "signal_type": record.get("signal_type"),
+                "direction": record.get("direction"), "confidence": record.get("confidence"),
+                "entry_price": record.get("entry_price"), "target_price": record.get("target_price"),
+                "stop_price": record.get("stop_price"), "horizon_days": record.get("horizon_days", 20),
+                "source": record.get("source", "ai"),
+                "features": json.dumps(record.get("features", {})),
+            }
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    f"{url}/rest/v1/signal_history",
+                    headers=self._get_headers(use_service_key=True), json=payload,
+                )
+                return resp.is_success
+        except Exception:
+            return False
+
+    def get_pending_signal_evaluations(self, days_back: int = 30) -> List[Dict]:
+        result = self._request(
+            "GET", "signal_history",
+            params={"evaluated": "eq.false", "select": "*", "order": "created_at.desc", "limit": "100"},
+            use_service_key=True, silent=True,
+        )
+        return result if isinstance(result, list) else []
+
+    def update_signal_outcome(self, signal_id: str, outcome: str, current_price: float) -> bool:
+        url, _, _ = self._get_config()
+        if not url or not signal_id:
+            return False
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.patch(
+                    f"{url}/rest/v1/signal_history",
+                    headers=self._get_headers(use_service_key=True),
+                    params={"id": f"eq.{signal_id}"},
+                    json={"evaluated": True, "outcome": outcome, "outcome_price": current_price},
+                )
+                return resp.is_success
+        except Exception:
+            return False
+
+    def get_signal_stats(self, days: int = 90) -> Dict[str, Any]:
+        result = self._request(
+            "GET", "signal_history",
+            params={"evaluated": "eq.true", "select": "*", "order": "created_at.desc", "limit": "500"},
+            use_service_key=True, silent=True,
+        )
+        if not isinstance(result, list):
+            return {}
+        total = len(result)
+        hits = sum(1 for s in result if s.get("outcome") in ("hit_target", "in_profit"))
+        return {"total": total, "hits": hits, "hit_rate": round(hits / total * 100, 1) if total > 0 else 0}
+
+    # ===== Watchlist alias =====
+
+    def get_watchlist(self, user_id: str) -> List[Dict[str, Any]]:
+        return self.get_user_watchlist(user_id) or []
+
+    # ===== Stock Events (placeholder — data from FinMind) =====
+
+    def get_stock_events(self, symbol: str, days_ahead: int = 30) -> List[Dict]:
+        return []
+
+    # ===== Analysis Cache L2 =====
+
+    def get_analysis_cache(self, cache_key: str) -> Optional[Dict[str, Any]]:
+        result = self._request(
+            "GET", "analysis_cache",
+            params={"cache_key": f"eq.{cache_key}", "select": "*", "limit": "1"},
+            use_service_key=True, silent=True,
+        )
+        if isinstance(result, list) and result:
+            return result[0]
+        return None
+
+    def set_analysis_cache(self, cache_key: str, symbol: str, tier: str,
+                           analysis_text: str, summary_json: Any = None,
+                           quality_pass: bool = False) -> bool:
+        url, _, _ = self._get_config()
+        if not url:
+            return False
+        try:
+            payload = {
+                "cache_key": cache_key, "symbol": symbol, "tier": tier,
+                "analysis_text": analysis_text,
+                "summary_json": json.dumps(summary_json) if summary_json else None,
+                "quality_pass": quality_pass,
+            }
+            with httpx.Client(timeout=30.0) as client:
+                headers = self._get_headers(use_service_key=True)
+                headers["Prefer"] = "resolution=merge-duplicates"
+                resp = client.post(
+                    f"{url}/rest/v1/analysis_cache",
+                    headers=headers, json=payload,
+                    params={"on_conflict": "cache_key"},
+                )
+                return resp.is_success
+        except Exception:
+            return False
+
+
 
 class TableQuery:
     """??? Supabase Table Query Builder"""
