@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Activity } from 'lucide-react';
 import styles from './FullScreenLoader.module.css';
 
@@ -40,10 +40,12 @@ export default function FullScreenLoader({ visible, progress, message }: FullScr
         };
     }, [visible, startExitTimer]);
 
-    // When visible turns on, reset exit state immediately (derived, not in effect)
-    if (visible && exitDone) {
-        setExitDone(false);
-    }
+    // When visible turns on, reset exit state immediately
+    useLayoutEffect(() => {
+        if (visible && exitDone) {
+            setExitDone(false);
+        }
+    }, [visible, exitDone]);
 
     const mounted = visible || !exitDone;
     const exiting = !visible && !exitDone;

@@ -20,6 +20,7 @@ class AnalysisRequest(BaseModel):
     symbol: str
     period: str = "1y"
     analysis_type: str = "full"
+    horizon: int = 20  # prediction horizon in trading days (5/20/60)
 
 
 class SmcRequest(BaseModel):
@@ -364,6 +365,34 @@ async def _run_ai_analysis_pipeline(
 
     emit(24, "stage1", "grounding_and_synthesis_started")
 
+    # Budget check — if Gemini budget exhausted, use degraded analysis
+    _use_degraded = False
+    try:
+        from services.budget_manager import budget_manager
+        if not budget_manager.check_budget("gemini"):
+            _use_degraded = True
+    except Exception:
+        pass
+
+    if _use_degraded:
+        emit(50, "degraded", "budget_exhausted_using_rules")
+        from services.degradation import get_degraded_analysis
+        closes = [float(h.get("close", 0) or 0) for h in history_payload if float(h.get("close", 0) or 0) > 0]
+        highs = [float(h.get("high", 0) or 0) for h in history_payload if float(h.get("high", 0) or 0) > 0]
+        lows = [float(h.get("low", 0) or 0) for h in history_payload if float(h.get("low", 0) or 0) > 0]
+        volumes = [float(h.get("volume", 0) or 0) for h in history_payload if float(h.get("volume", 0) or 0) > 0]
+        degraded_text = get_degraded_analysis(req.symbol, {"closes": closes, "highs": highs, "lows": lows, "volumes": volumes})
+        emit(100, "done", "analysis_completed_degraded")
+        return {
+            "analysis": degraded_text,
+            "result": {"success": True, "analysis": degraded_text, "mode": "degraded", "degraded": True},
+            "charged": False,
+            "degraded": True,
+            "success": True,
+            "quality_pass": False,
+            "min_chars": _tier_min_chars(tier),
+        }
+
     # 使用 Dexter 引擎（多源資料蒐集 + Gemini 綜合分析）
     from services.dexter_agent import dexter_agent
 
@@ -393,17 +422,33 @@ async def _run_ai_analysis_pipeline(
         success = bool(analysis_text and not error_text)
         quality_pass = success and len(analysis_text) >= _tier_min_chars(tier)
 
+        # Compute probability metrics (zero API cost)
+        prob_metrics = {}
+        try:
+            from services.probability_model import compute_all
+            closes = [float(h.get("close", 0) or 0) for h in history_payload if float(h.get("close", 0) or 0) > 0]
+            if len(closes) >= 60:
+                prob_metrics = compute_all(closes, horizon=req.horizon)
+        except Exception:
+            pass
+
+        # Extract trade_framework from summary if present
+        summary = dexter_result.get("summary", {})
+        trade_framework = summary.get("trade_framework", {}) if isinstance(summary, dict) else {}
+
         # 組裝相容格式
         result = {
             "success": success,
             "analysis": analysis_text,
-            "summary": dexter_result.get("summary", {}),
+            "summary": summary,
             "grounding_sources": [],
             "quality_pass": quality_pass,
             "degraded": not quality_pass and bool(analysis_text),
             "tasks": dexter_result.get("tasks", []),
             "validation": dexter_result.get("validation", []),
             "error": error_text or None,
+            "probability": prob_metrics,
+            "trade_framework": trade_framework,
         }
 
     min_chars = _tier_min_chars(tier)

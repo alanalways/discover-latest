@@ -9,6 +9,8 @@ import AuthProvider, { useAuth } from '@/components/auth/AuthProvider';
 import LoginModal from '@/components/auth/LoginModal';
 import AuthGate from '@/components/auth/AuthGate';
 import ThemeProvider from '@/components/theme/ThemeProvider';
+import OnboardingProvider from '@/components/onboarding/OnboardingProvider';
+import FeatureTooltip from '@/components/onboarding/FeatureTooltip';
 
 function GatedShell({ children }: { children: React.ReactNode }) {
     const { isLoggedIn, isInitialized } = useAuth();
@@ -64,6 +66,7 @@ function GatedShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <LoginModal />
+            <FeatureTooltip />
         </div>
     );
 }
@@ -72,7 +75,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return (
         <AuthProvider>
             <ThemeProvider>
-                <GatedShell>{children}</GatedShell>
+                <OnboardingProvider>
+                    <GatedShell>{children}</GatedShell>
+                </OnboardingProvider>
             </ThemeProvider>
         </AuthProvider>
     );

@@ -1,5 +1,3 @@
-const DEFAULT_ADMIN_EMAIL = 'cmshj30326@gmail.com';
-
 type AdminUserLike = {
     email?: string;
     userMetadata?: {
@@ -15,7 +13,8 @@ type AdminUserLike = {
 };
 
 export function getAdminEmailsFromEnv() {
-    const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || DEFAULT_ADMIN_EMAIL;
+    const raw = process.env.NEXT_PUBLIC_ADMIN_EMAILS || '';
+    if (!raw.trim()) return [];
     return raw
         .split(',')
         .map((value) => value.trim().toLowerCase())

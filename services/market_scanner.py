@@ -10,13 +10,27 @@ from typing import Any, Dict, List
 
 from services.stock_service import stock_service
 
-SCORING_WEIGHTS = {
+_STATIC_SCORING_WEIGHTS = {
     "momentum": 0.35,
     "volume": 0.15,
     "volatility": 0.15,
     "valuation": 0.15,
     "trend": 0.20,
 }
+
+_REGIME_WEIGHTS = {
+    "bull": {"momentum": 0.45, "volume": 0.15, "volatility": 0.05, "valuation": 0.10, "trend": 0.25},
+    "bear": {"momentum": 0.15, "volume": 0.10, "volatility": 0.10, "valuation": 0.40, "trend": 0.25},
+    "sideways": {"momentum": 0.25, "volume": 0.15, "volatility": 0.15, "valuation": 0.25, "trend": 0.20},
+}
+
+
+def get_dynamic_weights(regime: str = "sideways") -> Dict[str, float]:
+    """Return scoring weights adjusted for current market regime."""
+    return dict(_REGIME_WEIGHTS.get(regime, _STATIC_SCORING_WEIGHTS))
+
+
+SCORING_WEIGHTS = _STATIC_SCORING_WEIGHTS
 
 DEFAULT_SYMBOL_UNIVERSE = [
     "2330",
@@ -109,8 +123,16 @@ async def _score_symbol(symbol: str, period: str = "6mo") -> Dict[str, Any] | No
         return None
 
     factors = _score_from_history(history, info)
+    # Use dynamic weights based on market regime
+    try:
+        from services.regime_detector import detect_regime
+        closes = [float(r.get("close", 0) or 0) for r in history if float(r.get("close", 0) or 0) > 0]
+        regime_info = detect_regime(closes, label="scanner")
+        weights = get_dynamic_weights(regime_info.get("regime", "sideways"))
+    except Exception:
+        weights = SCORING_WEIGHTS
     score = 0.0
-    for key, weight in SCORING_WEIGHTS.items():
+    for key, weight in weights.items():
         score += factors.get(key, 0.0) * weight
 
     return {

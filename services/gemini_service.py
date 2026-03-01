@@ -87,7 +87,7 @@ UNIFIED_SYSTEM_PROMPT = """你是 DiscoverLatest 專屬 AI 深度分析引擎
 重要 在正文分析之前 先輸出一段 JSON 摘要 用 <<<JSON_START>>> 和 <<<JSON_END>>> 包裹
 格式如下
 <<<JSON_START>>>
-{"verdict":"偏多或偏空或中性","confidence":0到100整數,"scores":{"technical":0到100,"fundamental":0到100,"chips":0到100,"macro":0到100},"entry":{"short":"xxx-xxx","mid":"xxx-xxx","long":"xxx-xxx"},"stop_loss":{"short":"xxx","mid":"xxx","long":"xxx"},"target":{"short":"xxx","mid":"xxx","long":"xxx"},"risk_reward":{"short":"x.x:1","mid":"x.x:1","long":"x.x:1"},"key_levels":{"support":["xxx","xxx"],"resistance":["xxx","xxx"]},"one_liner":"一句話總結最重要的操作建議"}
+{"verdict":"偏多或偏空或中性","confidence":0到100整數,"scores":{"technical":0到100,"fundamental":0到100,"chips":0到100,"macro":0到100},"entry":{"short":"xxx-xxx","mid":"xxx-xxx","long":"xxx-xxx"},"stop_loss":{"short":"xxx","mid":"xxx","long":"xxx"},"target":{"short":"xxx","mid":"xxx","long":"xxx"},"risk_reward":{"short":"x.x:1","mid":"x.x:1","long":"x.x:1"},"key_levels":{"support":["xxx","xxx"],"resistance":["xxx","xxx"]},"trade_framework":{"entry_zone":"具體進場價位區間","stop_loss":"具體停損價位","reduce_at":"分批減碼價位","invalidation":"判斷失效的條件與價位"},"one_liner":"一句話總結最重要的操作建議"}
 <<<JSON_END>>>
 JSON 中所有價位必須是具體數字 不可使用文字描述
 然後接著輸出正文分析
@@ -139,6 +139,74 @@ TIER_EXTRA = {
     "free": "篇幅要求 完整但精煉 每章節至少 3 條重點",
     "pro": "篇幅要求 深入分析 每章節至少 4 到 5 條重點 補充 base bull 雙情境機率 倉位建議與風險預警",
     "premium": "篇幅要求 全面深度 每章節至少 5 到 7 條重點 補充 base bull bear 三情境機率 部位設計 對沖策略 風險暴露管理 情境地圖含觸發機率",
+}
+
+# B09: Structured JSON output schema for response_schema parameter
+ANALYSIS_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "string"},
+        "confidence": {"type": "integer"},
+        "scores": {
+            "type": "object",
+            "properties": {
+                "technical": {"type": "integer"},
+                "fundamental": {"type": "integer"},
+                "chips": {"type": "integer"},
+                "macro": {"type": "integer"},
+            },
+        },
+        "entry": {
+            "type": "object",
+            "properties": {
+                "short": {"type": "string"},
+                "mid": {"type": "string"},
+                "long": {"type": "string"},
+            },
+        },
+        "stop_loss": {
+            "type": "object",
+            "properties": {
+                "short": {"type": "string"},
+                "mid": {"type": "string"},
+                "long": {"type": "string"},
+            },
+        },
+        "target": {
+            "type": "object",
+            "properties": {
+                "short": {"type": "string"},
+                "mid": {"type": "string"},
+                "long": {"type": "string"},
+            },
+        },
+        "risk_reward": {
+            "type": "object",
+            "properties": {
+                "short": {"type": "string"},
+                "mid": {"type": "string"},
+                "long": {"type": "string"},
+            },
+        },
+        "key_levels": {
+            "type": "object",
+            "properties": {
+                "support": {"type": "array", "items": {"type": "string"}},
+                "resistance": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "trade_framework": {
+            "type": "object",
+            "properties": {
+                "entry_zone": {"type": "string"},
+                "stop_loss": {"type": "string"},
+                "reduce_at": {"type": "string"},
+                "invalidation": {"type": "string"},
+            },
+        },
+        "one_liner": {"type": "string"},
+        "analysis_text": {"type": "string"},
+    },
 }
 
 
@@ -1150,6 +1218,15 @@ class GeminiService:
     ) -> Dict[str, Any]:
         emit = lambda p, s, m, **kw: self._emit_progress(progress_callback, p, s, m, **kw)
 
+        # Budget Manager check — return budget_exhausted if daily Gemini quota used up
+        try:
+            from services.budget_manager import budget_manager
+            if not budget_manager.check_budget("gemini"):
+                emit(100, "error", "gemini_budget_exhausted")
+                return {"success": False, "error": "budget_exhausted", "analysis": "", "grounding_sources": [], "budget_exhausted": True}
+        except Exception:
+            pass
+
         api_key = self._get_api_key()
         if not api_key:
             emit(100, "error", "gemini_api_key_missing")
@@ -1277,22 +1354,33 @@ class GeminiService:
             )
 
             def _run_stage2(prompt: str, temperature: float, output_tokens: int):
-                last_err: Optional[Exception] = None
-                for _ in range(1):
-                    try:
-                        key2 = self._get_api_key() or api_key
-                        c2 = genai.Client(api_key=key2)
-                        return c2.models.generate_content(
-                            model=MODEL_FINAL,
-                            contents=prompt,
-                            config=types.GenerateContentConfig(temperature=temperature, max_output_tokens=output_tokens),
-                        )
-                    except Exception as e:
-                        last_err = e
-                        raise
-                if last_err:
-                    raise last_err
-                raise RuntimeError("stage2_failed")
+                key2 = self._get_api_key() or api_key
+                c2 = genai.Client(api_key=key2)
+                # B09: Try structured JSON output with response_schema first
+                try:
+                    structured_prompt = prompt + "\n\n重要 將所有正文分析內容完整放入 analysis_text 欄位 以 JSON 格式輸出"
+                    resp = c2.models.generate_content(
+                        model=MODEL_FINAL,
+                        contents=structured_prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=temperature,
+                            max_output_tokens=output_tokens,
+                            response_mime_type="application/json",
+                            response_schema=ANALYSIS_JSON_SCHEMA,
+                        ),
+                    )
+                    text = safe_response_text(resp)
+                    if text and text.strip().startswith("{"):
+                        logger.info("B09 structured JSON output succeeded for %s", symbol)
+                        return resp
+                except Exception as e_struct:
+                    logger.debug("B09 structured output failed for %s, fallback: %s", symbol, type(e_struct).__name__)
+                # Fallback: original free-text approach
+                return c2.models.generate_content(
+                    model=MODEL_FINAL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=temperature, max_output_tokens=output_tokens),
+                )
 
             emit(48, "stage2", "generate_multifactor_analysis")
             logger.info("Stage 2 starting for %s", symbol)
@@ -1348,7 +1436,18 @@ class GeminiService:
             try:
                 stage2_resp = f2.result(timeout=stage2_timeout_sec)
                 raw_analysis = safe_response_text(stage2_resp)
-                summary_data, raw_analysis = self._extract_summary_json(raw_analysis)
+                # B09: Try structured JSON parse first, fallback to <<<JSON_START>>> extraction
+                summary_data = None
+                try:
+                    parsed_full = json.loads(raw_analysis)
+                    if isinstance(parsed_full, dict) and "analysis_text" in parsed_full:
+                        raw_analysis = parsed_full.pop("analysis_text", "")
+                        summary_data = parsed_full
+                        logger.info("B09 parsed structured JSON response for %s", symbol)
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+                if summary_data is None:
+                    summary_data, raw_analysis = self._extract_summary_json(raw_analysis)
                 analysis = self._ensure_smc_section(self._sanitize_analysis_text(raw_analysis), smc_summary)
 
                 if not self._quality_ok(analysis, tier):
@@ -1384,6 +1483,11 @@ class GeminiService:
                     }
 
                 logger.info("Stage 2 completed for %s, %d chars", symbol, len(analysis))
+                try:
+                    from services.budget_manager import budget_manager
+                    budget_manager.consume("gemini")
+                except Exception:
+                    pass
                 payload = {
                     "success": True,
                     "analysis": analysis,

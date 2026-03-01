@@ -26,15 +26,15 @@ import {
 import styles from './Sidebar.module.css';
 
 const NAV_ITEMS = [
-    { icon: LayoutDashboard, label: '儀表板', href: '/' },
-    { icon: Star, label: '自選清單', href: '/watchlist' },
-    { icon: TrendingUp, label: '深度分析', href: '/analysis' },
-    { icon: FlaskConical, label: '回測模擬', href: '/backtest' },
+    { icon: LayoutDashboard, label: '儀表板', href: '/', onboarding: 'step-1' },
+    { icon: Star, label: '自選清單', href: '/watchlist', onboarding: 'step-2' },
+    { icon: TrendingUp, label: '深度分析', href: '/analysis', onboarding: 'step-3' },
+    { icon: FlaskConical, label: '回測模擬', href: '/backtest', onboarding: 'step-4' },
     { icon: Globe, label: '國際市場', href: '/market' },
     { icon: Bitcoin, label: '加密貨幣', href: '/crypto', badge: 'Beta' },
     { icon: Scale, label: '股票比較', href: '/compare' },
-    { icon: HeartPulse, label: '投資健檢', href: '/portfolio' },
-    { icon: Brain, label: '投資風格測驗', href: '/quiz' },
+    { icon: HeartPulse, label: '投資健檢', href: '/portfolio', onboarding: 'step-5' },
+    { icon: Brain, label: '投資風格測驗', href: '/quiz', onboarding: 'step-7' },
 ];
 
 const BOTTOM_ITEMS = [
@@ -62,6 +62,14 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
 
     const tier = effectiveTier;
     const tierLabel: Record<string, string> = { free: 'Free', pro: 'Pro', premium: 'Premium' };
+
+    // N02: Hide quiz nav item when user has completed the investor profile quiz
+    const visibleNavItems = useMemo(() => {
+        return NAV_ITEMS.filter((item) => {
+            if (item.href === '/quiz' && user?.investorProfile) return false;
+            return true;
+        });
+    }, [user?.investorProfile]);
     const creditPct = Math.min(100, Math.round((dailyUsed / Math.max(1, dailyLimit)) * 100));
     const currentYear = new Date().getFullYear();
     const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || 'v2.2.0';
@@ -169,7 +177,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
 
             <nav className={styles.nav}>
-                {NAV_ITEMS.map((item) => {
+                {visibleNavItems.map((item) => {
                     const isActive = pathname === item.href;
                     return (
                         <Link
@@ -181,6 +189,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                             onTouchStart={() => prefetchRoute(item.href)}
                             onFocus={() => prefetchRoute(item.href)}
                             className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+                            {...('onboarding' in item && item.onboarding ? { 'data-onboarding': item.onboarding } : {})}
                         >
                             <item.icon className={styles.navIcon} />
                             <span>{item.label}</span>
@@ -207,7 +216,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 )}
             </nav>
 
-            <div className={styles.usageCard}>
+            <div className={styles.usageCard} data-onboarding="step-6">
                 <div className={styles.usageHeader}>
                     <span className={styles.tierBadge}>{tierLabel[tier]}</span>
                     <Link

@@ -1,0 +1,138 @@
+.overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(0, 0, 0, 0.65);
+    animation: fadeIn 0.3s ease;
+}
+
+.spotlight {
+    position: fixed;
+    z-index: 9999;
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 9999px rgba(0, 0, 0, 0.65),
+        0 0 20px 4px rgba(245, 158, 11, 0.3);
+    pointer-events: none;
+    transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tooltip {
+    position: fixed;
+    z-index: 10000;
+    width: 310px;
+    padding: 20px;
+    background: var(--bg-elevated, #1e293b);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s ease;
+}
+
+.stepIndicator {
+    display: inline-block;
+    padding: 2px 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.12);
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+}
+
+.title {
+    margin: 0 0 6px;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-1, #f8fafc);
+}
+
+.description {
+    margin: 0 0 16px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-2, #94a3b8);
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.skipBtn {
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-3, #64748b);
+    background: transparent;
+    border: 1px solid rgba(100, 116, 139, 0.3);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.skipBtn:hover {
+    color: var(--text-2, #94a3b8);
+    border-color: rgba(100, 116, 139, 0.5);
+}
+
+.nextBtn {
+    padding: 7px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.nextBtn:hover {
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+}
+
+.dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.3);
+    transition: all 0.25s;
+}
+
+.dotActive {
+    width: 18px;
+    border-radius: 3px;
+    background: #f59e0b;
+}
+
+.dotDone {
+    background: rgba(245, 158, 11, 0.5);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

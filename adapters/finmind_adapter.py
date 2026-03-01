@@ -219,7 +219,7 @@ class FinMindAdapter:
         return True  # 假設可用，下次請求時偵測
 
     async def _request(self, params: Dict, use_cache: bool = True) -> Optional[List[Dict]]:
-        """發送 API 請求（含快取 + 雙 Token 速率限制）"""
+        """發送 API 請求（含快取 + 雙 Token 速率限制 + Budget Manager）"""
         # 快取檢查
         dataset = params.get("dataset", "")
         if self._is_dataset_cooling_down(dataset):
@@ -234,6 +234,15 @@ class FinMindAdapter:
             cached = _get_cached(ckey)
             if cached is not None:
                 return cached
+
+        # Budget Manager check — skip API call if daily budget exhausted
+        try:
+            from services.budget_manager import budget_manager
+            if not budget_manager.check_budget("finmind"):
+                logger.info("[FinMind] Daily budget exhausted, skipping request dataset=%s", dataset)
+                return None
+        except Exception:
+            pass
 
         self._load_tokens()
         total_tokens = len([t for t in self._tokens if t])
@@ -266,6 +275,11 @@ class FinMindAdapter:
                 if api_status == 200 and api_data:
                     self._available = True
                     _set_cache(ckey, api_data)
+                    try:
+                        from services.budget_manager import budget_manager
+                        budget_manager.consume("finmind")
+                    except Exception:
+                        pass
                     return api_data
                 # 診斷：印出 FinMind 空結果原因
                 api_msg = result.get("msg", "")

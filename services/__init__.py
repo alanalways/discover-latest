@@ -9,6 +9,7 @@ from .auth_service import AuthService, auth_service
 from .investor_quiz import calculate_profile
 from .market_scanner import scan_market
 from .weekly_picks import generate_weekly_picks
+from .budget_manager import BudgetManager, budget_manager
 
 __all__ = [
     # Rate Limiter
@@ -31,4 +32,7 @@ __all__ = [
     "calculate_profile",
     "scan_market",
     "generate_weekly_picks",
+    # Budget Manager
+    "BudgetManager",
+    "budget_manager",
 ]
