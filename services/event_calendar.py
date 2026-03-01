@@ -62,8 +62,9 @@ def get_upcoming_events(
         from adapters.finmind_adapter import finmind_adapter
         start = today.strftime("%Y-%m-%d")
         end = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-        dividends = finmind_adapter.get_dividend_calendar_sync(symbol, start, end)
-        if dividends:
+        raw_symbol = symbol.replace(".TW", "").replace(".TWO", "")
+        dividends = finmind_adapter.get_tw_dividend_sync(raw_symbol, start, end)
+        if isinstance(dividends, list):
             for d in dividends:
                 date_str = str(d.get("date") or d.get("ex_dividend_date") or "")
                 if date_str:

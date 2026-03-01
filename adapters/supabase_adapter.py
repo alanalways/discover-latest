@@ -2071,7 +2071,22 @@ class SupabaseAdapter:
     # ===== Stock Events (placeholder — data from FinMind) =====
 
     def get_stock_events(self, symbol: str, days_ahead: int = 30) -> List[Dict]:
-        return []
+        """查詢 stock_events 表（若表不存在會靜默返回空）。"""
+        from datetime import datetime, timedelta
+        today = datetime.now().strftime("%Y-%m-%d")
+        future = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        result = self._request(
+            "GET", "stock_events",
+            params={
+                "symbol": f"eq.{symbol}",
+                "date": f"gte.{today}",
+                "select": "*",
+                "order": "date.asc",
+                "limit": "20",
+            },
+            use_service_key=True, silent=True,
+        )
+        return result if isinstance(result, list) else []
 
     # ===== Analysis Cache L2 =====
 

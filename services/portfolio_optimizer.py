@@ -41,17 +41,18 @@ def optimize_portfolio(
     warnings: List[str] = []
     removed: List[Dict] = []
 
-    # 複製並排序（期望報酬/波動度 高者優先）
+    # 複製並排序（期望報酬/波動度 高者優先）— 先對所有 holdings 打分
     scored = []
-    for h in holdings[:MAX_HOLDINGS]:
+    for h in holdings:
         vol = float(h.get("volatility") or 0.02)
         er = float(h.get("expected_return") or 0)
         score = (er / vol) if vol > 0 else 0
         scored.append({**h, "_score": score, "_vol": vol})
     scored.sort(key=lambda x: x["_score"], reverse=True)
 
-    if len(holdings) > MAX_HOLDINGS:
-        removed = holdings[MAX_HOLDINGS:]
+    if len(scored) > MAX_HOLDINGS:
+        removed = scored[MAX_HOLDINGS:]
+        scored = scored[:MAX_HOLDINGS]
         warnings.append(f"超過 {MAX_HOLDINGS} 檔上限，已移除低分標的")
 
     # 貪婪分配

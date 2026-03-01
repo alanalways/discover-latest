@@ -431,7 +431,7 @@ class GeminiService:
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
 
-        text_out = response.text if response and getattr(response, "text", None) else ""
+        text_out = safe_response_text(response)
         candidates = getattr(response, "candidates", None) or []
         if candidates:
             gm = getattr(candidates[0], "grounding_metadata", None)
@@ -532,7 +532,7 @@ class GeminiService:
         finally:
             ex.shutdown(wait=False, cancel_futures=True)
 
-        text_out = response.text if response and getattr(response, "text", None) else ""
+        text_out = safe_response_text(response)
         candidates = getattr(response, "candidates", None) or []
         if candidates:
             gm = getattr(candidates[0], "grounding_metadata", None)

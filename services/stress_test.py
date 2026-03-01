@@ -11,6 +11,7 @@ C15：4 情境壓力測試
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -191,7 +192,6 @@ def _estimate_beta(closes: List[float], default: float = 1.0) -> float:
     if len(returns) < 20:
         return default
 
-    import math
     mean_r = sum(returns) / len(returns)
     vol = math.sqrt(sum((r - mean_r) ** 2 for r in returns) / len(returns))
 

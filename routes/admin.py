@@ -13,8 +13,8 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# 管理員 email：預設值與前端 lib/admin.ts 保持一致
-_DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "cmshj30326@gmail.com")
+# 管理員 email：僅從環境變數讀取
+_DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "")
 
 
 class TierUpdateRequest(BaseModel):

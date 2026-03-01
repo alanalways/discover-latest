@@ -214,9 +214,36 @@ async def portfolio_checkup(request: Request):
         from services.risk_metrics import compute_portfolio_risk, risk_attribution, check_risk_budget
         from services.stress_test import run_stress_test
 
-        portfolio = supabase_adapter.get_watchlist(user_id) or []
-        if not portfolio:
+        watchlist = supabase_adapter.get_watchlist(user_id) or []
+        if not watchlist:
             return {"checkup": None, "message": "無持倉資料"}
+
+        # 將 watchlist 轉換為 risk 計算所需格式（含 closes/weight/industry）
+        portfolio = []
+        equal_weight = round(1.0 / len(watchlist), 4) if watchlist else 0
+        for item in watchlist:
+            sym = item.get("symbol") or item.get("stock_id") or ""
+            if not sym:
+                continue
+            # 取得歷史收盤價
+            closes = []
+            try:
+                from services.stock_service import stock_service
+                price_data = await stock_service.get_stock_history(sym, period="1y")
+                if isinstance(price_data, list):
+                    closes = [float(p.get("close", 0)) for p in price_data if p.get("close")]
+            except Exception:
+                pass
+            portfolio.append({
+                "symbol": sym,
+                "weight": equal_weight,
+                "industry": item.get("industry") or "其他",
+                "closes": closes,
+                "beta": None,
+            })
+
+        if not any(len(h.get("closes", [])) >= 20 for h in portfolio):
+            return {"checkup": None, "message": "歷史數據不足，無法計算風險"}
 
         risk = compute_portfolio_risk(portfolio)
         attribution = risk_attribution(portfolio)

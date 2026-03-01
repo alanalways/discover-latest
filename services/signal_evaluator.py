@@ -76,15 +76,18 @@ def evaluate_signals(
         stop = sig.get("stop_price")
         direction = sig.get("direction", "long")
 
-        # 嘗試取得最新價格
+        # 嘗試取得最新價格（透過 yfinance 同步取得）
+        current_price = None
         try:
-            from services.stock_service import stock_service
-            import asyncio
-            current_price = asyncio.get_event_loop().run_until_complete(
-                stock_service.get_latest_price(sig["symbol"])
-            )
+            import yfinance as yf
+            sym = sig["symbol"]
+            # 台股加 .TW 後綴
+            ticker_sym = f"{sym}.TW" if sym.isdigit() or (len(sym) == 4 and sym[:4].isdigit()) else sym
+            ticker = yf.Ticker(ticker_sym)
+            info = ticker.fast_info
+            current_price = getattr(info, "last_price", None) or getattr(info, "previous_close", None)
         except Exception:
-            current_price = None
+            pass
 
         if current_price is None or entry <= 0:
             continue

@@ -162,4 +162,25 @@ def _evaluate_rule(rule: Dict, snapshot: Dict) -> bool:
         return current <= target
     elif op == "eq":
         return abs(current - target) < 0.001
+    elif op == "cross_above":
+        # 需要前一期值（snapshot 中以 prev_{indicator} 提供）
+        prev_key = f"prev_{ind.lower()}"
+        prev = snapshot.get(prev_key, snapshot.get(f"prev_{ind}"))
+        if prev is None:
+            return False
+        try:
+            prev = float(prev)
+        except (ValueError, TypeError):
+            return False
+        return prev <= target and current > target
+    elif op == "cross_below":
+        prev_key = f"prev_{ind.lower()}"
+        prev = snapshot.get(prev_key, snapshot.get(f"prev_{ind}"))
+        if prev is None:
+            return False
+        try:
+            prev = float(prev)
+        except (ValueError, TypeError):
+            return False
+        return prev >= target and current < target
     return False

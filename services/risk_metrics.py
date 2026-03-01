@@ -274,7 +274,7 @@ def _compute_portfolio_returns(
                 daily += weight * (curr / prev - 1)
                 total_weight += weight
         if total_weight > 0:
-            portfolio_returns.append(daily / total_weight * total_weight)
+            portfolio_returns.append(daily / total_weight)
 
     return portfolio_returns
 

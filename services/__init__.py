@@ -11,6 +11,17 @@ from .market_scanner import scan_market
 from .weekly_picks import generate_weekly_picks
 from .budget_manager import BudgetManager, budget_manager
 
+# Phase 3-6 modules (lazy-safe imports)
+from . import portfolio_optimizer
+from . import risk_metrics
+from . import stress_test
+from . import strategy_templates
+from . import pretrade_checker
+from . import signal_evaluator
+from . import slo_monitor
+from . import event_calendar
+from . import gemini_circuit_breaker
+
 __all__ = [
     # Rate Limiter
     "RateLimiter",
