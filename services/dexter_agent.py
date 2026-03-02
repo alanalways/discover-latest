@@ -531,6 +531,33 @@ class DexterAgent:
             cleaned = re.sub(r"\s+", " ", "；".join(cleaned_lines[:3]))
         return cleaned[:max_len]
 
+    def _clean_grounding_text(self, text: str, max_len: int = 2200) -> str:
+        raw = str(text or "").replace("\r\n", "\n").strip()
+        if not raw:
+            return ""
+        ban_tokens = (
+            "以下是您所要求",
+            "最新資訊",
+            "當前股價",
+            "市場快報",
+            "技術面分析",
+            "進出場計劃",
+        )
+        keep: List[str] = []
+        for ln in raw.split("\n"):
+            s = re.sub(r"^[\u2022\-\*\s]+", "", ln).strip()
+            if not s:
+                continue
+            if any(tok in s for tok in ban_tokens):
+                continue
+            if re.match(r"^[1-7][\.\)]\s*", s):
+                continue
+            keep.append(s)
+        if not keep:
+            return raw[:max_len]
+        joined = "\n".join(keep)
+        return joined[:max_len]
+
     def _pick_first_numeric(self, row: Dict[str, Any], keys: List[str]) -> Optional[float]:
         if not isinstance(row, dict):
             return None
@@ -682,6 +709,8 @@ class DexterAgent:
         if len(t) < 420:
             return True
         if re.search(r"(?:在|出現)\s*\d+\s*$", t):
+            return True
+        if "以下是您所要求" in t:
             return True
         if re.search(r"\bN/?A\b", t, flags=re.IGNORECASE):
             return True
@@ -989,7 +1018,7 @@ class DexterAgent:
             key2 = gemini_service.get_api_key()
             logger.info("[Dexter] Stage 2: model=%s, tier=%s", MODEL_DEXTER, tier_norm)
 
-            grounding_compact = grounding_text[:2200] if len(grounding_text) > 2200 else grounding_text
+            grounding_compact = self._clean_grounding_text(grounding_text, max_len=2200)
             today_str = _dt.now().strftime("%Y-%m-%d")
             tier_extra = TIER_EXTRA.get(tier_norm, TIER_EXTRA["free"])
             max_tokens = 2048 if tier_norm == "free" else (3200 if tier_norm == "pro" else 4096)
