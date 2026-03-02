@@ -1026,8 +1026,16 @@ class DexterAgent:
             cached_grounding = gemini_service._read_grounding_cache(grounding_cache_key)
             if cached_grounding:
                 grounding_text = str(cached_grounding.get("text") or "")
-                logger.info("[Dexter] Stage 1 cache HIT for %s: %d chars", symbol, len(grounding_text))
+                cached_ok = len(grounding_text.strip()) >= 80 and "搜尋失敗" not in grounding_text
+                if cached_ok:
+                    logger.info("[Dexter] Stage 1 cache HIT for %s: %d chars", symbol, len(grounding_text))
+                else:
+                    logger.info("[Dexter] Stage 1 cache stale/empty for %s, refreshing", symbol)
+                    cached_grounding = None
             else:
+                grounding_text = ""
+
+            if not cached_grounding:
                 key1 = gemini_service.get_api_key()
                 logger.info("[Dexter] Stage 1: model=%s", MODEL_GROUNDING)
                 stage1_prompt = build_stage1_prompt(symbol, context_text)
