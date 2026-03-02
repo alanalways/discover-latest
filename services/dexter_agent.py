@@ -56,6 +56,11 @@ class DexterAgent:
             analysis = self._synthesize_report(query, symbol, results)
             log["analysis"] = analysis
 
+            # 傳遞 AI 綜合分析的錯誤到 log["error"]
+            ai_res = results.get("AI 綜合分析", {})
+            if isinstance(ai_res, dict) and ai_res.get("error"):
+                log["error"] = str(ai_res["error"])
+
             # Summary
             elapsed = time.time() - start_time
             api_count = sum(1 for t in log["tasks"] if t["status"] == "completed")
@@ -391,10 +396,15 @@ class DexterAgent:
             except Exception:
                 pass
 
-            return {"success": bool(text), "analysis": text, "summary": summary_data or {}}
+            if not text:
+                logger.warning("[Dexter] Stage 2 returned empty text for %s", symbol)
+                return {"success": False, "analysis": "", "error": "stage2_empty_response", "summary": summary_data or {}}
+
+            return {"success": True, "analysis": text, "summary": summary_data or {}}
 
         except Exception as e:
-            return {"error": f"Gemini: {e}"}
+            logger.error("[Dexter] Gemini synthesize failed for %s: %s\n%s", symbol, e, traceback.format_exc())
+            return {"success": False, "error": f"Gemini: {e}", "analysis": ""}
 
     def _validate_results(self, results: Dict[str, Any]) -> List[Dict]:
         """數據驗證"""
@@ -430,10 +440,16 @@ class DexterAgent:
         """綜合分析文字（從 Gemini 結果提取）"""
         ai_result = results.get("AI 綜合分析", {})
         if isinstance(ai_result, dict):
-            if ai_result.get("success"):
-                return ai_result.get("analysis", "")
-            elif ai_result.get("error"):
-                return f"AI 分析失敗: {ai_result['error']}"
+            # 優先取 analysis 文字（即使 success=False，有文字就用）
+            analysis_text = str(ai_result.get("analysis") or "").strip()
+            if analysis_text:
+                return analysis_text
+            # 有 error 則顯示
+            error = ai_result.get("error")
+            if error:
+                return f"AI 分析失敗: {error}"
+        elif isinstance(ai_result, str) and ai_result.strip():
+            return ai_result.strip()
         return "分析結果不可用"
 
     def _calc_confidence(self, validation: List[Dict], results: Dict) -> int:
