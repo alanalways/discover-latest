@@ -95,6 +95,15 @@ interface IndustryChainData {
     symbol?: string;
     grounded?: boolean;
     grounding_sources?: Array<{ title?: string; uri?: string }>;
+    news_sources?: Array<{ title?: string; uri?: string }>;
+    relation_mode?: 'grounded' | 'fallback' | string;
+    resource_stack?: string[];
+    inferred_kind?: string;
+    relation_kind_stats?: {
+        supply_chain?: number;
+        market_resonance?: number;
+        hybrid?: number;
+    };
     flow_alerts?: string[];
     nodes?: Array<{
         id: string;
@@ -111,8 +120,24 @@ interface IndustryChainData {
         change_pct?: number;
         change_5d_pct?: number;
         flow_light?: string;
+        relation_sources?: string[];
+        news_hits?: Array<{ title?: string; url?: string }>;
+        relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+        relation_axes?: string[];
     }>;
-    edges?: Array<{ source: string; target: string; label?: string; relation?: string; listed?: boolean | null; listed_market?: string; relation_score?: number; relation_reason?: string; flow_light?: string }>;
+    edges?: Array<{
+        source: string;
+        target: string;
+        label?: string;
+        relation?: string;
+        listed?: boolean | null;
+        listed_market?: string;
+        relation_score?: number;
+        relation_reason?: string;
+        flow_light?: string;
+        relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+        relation_axes?: string[];
+    }>;
     relations?: Array<{
         company: string;
         ticker: string;
@@ -126,6 +151,10 @@ interface IndustryChainData {
         change_pct?: number;
         change_5d_pct?: number;
         flow_light?: string;
+        relation_sources?: string[];
+        evidence?: Array<{ title?: string; url?: string }>;
+        relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+        relation_axes?: string[];
     }>;
 }
 
@@ -1076,6 +1105,17 @@ function AnalysisContent() {
                                     <p className="text-sm text-[var(--text-3)] mb-4">
                                         點擊 AI 深度分析後載入 含關聯分數 即時股價與資金流燈號
                                     </p>
+                                    {industryChain && (
+                                        <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--bg-soft)]/40 px-3 py-2 text-xs text-[var(--text-3)]">
+                                            關聯模式: {industryChain.relation_mode || (industryChain.grounded ? 'grounded' : 'fallback')}
+                                            {' ｜ '}Grounding: {(industryChain.grounding_sources || []).length}
+                                            {' ｜ '}Tavily: {(industryChain.news_sources || []).length}
+                                            {' ｜ '}Resources: {(industryChain.resource_stack || []).join(' + ') || 'gemini + tavily + finmind'}
+                                            {' ｜ '}供應鏈: {industryChain.relation_kind_stats?.supply_chain ?? 0}
+                                            {' ｜ '}共振: {industryChain.relation_kind_stats?.market_resonance ?? 0}
+                                            {' ｜ '}混合: {industryChain.relation_kind_stats?.hybrid ?? 0}
+                                        </div>
+                                    )}
                                     <IndustryChainGraph
                                         nodes={industryChain?.nodes || []}
                                         edges={industryChain?.edges || []}

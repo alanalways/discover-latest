@@ -937,13 +937,104 @@ async def get_industry_chain(symbol: str):
         else:
             flow_light = "neutral"
 
+        inst_signal = 0.0
+        try:
+            chips = await stock_service.get_stock_chips(t)
+            inst_rows = (chips or {}).get("institutional") or []
+            inst_net = 0.0
+            for row in inst_rows[-8:]:
+                foreign = _safe_num(row.get("Foreign_Investor_buy")) - _safe_num(row.get("Foreign_Investor_sell"))
+                trust = _safe_num(row.get("Investment_Trust_buy")) - _safe_num(row.get("Investment_Trust_sell"))
+                dealer = _safe_num(row.get("Dealer_self_buy")) - _safe_num(row.get("Dealer_self_sell"))
+                if foreign == 0.0 and trust == 0.0 and dealer == 0.0:
+                    foreign = _safe_num(row.get("buy")) - _safe_num(row.get("sell"))
+                inst_net += foreign + trust + dealer
+            inst_signal = _clamp(inst_net / max(1.0, (volumes[-1] if volumes else 1.0) * 8.0), -1.0, 1.0)
+        except Exception:
+            inst_signal = 0.0
+
         return {
             "price": round(last, 4),
             "change_pct": round(chg_pct, 4),
             "change_5d_pct": round(chg5_pct, 4),
             "volume_ratio_20d": round(vol_ratio, 4),
             "flow_light": flow_light,
+            "close_series": closes[-90:],
+            "inst_signal": round(inst_signal, 4),
         }
+
+    def _returns(series: list[float]) -> list[float]:
+        out: list[float] = []
+        for i in range(1, len(series)):
+            prev = series[i - 1]
+            cur = series[i]
+            if prev <= 0:
+                continue
+            out.append((cur - prev) / prev)
+        return out
+
+    def _corr(a: list[float], b: list[float]) -> Optional[float]:
+        n = min(len(a), len(b))
+        if n < 12:
+            return None
+        xs = a[-n:]
+        ys = b[-n:]
+        mean_x = sum(xs) / n
+        mean_y = sum(ys) / n
+        cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+        var_x = sum((x - mean_x) ** 2 for x in xs)
+        var_y = sum((y - mean_y) ** 2 for y in ys)
+        if var_x <= 0 or var_y <= 0:
+            return None
+        return float(_clamp(cov / math.sqrt(var_x * var_y), -1.0, 1.0))
+
+    def _name_tokens(name: str) -> list[str]:
+        text = str(name or "").strip()
+        if not text:
+            return []
+        cleaned = (
+            text.replace("(", " ")
+            .replace(")", " ")
+            .replace("-", " ")
+            .replace("/", " ")
+            .replace(",", " ")
+        )
+        parts = [p.strip().lower() for p in cleaned.split() if p.strip()]
+        if not parts:
+            parts = [text.lower()]
+        # Keep meaningful short list to avoid noisy matching.
+        unique: list[str] = []
+        for p in parts:
+            if len(p) < 2:
+                continue
+            if p not in unique:
+                unique.append(p)
+        return unique[:4]
+
+    def _match_news_for_target(name: str, ticker: str, items: list[dict[str, Any]]) -> list[dict[str, str]]:
+        if not items:
+            return []
+        tk = str(ticker or "").strip().lower()
+        tokens = _name_tokens(name)
+        matches: list[dict[str, str]] = []
+        for item in items:
+            title = str(item.get("title") or "").strip()
+            url = str(item.get("url") or "").strip()
+            content = str(item.get("content") or "").strip()
+            hay = f"{title} {content}".lower()
+            hit = False
+            if tk and tk not in {"na", "private"} and tk in hay:
+                hit = True
+            if not hit:
+                for tok in tokens:
+                    if tok in hay:
+                        hit = True
+                        break
+            if hit:
+                matches.append({"title": title[:180], "url": url})
+            if len(matches) >= 2:
+                break
+        return matches
 
     snapshot: dict[str, Any] = {}
     info: dict[str, Any] = {}
@@ -959,9 +1050,11 @@ async def get_industry_chain(symbol: str):
     industry_hint = str(info.get("industry") or "").lower()
     type_hint = str(info.get("type") or "").lower()
     inferred_kind = _infer_profile_kind(sym, company_name, industry_hint, type_hint)
-    should_try_grounding = inferred_kind == "generic"
+    # Always try grounding first; fallback profile is only a backup path.
+    should_try_grounding = True
 
     grounded_sources: list[dict[str, str]] = []
+    used_grounded_profile = False
     profile: dict[str, Any] | None = None
     if gemini_service.is_available() and should_try_grounding:
         try:
@@ -975,23 +1068,57 @@ async def get_industry_chain(symbol: str):
             grounded_sources = grounded.get("sources") or []
             chain = grounded.get("chain") or {}
             if grounded.get("success") and isinstance(chain, dict):
+                peer_rows = list(chain.get("peer") or [])
+                peer_rows.extend(chain.get("cross_market") or [])
+                downstream_rows = list(chain.get("downstream") or [])
+                downstream_rows.extend(chain.get("etf_tracking") or [])
                 grounded_profile = {
                     "name": company_name,
                     "ticker": sym,
                     "listed": True,
                     "listed_market": market_hint if market_hint else "US",
                     "upstream": chain.get("upstream") or [],
-                    "downstream": chain.get("downstream") or [],
-                    "peer": chain.get("peer") or [],
+                    "downstream": downstream_rows,
+                    "peer": peer_rows,
                     "competitor": chain.get("competitor") or [],
                 }
                 grounded_profile = _dedupe_profile(grounded_profile, sym, company_name)
-                if _profile_quality(grounded_profile, require_reason=True):
+                if _profile_quality(grounded_profile, require_reason=False):
                     profile = grounded_profile
+                    used_grounded_profile = True
 
     if not profile:
         profile = _fallback_profile(company_name, market_hint, industry_hint, type_hint)
         profile = _dedupe_profile(profile, sym, company_name)
+
+    from services import tavily_service
+
+    tavily_query_parts: list[str] = [
+        sym,
+        company_name,
+        "stock",
+        "supply chain",
+        "upstream downstream competitor peer",
+    ]
+    for grp in ("upstream", "downstream", "peer", "competitor"):
+        for row in (profile.get(grp) or [])[:2]:
+            nm = str((row or {}).get("name") or "").strip()
+            tk = _normalize_ticker((row or {}).get("ticker"))
+            if nm:
+                tavily_query_parts.append(nm)
+            if tk not in {"NA", "PRIVATE"}:
+                tavily_query_parts.append(tk)
+    tavily_query = " ".join(part for part in tavily_query_parts if part).strip()
+    tavily_news: list[dict[str, Any]] = []
+    try:
+        tavily_news = await tavily_service.search(
+            query=tavily_query,
+            symbol=sym,
+            force=True,
+            max_results=8,
+        )
+    except Exception:
+        tavily_news = []
 
     ticker_set = {sym}
     for group in ("upstream", "downstream", "peer", "competitor"):
@@ -1009,6 +1136,83 @@ async def get_industry_chain(symbol: str):
             live_map[tk] = res
 
     center_live = live_map.get(sym, {})
+    core_returns = _returns([_safe_num(v) for v in (center_live.get("close_series") or [])])
+    core_inst_signal = _safe_num(center_live.get("inst_signal"))
+
+    def _score_relation(
+        group: str,
+        base_weight: float,
+        target_live: dict[str, Any],
+        news_hits: list[dict[str, str]],
+    ) -> tuple[float, str, list[str]]:
+        reason_parts: list[str] = []
+        source_tags: list[str] = ["gemini_grounding" if used_grounded_profile else "fallback_profile"]
+        score = float(_clamp(base_weight, 0.05, 0.95))
+
+        target_series = [_safe_num(v) for v in (target_live.get("close_series") or [])]
+        target_returns = _returns(target_series)
+        corr_val = _corr(core_returns, target_returns)
+        if corr_val is not None:
+            source_tags.append("finmind_price_corr")
+            corr_score = (corr_val + 1.0) / 2.0
+            score = score * 0.58 + corr_score * 0.32
+            reason_parts.append(f"近3個月報酬相關係數 {corr_val:.2f}")
+
+        flow = str(target_live.get("flow_light") or "")
+        core_flow = str(center_live.get("flow_light") or "")
+        if flow in {"inflow", "outflow"} and flow == core_flow:
+            score += 0.05
+            source_tags.append("price_volume_flow")
+            reason_parts.append("近期資金流向與核心標的一致")
+
+        target_inst = _safe_num(target_live.get("inst_signal"))
+        if abs(target_inst) > 0.0001 and abs(core_inst_signal) > 0.0001:
+            source_tags.append("finmind_chips_flow")
+            if target_inst * core_inst_signal > 0:
+                score += 0.04
+                reason_parts.append("籌碼方向與核心標的一致")
+            else:
+                score -= 0.03
+                reason_parts.append("籌碼方向與核心標的背離")
+
+        if news_hits:
+            source_tags.append("tavily_news")
+            score += 0.06
+            reason_parts.append("新聞文本出現共同供應鏈/競品脈絡")
+
+        score = float(_clamp(score, 0.05, 0.99))
+        if not reason_parts:
+            if group == "upstream":
+                reason_parts.append("供應端連動關係")
+            elif group == "downstream":
+                reason_parts.append("需求端連動關係")
+            elif group == "peer":
+                reason_parts.append("同產業價格共振")
+            else:
+                reason_parts.append("競爭替代關係")
+        return score, "；".join(reason_parts), source_tags
+
+    def _relation_kind(group: str, source_tags: list[str]) -> tuple[str, list[str]]:
+        resonance_tags = {"finmind_price_corr", "finmind_chips_flow", "price_volume_flow"}
+        has_resonance = any(tag in resonance_tags for tag in source_tags)
+        has_supply = group in {"upstream", "downstream"} or ("tavily_news" in source_tags)
+
+        axes: list[str] = []
+        if has_supply:
+            axes.append("supply_chain")
+        if has_resonance:
+            axes.append("market_resonance")
+
+        if has_supply and has_resonance:
+            return "hybrid", axes
+        if has_supply:
+            return "supply_chain", axes or ["supply_chain"]
+        if has_resonance:
+            return "market_resonance", axes or ["market_resonance"]
+        if group in {"upstream", "downstream"}:
+            return "supply_chain", ["supply_chain"]
+        return "market_resonance", ["market_resonance"]
+
     center_id = sym
     center_label = f"{profile['name']} ({profile.get('ticker') or sym})"
     nodes: list[dict[str, Any]] = [
@@ -1041,10 +1245,16 @@ async def get_industry_chain(symbol: str):
             listed = item.get("listed")
             listed_market = str(item.get("listed_market") or "\u672a\u77e5")
             relation = relation_label_map[group]
-            relation_score = float(item.get("weight") or default_weight[group])
-            relation_reason = str(item.get("reason") or edge_label_map[group])
             live = live_map.get(ticker, {})
             flow_light = str(live.get("flow_light") or "na")
+            news_hits = _match_news_for_target(name, ticker, tavily_news)
+            base_score = float(item.get("weight") or default_weight[group])
+            score, data_reason, source_tags = _score_relation(group, base_score, live, news_hits)
+            relation_kind, relation_axes = _relation_kind(group, source_tags)
+            base_reason = str(item.get("reason") or edge_label_map[group]).strip()
+            relation_reason = base_reason
+            if data_reason:
+                relation_reason = f"{base_reason}；{data_reason}" if base_reason else data_reason
 
             nodes.append(
                 {
@@ -1056,12 +1266,16 @@ async def get_industry_chain(symbol: str):
                     "listed": listed,
                     "listed_market": listed_market,
                     "relation": relation,
-                    "relation_score": round(relation_score, 4),
+                    "relation_score": round(score, 4),
                     "relation_reason": relation_reason,
                     "price": live.get("price"),
                     "change_pct": live.get("change_pct"),
                     "flow_light": flow_light,
                     "change_5d_pct": live.get("change_5d_pct"),
+                    "relation_sources": source_tags,
+                    "news_hits": news_hits,
+                    "relation_kind": relation_kind,
+                    "relation_axes": relation_axes,
                 }
             )
 
@@ -1078,9 +1292,12 @@ async def get_industry_chain(symbol: str):
                     "relation": relation,
                     "listed": listed,
                     "listed_market": listed_market,
-                    "relation_score": round(relation_score, 4),
+                    "relation_score": round(score, 4),
                     "relation_reason": relation_reason,
                     "flow_light": flow_light,
+                    "relation_sources": source_tags,
+                    "relation_kind": relation_kind,
+                    "relation_axes": relation_axes,
                 }
             )
             relations.append(
@@ -1091,12 +1308,16 @@ async def get_industry_chain(symbol: str):
                     "listed_market": listed_market,
                     "relation": relation,
                     "relation_group": group,
-                    "relation_score": round(relation_score, 4),
+                    "relation_score": round(score, 4),
                     "relation_reason": relation_reason,
                     "price": live.get("price"),
                     "change_pct": live.get("change_pct"),
                     "flow_light": flow_light,
                     "change_5d_pct": live.get("change_5d_pct"),
+                    "relation_sources": source_tags,
+                    "evidence": news_hits,
+                    "relation_kind": relation_kind,
+                    "relation_axes": relation_axes,
                 }
             )
 
@@ -1120,13 +1341,24 @@ async def get_industry_chain(symbol: str):
     if not flow_alerts:
         flow_alerts.append("目前關聯節點資金流燈號未出現明確共振訊號。")
 
+    kind_stats = {"supply_chain": 0, "market_resonance": 0, "hybrid": 0}
+    for row in relations:
+        k = str(row.get("relation_kind") or "")
+        if k in kind_stats:
+            kind_stats[k] += 1
+
     return {
         "symbol": sym,
         "nodes": nodes,
         "edges": edges,
         "relations": relations,
-        "grounded": bool(grounded_sources),
+        "grounded": bool(used_grounded_profile),
         "grounding_sources": grounded_sources[:8],
+        "news_sources": [{"title": str(r.get("title") or ""), "uri": str(r.get("url") or "")} for r in tavily_news[:6]],
+        "relation_mode": "grounded" if used_grounded_profile else "fallback",
+        "resource_stack": ["gemini", "tavily", "finmind"],
+        "inferred_kind": inferred_kind,
+        "relation_kind_stats": kind_stats,
         "flow_alerts": flow_alerts[:5],
     }
 

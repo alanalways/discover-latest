@@ -15,6 +15,10 @@ type Node = {
   change_pct?: number | null;
   change_5d_pct?: number | null;
   flow_light?: 'inflow' | 'outflow' | 'neutral' | 'na' | string;
+  relation_sources?: string[];
+  news_hits?: Array<{ title?: string; url?: string }>;
+  relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+  relation_axes?: string[];
 };
 
 type Edge = {
@@ -25,6 +29,8 @@ type Edge = {
   relation_score?: number;
   relation_reason?: string;
   flow_light?: string;
+  relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+  relation_axes?: string[];
 };
 
 type Relation = {
@@ -40,6 +46,10 @@ type Relation = {
   change_pct?: number | null;
   change_5d_pct?: number | null;
   flow_light?: string;
+  relation_sources?: string[];
+  evidence?: Array<{ title?: string; url?: string }>;
+  relation_kind?: 'supply_chain' | 'market_resonance' | 'hybrid' | string;
+  relation_axes?: string[];
 };
 
 interface Props {
@@ -63,6 +73,25 @@ function edgeColor(group?: string): string {
   if (group === '同業') return '#34d399';
   if (group === '競爭') return '#fb7185';
   return '#93c5fd';
+}
+
+function relationKindLabel(kind?: string): string {
+  if (kind === 'supply_chain') return '供應鏈關聯';
+  if (kind === 'market_resonance') return '統計共振關聯';
+  if (kind === 'hybrid') return '混合關聯';
+  return '未分類';
+}
+
+function edgeDashArray(kind?: string): string | undefined {
+  if (kind === 'market_resonance') return '2.2 1.6';
+  if (kind === 'hybrid') return '5 1.4 1.5 1.4';
+  return undefined;
+}
+
+function edgeOpacity(kind?: string): number {
+  if (kind === 'market_resonance') return 0.86;
+  if (kind === 'hybrid') return 0.94;
+  return 0.92;
 }
 
 function flowColor(flow?: string): string {
@@ -142,6 +171,10 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
         change_pct: n.change_pct,
         change_5d_pct: n.change_5d_pct,
         flow_light: n.flow_light,
+        relation_sources: n.relation_sources || [],
+        evidence: n.news_hits || [],
+        relation_kind: n.relation_kind,
+        relation_axes: n.relation_axes || [],
       }));
   }, [nodes, relations]);
 
@@ -168,6 +201,26 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
       <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 8 }}>
         固定槽位布局 上游在上 下游在下 同業在左 競爭在右 點擊節點可看詳情
       </div>
+      <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 12, color: 'var(--text-3)', fontSize: 12 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+            <path d="M1 4 H27" stroke="#38bdf8" strokeWidth="2" fill="none" />
+          </svg>
+          供應鏈關聯
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+            <path d="M1 4 H27" stroke="#34d399" strokeWidth="2" strokeDasharray="2.2 1.6" fill="none" />
+          </svg>
+          統計共振關聯
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+            <path d="M1 4 H27" stroke="#f59e0b" strokeWidth="2" strokeDasharray="5 1.4 1.5 1.4" fill="none" />
+          </svg>
+          混合關聯
+        </span>
+      </div>
       {alerts.length > 0 && (
         <div style={{ marginBottom: 8, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', fontSize: 12, display: 'grid', gap: 4 }}>
           {alerts.slice(0, 4).map((a, i) => (
@@ -190,7 +243,8 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
                 fill="none"
                 stroke={edgeColor(e.relation)}
                 strokeWidth={1.1 + Math.max(0, Math.min(1, Number(e.relation_score || 0.6))) * 1.4}
-                opacity={0.92}
+                strokeDasharray={edgeDashArray(e.relation_kind)}
+                opacity={edgeOpacity(e.relation_kind)}
               />
             </g>
           );
@@ -234,8 +288,17 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
           </div>
           <div>代號 {selectedNode.ticker || 'NA'} {selectedNode.price !== undefined ? `｜現價 ${fmtNum(selectedNode.price)}` : ''}</div>
           <div>關係 {selectedNode.relation || '未標示'} ｜關聯分數 {fmtNum(selectedNode.relation_score, 2)}</div>
+          <div>類型 {relationKindLabel(selectedNode.relation_kind)}</div>
           {selectedNode.relation_reason && <div>依據 {selectedNode.relation_reason}</div>}
           <div>當日 {fmtPct(selectedNode.change_pct)} ｜近5日 {fmtPct(selectedNode.change_5d_pct)} ｜資金燈號 <span style={{ color: flowColor(selectedNode.flow_light) }}>●</span></div>
+          {Array.isArray(selectedNode.relation_sources) && selectedNode.relation_sources.length > 0 && (
+            <div>來源: {selectedNode.relation_sources.join(' + ')}</div>
+          )}
+          {Array.isArray(selectedNode.news_hits) && selectedNode.news_hits.length > 0 && (
+            <div>
+              證據: {selectedNode.news_hits.slice(0, 2).map((h) => h.title || '').filter(Boolean).join(' | ')}
+            </div>
+          )}
           <div>{listedText(selectedNode.listed, selectedNode.listed_market)}</div>
         </div>
       )}
@@ -255,8 +318,17 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
                   </button>
                 </div>
                 <div style={{ color: 'var(--text-2)' }}>關係 {r.relation || '未標示'} ｜分數 {fmtNum(r.relation_score, 2)}</div>
+                <div style={{ color: 'var(--text-3)' }}>類型 {relationKindLabel(r.relation_kind)}</div>
                 {r.relation_reason && <div style={{ color: 'var(--text-3)' }}>依據 {r.relation_reason}</div>}
                 <div style={{ color: 'var(--text-2)' }}>現價 {fmtNum(r.price)} ｜當日 {fmtPct(r.change_pct)} ｜近5日 {fmtPct(r.change_5d_pct)} <span style={{ color: flowColor(r.flow_light) }}>●</span></div>
+                {Array.isArray(r.relation_sources) && r.relation_sources.length > 0 && (
+                  <div style={{ color: 'var(--text-3)' }}>來源: {r.relation_sources.join(' + ')}</div>
+                )}
+                {Array.isArray(r.evidence) && r.evidence.length > 0 && (
+                  <div style={{ color: 'var(--text-3)' }}>
+                    證據: {r.evidence.slice(0, 2).map((e) => e.title || '').filter(Boolean).join(' | ')}
+                  </div>
+                )}
                 <div style={{ color: 'var(--text-3)' }}>{listedText(r.listed, r.listed_market)}</div>
               </div>
             ))}
