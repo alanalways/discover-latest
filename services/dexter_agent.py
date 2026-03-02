@@ -228,6 +228,37 @@ class DexterAgent:
         except Exception as e:
             return {"error": f"FinMind: {e}"}
 
+    def _fallback_stock_info_from_context(self, context: Dict[str, Any], symbol: str) -> Dict[str, Any]:
+        """Build a minimal stock_info payload for fallback analysis text."""
+        out: Dict[str, Any] = {"symbol": symbol}
+        if not isinstance(context, dict):
+            return out
+
+        # Prefer dict payloads that already resemble stock snapshot.
+        for value in context.values():
+            if not isinstance(value, dict) or value.get("error"):
+                continue
+            for k in ("price", "last_close", "close", "pe_ratio", "pb_ratio", "dividend_yield", "market_cap"):
+                v = value.get(k)
+                if v not in (None, "", "N/A"):
+                    out[k] = v
+
+        # TW data frequently comes from per/pbr rows list.
+        for value in context.values():
+            if not isinstance(value, list) or not value:
+                continue
+            last = value[-1]
+            if not isinstance(last, dict):
+                continue
+            if out.get("pe_ratio") in (None, "", "N/A") and last.get("PER") not in (None, "", "N/A"):
+                out["pe_ratio"] = last.get("PER")
+            if out.get("pb_ratio") in (None, "", "N/A") and last.get("PBR") not in (None, "", "N/A"):
+                out["pb_ratio"] = last.get("PBR")
+            if out.get("dividend_yield") in (None, "", "N/A") and last.get("dividend_yield") not in (None, "", "N/A"):
+                out["dividend_yield"] = last.get("dividend_yield")
+
+        return out
+
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
         """Stage1 grounding (flash) + Stage2 深度分析"""
         from config.models import MODEL_GROUNDING, MODEL_DEXTER
@@ -396,8 +427,36 @@ class DexterAgent:
             except Exception:
                 pass
 
+            if not text and isinstance(summary_data, dict):
+                alt_text = summary_data.get("analysis_text") or summary_data.get("analysis")
+                if isinstance(alt_text, str) and alt_text.strip():
+                    text = alt_text.strip()
+
             if not text:
                 logger.warning("[Dexter] Stage 2 returned empty text for %s", symbol)
+                try:
+                    stock_info = self._fallback_stock_info_from_context(context, symbol)
+                    fallback = gemini_service._build_fallback_from_grounding(
+                        symbol=symbol,
+                        grounding_text=grounding_text,
+                        tier=tier_norm,
+                        stock_info=stock_info,
+                        smc_summary="",
+                        prediction_summary="",
+                    )
+                    fallback = gemini_service._sanitize_analysis_text(fallback)
+                    fallback = gemini_service._pad_to_min_chars(fallback, tier_norm)
+                    if fallback.strip():
+                        logger.info("[Dexter] Stage 2 empty response fallback used for %s", symbol)
+                        return {
+                            "success": True,
+                            "analysis": fallback,
+                            "summary": summary_data or {},
+                            "degraded": True,
+                            "fallback_reason": "stage2_empty_response",
+                        }
+                except Exception as fb_err:
+                    logger.warning("[Dexter] Stage 2 empty fallback failed for %s: %s", symbol, fb_err)
                 return {"success": False, "analysis": "", "error": "stage2_empty_response", "summary": summary_data or {}}
 
             return {"success": True, "analysis": text, "summary": summary_data or {}}
