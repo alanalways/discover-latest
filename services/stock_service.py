@@ -756,6 +756,17 @@ class StockService:
 
             if market not in ["TWSE", "TPEX"]:
                 # US: 欄位名稱在不同 FinMind 帳號可能不同，做關鍵字容錯
+                def pick_from_exact(source: Dict[str, Any], keys: List[str]) -> Optional[float]:
+                    if not isinstance(source, dict):
+                        return None
+                    lut = {str(k or "").strip().lower(): v for k, v in source.items()}
+                    for key in keys:
+                        raw = lut.get(str(key or "").strip().lower())
+                        val = self._to_float(raw)
+                        if val is not None:
+                            return val
+                    return None
+
                 def pick_by_keywords(source: Dict[str, Any], keyword_groups: List[List[str]]) -> Optional[float]:
                     if not isinstance(source, dict):
                         return None
@@ -793,15 +804,51 @@ class StockService:
                 today = datetime.now().strftime("%Y-%m-%d")
                 per = self._to_float(merged.get("pe_ratio"))
                 if per is None:
-                    per = pick_by_keywords(merged, [["pe"], ["price", "earning"], ["trailing", "pe"]])
+                    per = pick_from_exact(
+                        merged,
+                        [
+                            "per",
+                            "pe",
+                            "pe_ratio",
+                            "price_earning_ratio",
+                            "priceearningratio",
+                            "trailingpe",
+                            "forwardpe",
+                        ],
+                    )
+                if per is None:
+                    per = pick_by_keywords(merged, [["price", "earning"], ["trailing", "pe"], ["forward", "pe"]])
 
                 pbr = self._to_float(merged.get("pb_ratio"))
                 if pbr is None:
-                    pbr = pick_by_keywords(merged, [["pb"], ["price", "book"]])
+                    pbr = pick_from_exact(
+                        merged,
+                        [
+                            "pbr",
+                            "pb",
+                            "pb_ratio",
+                            "price_book_ratio",
+                            "pricebookratio",
+                            "pricetobook",
+                        ],
+                    )
+                if pbr is None:
+                    pbr = pick_by_keywords(merged, [["price", "book"]])
 
                 dy = self._to_float(merged.get("dividend_yield"))
                 if dy is None:
-                    dy = pick_by_keywords(merged, [["dividend", "yield"], ["yield"]])
+                    dy = pick_from_exact(
+                        merged,
+                        [
+                            "dividend_yield",
+                            "dividendyield",
+                            "dividend_yield_ratio",
+                            "trailingannualdividendyield",
+                            "yield",
+                        ],
+                    )
+                if dy is None:
+                    dy = pick_by_keywords(merged, [["dividend", "yield"]])
 
                 # Grounding backfill for key valuation fields if FinMind/merged info is missing.
                 if per is None or pbr is None or dy is None:

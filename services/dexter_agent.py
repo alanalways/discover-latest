@@ -493,7 +493,7 @@ class DexterAgent:
             n = float(v)
             return f"{n:.{decimals}f}{suffix}"
         except Exception:
-            return f"資料不足{suffix}" if suffix else "資料不足"
+            return "資料不足"
 
     @staticmethod
     def _get_rows(context: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
@@ -571,6 +571,53 @@ class DexterAgent:
                 continue
         return None
 
+    def _sanitize_valuation_metrics(self, signals: Dict[str, Any], context: Dict[str, Any], levels: Dict[str, Any]) -> None:
+        """Guard against polluted valuation fields (e.g., PE accidentally equals daily change)."""
+        snap = context.get("市場快照") if isinstance(context.get("市場快照"), dict) else {}
+        chg1 = self._to_float((snap or {}).get("change_pct_1d"))
+
+        pe = self._to_float(signals.get("pe_ratio"))
+        pb = self._to_float(signals.get("pb_ratio"))
+        dy = self._to_float(signals.get("dividend_yield"))
+
+        if pe <= 0 or pe > 300:
+            pe = 0.0
+        if pb <= 0 or pb > 30:
+            pb = 0.0
+        if dy < 0 or dy > 25:
+            dy = 0.0
+
+        # Suspicious collision: PE equals daily % move.
+        if pe > 0 and abs(chg1) >= 5 and abs(pe - abs(chg1)) < 0.05:
+            pe = 0.0
+
+        signals["pe_ratio"] = pe if pe > 0 else None
+        signals["pb_ratio"] = pb if pb > 0 else None
+        signals["dividend_yield"] = dy if dy > 0 else None
+
+    def _macro_index_hint(self, signals: Dict[str, Any]) -> str:
+        txt = str(signals.get("industry") or "").strip().lower()
+        if any(k in txt for k in ("半導體", "semiconductor", "chip", "foundry")):
+            return "半導體指數"
+        if any(k in txt for k in ("金融", "bank", "broker", "insurance", "asset")):
+            return "金融指數"
+        if any(k in txt for k in ("能源", "oil", "gas", "energy")):
+            return "能源指數"
+        if any(k in txt for k in ("娛樂", "媒體", "影視", "internet", "software", "tech", "科技")):
+            return "那斯達克/科技指數"
+        return "相關產業指數"
+
+    def _event_snippet_or_proxy(self, grounding_text: str, levels: Dict[str, Any]) -> str:
+        snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
+        if snippet in ("無外部事件摘要", "無可用外部事件摘要"):
+            if levels:
+                return (
+                    f"未取得外部即時事件，改以量價代理：近5日 {levels.get('chg5', 0):+.2f}% "
+                    f"且量比20日 {levels.get('vol_ratio20', 0):.2f}"
+                )
+            return "未取得外部即時事件"
+        return snippet
+
     def _collect_quant_signals(self, context: Dict[str, Any], levels: Dict[str, Any]) -> Dict[str, Any]:
         out: Dict[str, Any] = {"levels": levels or {}}
 
@@ -578,6 +625,7 @@ class DexterAgent:
         if snap:
             out["name"] = snap.get("name")
             out["industry"] = snap.get("industry")
+            out["market"] = snap.get("market")
             out["pe_ratio"] = snap.get("pe_ratio")
             out["pb_ratio"] = snap.get("pb_ratio")
             out["dividend_yield"] = snap.get("dividend_yield")
@@ -667,6 +715,7 @@ class DexterAgent:
                 rlast, ["revenue_year_over_year", "RevenueYearOverYear", "yoy"]
             )
 
+        self._sanitize_valuation_metrics(out, context, levels)
         return out
 
     @staticmethod
@@ -738,6 +787,7 @@ class DexterAgent:
             pe_ratio = signals.get("pe_ratio")
             pb_ratio = signals.get("pb_ratio")
             dy = signals.get("dividend_yield")
+            market = str(signals.get("market") or "").strip().upper()
 
             score = 0
             if regime == "偏多趨勢":
@@ -773,14 +823,23 @@ class DexterAgent:
             margin_bias = "偏空" if isinstance(margin_net, (int, float)) and margin_net > 0 else ("偏多" if isinstance(margin_net, (int, float)) and margin_net < 0 else "中性")
             div_bias = "偏多" if isinstance(dy, (int, float)) and dy >= 4 else "中性"
 
-            event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
+            event_snippet = self._event_snippet_or_proxy(grounding_text, levels)
+            if market == "US" and inst_net is None:
+                inst_line = "• 驅動因子一（籌碼）美股無台式三大法人拆分，改以量價動能輔助判讀，判定 中性。"
+            else:
+                inst_line = f"• 驅動因子一（法人）近8日淨額 {self._fmt_num(inst_net, 0)}，判定 {inst_bias}。"
+            if market == "US" and margin_net is None:
+                margin_line = "• 驅動因子二（融資融券）美股此欄位不可比台股融資融券，判定 中性。"
+            else:
+                margin_line = f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。"
+            macro_index = self._macro_index_hint(signals)
             lines = [
                 "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
                 f"• 標的 {symbol} 現價 {levels['last']:.2f}，當日 {levels['chg1']:+.2f}%、近5日 {levels['chg5']:+.2f}%，量比20日 {levels['vol_ratio20']:.2f}。",
                 f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
-                f"• 驅動因子一（法人）近8日淨額 {self._fmt_num(inst_net, 0)}，判定 {inst_bias}。",
-                f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。",
+                inst_line,
+                margin_line,
                 f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{event_snippet}，判定 {div_bias}。",
                 "2.技術面分析",
                 f"• 結構判定 {regime}；SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}。",
@@ -802,7 +861,7 @@ class DexterAgent:
                 f"• 偏空：跌破 {levels['support']:.2f} 且反彈量縮，策略為降倉與防守。",
                 f"• 震盪：於 {levels['support']:.2f}-{levels['resistance']:.2f} 區間內高拋低吸，嚴控停損。",
                 "7.宏觀進階分析",
-                "• 追蹤利率、美元與半導體指數波動，若風險資產相關性上升，需降低單一產業曝險。",
+                f"• 追蹤利率、美元與{macro_index}波動，若風險資產相關性上升，需降低單一產業曝險。",
             ]
         else:
             event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)

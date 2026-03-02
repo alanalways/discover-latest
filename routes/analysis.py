@@ -422,6 +422,25 @@ async def _run_ai_analysis_pipeline(
         if avg20 > 0:
             vol_ratio_20d = vols[-1] / avg20
 
+    def _sanitize_ratio(name: str, value: Any) -> Any:
+        v = _safe_num(value)
+        if name == "pe_ratio":
+            if v <= 0 or v > 300:
+                return None
+            # Guard obvious pollution: PE equals daily move %
+            if abs(chg1) >= 5 and abs(v - abs(chg1)) < 0.05:
+                return None
+            return round(v, 4)
+        if name == "pb_ratio":
+            if v <= 0 or v > 30:
+                return None
+            return round(v, 4)
+        if name == "dividend_yield":
+            if v < 0 or v > 25:
+                return None
+            return round(v, 4) if v > 0 else None
+        return value
+
     seed_context = {
         "市場快照": {
             "symbol": req.symbol.upper(),
@@ -432,9 +451,9 @@ async def _run_ai_analysis_pipeline(
             "change_pct_1d": round(chg1, 4),
             "change_pct_5d": round(chg5, 4),
             "volume_ratio_20d": round(vol_ratio_20d, 4),
-            "pe_ratio": info_payload.get("pe_ratio"),
-            "pb_ratio": info_payload.get("pb_ratio"),
-            "dividend_yield": info_payload.get("dividend_yield"),
+            "pe_ratio": _sanitize_ratio("pe_ratio", info_payload.get("pe_ratio")),
+            "pb_ratio": _sanitize_ratio("pb_ratio", info_payload.get("pb_ratio")),
+            "dividend_yield": _sanitize_ratio("dividend_yield", info_payload.get("dividend_yield")),
             "period": req.period,
         },
         "技術快照": {"text": tech_snapshot},
