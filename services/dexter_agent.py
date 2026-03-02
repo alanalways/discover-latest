@@ -502,6 +502,35 @@ class DexterAgent:
             return []
         return [r for r in v if isinstance(r, dict)]
 
+    @staticmethod
+    def _clean_grounding_snippet(text: str, max_len: int = 120) -> str:
+        raw = str(text or "").replace("\r\n", "\n").strip()
+        if not raw:
+            return "無外部事件摘要"
+        cleaned_lines: List[str] = []
+        ban_tokens = (
+            "以下是您所要求",
+            "最新資訊",
+            "當前股價",
+            "市場快報",
+            "技術面分析",
+            "進出場計劃",
+        )
+        for ln in raw.split("\n"):
+            s = re.sub(r"^[\u2022\-\*\s]+", "", ln).strip()
+            if not s:
+                continue
+            if re.match(r"^\d{4}-\d{2}-\d{2}[｜:：]\s*$", s):
+                continue
+            if any(tok in s for tok in ban_tokens):
+                continue
+            cleaned_lines.append(s)
+        if not cleaned_lines:
+            return "無可用外部事件摘要"
+        else:
+            cleaned = re.sub(r"\s+", " ", "；".join(cleaned_lines[:3]))
+        return cleaned[:max_len]
+
     def _pick_first_numeric(self, row: Dict[str, Any], keys: List[str]) -> Optional[float]:
         if not isinstance(row, dict):
             return None
@@ -546,24 +575,56 @@ class DexterAgent:
         inst_rows = self._get_rows(context, "三大法人買賣超")
         if inst_rows:
             net = 0.0
+            valid_inst = 0
             tail = inst_rows[-8:]
             for r in tail:
+                has_detail = any(
+                    k in r
+                    for k in (
+                        "Foreign_Investor_buy",
+                        "Foreign_Investor_sell",
+                        "Investment_Trust_buy",
+                        "Investment_Trust_sell",
+                        "Dealer_self_buy",
+                        "Dealer_self_sell",
+                        "buy",
+                        "sell",
+                    )
+                )
+                if not has_detail:
+                    continue
                 foreign = self._to_float(r.get("Foreign_Investor_buy")) - self._to_float(r.get("Foreign_Investor_sell"))
                 trust = self._to_float(r.get("Investment_Trust_buy")) - self._to_float(r.get("Investment_Trust_sell"))
                 dealer = self._to_float(r.get("Dealer_self_buy")) - self._to_float(r.get("Dealer_self_sell"))
                 if foreign == 0.0 and trust == 0.0 and dealer == 0.0:
                     foreign = self._to_float(r.get("buy")) - self._to_float(r.get("sell"))
                 net += foreign + trust + dealer
-            out["inst_net_8d"] = net
+                valid_inst += 1
+            if valid_inst > 0:
+                out["inst_net_8d"] = net
 
         margin_rows = self._get_rows(context, "融資融券")
         if margin_rows:
             mnet = 0.0
+            valid_margin = 0
             tail = margin_rows[-8:]
             for r in tail:
+                has_detail = any(
+                    k in r
+                    for k in (
+                        "MarginPurchaseChange",
+                        "margin_change",
+                        "ShortSaleChange",
+                        "short_change",
+                    )
+                )
+                if not has_detail:
+                    continue
                 mnet += self._to_float(r.get("MarginPurchaseChange") or r.get("margin_change"))
                 mnet -= self._to_float(r.get("ShortSaleChange") or r.get("short_change"))
-            out["margin_net_8d"] = mnet
+                valid_margin += 1
+            if valid_margin > 0:
+                out["margin_net_8d"] = mnet
             latest = margin_rows[-1]
             out["margin_balance"] = self._pick_first_numeric(
                 latest, ["MarginPurchaseTodayBalance", "margin_purchase_today_balance", "margin_balance"]
@@ -683,6 +744,7 @@ class DexterAgent:
             margin_bias = "偏空" if isinstance(margin_net, (int, float)) and margin_net > 0 else ("偏多" if isinstance(margin_net, (int, float)) and margin_net < 0 else "中性")
             div_bias = "偏多" if isinstance(dy, (int, float)) and dy >= 4 else "中性"
 
+            event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
             lines = [
                 "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
@@ -690,7 +752,7 @@ class DexterAgent:
                 f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
                 f"• 驅動因子一（法人）近8日淨額 {self._fmt_num(inst_net, 0)}，判定 {inst_bias}。",
                 f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。",
-                f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{(grounding_text or '無外部事件摘要')[:120]}，判定 {div_bias}。",
+                f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{event_snippet}，判定 {div_bias}。",
                 "2.技術面分析",
                 f"• 結構判定 {regime}；SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}。",
                 f"• 關鍵價位：支撐 {levels['support']:.2f}，壓力 {levels['resistance']:.2f}；收盤若連2日跌破支撐視為弱化。",
@@ -714,11 +776,12 @@ class DexterAgent:
                 "• 追蹤利率、美元與半導體指數波動，若風險資產相關性上升，需降低單一產業曝險。",
             ]
         else:
+            event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
             lines = [
                 "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
                 f"• 標的 {symbol}：目前資料源未取得足夠 OHLCV 序列（至少 30 根），不輸出虛構價位。",
-                f"• 事件摘要：{(grounding_text or '無外部事件摘要')[:120]}。",
+                f"• 事件摘要：{event_snippet}。",
                 "2.技術面分析",
                 "• 價格序列不足，無法建立可靠 SMA/ATR 與結構判定。",
                 "3.進出場計劃",

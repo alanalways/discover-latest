@@ -757,7 +757,10 @@ class GeminiService:
         out = re.sub(r"(?m)^\s*[-*_]{3,}\s*$", "", out)
         out = re.sub(r"```+", "", out)
         out = out.replace("***", "").replace("**", "").replace("*", "").replace("__", "").replace("~~", "")
-        out = out.replace("#", "").replace("`", "").replace(">", "")
+        # Keep '>' when used as comparison operator (e.g. 量比 > 1.2),
+        # only strip markdown blockquote markers at line start.
+        out = out.replace("#", "").replace("`", "")
+        out = re.sub(r"(?m)^\s*>\s?", "", out)
         out = re.sub(r"(?im)^\s*section\s*1\b.*$", S1, out)
         out = re.sub(r"(?im)^\s*section\s*2\b.*$", S2, out)
         out = re.sub(r"(?im)^\s*section\s*3\b.*$", S3, out)
