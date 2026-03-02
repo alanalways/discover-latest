@@ -810,6 +810,7 @@ class GeminiService:
             line = re.sub(r"^[-*]+\s*", "", line)
             line = re.sub(r"^\d+\)\s*", "", line)
             line = re.sub(r"^\d+\.\s+", "", line)
+            line = re.sub(r"^(?:[\u2022•]\s*)+", "", line)
             if line.startswith("- "):
                 lines.append(f"\u2022 {line[2:].strip()}")
             else:
