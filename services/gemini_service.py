@@ -805,7 +805,8 @@ class GeminiService:
             if line in {S1, S2, S3, S4, S5, S6, S7}:
                 lines.append(line)
                 continue
-            line = re.sub(r"^[\u2022•]+\s*", "", line)
+            # remove repeated leading bullet tokens like "• • text"
+            line = re.sub(r"^(?:[\u2022•]\s*)+", "", line)
             line = re.sub(r"^[-*]+\s*", "", line)
             line = re.sub(r"^\d+\)\s*", "", line)
             line = re.sub(r"^\d+\.\s+", "", line)
