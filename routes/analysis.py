@@ -439,6 +439,7 @@ async def _run_ai_analysis_pipeline(
         },
         "技術快照": {"text": tech_snapshot},
         "SMC快照": {"text": smc_summary},
+        "價格序列": history_payload[-260:] if history_payload else [],
     }
 
     dexter_result = await asyncio.to_thread(
