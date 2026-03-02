@@ -409,12 +409,45 @@ async def _run_ai_analysis_pipeline(
     # 使用 Dexter 引擎（多源資料蒐集 + Gemini 綜合分析）
     from services.dexter_agent import dexter_agent
 
+    closes = [float(h.get("close", 0) or 0) for h in history_payload if float(h.get("close", 0) or 0) > 0]
+    vols = [float(h.get("volume", 0) or 0) for h in history_payload if float(h.get("volume", 0) or 0) >= 0]
+    last_close = closes[-1] if closes else 0.0
+    prev_close = closes[-2] if len(closes) >= 2 else 0.0
+    base5 = closes[-6] if len(closes) >= 6 else 0.0
+    chg1 = ((last_close - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
+    chg5 = ((last_close - base5) / base5 * 100.0) if base5 > 0 else 0.0
+    vol_ratio_20d = 1.0
+    if len(vols) >= 20 and vols[-1] > 0:
+        avg20 = sum(vols[-20:]) / 20.0
+        if avg20 > 0:
+            vol_ratio_20d = vols[-1] / avg20
+
+    seed_context = {
+        "市場快照": {
+            "symbol": req.symbol.upper(),
+            "name": info_payload.get("name"),
+            "market": info_payload.get("market"),
+            "industry": info_payload.get("industry"),
+            "price": round(last_close, 4) if last_close else None,
+            "change_pct_1d": round(chg1, 4),
+            "change_pct_5d": round(chg5, 4),
+            "volume_ratio_20d": round(vol_ratio_20d, 4),
+            "pe_ratio": info_payload.get("pe_ratio"),
+            "pb_ratio": info_payload.get("pb_ratio"),
+            "dividend_yield": info_payload.get("dividend_yield"),
+            "period": req.period,
+        },
+        "技術快照": {"text": tech_snapshot},
+        "SMC快照": {"text": smc_summary},
+    }
+
     dexter_result = await asyncio.to_thread(
         dexter_agent.execute,
         f"深度分析 {req.symbol}",
         user_id,
         req.symbol,
         tier=tier,
+        seed_context=seed_context,
     )
 
     # 將 Dexter 回傳格式映射回 AI 分析回傳格式

@@ -19,7 +19,14 @@ class DexterAgent:
     def __init__(self):
         self._executor = ThreadPoolExecutor(max_workers=6)
 
-    def execute(self, query: str, user_id: str, symbol: str = None, tier: str = "free") -> Dict:
+    def execute(
+        self,
+        query: str,
+        user_id: str,
+        symbol: str = None,
+        tier: str = "free",
+        seed_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict:
         """
         完整執行流程：規劃 → 執行 → 驗證 → 綜合分析
 
@@ -46,7 +53,7 @@ class DexterAgent:
             ]
 
             # Step 2: 並行執行資料蒐集任務
-            results = self._execute_tasks(tasks, log)
+            results = self._execute_tasks(tasks, log, seed_context=seed_context)
 
             # Step 3: 驗證結果
             validation = self._validate_results(results)
@@ -90,6 +97,20 @@ class DexterAgent:
 
         if is_tw:
             tasks.append({
+                "name": "股價量能",
+                "tool": "finmind",
+                "method": "tw_price",
+                "kwargs": {"symbol": symbol, "start_date": three_months_ago},
+                "parallel": True,
+            })
+            tasks.append({
+                "name": "個股資訊",
+                "tool": "finmind",
+                "method": "tw_info",
+                "kwargs": {"symbol": symbol},
+                "parallel": True,
+            })
+            tasks.append({
                 "name": "基本面數據",
                 "tool": "finmind",
                 "method": "tw_per_pbr",
@@ -100,6 +121,13 @@ class DexterAgent:
                 "name": "三大法人買賣超",
                 "tool": "finmind",
                 "method": "tw_institutional",
+                "kwargs": {"symbol": symbol, "start_date": three_months_ago},
+                "parallel": True,
+            })
+            tasks.append({
+                "name": "融資融券",
+                "tool": "finmind",
+                "method": "tw_margin",
                 "kwargs": {"symbol": symbol, "start_date": three_months_ago},
                 "parallel": True,
             })
@@ -126,6 +154,13 @@ class DexterAgent:
                 "kwargs": {"symbol": symbol, "start_date": (today - timedelta(days=365)).strftime("%Y-%m-%d")},
                 "parallel": True,
             })
+            tasks.append({
+                "name": "美股資訊",
+                "tool": "finmind",
+                "method": "us_stock_info",
+                "kwargs": {"symbol": symbol},
+                "parallel": True,
+            })
 
         # 最後加 Gemini 綜合分析（依賴前面結果，不並行）
         tasks.append({
@@ -138,9 +173,9 @@ class DexterAgent:
 
         return tasks
 
-    def _execute_tasks(self, tasks: List[Dict], log: Dict) -> Dict[str, Any]:
+    def _execute_tasks(self, tasks: List[Dict], log: Dict, seed_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """執行子任務（可並行的任務並行，依賴的循序）"""
-        results = {}
+        results = dict(seed_context or {})
 
         # 分出可並行 vs 需循序
         parallel_tasks = [t for t in tasks if t.get("parallel")]
@@ -193,6 +228,8 @@ class DexterAgent:
         # 特殊處理 finmind us_stock_price
         if tool_name == "finmind" and method_key == "us_stock_price":
             return self._fetch_us_stock_finmind(kwargs.get("symbol", ""), kwargs.get("start_date", ""))
+        if tool_name == "finmind" and method_key == "us_stock_info":
+            return self._fetch_us_stock_info_finmind(kwargs.get("symbol", ""))
 
         # 特殊處理 Gemini 綜合分析（注入 context）
         if tool_name == "gemini" and method_key == "analyze":
@@ -225,6 +262,24 @@ class DexterAgent:
                     "industry": "",
                 }
             return {"error": f"FinMind 無 {symbol} 資料"}
+        except Exception as e:
+            return {"error": f"FinMind: {e}"}
+
+    def _fetch_us_stock_info_finmind(self, symbol: str) -> Dict:
+        """Fetch US stock profile snapshot synchronously."""
+        try:
+            from adapters.finmind_adapter import finmind_adapter
+            rows = finmind_adapter.get_us_stock_info_sync(symbol)
+            if not rows:
+                return {"error": f"FinMind 無 {symbol} 美股資訊"}
+            row = rows[0] if isinstance(rows[0], dict) else {}
+            return {
+                "symbol": symbol,
+                "name": row.get("stock_name") or row.get("name") or symbol,
+                "industry": row.get("industry") or row.get("industry_category"),
+                "market": row.get("exchange") or row.get("market"),
+                "type": row.get("type") or "stock",
+            }
         except Exception as e:
             return {"error": f"FinMind: {e}"}
 
@@ -286,15 +341,95 @@ class DexterAgent:
             return {"error": "Gemini API key missing"}
 
         # 構建 context summary
+        def _num(v: Any) -> float:
+            try:
+                if v is None:
+                    return 0.0
+                return float(str(v).replace(",", "").strip())
+            except Exception:
+                return 0.0
+
+        def _summarize_rows(name: str, rows: List[Dict[str, Any]]) -> str:
+            if not rows:
+                return f"{name}: 無資料"
+            last = rows[-1] if isinstance(rows[-1], dict) else {}
+            first = rows[0] if isinstance(rows[0], dict) else {}
+
+            # Price/OHLCV rows
+            if "close" in last and ("open" in last or "high" in last or "low" in last):
+                closes = [_num(r.get("close")) for r in rows if isinstance(r, dict) and _num(r.get("close")) > 0]
+                vols = [_num(r.get("volume")) for r in rows if isinstance(r, dict)]
+                last_close = closes[-1] if closes else 0.0
+                prev_close = closes[-2] if len(closes) >= 2 else 0.0
+                base5 = closes[-6] if len(closes) >= 6 else 0.0
+                chg1 = ((last_close - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
+                chg5 = ((last_close - base5) / base5 * 100.0) if base5 > 0 else 0.0
+                vol_ratio = 1.0
+                if len(vols) >= 20 and vols[-1] > 0:
+                    avg20 = sum(vols[-20:]) / 20.0
+                    if avg20 > 0:
+                        vol_ratio = vols[-1] / avg20
+                return (
+                    f"{name}: 近{len(closes)}日 收盤{last_close:.2f} "
+                    f"日變動{chg1:.2f}% 5日{chg5:.2f}% 量比20日{vol_ratio:.2f}"
+                )
+
+            # Institutional rows
+            if "Foreign_Investor_buy" in last or "buy" in last:
+                net = 0.0
+                for r in rows[-8:]:
+                    if not isinstance(r, dict):
+                        continue
+                    foreign = _num(r.get("Foreign_Investor_buy")) - _num(r.get("Foreign_Investor_sell"))
+                    trust = _num(r.get("Investment_Trust_buy")) - _num(r.get("Investment_Trust_sell"))
+                    dealer = _num(r.get("Dealer_self_buy")) - _num(r.get("Dealer_self_sell"))
+                    if foreign == 0.0 and trust == 0.0 and dealer == 0.0:
+                        foreign = _num(r.get("buy")) - _num(r.get("sell"))
+                    net += foreign + trust + dealer
+                return f"{name}: 近8日法人淨額 {net:.0f}"
+
+            # Margin rows
+            if "MarginPurchaseChange" in last or "margin_change" in last:
+                mb = 0.0
+                for r in rows[-8:]:
+                    if not isinstance(r, dict):
+                        continue
+                    mb += _num(r.get("MarginPurchaseChange") or r.get("margin_change"))
+                    mb -= _num(r.get("ShortSaleChange") or r.get("short_change"))
+                return f"{name}: 近8日融資減融券後淨變化 {mb:.0f}"
+
+            # PER/PBR
+            if "PER" in last or "PBR" in last:
+                return (
+                    f"{name}: 最新PER {_num(last.get('PER')):.2f} "
+                    f"PBR {_num(last.get('PBR')):.2f} 殖利率 {_num(last.get('dividend_yield')):.2f}%"
+                )
+
+            # Revenue
+            if "revenue" in last:
+                return (
+                    f"{name}: 最新營收 {_num(last.get('revenue')):.0f} "
+                    f"MoM {_num(last.get('revenue_month_over_month')):.2f}% "
+                    f"YoY {_num(last.get('revenue_year_over_year')):.2f}%"
+                )
+
+            # Dividend
+            if "CashEarningsDistribution" in last or "cash_dividend" in last:
+                cash = _num(last.get("CashEarningsDistribution") or last.get("cash_dividend"))
+                stock = _num(last.get("StockEarningsDistribution") or last.get("stock_dividend"))
+                return f"{name}: 最新股利 現金{cash:.2f} 股票{stock:.2f}"
+
+            return f"{name}: 最新 {last}"
+
         summary_parts = []
         for _task_name, data in context.items():
             if isinstance(data, dict) and data.get("error"):
                 continue
             elif isinstance(data, list) and data:
-                summary_parts.append(f"{len(data)} 筆數據")
-                summary_parts.append(f"  最新: {data[-1] if len(data) <= 3 else data[-3:]}")
+                rows = [r for r in data if isinstance(r, dict)]
+                summary_parts.append(_summarize_rows(_task_name, rows))
             elif isinstance(data, dict) and not data.get("error"):
-                summary_parts.append(str(data))
+                summary_parts.append(f"{_task_name}: {data}")
         context_text = "\n".join(summary_parts)
 
         try:
@@ -371,7 +506,8 @@ class DexterAgent:
             stage2_prompt = (
                 f"{UNIFIED_SYSTEM_PROMPT.replace('{today}', today_str)}\n"
                 f"{tier_extra}\n"
-                "禁止提及資料來源名稱或工具名稱 直接呈現分析結論\n\n"
+                "禁止提及資料來源名稱或工具名稱 直接呈現分析結論\n"
+                "即使部分資料不足 也必須完成 1 到 7 章節正文 不可只輸出 JSON\n\n"
                 f"標的 {symbol}\n"
                 f"已蒐集的市場數據:\n{context_text}\n\n"
                 f"stage1 證據:\n{grounding_compact}\n"

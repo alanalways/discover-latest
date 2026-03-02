@@ -41,8 +41,8 @@ class ToolRegistry:
                     "tw_per_pbr": "get_tw_per_pbr_sync",
                     "tw_financial": "get_tw_financial_statements_sync",
                     "tw_dividend": "get_tw_dividend_sync",
-                    "us_price": "get_us_stock_price",
-                    "us_info": "get_us_stock_info",
+                    "us_price": "get_us_stock_price_sync",
+                    "us_info": "get_us_stock_info_sync",
                     "search_tw": "search_tw_stocks_sync",
                 },
             )
