@@ -487,6 +487,147 @@ class DexterAgent:
         out = out.replace(" -- ", " 資料不足 ")
         return out
 
+    @staticmethod
+    def _fmt_num(v: Any, decimals: int = 2, suffix: str = "") -> str:
+        try:
+            n = float(v)
+            return f"{n:.{decimals}f}{suffix}"
+        except Exception:
+            return f"資料不足{suffix}" if suffix else "資料不足"
+
+    @staticmethod
+    def _get_rows(context: Dict[str, Any], key: str) -> List[Dict[str, Any]]:
+        v = context.get(key)
+        if not isinstance(v, list):
+            return []
+        return [r for r in v if isinstance(r, dict)]
+
+    def _pick_first_numeric(self, row: Dict[str, Any], keys: List[str]) -> Optional[float]:
+        if not isinstance(row, dict):
+            return None
+        for k in keys:
+            raw = row.get(k)
+            if raw in (None, "", "-", "--"):
+                continue
+            try:
+                return float(str(raw).replace(",", "").strip())
+            except Exception:
+                continue
+        return None
+
+    def _collect_quant_signals(self, context: Dict[str, Any], levels: Dict[str, Any]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {"levels": levels or {}}
+
+        snap = context.get("市場快照") if isinstance(context.get("市場快照"), dict) else {}
+        if snap:
+            out["name"] = snap.get("name")
+            out["industry"] = snap.get("industry")
+            out["pe_ratio"] = snap.get("pe_ratio")
+            out["pb_ratio"] = snap.get("pb_ratio")
+            out["dividend_yield"] = snap.get("dividend_yield")
+
+        per_rows = self._get_rows(context, "基本面數據")
+        if per_rows:
+            last = per_rows[-1]
+            if out.get("pe_ratio") in (None, "", "資料不足"):
+                out["pe_ratio"] = self._pick_first_numeric(last, ["PER", "per", "pe_ratio"])
+            if out.get("pb_ratio") in (None, "", "資料不足"):
+                out["pb_ratio"] = self._pick_first_numeric(last, ["PBR", "pb", "pb_ratio"])
+            if out.get("dividend_yield") in (None, "", "資料不足"):
+                out["dividend_yield"] = self._pick_first_numeric(last, ["dividend_yield", "DividendYield"])
+
+        div_rows = self._get_rows(context, "股利政策")
+        if div_rows:
+            dlast = div_rows[-1]
+            out["cash_dividend"] = self._pick_first_numeric(
+                dlast, ["CashEarningsDistribution", "cash_dividend", "cash"]
+            )
+
+        inst_rows = self._get_rows(context, "三大法人買賣超")
+        if inst_rows:
+            net = 0.0
+            tail = inst_rows[-8:]
+            for r in tail:
+                foreign = self._to_float(r.get("Foreign_Investor_buy")) - self._to_float(r.get("Foreign_Investor_sell"))
+                trust = self._to_float(r.get("Investment_Trust_buy")) - self._to_float(r.get("Investment_Trust_sell"))
+                dealer = self._to_float(r.get("Dealer_self_buy")) - self._to_float(r.get("Dealer_self_sell"))
+                if foreign == 0.0 and trust == 0.0 and dealer == 0.0:
+                    foreign = self._to_float(r.get("buy")) - self._to_float(r.get("sell"))
+                net += foreign + trust + dealer
+            out["inst_net_8d"] = net
+
+        margin_rows = self._get_rows(context, "融資融券")
+        if margin_rows:
+            mnet = 0.0
+            tail = margin_rows[-8:]
+            for r in tail:
+                mnet += self._to_float(r.get("MarginPurchaseChange") or r.get("margin_change"))
+                mnet -= self._to_float(r.get("ShortSaleChange") or r.get("short_change"))
+            out["margin_net_8d"] = mnet
+            latest = margin_rows[-1]
+            out["margin_balance"] = self._pick_first_numeric(
+                latest, ["MarginPurchaseTodayBalance", "margin_purchase_today_balance", "margin_balance"]
+            )
+
+        rev_rows = self._get_rows(context, "月營收趨勢")
+        if rev_rows:
+            rlast = rev_rows[-1]
+            out["revenue_mom"] = self._pick_first_numeric(
+                rlast, ["revenue_month_over_month", "RevenueMonthOverMonth", "mom"]
+            )
+            out["revenue_yoy"] = self._pick_first_numeric(
+                rlast, ["revenue_year_over_year", "RevenueYearOverYear", "yoy"]
+            )
+
+        return out
+
+    @staticmethod
+    def _regime_from_levels(levels: Dict[str, Any]) -> str:
+        if not levels:
+            return "資料不足"
+        last = float(levels.get("last") or 0.0)
+        sma20 = float(levels.get("sma20") or 0.0)
+        sma60 = float(levels.get("sma60") or 0.0)
+        chg5 = float(levels.get("chg5") or 0.0)
+        if last > sma20 > sma60 and chg5 >= 0:
+            return "偏多趨勢"
+        if last < sma20 < sma60 and chg5 <= 0:
+            return "偏空趨勢"
+        return "區間震盪"
+
+    @staticmethod
+    def _calc_rr(entry_lo: float, entry_hi: float, stop: float, target: float) -> float:
+        entry_mid = (entry_lo + entry_hi) / 2.0
+        risk = max(0.0001, entry_mid - stop)
+        reward = max(0.0, target - entry_mid)
+        return reward / risk if risk > 0 else 0.0
+
+    def _is_analysis_quality_low(self, text: str, levels: Dict[str, Any]) -> bool:
+        if not isinstance(text, str) or not text.strip():
+            return True
+        t = text.strip()
+        headings = [
+            "1.市場快報",
+            "2.技術面分析",
+            "3.進出場計劃",
+            "4.風險提示",
+            "5.結論",
+            "6.情境交易地圖",
+            "7.宏觀進階分析",
+        ]
+        hit = sum(1 for h in headings if h in t)
+        if hit < 6:
+            return True
+        if len(t) < 420:
+            return True
+        if re.search(r"(?:在|出現)\s*\d+\s*$", t):
+            return True
+        if re.search(r"\bN/?A\b", t, flags=re.IGNORECASE):
+            return True
+        if levels and not self._has_usable_trade_plan(t):
+            return True
+        return False
+
     def _build_data_driven_fallback(
         self,
         symbol: str,
@@ -497,52 +638,99 @@ class DexterAgent:
     ) -> str:
         price_rows = self._extract_price_rows(context)
         levels = self._compute_trade_levels(price_rows)
+        signals = self._collect_quant_signals(context, levels)
+        regime = self._regime_from_levels(levels)
 
         if levels:
+            inst_net = signals.get("inst_net_8d")
+            margin_net = signals.get("margin_net_8d")
+            rev_yoy = signals.get("revenue_yoy")
+            pe_ratio = signals.get("pe_ratio")
+            pb_ratio = signals.get("pb_ratio")
+            dy = signals.get("dividend_yield")
+
+            score = 0
+            if regime == "偏多趨勢":
+                score += 1
+            elif regime == "偏空趨勢":
+                score -= 1
+            if isinstance(inst_net, (int, float)):
+                score += 1 if inst_net > 0 else (-1 if inst_net < 0 else 0)
+            if isinstance(margin_net, (int, float)):
+                score += -1 if margin_net > 0 else (1 if margin_net < 0 else 0)
+            if isinstance(rev_yoy, (int, float)):
+                score += 1 if rev_yoy > 0 else (-1 if rev_yoy < 0 else 0)
+
+            if score >= 2:
+                stance = "偏多"
+            elif score <= -2:
+                stance = "偏空"
+            else:
+                stance = "中性偏震盪"
+
+            se0, se1 = levels["short_entry"]
+            me0, me1 = levels["mid_entry"]
+            le0, le1 = levels["long_entry"]
+            rr_s = self._calc_rr(se0, se1, levels["short_stop"], levels["short_target"])
+            rr_m = self._calc_rr(me0, me1, levels["mid_stop"], levels["mid_target"])
+            rr_l = self._calc_rr(le0, le1, levels["long_stop"], levels["long_target"])
+
+            t2_s = round(levels["short_target"] + 0.8 * levels["atr14"], 2)
+            t2_m = round(levels["mid_target"] + 1.0 * levels["atr14"], 2)
+            t2_l = round(levels["long_target"] + 1.2 * levels["atr14"], 2)
+
+            inst_bias = "偏多" if isinstance(inst_net, (int, float)) and inst_net > 0 else ("偏空" if isinstance(inst_net, (int, float)) and inst_net < 0 else "中性")
+            margin_bias = "偏空" if isinstance(margin_net, (int, float)) and margin_net > 0 else ("偏多" if isinstance(margin_net, (int, float)) and margin_net < 0 else "中性")
+            div_bias = "偏多" if isinstance(dy, (int, float)) and dy >= 4 else "中性"
+
             lines = [
                 "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
-                f"• 標的 {symbol} 現價 {levels['last']:.2f} 當日 {levels['chg1']:+.2f}% 近5日 {levels['chg5']:+.2f}%",
-                f"• 20日支撐 {levels['support']:.2f}｜20日壓力 {levels['resistance']:.2f}｜ATR14 {levels['atr14']:.2f}｜量比20日 {levels['vol_ratio20']:.2f}",
-                f"• 事件摘要 {grounding_text[:160] if grounding_text else '無外部事件摘要'}",
+                f"• 標的 {symbol} 現價 {levels['last']:.2f}，當日 {levels['chg1']:+.2f}%、近5日 {levels['chg5']:+.2f}%，量比20日 {levels['vol_ratio20']:.2f}。",
+                f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
+                f"• 驅動因子一（法人）近8日淨額 {self._fmt_num(inst_net, 0)}，判定 {inst_bias}。",
+                f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。",
+                f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{(grounding_text or '無外部事件摘要')[:120]}，判定 {div_bias}。",
                 "2.技術面分析",
-                f"• SMA20 {levels['sma20']:.2f}｜SMA60 {levels['sma60']:.2f}｜支撐 {levels['support']:.2f}｜壓力 {levels['resistance']:.2f}",
-                f"• 波動基準 ATR14 {levels['atr14']:.2f}，以 ATR 作為停損與目標距離。",
+                f"• 結構判定 {regime}；SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}。",
+                f"• 關鍵價位：支撐 {levels['support']:.2f}，壓力 {levels['resistance']:.2f}；收盤若連2日跌破支撐視為弱化。",
+                "• 量價條件：量比 > 1.20 才允許追價，量比 < 0.85 以回測承接為主。",
                 "3.進出場計劃",
-                f"• 短線進場區 {levels['short_entry'][0]:.2f}-{levels['short_entry'][1]:.2f}｜停損 {levels['short_stop']:.2f}｜第一目標 {levels['short_target']:.2f}",
-                f"• 中線進場區 {levels['mid_entry'][0]:.2f}-{levels['mid_entry'][1]:.2f}｜停損 {levels['mid_stop']:.2f}｜第一目標 {levels['mid_target']:.2f}",
-                f"• 長線進場區 {levels['long_entry'][0]:.2f}-{levels['long_entry'][1]:.2f}｜停損 {levels['long_stop']:.2f}｜第一目標 {levels['long_target']:.2f}",
+                f"• 短線(1-5日)：進場 {se0:.2f}-{se1:.2f}，停損 {levels['short_stop']:.2f}，目標1 {levels['short_target']:.2f}，目標2 {t2_s:.2f}，風報比 {rr_s:.2f}。",
+                f"• 中線(2-6週)：進場 {me0:.2f}-{me1:.2f}，停損 {levels['mid_stop']:.2f}，目標1 {levels['mid_target']:.2f}，目標2 {t2_m:.2f}，風報比 {rr_m:.2f}。",
+                f"• 長線(2-4季)：進場 {le0:.2f}-{le1:.2f}，停損 {levels['long_stop']:.2f}，目標1 {levels['long_target']:.2f}，目標2 {t2_l:.2f}，風報比 {rr_l:.2f}。",
+                "• 倉位規則：首筆 30%，確認訊號加到 60%，突破後再加碼至上限；單筆風險控制在資金 1%。",
                 "4.風險提示",
-                "• 若跌破各週期停損價且收盤未收復，執行降風險，不做凹單。",
-                "• 若量比持續低於 0.8，降低追價頻率，等待回測支撐再評估。",
+                "• 失效條件：收盤跌破各週期停損且隔日未收復，需執行減碼或離場。",
+                "• 事件風險：財報、政策與地緣事件可能造成 ATR 擴張，需同步下修槓桿。",
                 "5.結論",
-                "• 本報告以實際價格序列計算價位，不含主觀臆測價。",
-                "• 執行時請先確認今日成交量與盤中波動是否偏離最近20日常態。",
+                f"• 綜合判定 {stance}。策略上先看支撐/壓力區間反應，再依量價決定追擊或等待回測。",
+                "• 本報告價位由實際 OHLCV 序列推導，不使用臆測價格。",
                 "6.情境交易地圖 偏多 偏空 震盪",
-                f"• 偏多：站穩 {levels['resistance']:.2f} 且量比放大時，以上移停損追蹤。",
-                f"• 偏空：跌破 {levels['support']:.2f} 且反彈無量時，優先控倉。",
-                "• 震盪：區間內以分批、低槓桿執行。",
+                f"• 偏多：收盤站穩 {levels['resistance']:.2f} 且量比 > 1.20，策略為回測不破加碼。",
+                f"• 偏空：跌破 {levels['support']:.2f} 且反彈量縮，策略為降倉與防守。",
+                f"• 震盪：於 {levels['support']:.2f}-{levels['resistance']:.2f} 區間內高拋低吸，嚴控停損。",
                 "7.宏觀進階分析",
-                "• 仍需同步追蹤利率、匯率與半導體產業事件對風險偏好的影響。",
+                "• 追蹤利率、美元與半導體指數波動，若風險資產相關性上升，需降低單一產業曝險。",
             ]
         else:
             lines = [
                 "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
-                f"• 標的 {symbol}：目前可用市場摘要有限，未取得足夠價格序列。",
-                f"• 事件摘要 {grounding_text[:160] if grounding_text else '無外部事件摘要'}",
+                f"• 標的 {symbol}：目前資料源未取得足夠 OHLCV 序列（至少 30 根），不輸出虛構價位。",
+                f"• 事件摘要：{(grounding_text or '無外部事件摘要')[:120]}。",
                 "2.技術面分析",
-                "• 價格序列不足 30 根，無法建立穩健技術參數。",
+                "• 價格序列不足，無法建立可靠 SMA/ATR 與結構判定。",
                 "3.進出場計劃",
-                "• 價格序列不足，暫不提供數值進場區間，避免提供假價位。",
+                "• 價格序列不足，暫不提供進場區間、停損與目標價。",
                 "4.風險提示",
-                "• 補齊至少 30 根 OHLCV 後再計算進場、停損與目標價。",
+                "• 在資料不足情境下僅可觀察，不建議主動建立方向性倉位。",
                 "5.結論",
-                "• 本次僅輸出可驗證資料，缺失欄位不以 N/A 代替。",
+                "• 先補齊歷史行情資料，再生成可執行的交易地圖。",
                 "6.情境交易地圖 偏多 偏空 震盪",
-                "• 在資料不足情境下僅採觀察，不進行主動倉位決策。",
+                "• 待資料完整後再定義條件觸發與倉位管理。",
                 "7.宏觀進階分析",
-                "• 待補齊行情資料後再與宏觀變數整合。",
+                "• 事件與宏觀變數可先追蹤，但不應替代價格證據。",
             ]
         out = "\n".join(lines)
         out = gemini_service._sanitize_analysis_text(out)
@@ -809,7 +997,7 @@ class DexterAgent:
                             "summary": {},
                             "degraded": True,
                             "fallback_reason": "stage2_exception",
-                            "error": f"Gemini: {_stage2_last_error}",
+                            "stage2_error": f"{type(_stage2_last_error).__name__}: {_stage2_last_error}",
                         }
                 except Exception:
                     pass
@@ -855,6 +1043,25 @@ class DexterAgent:
             text = gemini_service._sanitize_analysis_text(text)
             text = self._normalize_na_tokens(text)
             text = self._inject_trade_plan_if_missing(text, trade_levels)
+            if self._is_analysis_quality_low(text, trade_levels):
+                try:
+                    fallback = self._build_data_driven_fallback(
+                        symbol=symbol,
+                        tier_norm=tier_norm,
+                        context=context,
+                        grounding_text=grounding_text,
+                        gemini_service=gemini_service,
+                    )
+                    if fallback.strip():
+                        return {
+                            "success": True,
+                            "analysis": fallback,
+                            "summary": summary_data or {},
+                            "degraded": True,
+                            "fallback_reason": "quality_gate",
+                        }
+                except Exception:
+                    pass
 
             return {"success": True, "analysis": text, "summary": summary_data or {}}
 
