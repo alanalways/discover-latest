@@ -165,6 +165,7 @@ from routes.calendar import router as calendar_router
 from routes.report import router as report_router
 from routes.paper_trade import router as paper_trade_router
 from routes.stress import router as stress_router
+from routes.chat import router as chat_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -185,6 +186,7 @@ app.include_router(calendar_router, prefix="/api", tags=["Calendar"])
 app.include_router(report_router,   prefix="/api", tags=["Report"])
 app.include_router(paper_trade_router, prefix="/api", tags=["PaperTrade"])
 app.include_router(stress_router,   prefix="/api", tags=["StressTest"])
+app.include_router(chat_router,     prefix="/api", tags=["Chat"])
 
 
 # ── Health Check ──
