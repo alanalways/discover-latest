@@ -26,9 +26,9 @@ const OnboardingContext = createContext<OnboardingContextType>({
     isActive: false,
     currentStep: 0,
     totalSteps: TOTAL_STEPS,
-    next: () => {},
-    skip: () => {},
-    restart: () => {},
+    next: () => { },
+    skip: () => { },
+    restart: () => { },
 });
 
 export function useOnboarding() {

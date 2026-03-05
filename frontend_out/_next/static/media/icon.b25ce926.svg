@@ -1,0 +1,31 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background: OLED dark rounded square -->
+  <rect width="32" height="32" rx="7" fill="#0B0F19"/>
+
+  <!-- Brand gradient: Gold → Purple -->
+  <defs>
+    <linearGradient id="barGrad" x1="5" y1="26" x2="26" y2="5" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 3 ascending bars (left=short, right=tall) -->
+  <rect x="4"  y="18" width="5" height="9" rx="1.2" fill="#F59E0B" fill-opacity="0.45"/>
+  <rect x="12" y="12" width="5" height="15" rx="1.2" fill="#F59E0B" fill-opacity="0.72"/>
+  <rect x="20" y="6"  width="6" height="21" rx="1.2" fill="url(#barGrad)"/>
+
+  <!-- Trend line connecting tops -->
+  <polyline
+    points="6.5,17  14.5,11  23,5"
+    fill="none"
+    stroke="white"
+    stroke-width="1.6"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    opacity="0.85"
+  />
+
+  <!-- Peak glow dot -->
+  <circle cx="23" cy="5" r="2" fill="white" opacity="0.9"/>
+</svg>

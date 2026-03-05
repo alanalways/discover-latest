@@ -160,6 +160,11 @@ from routes.dexter import router as dexter_router
 from routes.sse import router as sse_router
 from routes.crypto import router as crypto_router
 from routes.user import router as user_router
+from routes.screener import router as screener_router
+from routes.calendar import router as calendar_router
+from routes.report import router as report_router
+from routes.paper_trade import router as paper_trade_router
+from routes.stress import router as stress_router
 
 app.include_router(auth_router,     prefix="/api", tags=["Auth"])
 app.include_router(market_router,   prefix="/api", tags=["Market"])
@@ -175,6 +180,11 @@ app.include_router(dexter_router,   prefix="/api", tags=["Dexter"])
 app.include_router(sse_router,      prefix="/api", tags=["SSE"])
 app.include_router(crypto_router,   prefix="/api", tags=["Crypto"])
 app.include_router(user_router,     prefix="/api", tags=["User"])
+app.include_router(screener_router, prefix="/api", tags=["Screener"])
+app.include_router(calendar_router, prefix="/api", tags=["Calendar"])
+app.include_router(report_router,   prefix="/api", tags=["Report"])
+app.include_router(paper_trade_router, prefix="/api", tags=["PaperTrade"])
+app.include_router(stress_router,   prefix="/api", tags=["StressTest"])
 
 
 # ── Health Check ──
