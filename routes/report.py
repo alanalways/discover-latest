@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from config.models import MODEL_FINAL
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -107,7 +109,7 @@ async def generate_report(req: ReportRequest, request: Request):
             from google.genai import types as genai_types
             from services.gemini_service import gemini_service
 
-            api_key = gemini_service._get_api_key()
+            api_key = gemini_service.get_api_key()
             if api_key:
                 period_label = "週報" if req.period == "weekly" else "月報"
                 prompt = (
@@ -122,7 +124,7 @@ async def generate_report(req: ReportRequest, request: Request):
                 )
                 client = genai.Client(api_key=api_key)
                 response = client.models.generate_content(
-                    model="gemini-2.0-flash",
+                    model=MODEL_FINAL,
                     contents=prompt,
                     config=genai_types.GenerateContentConfig(
                         temperature=0.4,

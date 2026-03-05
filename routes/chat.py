@@ -8,6 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from config.models import MODEL_GROUNDING
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ async def chat_ask(req: ChatRequest, request: Request):
 
     try:
         from services.gemini_service import gemini_service
-        api_key = gemini_service._get_api_key()
+        api_key = gemini_service.get_api_key()
     except Exception:
         api_key = None
 
@@ -75,7 +77,7 @@ async def chat_ask(req: ChatRequest, request: Request):
     try:
         client = genai.Client(api_key=api_key)
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model=MODEL_GROUNDING,
             contents=user_prompt,
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
