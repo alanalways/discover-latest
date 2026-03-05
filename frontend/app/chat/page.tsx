@@ -91,7 +91,7 @@ export default function ChatPage() {
                 <h3 className={styles.panelTitle} style={{ marginBottom: 0 }}>
                     <Bot size={18} /> AI 研究助手
                     <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 8, fontWeight: 400 }}>
-                        Powered by Gemini + Google Search
+                        Powered by DiscoverLatest
                     </span>
                     {symbol && <span style={{ fontSize: 12, color: 'var(--accent)', marginLeft: 8 }}>分析中: {symbol}</span>}
                 </h3>

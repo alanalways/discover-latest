@@ -72,8 +72,12 @@ async def chat_ask(req: ChatRequest, request: Request):
         "   法人動向或籌碼面、明確的操作建議（買/賣/觀望 + 理由）。\n"
         "5. 每次回答結尾附上一句風險提示（例如「以上為個人研究觀點，非投資建議，請自行評估風險」），\n"
         "   但不要讓免責聲明影響你在正文中給出專業判斷。\n"
-        "6. 回答 300-500 字，結構清晰，適度用 emoji 標記重點。\n"
-        "7. 不要使用 markdown 格式（不要 ** 粗體、不要 # 標題）。\n"
+        "6. 回答可以詳盡完整，結構清晰，適度用 emoji 標記重點。\n"
+        "7. 格式規則（非常重要）：\n"
+        "   - 嚴禁使用任何 markdown：不要 #、##、###、*、**、***、- 列表。\n"
+        "   - 段落標題用 emoji 開頭，例如「📊 技術面位階」「💡 操作建議」。\n"
+        "   - 列點用「・」符號，不要用 - 或 *。\n"
+        "   - 用空行分段，保持乾淨易讀。\n"
     )
 
     user_prompt = message
@@ -88,7 +92,7 @@ async def chat_ask(req: ChatRequest, request: Request):
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0.5,
-                max_output_tokens=800,
+                max_output_tokens=3000,
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
