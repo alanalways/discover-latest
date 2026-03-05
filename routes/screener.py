@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -61,9 +60,8 @@ async def screener_scan(req: ScreenerFilter):
 
         for sym in symbols:
             try:
-                data = await run_in_threadpool(
-                    stock_service.get_stock_data, sym, None, "1y"
-                )
+                # get_stock_data 是 async，直接 await
+                data = await stock_service.get_stock_data(sym, None, "1y")
                 if not data:
                     continue
 
@@ -74,16 +72,22 @@ async def screener_scan(req: ScreenerFilter):
                 dy = _safe_float(info.get("dividend_yield"))
                 mc = _safe_float(info.get("market_cap"))
 
-                last_close = 0
-                prev_close = 0
-                vol = 0
+                last_close = 0.0
+                prev_close = 0.0
+                vol = 0.0
                 if history:
                     last_close = _safe_float(history[-1].get("close"))
                     if len(history) >= 2:
                         prev_close = _safe_float(history[-2].get("close"))
-                    vol = _safe_float(history[-1].get("volume") or history[-1].get("Trading_Volume"))
+                    vol = _safe_float(
+                        history[-1].get("volume") or history[-1].get("Trading_Volume")
+                    )
 
-                cp = ((last_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
+                cp = (
+                    ((last_close - prev_close) / prev_close * 100)
+                    if prev_close > 0
+                    else 0
+                )
 
                 # Apply filters
                 if req.pe_min is not None and pe > 0 and pe < req.pe_min:

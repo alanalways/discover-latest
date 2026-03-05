@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -28,14 +27,14 @@ class PaperTradeRequest(BaseModel):
     price: Optional[float] = None
 
 
-def _extract_user_id(auth_header: str) -> Optional[str]:
+def _extract_user(auth_header: str) -> Optional[Dict]:
+    """用 auth_service.verify_session 驗證使用者。"""
     if not auth_header or not auth_header.startswith("Bearer "):
         return None
     token = auth_header[7:]
     try:
-        from helpers import verify_supabase_token
-        user = verify_supabase_token(token)
-        return user.get("sub") if user else None
+        from services.auth_service import auth_service
+        return auth_service.verify_session(token)
     except Exception:
         return None
 
@@ -52,20 +51,21 @@ def _safe_float(val: Any, default: float = 0.0) -> float:
 async def execute_paper_trade(req: PaperTradeRequest, request: Request):
     """Execute a paper trade."""
     auth_header = request.headers.get("Authorization", "")
-    user_id = _extract_user_id(auth_header)
-    if not user_id:
+    user = _extract_user(auth_header)
+    if not user:
         raise HTTPException(status_code=401, detail="請先登入")
 
+    user_id = user.get("id") or user.get("sub") or ""
     symbol = req.symbol.strip().upper()
     if not symbol:
         raise HTTPException(status_code=400, detail="請輸入股票代號")
 
-    # Get current price if not specified
+    # Get current price if not specified（get_stock_data 是 async，直接 await）
     price = req.price
     if price is None or price <= 0:
         try:
             from services.stock_service import stock_service
-            data = await run_in_threadpool(stock_service.get_stock_data, symbol, None, "1y")
+            data = await stock_service.get_stock_data(symbol, None, "1y")
             if data:
                 history = data.get("history") or []
                 if history:
@@ -97,10 +97,11 @@ async def execute_paper_trade(req: PaperTradeRequest, request: Request):
 async def get_paper_positions(request: Request):
     """Get user's paper trading positions."""
     auth_header = request.headers.get("Authorization", "")
-    user_id = _extract_user_id(auth_header)
-    if not user_id:
+    user = _extract_user(auth_header)
+    if not user:
         raise HTTPException(status_code=401, detail="請先登入")
 
+    user_id = user.get("id") or user.get("sub") or ""
     trades = _paper_trades.get(user_id, [])
 
     # Aggregate positions
@@ -108,7 +109,9 @@ async def get_paper_positions(request: Request):
     for t in trades:
         sym = t["symbol"]
         if sym not in positions:
-            positions[sym] = {"symbol": sym, "shares": 0, "avg_cost": 0, "total_invested": 0}
+            positions[sym] = {
+                "symbol": sym, "shares": 0, "avg_cost": 0, "total_invested": 0,
+            }
 
         if t["action"] == "buy":
             old_shares = positions[sym]["shares"]
@@ -117,24 +120,29 @@ async def get_paper_positions(request: Request):
             new_total = old_total + t["value"]
             positions[sym]["shares"] = new_shares
             positions[sym]["total_invested"] = new_total
-            positions[sym]["avg_cost"] = round(new_total / new_shares, 2) if new_shares > 0 else 0
+            positions[sym]["avg_cost"] = (
+                round(new_total / new_shares, 2) if new_shares > 0 else 0
+            )
         elif t["action"] == "sell":
             positions[sym]["shares"] = max(0, positions[sym]["shares"] - t["shares"])
 
-    # Get current prices
+    # Get current prices（get_stock_data 是 async，直接 await）
     active_positions = []
+    from services.stock_service import stock_service
+
     for sym, pos in positions.items():
         if pos["shares"] <= 0:
             continue
 
         current_price = pos["avg_cost"]
         try:
-            from services.stock_service import stock_service
-            data = await run_in_threadpool(stock_service.get_stock_data, sym, None, "1y")
+            data = await stock_service.get_stock_data(sym, None, "1y")
             if data:
                 history = data.get("history") or []
                 if history:
-                    current_price = _safe_float(history[-1].get("close"), pos["avg_cost"])
+                    current_price = _safe_float(
+                        history[-1].get("close"), pos["avg_cost"]
+                    )
         except Exception:
             pass
 
