@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Wallet, Loader2, Plus, TrendingUp, TrendingDown } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -41,6 +41,10 @@ export default function PaperTradePage() {
     const [summary, setSummary] = useState<{ total_value: number; total_cost: number; total_pnl: number; total_pnl_pct: number } | null>(null);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
+
+    useEffect(() => {
+        if (isLoggedIn) loadPositions();
+    }, [isLoggedIn]);
 
     const loadPositions = async () => {
         setPosLoading(true);

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,7 @@ class ScreenerFilter(BaseModel):
     sort_by: str = "change_pct"
     sort_order: str = "desc"
     limit: int = 30
+    ai_query: Optional[str] = None
 
 
 def _safe_float(val: Any, default: float = 0.0) -> float:
@@ -48,6 +50,17 @@ _US_POPULAR = [
     "COST", "ABBV", "PEP", "KO", "LLY", "CVX", "ADBE", "CRM", "NFLX", "AMD",
 ]
 
+_SEM = asyncio.Semaphore(5)
+
+
+async def _fetch_one(stock_service, sym: str):
+    """Fetch a single stock with concurrency limit."""
+    async with _SEM:
+        try:
+            return sym, await stock_service.get_stock_data(sym, None, "1y")
+        except Exception:
+            return sym, None
+
 
 @router.post("/screener/scan")
 async def screener_scan(req: ScreenerFilter):
@@ -58,13 +71,14 @@ async def screener_scan(req: ScreenerFilter):
         symbols = _TW_POPULAR if req.market == "TW" else _US_POPULAR
         results: List[Dict[str, Any]] = []
 
-        for sym in symbols:
-            try:
-                # get_stock_data 是 async，直接 await
-                data = await stock_service.get_stock_data(sym, None, "1y")
-                if not data:
-                    continue
+        # Parallel fetch (max 5 concurrent)
+        tasks = [_fetch_one(stock_service, sym) for sym in symbols]
+        fetched = await asyncio.gather(*tasks)
 
+        for sym, data in fetched:
+            if not data:
+                continue
+            try:
                 info = data.get("info") or {}
                 history = data.get("history") or []
 
@@ -121,7 +135,41 @@ async def screener_scan(req: ScreenerFilter):
         results.sort(key=lambda r: _safe_float(r.get(req.sort_by)), reverse=desc)
         results = results[: req.limit]
 
-        return {"results": results, "total": len(results)}
+        # AI summary (if ai_query provided)
+        ai_summary = ""
+        if req.ai_query and req.ai_query.strip() and results:
+            try:
+                from services.gemini_service import gemini_service
+                from config.models import MODEL_FINAL
+                from google import genai
+                from google.genai import types
+
+                api_key = gemini_service.get_api_key()
+                if api_key:
+                    top_stocks = ", ".join(
+                        f"{r['name']}({r['symbol']}) {r['change_pct']:+.2f}%"
+                        for r in results[:10]
+                    )
+                    prompt = (
+                        f"用戶的篩選條件語意：「{req.ai_query.strip()}」\n"
+                        f"篩選結果 Top 10：{top_stocks}\n\n"
+                        f"請用繁體中文 100 字內摘要這些股票的共同特徵和投資觀察重點。"
+                        f"不要使用 markdown 格式。"
+                    )
+                    client = genai.Client(api_key=api_key)
+                    resp = client.models.generate_content(
+                        model=MODEL_FINAL,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.3,
+                            max_output_tokens=200,
+                        ),
+                    )
+                    ai_summary = (getattr(resp, "text", "") or "").strip()
+            except Exception:
+                logger.warning("[Screener] AI summary failed", exc_info=True)
+
+        return {"results": results, "total": len(results), "ai_summary": ai_summary}
 
     except Exception as e:
         logger.warning("[Screener] scan failed: %s", e, exc_info=True)
