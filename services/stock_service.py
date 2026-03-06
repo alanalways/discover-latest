@@ -658,15 +658,15 @@ class StockService:
             print(f"[DataSource] FinMind OK: {symbol} ({len(fm_data)} rows)")
             return fm_data
 
-        # FinMind 空結果 → 嘗試縮短期間（1y→6mo→3mo）
-        fallback_periods = {"1y": 180, "2y": 365, "3y": 730, "5y": 1095}
-        fallback_days = fallback_periods.get(period)
-        if fallback_days and fallback_days < days:
-            shorter_start = end_date - timedelta(days=fallback_days)
-            fm_data = await self._fetch_finmind_history(symbol, market, shorter_start, end_date)
-            if fm_data:
-                print(f"[DataSource] FinMind OK (fallback): {symbol} ({len(fm_data)} rows)")
-                return fm_data
+        # FinMind 空結果 → 漸進式縮短期間重試 (5y→3y→1y→6mo→3mo)
+        fallback_chain = [1095, 730, 365, 180, 90]
+        for fb_days in fallback_chain:
+            if fb_days < days:
+                shorter_start = end_date - timedelta(days=fb_days)
+                fm_data = await self._fetch_finmind_history(symbol, market, shorter_start, end_date)
+                if fm_data:
+                    print(f"[DataSource] FinMind OK (fallback {fb_days}d): {symbol} ({len(fm_data)} rows)")
+                    return fm_data
 
         print(f"[DataSource] FinMind empty: {symbol} (period={period})")
 
