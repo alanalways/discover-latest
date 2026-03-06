@@ -27,6 +27,7 @@ COPY --chown=user:user pages/ pages/
 COPY --chown=user:user components/ components/
 COPY --chown=user:user locales/ locales/
 COPY --chown=user:user static/ static/
+COPY --chown=user:user utils/ utils/
 
 # 複製前端 build 靜態檔案
 COPY --from=frontend --chown=user:user /app/frontend/out ./frontend_out
