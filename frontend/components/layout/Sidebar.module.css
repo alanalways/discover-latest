@@ -209,6 +209,11 @@
     color: var(--text-1);
 }
 
+.navItem:active {
+    transform: scale(0.98);
+    background: var(--accent-dim);
+}
+
 .navItemActive {
     background: var(--accent-dim);
     color: var(--accent);

@@ -82,6 +82,11 @@
 
 .runBtn:hover {
     background: var(--accent-solid);
+    box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.runBtn:active {
+    transform: scale(0.97);
 }
 
 .runBtn:disabled {

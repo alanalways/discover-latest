@@ -24,7 +24,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
         {/* 專案大量使用 utility class，部署端提供 runtime Tailwind 相容層 */}
-        <Script src="https://cdn.tailwindcss.com" strategy="beforeInteractive" />
+        <Script src="https://cdn.tailwindcss.com" strategy="afterInteractive" />
       </head>
       <body>
         <ClientLayout>

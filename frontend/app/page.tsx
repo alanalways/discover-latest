@@ -16,7 +16,6 @@ import {
 import styles from './page.module.css';
 import api from '@/lib/api';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
-import FullScreenLoader from '@/components/layout/FullScreenLoader';
 
 interface MarketItem {
   name: string;
@@ -259,10 +258,7 @@ export default function Dashboard() {
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
   const [lastUpdate, setLastUpdate] = useState('');
   const [error, setError] = useState('');
-  // 全屏 loading 狀態
-  const [fullLoading, setFullLoading] = useState(true);
-  const [loadProgress, setLoadProgress] = useState(0);
-  const [loadMessage, setLoadMessage] = useState('正在連線伺服器…');
+  // 全屏 loading 已移除 — 直接顯示 fallback 骨架，背景載入真實資料
   const initialLoadDone = useRef(false);
 
   const navigateToAnalysis = useCallback((rawSymbol: string) => {
@@ -270,10 +266,6 @@ export default function Dashboard() {
     if (!symbol) return;
     const target = `/analysis?symbol=${encodeURIComponent(symbol)}`;
     startRouteProgress();
-    if (typeof window !== 'undefined') {
-      window.location.href = target;
-      return;
-    }
     router.push(target);
   }, [router]);
 
@@ -282,12 +274,6 @@ export default function Dashboard() {
   }, [news]);
 
   const fetchData = useCallback(async () => {
-    const isInitial = !initialLoadDone.current;
-    if (isInitial) {
-      setFullLoading(true);
-      setLoadProgress(5);
-      setLoadMessage('正在連線伺服器…');
-    }
     setLoading(true);
     setError('');
 
@@ -296,39 +282,18 @@ export default function Dashboard() {
     const newsFallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
 
     try {
-      // ── Stage 1：指數 + 開市狀態（最快回應，約 1-3s）──
-      if (isInitial) {
-        setLoadProgress(15);
-        setLoadMessage('正在取得市場指數…');
-      }
-
-      const [marketRes, hoursRes] = await Promise.all([
+      // 全部 API 並行發送，不分階段，最快顯示
+      const [marketRes, hoursRes, top20Res, newsRes] = await Promise.all([
         api.getMarketOverview().catch(() => marketFallback),
         api.getMarketHours().catch(() => null as { tw: MarketHours; us: MarketHours } | null),
+        api.getMarketTop20().catch(() => top20Fallback),
+        api.getNewsBrief().catch(() => newsFallback),
       ]);
 
       const safeIndices = (marketRes.indices && marketRes.indices.length > 0) ? marketRes.indices : FALLBACK_INDICES;
       setIndices(safeIndices);
       if (hoursRes) setHours(hoursRes);
-      const updatedAt = new Date().toLocaleTimeString('zh-TW');
-      setLastUpdate(updatedAt);
-
-      // Stage 1 完成 → 降低全屏到半透明，指數已可見
-      if (isInitial) {
-        setLoadProgress(50);
-        setLoadMessage('正在載入排行榜和新聞…');
-      }
-
-      // ── Stage 2：Top20 + 新聞（背景並行，約 3-8s）──
-      const [top20Res, newsRes] = await Promise.all([
-        api.getMarketTop20().catch(() => top20Fallback),
-        api.getNewsBrief().catch(() => newsFallback),
-      ]);
-
-      if (isInitial) {
-        setLoadProgress(90);
-        setLoadMessage('正在處理資料…');
-      }
+      setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
 
       const tw = normalizeTop20Bucket((top20Res as Top20Response)?.tw, FALLBACK_TOP20_TW);
       const us = normalizeTop20Bucket((top20Res as Top20Response)?.us, FALLBACK_TOP20_US);
@@ -340,14 +305,7 @@ export default function Dashboard() {
       setTop20Us(us);
       setTop20Meta(meta);
 
-      // ── Stage 3：完成 ──
-      if (isInitial) {
-        setLoadProgress(100);
-        setLoadMessage('完成！');
-        await new Promise(r => setTimeout(r, 350));
-        setFullLoading(false);
-        initialLoadDone.current = true;
-      }
+      initialLoadDone.current = true;
       setLoading(false);
     } catch (err) {
       console.error('Dashboard fetch error:', err);
@@ -357,10 +315,7 @@ export default function Dashboard() {
       setTop20Us((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_US));
       setNews((prev) => (prev?.brief?.length ? prev : { brief: FALLBACK_NEWS_BRIEF, items: [] }));
       setLoading(false);
-      if (isInitial) {
-        setFullLoading(false);
-        initialLoadDone.current = true;
-      }
+      initialLoadDone.current = true;
     }
   }, []);
 
@@ -424,7 +379,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <FullScreenLoader visible={fullLoading} progress={loadProgress} message={loadMessage} />
       <div className={styles.container}>
         <div className={styles.statusBar}>
           <div className={styles.statusLeft}>

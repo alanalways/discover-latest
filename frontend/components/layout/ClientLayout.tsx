@@ -30,9 +30,7 @@ function GatedShell({ children }: { children: React.ReactNode }) {
         };
     }, [sidebarOpen]);
 
-    if (!isInitialized) {
-        return <div className="dl-init-loading" />;
-    }
+    // Auth 初始化不再擋畫面 — 立即顯示 shell 骨架，auth 背景載入
 
     return (
         <div className="dl-shell">
