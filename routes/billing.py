@@ -123,12 +123,13 @@ async def upgrade_request(req: UpgradeRequest, request: Request):
         pending = created.get("pending") if isinstance(created.get("pending"), dict) else None
         request_id = str(created.get("request_id") or "")
 
-        # 通知管理員有新升級申請
+        # 通知管理員有新升級申請 + 寄確認信給用戶
         try:
             from services.email_service import email_service
             email_service.notify_admin_new_upgrade(user_name, user_email, req.plan, req.billing_cycle)
+            email_service.notify_user_upgrade_submitted(user_email, user_name, req.plan, req.billing_cycle)
         except Exception:
-            logger.warning("[Billing] email notify_admin_new_upgrade failed", exc_info=True)
+            logger.warning("[Billing] email notification failed", exc_info=True)
 
     # Last-resort fallback: keep request alive in memory to avoid user-facing failure.
     if not pending:

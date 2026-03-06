@@ -131,6 +131,32 @@ class EmailService:
         _send_async(admin, subject, _wrap_html("新升級申請", body))
 
     @staticmethod
+    def notify_user_upgrade_submitted(
+        user_email: str, user_name: str, plan: str, billing_cycle: str
+    ) -> None:
+        """升級申請已送出 — 寄確認信給用戶。"""
+        if not user_email:
+            return
+        plan_label = {"pro": "Pro 專業版", "premium": "Premium 旗艦版"}.get(plan, plan)
+        cycle_label = {"monthly": "月繳", "yearly": "年繳"}.get(billing_cycle, billing_cycle)
+
+        body = (
+            f'<p style="font-size:15px;color:#e0e0e0;">Hi {user_name}，</p>'
+            f'<p style="font-size:15px;color:#e0e0e0;">'
+            f"我們已收到您的 "
+            f'<strong style="color:{_ACCENT};">{plan_label}（{cycle_label}）</strong>'
+            " 升級申請！</p>"
+            + _row("申請方案", plan_label)
+            + _row("計費週期", cycle_label)
+            + '<p style="margin-top:20px;font-size:14px;color:#e0e0e0;">'
+            "管理員將盡快審核您的申請，審核結果會以 Email 通知您。</p>"
+            '<p style="font-size:14px;color:#e0e0e0;">'
+            "在等待期間，您仍可繼續使用目前方案的所有功能。</p>"
+        )
+        subject = f"[DiscoverLatest] 已收到您的 {plan_label} 升級申請"
+        _send_async(user_email, subject, _wrap_html("升級申請已送出", body))
+
+    @staticmethod
     def notify_user_upgrade_approved(
         user_email: str, user_name: str, plan: str
     ) -> None:

@@ -44,6 +44,13 @@ async def chat_ask(req: ChatRequest, request: Request):
 
     symbol = (req.symbol or "").strip().upper()
 
+    # Rate limit check + record usage
+    user_id = str(user.get("id") or user.get("sub") or "")
+    from services.rate_limiter import rate_limiter
+    allowed, reason = rate_limiter.acquire_request(user_id)
+    if not allowed:
+        raise HTTPException(status_code=429, detail=reason)
+
     try:
         from google import genai
         from google.genai import types
@@ -119,8 +126,18 @@ async def chat_ask(req: ChatRequest, request: Request):
         except Exception:
             pass
 
+        # Check remaining usage and append reminder if <= 5
+        answer_text = text or "抱歉，AI 無法回答這個問題，請換個方式提問。"
+        try:
+            usage_info = rate_limiter.get_user_limits_info(user_id)
+            remaining = usage_info.get("daily_remaining", 999)
+            if remaining <= 5:
+                answer_text += f"\n\n⚠️ 提醒：您今日 AI 剩餘次數為 {remaining} 次。升級方案可獲得更多額度。"
+        except Exception:
+            pass
+
         return {
-            "answer": text or "抱歉，AI 無法回答這個問題，請換個方式提問。",
+            "answer": answer_text,
             "sources": sources,
             "symbol": symbol,
         }
