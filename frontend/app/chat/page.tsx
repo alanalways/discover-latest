@@ -24,7 +24,6 @@ export default function ChatPage() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const [symbol, setSymbol] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -42,22 +41,7 @@ export default function ChatPage() {
         setLoading(true);
 
         try {
-            // 嘗試從訊息中偵測股票代號（排除常見金融術語）
-            const NON_STOCK = new Set([
-                'FED', 'GDP', 'CPI', 'PPI', 'NFP', 'FOMC', 'PCE', 'PMI', 'IPO', 'ETF',
-                'AI', 'EPS', 'PE', 'PER', 'ROE', 'ROA', 'YOY', 'QOQ', 'USD', 'TWD',
-                'EUR', 'JPY', 'CNY', 'GBP', 'BPS', 'CEO', 'CFO', 'CTO', 'SEC', 'ECB',
-                'BOJ', 'IMF', 'WTO', 'API', 'ESG', 'SPX', 'DXY', 'VIX',
-            ]);
-            const numMatch = currentInput.match(/(?:^|\s)(\d{4})(?:\s|$)/);
-            const alphaMatch = currentInput.toUpperCase().match(/(?:^|\s)([A-Z]{2,5})(?:\s|$)/);
-            const candidate = numMatch ? numMatch[1]
-                : (alphaMatch && !NON_STOCK.has(alphaMatch[1])) ? alphaMatch[1]
-                : '';
-            const detectedSymbol = candidate || symbol;
-            if (detectedSymbol && !symbol) setSymbol(detectedSymbol);
-
-            // 呼叫 Gemini with Google Search grounding
+            // 直接把用戶問題傳給 AI，不做股票代號偵測
             const res = await api.fetch<{
                 answer: string;
                 sources?: Source[];
@@ -66,7 +50,7 @@ export default function ChatPage() {
                 method: 'POST',
                 body: JSON.stringify({
                     message: currentInput,
-                    symbol: detectedSymbol || '',
+                    symbol: '',
                 }),
             });
 
@@ -103,7 +87,6 @@ export default function ChatPage() {
                     <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 8, fontWeight: 400 }}>
                         Powered by DiscoverLatest
                     </span>
-                    {symbol && <span style={{ fontSize: 12, color: 'var(--accent)', marginLeft: 8 }}>分析中: {symbol}</span>}
                 </h3>
             </div>
 

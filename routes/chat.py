@@ -86,8 +86,6 @@ async def chat_ask(req: ChatRequest, request: Request):
     )
 
     user_prompt = message
-    if symbol:
-        user_prompt = f"[股票代號: {symbol}] {message}"
 
     try:
         client = genai.Client(api_key=api_key)
