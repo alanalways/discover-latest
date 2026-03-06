@@ -117,7 +117,7 @@ async def evaluate_predictions(request: Request):
         return result
     except Exception as exc:
         logger.exception("[PredictionTracker] evaluate error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/predictions/stats")
@@ -132,7 +132,7 @@ async def get_accuracy_dashboard(request: Request):
         return prediction_tracker.get_accuracy_dashboard()
     except Exception as exc:
         logger.exception("[PredictionTracker] stats error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/predictions/weekly")
@@ -150,7 +150,7 @@ async def get_weekly_report(
         return prediction_tracker.get_weekly_stats(weeks_back=weeks_back)
     except Exception as exc:
         logger.exception("[PredictionTracker] weekly error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/predictions/monthly")
@@ -169,7 +169,7 @@ async def get_monthly_review(
         return prediction_tracker.get_monthly_review(year=year, month=month)
     except Exception as exc:
         logger.exception("[PredictionTracker] monthly error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/predictions/quarterly")
@@ -188,7 +188,7 @@ async def get_quarterly_audit(
         return prediction_tracker.get_quarterly_audit(year=year, quarter=quarter)
     except Exception as exc:
         logger.exception("[PredictionTracker] quarterly error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/admin/predictions/record")
@@ -217,4 +217,4 @@ async def record_prediction(request: Request, body: RecordPredictionRequest):
         raise
     except Exception as exc:
         logger.exception("[PredictionTracker] record error")
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
