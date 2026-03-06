@@ -326,8 +326,6 @@ export default function Dashboard() {
     if (!silent) setLoading(true);
     setError('');
 
-    const marketFallback: MarketOverviewResponse = { indices: FALLBACK_INDICES };
-    const top20Fallback: Top20Response = { tw: FALLBACK_TOP20_TW, us: FALLBACK_TOP20_US };
     const newsFallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
 
     try {
@@ -336,16 +334,17 @@ export default function Dashboard() {
         setLoadMessage('正在取得即時市場資料…');
       }
 
-      const [marketRes, hoursRes, top20Res, newsRes] = await Promise.all([
-        api.getMarketOverview().catch(() => marketFallback),
-        api.getMarketHours().catch(() => null as { tw: MarketHours; us: MarketHours } | null),
-        api.getMarketTop20().catch(() => top20Fallback),
-        api.getNewsBrief().catch(() => newsFallback),
-      ]);
+      // 單一組合端點 — 1 次 HTTP 取代 4 次
+      const dashboard = await api.getMarketDashboard();
 
       if (!silent) { setLoadProgress(90); setLoadMessage('完成！'); }
 
-      applyData(marketRes, hoursRes, top20Res as Top20Response, newsRes || newsFallback);
+      const marketRes = dashboard.overview || { indices: FALLBACK_INDICES };
+      const hoursRes = dashboard.hours || null;
+      const top20Res = dashboard.top20 || { tw: FALLBACK_TOP20_TW, us: FALLBACK_TOP20_US } as Top20Response;
+      const newsRes = dashboard.news || newsFallback;
+
+      applyData(marketRes, hoursRes, top20Res, newsRes);
       initialLoadDone.current = true;
       setLoading(false);
 

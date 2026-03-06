@@ -352,6 +352,16 @@ export class ApiClient {
         return this.fetch<MarketHoursResponse>('/api/market/hours', { skipAuth: true, skipProgress: true });
     }
 
+    /** 組合端點：一次取得 indices + hours + top20 + news */
+    async getMarketDashboard() {
+        return this.fetch<{
+            overview: MarketOverviewResponse;
+            hours: MarketHoursResponse | null;
+            top20: Top20Response;
+            news: NewsBriefResponse;
+        }>('/api/market/dashboard', { skipAuth: true });
+    }
+
     // ── Stock ──
     async getStock(symbol: string, period: string = '1y') {
         const sym = encodeURIComponent(String(symbol || '').trim().toUpperCase());

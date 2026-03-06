@@ -293,6 +293,40 @@ async def market_top20():
         }
 
 
+@router.get("/market/dashboard")
+async def market_dashboard():
+    """組合端點：一次回傳 indices + hours + top20 + news，減少前端 HTTP 請求數。"""
+    import asyncio
+    from routes.news import get_news_brief
+
+    results = await asyncio.gather(
+        market_overview(),
+        market_hours(),
+        market_top20(),
+        _safe_news_brief(get_news_brief),
+        return_exceptions=True,
+    )
+
+    overview = results[0] if not isinstance(results[0], Exception) else {"indices": [], "etfs": []}
+    hours_data = results[1] if not isinstance(results[1], Exception) else None
+    top20_data = results[2] if not isinstance(results[2], Exception) else {"tw": {"gainers": [], "losers": [], "volume": []}, "us": {"gainers": [], "losers": [], "volume": []}}
+    news_data = results[3] if not isinstance(results[3], Exception) else {"brief": [], "items": []}
+
+    return {
+        "overview": overview,
+        "hours": hours_data,
+        "top20": top20_data,
+        "news": news_data,
+    }
+
+
+async def _safe_news_brief(fn):
+    try:
+        return await fn()
+    except Exception:
+        return {"brief": [], "items": []}
+
+
 @router.get("/market/hours")
 async def market_hours():
     """Return market hours status using 2026 holiday calendars."""
