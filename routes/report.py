@@ -111,11 +111,13 @@ async def generate_report(req: ReportRequest, request: Request):
             api_key = gemini_service.get_api_key()
             if api_key:
                 period_label = "\u9031\u5831" if req.period == "weekly" else "\u6708\u5831"
+                market_text = market_summary or "\u66ab\u7121"
+                wl_text = watchlist_text or "\u7528\u6236\u5c1a\u672a\u8a2d\u5b9a\u95dc\u6ce8\u6e05\u55ae"
                 prompt = (
                     f"\u4f60\u662f DiscoverLatest AI \u6295\u8cc7\u9867\u554f\uff0c\u8acb\u70ba\u7528\u6236\u751f\u6210\u4e00\u4efd{period_label}\u3002\n"
                     f"\u65e5\u671f\uff1a{now.strftime('%Y-%m-%d')}\n\n"
-                    f"\u5e02\u5834\u6982\u6cc1\uff1a{market_summary or '\u66ab\u7121'}\n\n"
-                    f"\u7528\u6236\u95dc\u6ce8\u6e05\u55ae\u8868\u73fe\uff1a\n{watchlist_text or '\u7528\u6236\u5c1a\u672a\u8a2d\u5b9a\u95dc\u6ce8\u6e05\u55ae'}\n\n"
+                    f"\u5e02\u5834\u6982\u6cc1\uff1a{market_text}\n\n"
+                    f"\u7528\u6236\u95dc\u6ce8\u6e05\u55ae\u8868\u73fe\uff1a\n{wl_text}\n\n"
                     "\u8acb\u7528\u7e41\u9ad4\u4e2d\u6587\u64b0\u5beb\uff0c\u5305\u542b\u4ee5\u4e0b\u7ae0\u7bc0\uff08\u6bcf\u7ae0 3-5 \u53e5\uff09\uff1a\n"
                     "1. \U0001f4ca \u5e02\u5834\u56de\u9867\n2. \u2b50 \u95dc\u6ce8\u6e05\u55ae\u52d5\u614b\n"
                     "3. \U0001f4c5 \u4e0b\u9031\u5c55\u671b\n4. \U0001f4a1 \u64cd\u4f5c\u5efa\u8b70\n\n"
