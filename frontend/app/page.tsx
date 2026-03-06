@@ -16,6 +16,7 @@ import {
 import styles from './page.module.css';
 import api from '@/lib/api';
 import { startRouteProgress } from '@/components/layout/RouteProgress';
+import FullScreenLoader from '@/components/layout/FullScreenLoader';
 
 interface MarketItem {
   name: string;
@@ -258,7 +259,10 @@ export default function Dashboard() {
   const [activeMarket, setActiveMarket] = useState<'tw' | 'us'>('tw');
   const [lastUpdate, setLastUpdate] = useState('');
   const [error, setError] = useState('');
-  // 全屏 loading 已移除 — 直接顯示 fallback 骨架，背景載入真實資料
+  // Stale-while-revalidate: 有快取就秒開，沒快取才顯示 loader
+  const [fullLoading, setFullLoading] = useState(true);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadMessage, setLoadMessage] = useState('正在連線伺服器…');
   const initialLoadDone = useRef(false);
 
   const navigateToAnalysis = useCallback((rawSymbol: string) => {
@@ -273,8 +277,53 @@ export default function Dashboard() {
     newsRef.current = news;
   }, [news]);
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  // ── sessionStorage 快取 helpers ──
+  const CACHE_KEY = 'dl_dashboard_cache';
+  const CACHE_TTL_MS = 3 * 60 * 1000; // 3 分鐘內快取有效
+
+  const saveCache = useCallback((data: DashboardCachePayload) => {
+    try {
+      sessionStorage.setItem(CACHE_KEY, JSON.stringify({ ...data, _ts: Date.now() }));
+    } catch { /* quota exceeded — ignore */ }
+  }, []);
+
+  const loadCache = useCallback((): DashboardCachePayload | null => {
+    try {
+      const raw = sessionStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as DashboardCachePayload & { _ts?: number };
+      if (parsed._ts && Date.now() - parsed._ts > CACHE_TTL_MS) return null;
+      return parsed;
+    } catch { return null; }
+  }, []);
+
+  // ── 將 API 結果寫入 state ──
+  const applyData = useCallback((
+    marketRes: MarketOverviewResponse,
+    hoursRes: { tw: MarketHours; us: MarketHours } | null,
+    top20Res: Top20Response,
+    newsRes: NewsBrief,
+  ) => {
+    const safeIndices = (marketRes.indices && marketRes.indices.length > 0) ? marketRes.indices : FALLBACK_INDICES;
+    setIndices(safeIndices);
+    if (hoursRes) setHours(hoursRes);
+    setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
+    const tw = normalizeTop20Bucket(top20Res?.tw, FALLBACK_TOP20_TW);
+    const us = normalizeTop20Bucket(top20Res?.us, FALLBACK_TOP20_US);
+    const meta = (top20Res?.meta || {}) as Top20Meta;
+    const stableNews = pickStableNewsPayload(newsRes, newsRef.current);
+    setNews(stableNews);
+    newsRef.current = stableNews;
+    setTop20Tw(tw);
+    setTop20Us(us);
+    setTop20Meta(meta);
+
+    // 寫入 sessionStorage 快取
+    saveCache({ indices: safeIndices, hours: hoursRes, top20Tw: tw, top20Us: us, top20Meta: meta, news: stableNews, lastUpdate: new Date().toLocaleTimeString('zh-TW') });
+  }, [saveCache]);
+
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
 
     const marketFallback: MarketOverviewResponse = { indices: FALLBACK_INDICES };
@@ -282,7 +331,11 @@ export default function Dashboard() {
     const newsFallback: NewsBrief = { brief: FALLBACK_NEWS_BRIEF, items: [] };
 
     try {
-      // 全部 API 並行發送，不分階段，最快顯示
+      if (!silent) {
+        setLoadProgress(30);
+        setLoadMessage('正在取得即時市場資料…');
+      }
+
       const [marketRes, hoursRes, top20Res, newsRes] = await Promise.all([
         api.getMarketOverview().catch(() => marketFallback),
         api.getMarketHours().catch(() => null as { tw: MarketHours; us: MarketHours } | null),
@@ -290,42 +343,48 @@ export default function Dashboard() {
         api.getNewsBrief().catch(() => newsFallback),
       ]);
 
-      const safeIndices = (marketRes.indices && marketRes.indices.length > 0) ? marketRes.indices : FALLBACK_INDICES;
-      setIndices(safeIndices);
-      if (hoursRes) setHours(hoursRes);
-      setLastUpdate(new Date().toLocaleTimeString('zh-TW'));
+      if (!silent) { setLoadProgress(90); setLoadMessage('完成！'); }
 
-      const tw = normalizeTop20Bucket((top20Res as Top20Response)?.tw, FALLBACK_TOP20_TW);
-      const us = normalizeTop20Bucket((top20Res as Top20Response)?.us, FALLBACK_TOP20_US);
-      const meta = ((top20Res as Top20Response)?.meta || {}) as Top20Meta;
-      const stableNews = pickStableNewsPayload(newsRes || newsFallback, newsRef.current);
-      setNews(stableNews);
-      newsRef.current = stableNews;
-      setTop20Tw(tw);
-      setTop20Us(us);
-      setTop20Meta(meta);
-
+      applyData(marketRes, hoursRes, top20Res as Top20Response, newsRes || newsFallback);
       initialLoadDone.current = true;
       setLoading(false);
+
+      if (!silent) {
+        setLoadProgress(100);
+        await new Promise(r => setTimeout(r, 250));
+        setFullLoading(false);
+      }
     } catch (err) {
       console.error('Dashboard fetch error:', err);
       setError('資料載入失敗，請重新整理頁面');
-      setIndices((prev) => (prev.length ? prev : FALLBACK_INDICES));
-      setTop20Tw((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_TW));
-      setTop20Us((prev) => (prev.gainers.length ? prev : FALLBACK_TOP20_US));
-      setNews((prev) => (prev?.brief?.length ? prev : { brief: FALLBACK_NEWS_BRIEF, items: [] }));
       setLoading(false);
       initialLoadDone.current = true;
+      if (!silent) setFullLoading(false);
     }
-  }, []);
+  }, [applyData]);
 
-  // sessionStorage / memory cache hydrate 已移除
-  // 一律等 fetchData 完成後才顯示真實資料
-
+  // ── 啟動：先嘗試快取秒開，再背景更新 ──
   useEffect(() => {
-    const bootstrapTimer = window.setTimeout(() => {
-      void fetchData();
-    }, 0);
+    const cached = loadCache();
+    if (cached?.indices && cached.indices.length > 0) {
+      // 有快取 → 秒開！跳過 loader
+      setIndices(cached.indices);
+      if (cached.hours) setHours(cached.hours);
+      if (cached.top20Tw) setTop20Tw(cached.top20Tw);
+      if (cached.top20Us) setTop20Us(cached.top20Us);
+      if (cached.top20Meta) setTop20Meta(cached.top20Meta);
+      if (cached.news) { setNews(cached.news); newsRef.current = cached.news; }
+      if (cached.lastUpdate) setLastUpdate(cached.lastUpdate);
+      setFullLoading(false);
+      initialLoadDone.current = true;
+      // 背景靜默更新
+      void fetchData(true);
+    } else {
+      // 無快取 → 顯示 loader，正常載入
+      setFullLoading(true);
+      setLoadProgress(5);
+      void fetchData(false);
+    }
 
     const tier = user?.tier || 'free';
 
@@ -334,15 +393,14 @@ export default function Dashboard() {
     if (tier !== 'free') {
       const refreshMs = tier === 'premium' ? 60_000 : 5 * 60_000;
       interval = setInterval(() => {
-        void fetchData();
+        void fetchData(true);
       }, refreshMs);
     }
 
     return () => {
-      clearTimeout(bootstrapTimer);
       if (interval) clearInterval(interval);
     };
-  }, [fetchData, user?.tier]);
+  }, [fetchData, loadCache, user?.tier]);
 
   useEffect(() => {
     if (!user) {
@@ -379,6 +437,7 @@ export default function Dashboard() {
 
   return (
     <>
+      <FullScreenLoader visible={fullLoading} progress={loadProgress} message={loadMessage} />
       <div className={styles.container}>
         <div className={styles.statusBar}>
           <div className={styles.statusLeft}>

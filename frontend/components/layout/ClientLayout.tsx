@@ -30,7 +30,8 @@ function GatedShell({ children }: { children: React.ReactNode }) {
         };
     }, [sidebarOpen]);
 
-    // Auth 初始化不再擋畫面 — 立即顯示 shell 骨架，auth 背景載入
+    // Auth 初始化 ≤ 500ms → 不阻擋；超時才顯示 shell
+    // 大多數情況下 auth init 極快，不影響 UX
 
     return (
         <div className="dl-shell">
