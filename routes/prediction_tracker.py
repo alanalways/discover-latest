@@ -6,8 +6,7 @@ Prediction Tracker API Routes
 from __future__ import annotations
 
 import logging
-import os
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -15,74 +14,7 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ------------------------------------------------------------------ #
-# Admin auth helpers (same pattern as routes/admin.py)
-# ------------------------------------------------------------------ #
-
-_DEFAULT_ADMIN_EMAIL = os.environ.get("DEFAULT_ADMIN_EMAIL", "cmshj30326@gmail.com")
-
-
-def _collect_admin_emails() -> set[str]:
-    raw_values = [
-        os.environ.get("ADMIN_EMAILS", ""),
-        os.environ.get("NEXT_PUBLIC_ADMIN_EMAILS", ""),
-        _DEFAULT_ADMIN_EMAIL,
-    ]
-    emails: set[str] = set()
-    for raw in raw_values:
-        for item in str(raw or "").split(","):
-            email = item.strip().lower()
-            if email:
-                emails.add(email)
-    return emails
-
-
-def _is_admin_user(user: dict[str, Any], admin_emails: set[str]) -> bool:
-    user_email = str(user.get("email") or "").strip().lower()
-    if user_email and user_email in admin_emails:
-        return True
-
-    metadata = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
-    app_metadata = user.get("app_metadata") if isinstance(user.get("app_metadata"), dict) else {}
-
-    if bool(metadata.get("is_admin")) or bool(app_metadata.get("is_admin")):
-        return True
-
-    role = str(metadata.get("role") or app_metadata.get("role") or "").strip().lower()
-    if role in {"admin", "owner"}:
-        return True
-
-    roles = metadata.get("roles") if isinstance(metadata.get("roles"), list) else app_metadata.get("roles")
-    if isinstance(roles, list):
-        for item in roles:
-            if str(item or "").strip().lower() in {"admin", "owner"}:
-                return True
-
-    return False
-
-
-def _require_admin(request: Request) -> dict[str, Any]:
-    """Verify admin access by session + allowlist emails."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="\u8acb\u5148\u767b\u5165")
-
-    token = auth_header.split(" ", 1)[1]
-    try:
-        from services.auth_service import auth_service
-
-        user = auth_service.verify_session(token)
-        if not user:
-            raise HTTPException(status_code=401, detail="Session \u5df2\u5931\u6548")
-
-        admin_emails = _collect_admin_emails()
-        if not _is_admin_user(user, admin_emails):
-            raise HTTPException(status_code=403, detail="\u4f60\u4e0d\u662f\u7ba1\u7406\u54e1")
-        return user
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=401, detail="\u9a57\u8b49\u5931\u6557")
+from utils.auth import require_admin as _require_admin
 
 
 # ------------------------------------------------------------------ #

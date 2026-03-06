@@ -496,6 +496,15 @@ async def _run_ai_analysis_pipeline(
         "價格序列": history_payload[-260:] if history_payload else [],
     }
 
+    # Inject macro market context (VIX, USD, yields, etc.)
+    try:
+        from services.macro_context_service import macro_context_service
+        macro_text = macro_context_service.format_for_prompt()
+        if macro_text:
+            seed_context["宏觀環境"] = {"text": macro_text}
+    except Exception:
+        pass
+
     dexter_result = await asyncio.to_thread(
         dexter_agent.execute,
         f"深度分析 {req.symbol}",
@@ -562,7 +571,7 @@ async def _run_ai_analysis_pipeline(
             result["quota_exhausted"] = True
         emit(100, "done", "analysis_completed", char_count=len(analysis_text), min_chars=min_chars)
 
-        # Record AI prediction for accuracy tracking
+        # Record AI prediction for accuracy tracking (with calibrated confidence)
         try:
             from services.ai_prediction_tracker import prediction_tracker
             if isinstance(summary, dict) and summary.get("verdict"):
@@ -570,10 +579,20 @@ async def _run_ai_analysis_pipeline(
                 targets = summary.get("target", {}) if isinstance(summary.get("target"), dict) else {}
                 stops = summary.get("stop_loss", {}) if isinstance(summary.get("stop_loss"), dict) else {}
                 last_price = float(info_payload.get("price", 0) or 0) if isinstance(info_payload, dict) else 0
+                raw_conf = int(summary.get("confidence", 50))
+
+                # Apply confidence calibration
+                calibrated_conf = raw_conf
+                try:
+                    from services.confidence_calibrator import confidence_calibrator
+                    calibrated_conf = confidence_calibrator.calibrate(raw_conf, str(summary.get("verdict", "")))
+                except Exception:
+                    pass
+
                 prediction_tracker.record_prediction(
                     symbol=req.symbol.upper(),
                     direction=str(summary.get("verdict", "")),
-                    confidence=int(summary.get("confidence", 50)),
+                    confidence=calibrated_conf,
                     entry_price=float(entry_prices.get("short") or entry_prices.get("mid") or last_price or 0),
                     target_price=float(targets.get("short") or targets.get("mid") or 0),
                     stop_price=float(stops.get("short") or stops.get("mid") or 0),

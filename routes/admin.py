@@ -29,43 +29,7 @@ class PendingModerateRequest(BaseModel):
     expires_at: Optional[str] = None
 
 
-def _collect_admin_emails() -> set[str]:
-    raw_values = [
-        os.environ.get("ADMIN_EMAILS", ""),
-        os.environ.get("NEXT_PUBLIC_ADMIN_EMAILS", ""),
-        _DEFAULT_ADMIN_EMAIL,
-    ]
-    emails: set[str] = set()
-    for raw in raw_values:
-        for item in str(raw or "").split(","):
-            email = item.strip().lower()
-            if email:
-                emails.add(email)
-    return emails
-
-
-def _is_admin_user(user: dict[str, Any], admin_emails: set[str]) -> bool:
-    user_email = str(user.get("email") or "").strip().lower()
-    if user_email and user_email in admin_emails:
-        return True
-
-    metadata = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
-    app_metadata = user.get("app_metadata") if isinstance(user.get("app_metadata"), dict) else {}
-
-    if bool(metadata.get("is_admin")) or bool(app_metadata.get("is_admin")):
-        return True
-
-    role = str(metadata.get("role") or app_metadata.get("role") or "").strip().lower()
-    if role in {"admin", "owner"}:
-        return True
-
-    roles = metadata.get("roles") if isinstance(metadata.get("roles"), list) else app_metadata.get("roles")
-    if isinstance(roles, list):
-        for item in roles:
-            if str(item or "").strip().lower() in {"admin", "owner"}:
-                return True
-
-    return False
+from utils.auth import require_admin as _require_admin_shared, collect_admin_emails as _collect_admin_emails, is_admin_user as _is_admin_user
 
 
 @router.get("/admin/users")
@@ -342,24 +306,38 @@ async def reset_circuit_breaker(request: Request):
 
 
 def _require_admin(request: Request) -> dict[str, Any]:
-    """Verify admin access by session + allowlist emails."""
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="請先登入")
+    """Verify admin access (delegated to utils.auth)."""
+    return _require_admin_shared(request)
 
-    token = auth_header.split(" ", 1)[1]
+
+@router.get("/admin/cache-stats")
+async def get_cache_stats(request: Request):
+    """Return stats for all registered caches."""
+    _require_admin(request)
     try:
-        from services.auth_service import auth_service
-
-        user = auth_service.verify_session(token)
-        if not user:
-            raise HTTPException(status_code=401, detail="Session 已失效")
-
-        admin_emails = _collect_admin_emails()
-        if not _is_admin_user(user, admin_emails):
-            raise HTTPException(status_code=403, detail="你不是管理員")
-        return user
-    except HTTPException:
-        raise
+        from services.cache_manager import cache_registry
+        return {"caches": cache_registry.get_all_stats()}
     except Exception:
-        raise HTTPException(status_code=401, detail="驗證失敗")
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/calibration")
+async def get_calibration_report(request: Request):
+    """Return confidence calibration report."""
+    _require_admin(request)
+    try:
+        from services.confidence_calibrator import confidence_calibrator
+        return confidence_calibrator.get_report()
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/macro")
+async def get_macro_context(request: Request):
+    """Return current macro market context."""
+    _require_admin(request)
+    try:
+        from services.macro_context_service import macro_context_service
+        return macro_context_service.get_context(force_refresh=True)
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
