@@ -104,16 +104,112 @@ app.add_middleware(
     allow_origins=_parse_allowed_origins(),
     # 本專案使用 Bearer Token，不依賴 Cookie，避免 wildcard+credentials 風險
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
 )
 
 # ── GZip 壓縮（>500 bytes 自動壓縮，瀏覽器自動解壓）──
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
-# ── Cache-Control：靜態資源長快取，API 短快取 ──
+# ── IP-based Rate Limiting ──
+import threading
+from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+
+class IPRateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    IP \u7d1a\u5225\u8acb\u6c42\u9650\u901f\u4e2d\u4ecb\u5c64\u3002
+    - \u516c\u958b\u7aef\u9ede\uff1a30 req/min
+    - \u5df2\u9a57\u8b49\u7aef\u9ede\uff08\u5e36 Authorization header\uff09\uff1a60 req/min
+    - \u8d85\u904e\u9650\u5236\u8fd4\u56de HTTP 429
+    - \u6bcf 60 \u79d2\u81ea\u52d5\u6e05\u7406\u904e\u671f\u8a18\u9304
+    """
+
+    PUBLIC_LIMIT = 30       # requests per minute (unauthenticated)
+    AUTH_LIMIT = 60         # requests per minute (authenticated)
+    WINDOW_SECONDS = 60     # sliding window size
+    CLEANUP_INTERVAL = 60   # seconds between cleanups
+
+    def __init__(self, app):
+        super().__init__(app)
+        # {ip: [(timestamp, is_authenticated), ...]}
+        self._requests: dict[str, list[float]] = defaultdict(list)
+        self._lock = threading.Lock()
+        self._last_cleanup = time.time()
+
+    def _get_client_ip(self, request) -> str:
+        """Extract client IP, respecting X-Forwarded-For from reverse proxies."""
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            # First IP in the chain is the real client
+            return forwarded.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
+
+    def _cleanup_old_entries(self, now: float):
+        """Remove entries older than the window to prevent memory leak."""
+        if now - self._last_cleanup < self.CLEANUP_INTERVAL:
+            return
+        self._last_cleanup = now
+        cutoff = now - self.WINDOW_SECONDS
+        expired_keys = []
+        for ip, timestamps in self._requests.items():
+            self._requests[ip] = [t for t in timestamps if t > cutoff]
+            if not self._requests[ip]:
+                expired_keys.append(ip)
+        for ip in expired_keys:
+            del self._requests[ip]
+
+    async def dispatch(self, request, call_next):
+        path = request.url.path
+
+        # Skip rate limiting for non-API paths (static files, SPA, etc.)
+        if not path.startswith("/api/"):
+            return await call_next(request)
+
+        # Skip health check to avoid blocking monitoring
+        if path == "/api/health":
+            return await call_next(request)
+
+        now = time.time()
+        client_ip = self._get_client_ip(request)
+        is_authenticated = bool(request.headers.get("authorization"))
+        limit = self.AUTH_LIMIT if is_authenticated else self.PUBLIC_LIMIT
+
+        with self._lock:
+            self._cleanup_old_entries(now)
+
+            cutoff = now - self.WINDOW_SECONDS
+            # Filter to only recent requests
+            recent = [t for t in self._requests[client_ip] if t > cutoff]
+            self._requests[client_ip] = recent
+
+            if len(recent) >= limit:
+                retry_after = int(self.WINDOW_SECONDS - (now - recent[0])) + 1
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "error": "\u8acb\u6c42\u904e\u65bc\u983b\u7e41\uff0c\u8acb\u7a0d\u5f8c\u518d\u8a66\u3002",
+                        "detail": f"\u6bcf\u5206\u9418\u6700\u591a {limit} \u6b21\u8acb\u6c42\uff0c\u8acb {retry_after} \u79d2\u5f8c\u91cd\u8a66\u3002",
+                        "retry_after": retry_after,
+                    },
+                    headers={"Retry-After": str(retry_after)},
+                )
+
+            # Record this request
+            recent.append(now)
+            self._requests[client_ip] = recent
+
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(IPRateLimitMiddleware)
+
+
+# ── Cache-Control：靜態資源長快取，API 短快取 ──
 
 class CacheHeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
