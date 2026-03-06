@@ -57,22 +57,21 @@ async def generate_report(req: ReportRequest, request: Request):
     except Exception:
         logger.warning("[Report] Failed to load watchlist")
 
-    # 2. Get market summary（get_market_indices 是 async，直接 await）
+    # 2. Get market summary — 直接用已快取的 /market/overview 資料
     market_summary = ""
     try:
-        from services.stock_service import stock_service
-        indices = await stock_service.get_market_indices()
-        if indices and isinstance(indices, dict):
-            parts = []
-            for market_key, items in indices.items():
-                for idx in items:
-                    name = idx.get("name", "")
-                    change = idx.get("change_percent")
-                    if name and change is not None:
-                        parts.append(f"{name}: {change:+.2f}%")
-            market_summary = "、".join(parts[:6])
+        from routes.market import market_overview
+        overview = await market_overview()
+        raw_indices = overview.get("indices") or []
+        parts = []
+        for idx in raw_indices:
+            name = idx.get("name", "")
+            change_pct = idx.get("change_pct", "")
+            if name and change_pct and change_pct != "--":
+                parts.append(f"{name}: {change_pct}")
+        market_summary = "\u3001".join(parts[:6])
     except Exception:
-        market_summary = "市場資料暫時無法取得"
+        market_summary = "\u5e02\u5834\u8cc7\u6599\u66ab\u6642\u7121\u6cd5\u53d6\u5f97"
 
     # 3. Build watchlist performance text（get_stock_data 是 async，直接 await）
     watchlist_text = ""
@@ -111,16 +110,20 @@ async def generate_report(req: ReportRequest, request: Request):
 
             api_key = gemini_service.get_api_key()
             if api_key:
-                period_label = "週報" if req.period == "weekly" else "月報"
+                period_label = "\u9031\u5831" if req.period == "weekly" else "\u6708\u5831"
                 prompt = (
-                    f"你是 DiscoverLatest AI 投資顧問，請為用戶生成一份{period_label}。\n"
-                    f"日期：{now.strftime('%Y-%m-%d')}\n\n"
-                    f"市場概況：{market_summary or '暫無'}\n\n"
-                    f"用戶關注清單表現：\n{watchlist_text or '用戶尚未設定關注清單'}\n\n"
-                    "請用繁體中文撰寫，包含以下章節（每章 2-3 句即可）：\n"
-                    "1. 📊 市場回顧\n2. ⭐ 關注清單動態\n"
-                    "3. 📅 下週展望\n4. 💡 操作建議\n\n"
-                    "風格：專業但易讀，適度使用 emoji。"
+                    f"\u4f60\u662f DiscoverLatest AI \u6295\u8cc7\u9867\u554f\uff0c\u8acb\u70ba\u7528\u6236\u751f\u6210\u4e00\u4efd{period_label}\u3002\n"
+                    f"\u65e5\u671f\uff1a{now.strftime('%Y-%m-%d')}\n\n"
+                    f"\u5e02\u5834\u6982\u6cc1\uff1a{market_summary or '\u66ab\u7121'}\n\n"
+                    f"\u7528\u6236\u95dc\u6ce8\u6e05\u55ae\u8868\u73fe\uff1a\n{watchlist_text or '\u7528\u6236\u5c1a\u672a\u8a2d\u5b9a\u95dc\u6ce8\u6e05\u55ae'}\n\n"
+                    "\u8acb\u7528\u7e41\u9ad4\u4e2d\u6587\u64b0\u5beb\uff0c\u5305\u542b\u4ee5\u4e0b\u7ae0\u7bc0\uff08\u6bcf\u7ae0 3-5 \u53e5\uff09\uff1a\n"
+                    "1. \U0001f4ca \u5e02\u5834\u56de\u9867\n2. \u2b50 \u95dc\u6ce8\u6e05\u55ae\u52d5\u614b\n"
+                    "3. \U0001f4c5 \u4e0b\u9031\u5c55\u671b\n4. \U0001f4a1 \u64cd\u4f5c\u5efa\u8b70\n\n"
+                    "\u3010\u683c\u5f0f\u898f\u5247\u3011\n"
+                    "\u30fb\u56b4\u7981\u4f7f\u7528\u4efb\u4f55 markdown\uff1a\u7981\u6b62 #\u3001**\u3001*\u3001-\u3001>\u3001`\u3002\n"
+                    "\u30fb\u6bb5\u843d\u6a19\u984c\u7528 emoji \u958b\u982d\uff0c\u4f8b\u5982\u300c\U0001f4ca \u5e02\u5834\u56de\u9867\u300d\u3002\n"
+                    "\u30fb\u5217\u9ede\u7528\u300c\u30fb\u300d\u7b26\u865f\uff0c\u4e0d\u7528 - \u6216 *\u3002\n"
+                    "\u30fb\u7528\u7a7a\u884c\u5206\u6bb5\uff0c\u98a8\u683c\u5c08\u696d\u4f46\u6613\u8b80\u3002\n"
                 )
                 client = genai.Client(api_key=api_key)
                 response = client.models.generate_content(
@@ -128,7 +131,6 @@ async def generate_report(req: ReportRequest, request: Request):
                     contents=prompt,
                     config=genai_types.GenerateContentConfig(
                         temperature=0.4,
-                        max_output_tokens=800,
                     ),
                 )
                 ai_report = (getattr(response, "text", "") or "").strip()

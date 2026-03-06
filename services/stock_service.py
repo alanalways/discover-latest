@@ -999,12 +999,12 @@ class StockService:
         """??撣?嚗inMind proxy嚗?"""
         proxies = {
             "TW": [
-                {"symbol": "TAIEX", "name": "???", "proxy": "0050", "market": "TW"},
+                {"symbol": "TAIEX", "name": "\u52a0\u6b0a\u6307\u6578", "proxy": "0050", "market": "TW"},
             ],
             "US": [
-                {"symbol": "DJI", "name": "??撌交平", "proxy": "DIA", "market": "US"},
+                {"symbol": "DJI", "name": "\u9053\u74a8\u5de5\u696d", "proxy": "DIA", "market": "US"},
                 {"symbol": "SPX", "name": "S&P 500", "proxy": "SPY", "market": "US"},
-                {"symbol": "IXIC", "name": "蝝??", "proxy": "QQQ", "market": "US"},
+                {"symbol": "IXIC", "name": "\u90a3\u65af\u9054\u514b", "proxy": "QQQ", "market": "US"},
             ],
         }
         results = {"TW": [], "US": []}
