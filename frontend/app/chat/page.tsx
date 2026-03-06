@@ -42,10 +42,19 @@ export default function ChatPage() {
         setLoading(true);
 
         try {
-            // 嘗試從訊息中偵測股票代號（需獨立出現，避免 Fed→F 誤判）
-            const symMatch = currentInput.match(/(?:^|\s)(\d{4})(?:\s|$)/) ||
-                currentInput.match(/(?:^|\s)([A-Z]{2,5})(?:\s|$)/);
-            const detectedSymbol = symMatch ? symMatch[1] : symbol;
+            // 嘗試從訊息中偵測股票代號（排除常見金融術語）
+            const NON_STOCK = new Set([
+                'FED', 'GDP', 'CPI', 'PPI', 'NFP', 'FOMC', 'PCE', 'PMI', 'IPO', 'ETF',
+                'AI', 'EPS', 'PE', 'PER', 'ROE', 'ROA', 'YOY', 'QOQ', 'USD', 'TWD',
+                'EUR', 'JPY', 'CNY', 'GBP', 'BPS', 'CEO', 'CFO', 'CTO', 'SEC', 'ECB',
+                'BOJ', 'IMF', 'WTO', 'API', 'ESG', 'SPX', 'DXY', 'VIX',
+            ]);
+            const numMatch = currentInput.match(/(?:^|\s)(\d{4})(?:\s|$)/);
+            const alphaMatch = currentInput.toUpperCase().match(/(?:^|\s)([A-Z]{2,5})(?:\s|$)/);
+            const candidate = numMatch ? numMatch[1]
+                : (alphaMatch && !NON_STOCK.has(alphaMatch[1])) ? alphaMatch[1]
+                : '';
+            const detectedSymbol = candidate || symbol;
             if (detectedSymbol && !symbol) setSymbol(detectedSymbol);
 
             // 呼叫 Gemini with Google Search grounding
