@@ -97,7 +97,6 @@ async def chat_ask(req: ChatRequest, request: Request):
             config=types.GenerateContentConfig(
                 system_instruction=system_prompt,
                 temperature=0.5,
-                max_output_tokens=3000,
                 tools=[types.Tool(google_search=types.GoogleSearch())],
             ),
         )
