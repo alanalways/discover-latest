@@ -681,6 +681,18 @@ class StockService:
         except:
             pass
 
+        # Fallback: Yahoo Finance (especially useful for 3y/5y periods)
+        try:
+            from adapters.yahoo_adapter import yahoo_adapter
+            yf_data = await yahoo_adapter.get_stock_history(
+                symbol, market=market, period=period
+            )
+            if yf_data:
+                print(f"[DataSource] Yahoo OK: {symbol} ({len(yf_data)} rows, period={period})")
+                return yf_data
+        except Exception as e:
+            print(f"[DataSource] Yahoo failed ({symbol}): {e}")
+
         return []
 
     async def _fetch_finmind_history(

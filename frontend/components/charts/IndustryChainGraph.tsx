@@ -67,6 +67,14 @@ function listedText(v?: boolean | null, listedMarket?: string): string {
   return listedMarket ? `上市狀態未知 ${listedMarket}` : '上市狀態未知';
 }
 
+function groupColor(group?: string): string {
+  if (group === 'upstream' || group === '上游') return '#22d3ee';
+  if (group === 'downstream' || group === '下游') return '#a78bfa';
+  if (group === 'peer' || group === '同業') return '#34d399';
+  if (group === 'competitor' || group === '競爭') return '#fb7185';
+  return '#93c5fd';
+}
+
 function edgeColor(group?: string): string {
   if (group === '上游') return '#22d3ee';
   if (group === '下游') return '#a78bfa';
@@ -83,15 +91,15 @@ function relationKindLabel(kind?: string): string {
 }
 
 function edgeDashArray(kind?: string): string | undefined {
-  if (kind === 'market_resonance') return '2.2 1.6';
-  if (kind === 'hybrid') return '5 1.4 1.5 1.4';
+  if (kind === 'market_resonance') return '4 3';
+  if (kind === 'hybrid') return '8 3 2 3';
   return undefined;
 }
 
 function edgeOpacity(kind?: string): number {
-  if (kind === 'market_resonance') return 0.86;
-  if (kind === 'hybrid') return 0.94;
-  return 0.92;
+  if (kind === 'market_resonance') return 0.6;
+  if (kind === 'hybrid') return 0.7;
+  return 0.55;
 }
 
 function flowColor(flow?: string): string {
@@ -112,44 +120,71 @@ function fmtPct(v?: number | null): string {
   return `${n > 0 ? '+' : ''}${n.toFixed(2)}%`;
 }
 
-function slotBand(count: number, xStart: number, xEnd: number, yStart: number, yEnd: number): Pos[] {
+/* ── Layout: radial placement around center ── */
+
+const VB_W = 600;
+const VB_H = 500;
+const CX = VB_W / 2;
+const CY = VB_H / 2;
+const MAX_PER_GROUP = 6;
+
+function placeGroup(
+  count: number,
+  cx: number, cy: number,
+  startAngle: number, endAngle: number,
+  radius: number,
+): Pos[] {
   if (count <= 0) return [];
-  const cols = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(count))));
-  const rows = Math.max(1, Math.ceil(count / cols));
-  const xStep = cols === 1 ? 0 : (xEnd - xStart) / (cols - 1);
-  const yStep = rows === 1 ? 0 : (yEnd - yStart) / (rows - 1);
-  const pos: Pos[] = [];
-  for (let i = 0; i < count; i += 1) {
-    const r = Math.floor(i / cols);
-    const c = i % cols;
-    pos.push({ x: xStart + c * xStep, y: yStart + r * yStep });
+  if (count === 1) {
+    const mid = (startAngle + endAngle) / 2;
+    return [{ x: cx + radius * Math.cos(mid), y: cy + radius * Math.sin(mid) }];
   }
-  return pos;
+  const positions: Pos[] = [];
+  const step = (endAngle - startAngle) / (count - 1);
+  for (let i = 0; i < count; i++) {
+    const angle = startAngle + i * step;
+    positions.push({
+      x: cx + radius * Math.cos(angle),
+      y: cy + radius * Math.sin(angle),
+    });
+  }
+  return positions;
+}
+
+function nodeLabel(text: string, max = 10) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
 }
 
 export default function IndustryChainGraph({ nodes, edges, relations = [], alerts = [] }: Props) {
   const core = nodes.find((n) => n.group === 'core') || nodes[0];
-  const upstream = nodes.filter((n) => n.group === 'upstream');
-  const downstream = nodes.filter((n) => n.group === 'downstream');
-  const peer = nodes.filter((n) => n.group === 'peer');
-  const competitor = nodes.filter((n) => n.group === 'competitor');
+  const upstream = nodes.filter((n) => n.group === 'upstream').slice(0, MAX_PER_GROUP);
+  const downstream = nodes.filter((n) => n.group === 'downstream').slice(0, MAX_PER_GROUP);
+  const peer = nodes.filter((n) => n.group === 'peer').slice(0, MAX_PER_GROUP);
+  const competitor = nodes.filter((n) => n.group === 'competitor').slice(0, MAX_PER_GROUP);
   const [selectedId, setSelectedId] = useState<string>('');
 
   const positions = useMemo(() => {
     const map = new Map<string, Pos>();
-    if (core) map.set(core.id, { x: 50, y: 50 });
+    if (core) map.set(core.id, { x: CX, y: CY });
 
-    const upstreamSlots = slotBand(upstream.length, 24, 76, 16, 28);
-    upstream.forEach((n, i) => map.set(n.id, upstreamSlots[i]));
+    const R = 180;
 
-    const downstreamSlots = slotBand(downstream.length, 24, 76, 72, 84);
-    downstream.forEach((n, i) => map.set(n.id, downstreamSlots[i]));
+    // Upstream: top arc (-150° to -30°)
+    const upSlots = placeGroup(upstream.length, CX, CY, -Math.PI * 5 / 6, -Math.PI / 6, R);
+    upstream.forEach((n, i) => map.set(n.id, upSlots[i]));
 
-    const peerSlots = slotBand(peer.length, 14, 28, 34, 66);
+    // Downstream: bottom arc (30° to 150°)
+    const downSlots = placeGroup(downstream.length, CX, CY, Math.PI / 6, Math.PI * 5 / 6, R);
+    downstream.forEach((n, i) => map.set(n.id, downSlots[i]));
+
+    // Peer: left arc (150° to 210° / -210° to -150°)
+    const peerSlots = placeGroup(peer.length, CX, CY, Math.PI * 5 / 6, Math.PI * 7 / 6, R * 0.95);
     peer.forEach((n, i) => map.set(n.id, peerSlots[i]));
 
-    const competitorSlots = slotBand(competitor.length, 72, 86, 34, 66);
-    competitor.forEach((n, i) => map.set(n.id, competitorSlots[i]));
+    // Competitor: right arc (-30° to 30°)
+    const compSlots = placeGroup(competitor.length, CX, CY, -Math.PI / 6, Math.PI / 6, R * 0.95);
+    competitor.forEach((n, i) => map.set(n.id, compSlots[i]));
 
     return map;
   }, [core, upstream, downstream, peer, competitor]);
@@ -191,91 +226,144 @@ export default function IndustryChainGraph({ nodes, edges, relations = [], alert
     }
   };
 
-  const nodeLabel = (text: string, max = 15) => {
-    if (text.length <= max) return text;
-    return `${text.slice(0, max - 1)}…`;
-  };
-
   return (
     <div style={{ border: '1px solid rgba(99,102,241,0.26)', borderRadius: 16, padding: 14, background: 'linear-gradient(180deg, rgba(3,7,25,0.95), rgba(12,15,40,0.82))' }}>
       <div style={{ color: 'var(--text-3)', fontSize: 12, marginBottom: 8 }}>
-        固定槽位布局 上游在上 下游在下 同業在左 競爭在右 點擊節點可看詳情
+        放射狀布局 上游在上 下游在下 同業在左 競爭在右 點擊節點可看詳情
       </div>
       <div style={{ marginBottom: 8, display: 'flex', flexWrap: 'wrap', gap: 12, color: 'var(--text-3)', fontSize: 12 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-            <path d="M1 4 H27" stroke="#38bdf8" strokeWidth="2" fill="none" />
-          </svg>
-          供應鏈關聯
+          <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '2px solid #22d3ee', background: 'rgba(34,211,238,0.15)' }} />
+          上游
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-            <path d="M1 4 H27" stroke="#34d399" strokeWidth="2" strokeDasharray="2.2 1.6" fill="none" />
-          </svg>
-          統計共振關聯
+          <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '2px solid #a78bfa', background: 'rgba(167,139,250,0.15)' }} />
+          下游
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '2px solid #34d399', background: 'rgba(52,211,153,0.15)' }} />
+          同業
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', border: '2px solid #fb7185', background: 'rgba(251,113,133,0.15)' }} />
+          競爭
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
           <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
-            <path d="M1 4 H27" stroke="#f59e0b" strokeWidth="2" strokeDasharray="5 1.4 1.5 1.4" fill="none" />
+            <path d="M1 4 H27" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 3" fill="none" />
           </svg>
-          混合關聯
+          統計共振
+        </span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <svg width="28" height="8" viewBox="0 0 28 8" aria-hidden>
+            <path d="M1 4 H27" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="8 3 2 3" fill="none" />
+          </svg>
+          混合
         </span>
       </div>
       {alerts.length > 0 && (
         <div style={{ marginBottom: 8, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', background: 'rgba(7,13,40,0.45)', color: 'var(--text-2)', fontSize: 12, display: 'grid', gap: 4 }}>
           {alerts.slice(0, 4).map((a, i) => (
-            <div key={`${a}-${i}`}>• {a}</div>
+            <div key={`${a}-${i}`}>{a}</div>
           ))}
         </div>
       )}
 
-      <svg viewBox="0 0 100 100" style={{ width: '100%', height: 440, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 52%, rgba(78,114,255,0.2), rgba(4,8,22,0.95))' }}>
+      <svg
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
+        style={{ width: '100%', height: 'auto', aspectRatio: `${VB_W}/${VB_H}`, display: 'block', borderRadius: 12, background: 'radial-gradient(circle at 50% 50%, rgba(78,114,255,0.12), rgba(4,8,22,0.95))' }}
+      >
+        {/* Edges */}
         {edges.map((e, idx) => {
           const s = positions.get(e.source);
           const t = positions.get(e.target);
           if (!s || !t) return null;
-          const midX = (s.x + t.x) / 2;
-          const midY = (s.y + t.y) / 2;
+          // Curved edge: offset the control point perpendicular to the line
+          const mx = (s.x + t.x) / 2;
+          const my = (s.y + t.y) / 2;
+          const dx = t.x - s.x;
+          const dy = t.y - s.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          // offset perpendicular, alternating direction
+          const off = 20 * (idx % 2 === 0 ? 1 : -1);
+          const cx2 = mx + (-dy / len) * off;
+          const cy2 = my + (dx / len) * off;
           return (
-            <g key={`${e.source}-${e.target}-${idx}`}>
-              <path
-                d={`M ${s.x},${s.y} Q ${midX},${midY} ${t.x},${t.y}`}
-                fill="none"
-                stroke={edgeColor(e.relation)}
-                strokeWidth={1.1 + Math.max(0, Math.min(1, Number(e.relation_score || 0.6))) * 1.4}
-                strokeDasharray={edgeDashArray(e.relation_kind)}
-                opacity={edgeOpacity(e.relation_kind)}
-              />
-            </g>
+            <path
+              key={`${e.source}-${e.target}-${idx}`}
+              d={`M ${s.x},${s.y} Q ${cx2},${cy2} ${t.x},${t.y}`}
+              fill="none"
+              stroke={edgeColor(e.relation)}
+              strokeWidth={1.2}
+              strokeDasharray={edgeDashArray(e.relation_kind)}
+              opacity={edgeOpacity(e.relation_kind)}
+            />
           );
         })}
 
+        {/* Nodes */}
         {nodes.map((n) => {
           const p = positions.get(n.id);
           if (!p) return null;
           const isCore = n.id === core?.id;
           const isSelected = n.id === selectedId;
-          const radius = isCore ? 8.8 : 5.4;
-          const fill = isCore ? 'rgba(255,212,71,0.24)' : 'rgba(30,64,175,0.42)';
-          const stroke = isCore
-            ? '#ffd447'
-            : n.group === 'upstream'
-              ? '#22d3ee'
-              : n.group === 'downstream'
-                ? '#a78bfa'
-                : n.group === 'peer'
-                  ? '#34d399'
-                  : '#fb7185';
+          const radius = isCore ? 36 : 22;
+          const fill = isCore ? 'rgba(255,212,71,0.18)' : 'rgba(30,64,175,0.3)';
+          const stroke = isCore ? '#ffd447' : groupColor(n.group);
+          const textColor = isCore ? '#ffe8a4' : '#dbeafe';
+          const fontSize = isCore ? 14 : 11;
+          const label = nodeLabel(n.label, isCore ? 14 : 8);
+
           return (
             <g key={n.id} onClick={() => setSelectedId((prev) => (prev === n.id ? '' : n.id))} style={{ cursor: 'pointer' }}>
-              <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={isSelected ? 2.0 : 1.2} />
-              <circle cx={p.x + radius - 0.6} cy={p.y - radius + 0.6} r={1.1} fill={flowColor(n.flow_light)} />
-              <text x={p.x} y={p.y + 0.9} textAnchor="middle" fontSize={isCore ? 4.0 : 2.7} fill={isCore ? '#ffe8a4' : '#dbeafe'} fontWeight={700}>
-                {nodeLabel(n.label)}
+              {/* Selection glow */}
+              {isSelected && (
+                <circle cx={p.x} cy={p.y} r={radius + 6} fill="none" stroke={stroke} strokeWidth={1} opacity={0.4} />
+              )}
+              <circle cx={p.x} cy={p.y} r={radius} fill={fill} stroke={stroke} strokeWidth={isSelected ? 2.5 : 1.5} />
+              {/* Flow light indicator */}
+              <circle cx={p.x + radius * 0.7} cy={p.y - radius * 0.7} r={4} fill={flowColor(n.flow_light)} />
+              {/* Label background */}
+              <rect
+                x={p.x - (label.length * fontSize * 0.32)}
+                y={p.y - fontSize * 0.4}
+                width={label.length * fontSize * 0.64}
+                height={fontSize * 1.2}
+                rx={3}
+                fill="rgba(0,0,0,0.6)"
+              />
+              {/* Label text */}
+              <text
+                x={p.x}
+                y={p.y + fontSize * 0.35}
+                textAnchor="middle"
+                fontSize={fontSize}
+                fill={textColor}
+                fontWeight={700}
+              >
+                {label}
               </text>
+              {/* Ticker below */}
+              {!isCore && n.ticker && (
+                <text
+                  x={p.x}
+                  y={p.y + radius + 14}
+                  textAnchor="middle"
+                  fontSize={9}
+                  fill="rgba(255,255,255,0.45)"
+                >
+                  {n.ticker}
+                </text>
+              )}
             </g>
           );
         })}
+
+        {/* Group labels */}
+        <text x={CX} y={28} textAnchor="middle" fontSize={12} fill="rgba(34,211,238,0.6)" fontWeight={600}>上游</text>
+        <text x={CX} y={VB_H - 14} textAnchor="middle" fontSize={12} fill="rgba(167,139,250,0.6)" fontWeight={600}>下游</text>
+        <text x={28} y={CY} textAnchor="middle" fontSize={12} fill="rgba(52,211,153,0.6)" fontWeight={600}>同業</text>
+        <text x={VB_W - 28} y={CY} textAnchor="middle" fontSize={12} fill="rgba(251,113,133,0.6)" fontWeight={600}>競爭</text>
       </svg>
 
       {selectedNode && (
