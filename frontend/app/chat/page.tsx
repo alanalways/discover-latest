@@ -42,8 +42,9 @@ export default function ChatPage() {
         setLoading(true);
 
         try {
-            // 嘗試從訊息中偵測股票代號
-            const symMatch = currentInput.match(/(\d{4}|[A-Z]{1,5})/);
+            // 嘗試從訊息中偵測股票代號（需獨立出現，避免 Fed→F 誤判）
+            const symMatch = currentInput.match(/(?:^|\s)(\d{4})(?:\s|$)/) ||
+                currentInput.match(/(?:^|\s)([A-Z]{2,5})(?:\s|$)/);
             const detectedSymbol = symMatch ? symMatch[1] : symbol;
             if (detectedSymbol && !symbol) setSymbol(detectedSymbol);
 
