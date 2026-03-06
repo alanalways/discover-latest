@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import math
 from statistics import pstdev
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+
+logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from services import analysis_service
@@ -187,6 +190,38 @@ def _build_technical_snapshot(history: list[dict]) -> str:
         lines.append(f"Keltner(EMA20, ATR14x2): {keltner_up:.2f}/{keltner_dn:.2f}")
     if highs and lows:
         lines.append(f"52W High/Low: {max(highs[-250:]):.2f}/{min(lows[-250:]):.2f}")
+
+    # Volume analysis (OBV, volume ratio, accumulation/distribution)
+    volumes = [float(h.get("volume", 0) or 0) for h in history]
+    if len(volumes) >= 20 and len(closes) >= 20:
+        # Volume ratio: today vs 20-day average
+        avg_vol_20 = sum(volumes[-20:]) / 20 if sum(volumes[-20:]) > 0 else 1
+        vol_ratio = volumes[-1] / avg_vol_20 if avg_vol_20 > 0 else 1.0
+        lines.append(f"Vol Ratio(20d): {vol_ratio:.2f}x")
+
+        # Simple OBV direction (last 20 days)
+        obv = 0.0
+        for i in range(-20, 0):
+            if i + 1 < 0:
+                if closes[i] > closes[i - 1]:
+                    obv += volumes[i]
+                elif closes[i] < closes[i - 1]:
+                    obv -= volumes[i]
+        obv_direction = "accumulation" if obv > 0 else "distribution"
+        lines.append(f"OBV(20d): {obv_direction}")
+
+        # Money Flow (simplified): up volume vs down volume ratio
+        up_vol = sum(volumes[i] for i in range(-20, 0) if closes[i] > closes[i - 1])
+        dn_vol = sum(volumes[i] for i in range(-20, 0) if closes[i] < closes[i - 1])
+        mf_ratio = up_vol / dn_vol if dn_vol > 0 else 999
+        lines.append(f"MF Ratio(20d): {mf_ratio:.2f}")
+
+        # Volume climax detection
+        if vol_ratio > 2.5:
+            price_chg = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] > 0 else 0
+            climax_type = "buying_climax" if price_chg > 1 else "selling_climax" if price_chg < -1 else "high_volume"
+            lines.append(f"Vol Alert: {climax_type} ({vol_ratio:.1f}x avg)")
+
     return " | ".join(lines)
 
 
@@ -526,6 +561,27 @@ async def _run_ai_analysis_pipeline(
         if not charged:
             result["quota_exhausted"] = True
         emit(100, "done", "analysis_completed", char_count=len(analysis_text), min_chars=min_chars)
+
+        # Record AI prediction for accuracy tracking
+        try:
+            from services.ai_prediction_tracker import prediction_tracker
+            if isinstance(summary, dict) and summary.get("verdict"):
+                entry_prices = summary.get("entry", {}) if isinstance(summary.get("entry"), dict) else {}
+                targets = summary.get("target", {}) if isinstance(summary.get("target"), dict) else {}
+                stops = summary.get("stop_loss", {}) if isinstance(summary.get("stop_loss"), dict) else {}
+                last_price = float(info_payload.get("price", 0) or 0) if isinstance(info_payload, dict) else 0
+                prediction_tracker.record_prediction(
+                    symbol=req.symbol.upper(),
+                    direction=str(summary.get("verdict", "")),
+                    confidence=int(summary.get("confidence", 50)),
+                    entry_price=float(entry_prices.get("short") or entry_prices.get("mid") or last_price or 0),
+                    target_price=float(targets.get("short") or targets.get("mid") or 0),
+                    stop_price=float(stops.get("short") or stops.get("mid") or 0),
+                    horizon_days=20,
+                    tier=tier,
+                )
+        except Exception:
+            pass  # Don't let tracking failures affect the analysis response
     else:
         if analysis_text:
             emit(
@@ -570,7 +626,8 @@ async def ai_analysis(req: AnalysisRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Analysis API error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/analysis/ai/stream")
@@ -630,7 +687,8 @@ async def smc_analysis(req: SmcRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Analysis API error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/analysis/industry-chain/{symbol}")

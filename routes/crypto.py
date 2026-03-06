@@ -96,7 +96,7 @@ async def get_crypto_tickers():
         }
     except Exception as e:
         logger.exception("[Crypto] get_crypto_tickers error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/crypto/ticker/{symbol}")
@@ -134,7 +134,7 @@ async def get_crypto_ticker(symbol: str):
         raise
     except Exception as e:
         logger.exception("[Crypto] get_crypto_ticker error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/crypto/klines")
@@ -168,7 +168,7 @@ async def get_crypto_klines(
         }
     except Exception as e:
         logger.exception("[Crypto] get_crypto_klines error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/crypto/symbols")
@@ -187,7 +187,7 @@ async def get_crypto_symbols():
         }
     except Exception as e:
         logger.exception("[Crypto] get_crypto_symbols error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 # ────────────────────── AI 深度分析 ──────────────────────
@@ -347,7 +347,7 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
         raise
     except Exception as e:
         logger.exception("[Crypto] AI analysis error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 def _call_gemini_crypto(prompt: str) -> str:

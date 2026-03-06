@@ -47,6 +47,7 @@ class _FinMindRateLimiter:
 
 # ===== 多層快取系統 =====
 _cache: Dict[str, Dict[str, Any]] = {}
+_CACHE_MAXSIZE = 512  # 防止無限增長導致 OOM
 
 # 各資料集 TTL（秒）
 _CACHE_TTL = {
@@ -85,7 +86,19 @@ def _get_cached(key: str) -> Optional[Any]:
 
 
 def _set_cache(key: str, data: Any):
-    """寫入快取"""
+    """寫入快取（超過上限時清除最舊條目）"""
+    if len(_cache) >= _CACHE_MAXSIZE:
+        now = time.time()
+        # 清除已過期的條目
+        expired = [k for k, v in _cache.items()
+                   if now - v["ts"] > _CACHE_TTL.get(k.split(":")[0], _CACHE_TTL["_default"])]
+        for k in expired:
+            _cache.pop(k, None)
+        # 若仍超限，刪最舊的 25%
+        if len(_cache) >= _CACHE_MAXSIZE:
+            sorted_keys = sorted(_cache, key=lambda k: _cache[k]["ts"])
+            for k in sorted_keys[:len(sorted_keys) // 4]:
+                _cache.pop(k, None)
     _cache[key] = {"data": data, "ts": time.time()}
 
 

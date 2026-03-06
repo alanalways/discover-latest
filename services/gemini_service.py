@@ -16,6 +16,9 @@ from config.models import MODEL_FINAL, MODEL_GROUNDING
 
 logger = logging.getLogger(__name__)
 
+# 共用 ThreadPoolExecutor（避免每次呼叫都建新 executor）
+_shared_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="gemini")
+
 GEMINI_TIMEOUT_STAGE1 = int(os.environ.get("GEMINI_TIMEOUT_STAGE1", "12"))
 GEMINI_TIMEOUT_STAGE2 = int(os.environ.get("GEMINI_TIMEOUT_STAGE2", "30"))
 GEMINI_TOTAL_TIMEOUT = int(os.environ.get("GEMINI_TOTAL_TIMEOUT", "42"))
@@ -419,8 +422,7 @@ class GeminiService:
             )
 
         sources: List[Dict[str, str]] = []
-        ex = ThreadPoolExecutor(max_workers=1)
-        f = ex.submit(_run)
+        f = _shared_executor.submit(_run)
         try:
             response = f.result(timeout=16)
         except FuturesTimeoutError:
@@ -428,8 +430,6 @@ class GeminiService:
             return {"success": False, "metrics": {}, "sources": [], "error": "grounding_timeout"}
         except Exception as e:
             return {"success": False, "metrics": {}, "sources": [], "error": type(e).__name__}
-        finally:
-            ex.shutdown(wait=False, cancel_futures=True)
 
         text_out = safe_response_text(response)
         candidates = getattr(response, "candidates", None) or []
@@ -520,8 +520,7 @@ class GeminiService:
             )
 
         sources: List[Dict[str, str]] = []
-        ex = ThreadPoolExecutor(max_workers=1)
-        f = ex.submit(_run)
+        f = _shared_executor.submit(_run)
         try:
             response = f.result(timeout=20)
         except FuturesTimeoutError:
@@ -529,8 +528,6 @@ class GeminiService:
             return {"success": False, "chain": {}, "sources": [], "error": "grounding_timeout"}
         except Exception as e:
             return {"success": False, "chain": {}, "sources": [], "error": type(e).__name__}
-        finally:
-            ex.shutdown(wait=False, cancel_futures=True)
 
         text_out = safe_response_text(response)
         candidates = getattr(response, "candidates", None) or []
@@ -1331,8 +1328,7 @@ class GeminiService:
                     GEMINI_TIMEOUT_STAGE1,
                     max(6.0, total_deadline - time.time() - 20.0),
                 )
-                ex1 = ThreadPoolExecutor(max_workers=1)
-                f1 = ex1.submit(_run_stage1)
+                f1 = _shared_executor.submit(_run_stage1)
                 try:
                     stage1_resp = f1.result(timeout=stage1_timeout_sec)
                     grounding_text = safe_response_text(stage1_resp)
@@ -1377,7 +1373,7 @@ class GeminiService:
                     except ImportError:
                         pass
                 finally:
-                    ex1.shutdown(wait=False, cancel_futures=True)
+                    pass  # 使用共享 executor，不需 shutdown
 
                 stage1_ms = int((time.time() - stage1_started) * 1000)
                 self._write_grounding_cache(grounding_cache_key, grounding_text, grounding_sources)
@@ -1483,7 +1479,6 @@ class GeminiService:
 
             stage2_timeout_sec = min(GEMINI_TIMEOUT_STAGE2, max(10.0, remaining - 2.0))
             stage2_timeout_sec = min(stage2_timeout_sec, max(1.0, total_deadline - time.time() - 1.0))
-            ex2 = ThreadPoolExecutor(max_workers=1)
             # Stage2 with auto-retry (max 2 attempts)
             _stage2_max_retries = 2
             _stage2_attempt = 0
@@ -1497,8 +1492,7 @@ class GeminiService:
                     break  # 沒時間重試了
                 _retry_timeout = min(stage2_timeout_sec, max(8.0, _remaining_for_retry - 2.0))
 
-                ex2 = ThreadPoolExecutor(max_workers=1)
-                f2 = ex2.submit(_run_stage2, final_prompt, 0.32, max_tokens)
+                f2 = _shared_executor.submit(_run_stage2, final_prompt, 0.15, max_tokens)
                 try:
                     stage2_resp = f2.result(timeout=_retry_timeout)
                     _stage2_last_error = None
@@ -1517,7 +1511,7 @@ class GeminiService:
                         _stage2_attempt, _stage2_max_retries, symbol, e,
                     )
                 finally:
-                    ex2.shutdown(wait=False, cancel_futures=True)
+                    pass  # 使用共享 executor，不需 shutdown
 
                 # 指數退避等待（只在還要重試時）
                 if _stage2_attempt < _stage2_max_retries:

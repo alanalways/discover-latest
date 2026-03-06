@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 from typing import List, Optional
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -42,7 +43,8 @@ async def get_watchlist_quotes(request: Request):
     try:
         rows = supabase_adapter.get_user_watchlist(user_id) or []
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取自選清單失敗: {e}")
+        logger.error("Watchlist error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u8b80\u53d6\u81ea\u9078\u6e05\u55ae\u5931\u6557")
 
     symbols = [
         str((row or {}).get("symbol") or "").strip().upper()
@@ -114,7 +116,8 @@ async def get_watchlist(request: Request):
         rows = supabase_adapter.get_user_watchlist(user_id)
         return {"watchlist": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取自選清單失敗: {e}")
+        logger.error("Watchlist error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u8b80\u53d6\u81ea\u9078\u6e05\u55ae\u5931\u6557")
 
 
 @router.post("/watchlist/add")
@@ -152,7 +155,8 @@ async def add_to_watchlist(req: WatchlistAddRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"新增自選清單失敗: {e}")
+        logger.error("Watchlist add error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u65b0\u589e\u81ea\u9078\u6e05\u55ae\u5931\u6557")
 
 
 @router.delete("/watchlist/{symbol}")
@@ -172,7 +176,8 @@ async def remove_from_watchlist(symbol: str, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"刪除自選清單失敗: {e}")
+        logger.error("Watchlist delete error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u522a\u9664\u81ea\u9078\u6e05\u55ae\u5931\u6557")
 
 
 @router.get("/alerts")
@@ -184,7 +189,8 @@ async def get_alerts(request: Request):
         rows = supabase_adapter.get_user_alerts(user_id)
         return {"alerts": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取價格提醒失敗: {e}")
+        logger.error("Alert read error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u8b80\u53d6\u50f9\u683c\u63d0\u9192\u5931\u6557")
 
 
 @router.post("/alerts/add")
@@ -230,7 +236,8 @@ async def add_alert(req: AlertAddRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"新增價格提醒失敗: {e}")
+        logger.error("Alert add error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u65b0\u589e\u50f9\u683c\u63d0\u9192\u5931\u6557")
 
 
 @router.delete("/alerts/{alert_id}")
@@ -242,7 +249,8 @@ async def delete_alert(alert_id: str, request: Request):
         ok = bool(supabase_adapter.delete_alert(alert_id, user_id))
         return {"success": ok}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"刪除價格提醒失敗: {e}")
+        logger.error("Alert delete error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u522a\u9664\u50f9\u683c\u63d0\u9192\u5931\u6557")
 
 
 @router.get("/portfolio")
@@ -254,7 +262,8 @@ async def get_portfolio(request: Request):
         rows = supabase_adapter.get_user_portfolio(user_id)
         return {"portfolio": rows or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"讀取持股資料失敗: {e}")
+        logger.error("Portfolio read error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="\u8b80\u53d6\u6301\u80a1\u8cc7\u6599\u5931\u6557")
 
 
 @router.post("/portfolio/health")

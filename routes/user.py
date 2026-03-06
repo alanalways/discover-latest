@@ -78,7 +78,7 @@ async def get_profile(request: Request):
         profile = supabase_adapter.get_user_profile(user_id)
         return {"profile": profile or {}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.put("/user/profile")
@@ -104,7 +104,7 @@ async def update_profile(req: ProfileUpdate, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 # ── Strategy Template Endpoints ──
@@ -118,7 +118,7 @@ async def list_templates(request: Request):
         templates = supabase_adapter.get_strategy_templates(user_id)
         return {"templates": templates or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/user/templates")
@@ -137,7 +137,7 @@ async def create_template(req: StrategyTemplateCreate, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.delete("/user/templates/{template_id}")
@@ -149,7 +149,7 @@ async def delete_template(template_id: str, request: Request):
         ok = supabase_adapter.delete_strategy_template(user_id, template_id)
         return {"success": bool(ok)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 # ── Trade Journal Endpoints ──
@@ -163,7 +163,7 @@ async def list_journal(request: Request):
         entries = supabase_adapter.get_trade_journal(user_id)
         return {"entries": entries or []}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/user/journal")
@@ -175,7 +175,7 @@ async def add_journal_entry(req: TradeJournalEntry, request: Request):
         entry_id = supabase_adapter.add_trade_journal_entry(user_id, req.dict())
         return {"success": True, "entry_id": entry_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 # ── Pre-Trade Check ──
@@ -200,7 +200,7 @@ async def pretrade_check(request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 # ── Portfolio Checkup ──
@@ -260,4 +260,4 @@ async def portfolio_checkup(request: Request):
             }
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")

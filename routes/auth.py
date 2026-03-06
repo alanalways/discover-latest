@@ -2,6 +2,7 @@
 Auth API — Google OAuth + 使用者驗證
 """
 import os
+import threading
 from urllib.parse import urlencode, urlparse
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request, Query
@@ -17,56 +18,61 @@ _AUTH_LIMITS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_CACHE_TTL_SEC", "20
 _AUTH_LIMITS_COUNTS_CACHE_TTL_SEC = int(os.environ.get("AUTH_LIMITS_COUNTS_CACHE_TTL_SEC", "30"))
 _auth_limits_cache: dict[str, dict] = {}
 _auth_limits_counts_cache: dict[str, dict] = {}
+_auth_cache_lock = threading.Lock()
 
 
 def _get_cached_limits(user_id: str) -> Optional[dict]:
     if not user_id:
         return None
-    cached = _auth_limits_cache.get(user_id)
-    if not isinstance(cached, dict):
-        return None
-    expires_at = cached.get("expires_at")
-    payload = cached.get("payload")
-    if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
-        return None
-    if expires_at <= datetime.now(timezone.utc).timestamp():
-        _auth_limits_cache.pop(user_id, None)
-        return None
-    return payload
+    with _auth_cache_lock:
+        cached = _auth_limits_cache.get(user_id)
+        if not isinstance(cached, dict):
+            return None
+        expires_at = cached.get("expires_at")
+        payload = cached.get("payload")
+        if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
+            return None
+        if expires_at <= datetime.now(timezone.utc).timestamp():
+            _auth_limits_cache.pop(user_id, None)
+            return None
+        return payload
 
 
 def _set_cached_limits(user_id: str, payload: dict) -> None:
     if not user_id or not isinstance(payload, dict):
         return
-    _auth_limits_cache[user_id] = {
-        "expires_at": datetime.now(timezone.utc).timestamp() + max(3, _AUTH_LIMITS_CACHE_TTL_SEC),
-        "payload": payload,
-    }
+    with _auth_cache_lock:
+        _auth_limits_cache[user_id] = {
+            "expires_at": datetime.now(timezone.utc).timestamp() + max(3, _AUTH_LIMITS_CACHE_TTL_SEC),
+            "payload": payload,
+        }
 
 
 def _get_cached_counts(user_id: str) -> Optional[dict]:
     if not user_id:
         return None
-    cached = _auth_limits_counts_cache.get(user_id)
-    if not isinstance(cached, dict):
-        return None
-    expires_at = cached.get("expires_at")
-    payload = cached.get("payload")
-    if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
-        return None
-    if expires_at <= datetime.now(timezone.utc).timestamp():
-        _auth_limits_counts_cache.pop(user_id, None)
-        return None
-    return payload
+    with _auth_cache_lock:
+        cached = _auth_limits_counts_cache.get(user_id)
+        if not isinstance(cached, dict):
+            return None
+        expires_at = cached.get("expires_at")
+        payload = cached.get("payload")
+        if not isinstance(expires_at, (int, float)) or not isinstance(payload, dict):
+            return None
+        if expires_at <= datetime.now(timezone.utc).timestamp():
+            _auth_limits_counts_cache.pop(user_id, None)
+            return None
+        return payload
 
 
 def _set_cached_counts(user_id: str, payload: dict) -> None:
     if not user_id or not isinstance(payload, dict):
         return
-    _auth_limits_counts_cache[user_id] = {
-        "expires_at": datetime.now(timezone.utc).timestamp() + max(5, _AUTH_LIMITS_COUNTS_CACHE_TTL_SEC),
-        "payload": payload,
-    }
+    with _auth_cache_lock:
+        _auth_limits_counts_cache[user_id] = {
+            "expires_at": datetime.now(timezone.utc).timestamp() + max(5, _AUTH_LIMITS_COUNTS_CACHE_TTL_SEC),
+            "payload": payload,
+        }
 
 
 class GoogleAuthRequest(BaseModel):
@@ -144,7 +150,7 @@ async def google_auth(req: GoogleAuthRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/auth/me")
@@ -184,7 +190,7 @@ async def get_auth_config():
             raise HTTPException(status_code=500, detail="OAuth 設定缺失")
         return {"client_id": client_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 _ALLOWED_REDIRECT_HOSTS = {

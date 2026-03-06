@@ -92,7 +92,7 @@ async def list_users(request: Request):
         return {"users": users or [], "diagnostic": diagnostic}
     except Exception as e:
         logger.error("[Admin] /admin/users 例外: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/admin/tier")
@@ -112,7 +112,7 @@ async def update_tier(req: TierUpdateRequest, request: Request):
                 pass
         return {"success": bool(ok)}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/stats")
@@ -136,7 +136,7 @@ async def get_stats(request: Request):
             "pending_upgrade_count": len(pending),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/upgrade-pending")
@@ -149,7 +149,7 @@ async def list_upgrade_pending(request: Request):
         rows = supabase_adapter.list_pending_upgrade_requests() or []
         return {"pending": rows}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/admin/upgrade-pending/approve")
@@ -211,7 +211,7 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/admin/upgrade-pending/reject")
@@ -262,7 +262,7 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/system")
@@ -311,7 +311,7 @@ async def get_system_status(request: Request):
             "local_store_stats": local_stats,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.get("/admin/circuit-breaker")
@@ -324,7 +324,7 @@ async def get_circuit_breaker_status(request: Request):
     except ImportError:
         return {"state": "unavailable", "error": "circuit breaker module not loaded"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 @router.post("/admin/circuit-breaker/reset")
@@ -338,7 +338,7 @@ async def reset_circuit_breaker(request: Request):
     except ImportError:
         raise HTTPException(status_code=500, detail="circuit breaker module not loaded")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
 def _require_admin(request: Request) -> dict[str, Any]:
