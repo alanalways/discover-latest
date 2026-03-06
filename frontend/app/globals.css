@@ -401,3 +401,25 @@ a,
     padding: 24px 30px;
   }
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+  .dl-sidebar { display: none !important; }
+  .dl-main-content { margin-left: 0 !important; padding: 12px !important; }
+
+  /* Tables: horizontal scroll wrapper */
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* Forms: stack vertically */
+  form { flex-direction: column !important; }
+  form input, form select, form button { width: 100% !important; min-width: 0 !important; }
+
+  /* Grid: single column */
+  .grid { grid-template-columns: 1fr !important; }
+}
+
+@media (max-width: 480px) {
+  body { font-size: 14px; }
+  h1 { font-size: 1.4rem !important; }
+  h2 { font-size: 1.2rem !important; }
+}

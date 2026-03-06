@@ -6,6 +6,19 @@ import ClientLayout from '@/components/layout/ClientLayout';
 export const metadata: Metadata = {
   title: 'DiscoverLatest — AI 智慧投資分析平台',
   description: '整合 SMC/ICT 技術分析、AI 深度研究與即時市場資訊的金融分析平台',
+  viewport: 'width=device-width, initial-scale=1, maximum-scale=5',
+  robots: 'index, follow',
+  openGraph: {
+    title: 'DiscoverLatest — AI 智慧投資分析平台',
+    description: '整合 SMC/ICT 技術分析、AI 深度研究與即時市場資訊的金融分析平台',
+    type: 'website',
+    siteName: 'DiscoverLatest',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'DiscoverLatest — AI 智慧投資分析平台',
+    description: '整合 SMC/ICT 技術分析、AI 深度研究與即時市場資訊的金融分析平台',
+  },
 };
 
 export default function RootLayout({

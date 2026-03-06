@@ -323,6 +323,13 @@ function AnalysisContent() {
     // Tab 控制
     const [activeTab, setActiveTab] = useState<'chart' | 'fundamentals' | 'chips'>('chart');
 
+    // Dynamic page title — include symbol and stock name
+    useEffect(() => {
+        const name = data?.info?.name;
+        const label = name ? `${symbol} ${name}` : symbol;
+        document.title = `${label} 分析 — DiscoverLatest`;
+        return () => { document.title = 'DiscoverLatest — AI 智慧投資分析平台'; };
+    }, [symbol, data?.info?.name]);
 
     useEffect(() => {
         if (!aiResult) {
