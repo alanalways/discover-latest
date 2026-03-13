@@ -5,17 +5,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import json
-import math
-import re
-from statistics import pstdev
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-
-logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
 from services import analysis_service
+from services.technical_indicators import (
+    safe_num as _safe_num,
+    clamp as _clamp,
+    extract_numeric_levels as _extract_numeric_levels,
+    pick_tracking_price as _pick_tracking_price,
+    ema as _ema,
+    rsi as _rsi,
+    build_technical_snapshot as _build_technical_snapshot,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -32,54 +39,6 @@ class SmcRequest(BaseModel):
     period: str = "6mo"
 
 
-def _safe_num(value: Any) -> float:
-    try:
-        if value is None:
-            return 0.0
-        if isinstance(value, (int, float)):
-            return float(value)
-        text = str(value).strip().replace(",", "").replace("%", "")
-        if not text:
-            return 0.0
-        return float(text)
-    except Exception:
-        return 0.0
-
-
-def _clamp(v: float, low: float, high: float) -> float:
-    return max(low, min(high, v))
-
-
-def _extract_numeric_levels(value: Any) -> list[float]:
-    if value is None:
-        return []
-    if isinstance(value, (int, float)):
-        return [float(value)] if float(value) > 0 else []
-    text = str(value).strip().replace(",", "")
-    if not text:
-        return []
-    nums: list[float] = []
-    for raw in re.findall(r"\d+(?:\.\d+)?", text):
-        try:
-            val = float(raw)
-            if val > 0:
-                nums.append(val)
-        except Exception:
-            continue
-    return nums
-
-
-def _pick_tracking_price(*values: Any, prefer: str = "mid") -> float:
-    for value in values:
-        nums = _extract_numeric_levels(value)
-        if not nums:
-            continue
-        if prefer == "low":
-            return round(min(nums), 4)
-        if prefer == "high":
-            return round(max(nums), 4)
-        return round(sum(nums) / len(nums), 4)
-    return 0.0
 
 
 def _extract_user_id(auth_header: str) -> Optional[str]:
@@ -102,162 +61,6 @@ def _tier_min_chars(tier: str) -> int:
     if t == "pro":
         return 250
     return 100
-
-
-def _ema(values: list[float], period: int) -> Optional[float]:
-    if len(values) < period or period <= 0:
-        return None
-    k = 2 / (period + 1)
-    ema_val = sum(values[:period]) / period
-    for v in values[period:]:
-        ema_val = v * k + ema_val * (1 - k)
-    return ema_val
-
-
-def _rsi(values: list[float], period: int = 14) -> Optional[float]:
-    if len(values) <= period:
-        return None
-    gains: list[float] = []
-    losses: list[float] = []
-    for i in range(1, len(values)):
-        delta = values[i] - values[i - 1]
-        gains.append(max(delta, 0.0))
-        losses.append(max(-delta, 0.0))
-
-    avg_gain = sum(gains[:period]) / period
-    avg_loss = sum(losses[:period]) / period
-    for i in range(period, len(gains)):
-        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
-        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
-
-    if avg_loss <= 0:
-        return 100.0
-    rs = avg_gain / avg_loss
-    return 100 - (100 / (1 + rs))
-
-
-def _build_technical_snapshot(history: list[dict]) -> str:
-    if not history:
-        return ""
-    closes = [float(h.get("close", 0) or 0) for h in history if float(h.get("close", 0) or 0) > 0]
-    highs = [float(h.get("high", 0) or 0) for h in history if float(h.get("high", 0) or 0) > 0]
-    lows = [float(h.get("low", 0) or 0) for h in history if float(h.get("low", 0) or 0) > 0]
-    if len(closes) < 30:
-        return ""
-
-    last = closes[-1]
-    ema20 = _ema(closes, 20)
-    ema50 = _ema(closes, 50)
-    ema200 = _ema(closes, 200)
-    rsi14 = _rsi(closes, 14)
-
-    ema12 = _ema(closes, 12)
-    ema26 = _ema(closes, 26)
-    macd = (ema12 - ema26) if (ema12 is not None and ema26 is not None) else None
-
-    macd_hist = []
-    for i in range(30, len(closes) + 1):
-        s = closes[:i]
-        e12 = _ema(s, 12)
-        e26 = _ema(s, 26)
-        if e12 is not None and e26 is not None:
-            macd_hist.append(e12 - e26)
-    macd_signal = _ema(macd_hist, 9) if len(macd_hist) >= 9 else None
-
-    k_value: Optional[float] = None
-    d_value: Optional[float] = None
-    j_value: Optional[float] = None
-    if len(closes) >= 9:
-        k_prev = 50.0
-        d_prev = 50.0
-        for i in range(8, len(closes)):
-            window_high = max(highs[max(0, i - 8) : i + 1]) if highs else closes[i]
-            window_low = min(lows[max(0, i - 8) : i + 1]) if lows else closes[i]
-            if window_high <= window_low:
-                rsv = 50.0
-            else:
-                rsv = ((closes[i] - window_low) / (window_high - window_low)) * 100.0
-            k_prev = (2.0 / 3.0) * k_prev + (1.0 / 3.0) * rsv
-            d_prev = (2.0 / 3.0) * d_prev + (1.0 / 3.0) * k_prev
-        k_value = k_prev
-        d_value = d_prev
-        j_value = 3.0 * k_prev - 2.0 * d_prev
-
-    recent20 = closes[-20:]
-    sma20 = sum(recent20) / len(recent20) if recent20 else None
-    std20 = math.sqrt(sum((x - sma20) ** 2 for x in recent20) / len(recent20)) if sma20 is not None else None
-    boll_up = (sma20 + 2 * std20) if (sma20 is not None and std20 is not None) else None
-    boll_dn = (sma20 - 2 * std20) if (sma20 is not None and std20 is not None) else None
-
-    trs = []
-    for i in range(1, len(history)):
-        h = float(history[i].get("high", 0) or 0)
-        low_val = float(history[i].get("low", 0) or 0)
-        pc = float(history[i - 1].get("close", 0) or 0)
-        if h <= 0 or low_val <= 0 or pc <= 0:
-            continue
-        trs.append(max(h - low_val, abs(h - pc), abs(low_val - pc)))
-    atr14 = sum(trs[-14:]) / 14 if len(trs) >= 14 else None
-    keltner_mid = ema20
-    keltner_up = (keltner_mid + 2 * atr14) if (keltner_mid is not None and atr14 is not None) else None
-    keltner_dn = (keltner_mid - 2 * atr14) if (keltner_mid is not None and atr14 is not None) else None
-
-    lines = [f"Price: {last:.2f}"]
-    if ema20 is not None:
-        lines.append(f"EMA20: {ema20:.2f}")
-    if ema50 is not None:
-        lines.append(f"EMA50: {ema50:.2f}")
-    if ema200 is not None:
-        lines.append(f"EMA200: {ema200:.2f}")
-    if rsi14 is not None:
-        lines.append(f"RSI14: {rsi14:.2f}")
-    if macd is not None:
-        lines.append(f"MACD: {macd:.4f}")
-    if macd_signal is not None:
-        lines.append(f"MACD Signal: {macd_signal:.4f}")
-    if k_value is not None and d_value is not None and j_value is not None:
-        lines.append(f"KDJ(9,3,3): K={k_value:.2f} D={d_value:.2f} J={j_value:.2f}")
-    if boll_up is not None and boll_dn is not None:
-        lines.append(f"Bollinger(20,2): {boll_up:.2f}/{boll_dn:.2f}")
-    if keltner_up is not None and keltner_dn is not None:
-        lines.append(f"Keltner(EMA20, ATR14x2): {keltner_up:.2f}/{keltner_dn:.2f}")
-    if highs and lows:
-        lines.append(f"52W High/Low: {max(highs[-250:]):.2f}/{min(lows[-250:]):.2f}")
-
-    # Volume analysis (OBV, volume ratio, accumulation/distribution)
-    volumes = [float(h.get("volume", 0) or 0) for h in history]
-    if len(volumes) >= 20 and len(closes) >= 20:
-        # Volume ratio: today vs 20-day average
-        avg_vol_20 = sum(volumes[-20:]) / 20 if sum(volumes[-20:]) > 0 else 1
-        vol_ratio = volumes[-1] / avg_vol_20 if avg_vol_20 > 0 else 1.0
-        lines.append(f"Vol Ratio(20d): {vol_ratio:.2f}x")
-
-        # Simple OBV direction (last 20 days)
-        obv = 0.0
-        for i in range(-20, 0):
-            if i + 1 < 0:
-                if closes[i] > closes[i - 1]:
-                    obv += volumes[i]
-                elif closes[i] < closes[i - 1]:
-                    obv -= volumes[i]
-        obv_direction = "accumulation" if obv > 0 else "distribution"
-        lines.append(f"OBV(20d): {obv_direction}")
-
-        # Money Flow (simplified): up volume vs down volume ratio
-        up_vol = sum(volumes[i] for i in range(-20, 0) if closes[i] > closes[i - 1])
-        dn_vol = sum(volumes[i] for i in range(-20, 0) if closes[i] < closes[i - 1])
-        mf_ratio = up_vol / dn_vol if dn_vol > 0 else 999
-        lines.append(f"MF Ratio(20d): {mf_ratio:.2f}")
-
-        # Volume climax detection
-        if vol_ratio > 2.5:
-            price_chg = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] > 0 else 0
-            climax_type = "buying_climax" if price_chg > 1 else "selling_climax" if price_chg < -1 else "high_volume"
-            lines.append(f"Vol Alert: {climax_type} ({vol_ratio:.1f}x avg)")
-
-    return " | ".join(lines)
-
-
 def _summarize_smc(result: Optional[dict], tier: str = "free") -> str:
     if not isinstance(result, dict) or result.get("error"):
         return "SMC 資料不足"

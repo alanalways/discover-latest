@@ -59,19 +59,17 @@ def _save_top20_cache_to_disk(data: dict, ts: float) -> None:
 async def market_overview():
     """Return market indices and ETFs with safe fallback."""
     try:
-        from pages.market_overview import _FALLBACK_ETFS, _FALLBACK_INDICES, _fetch_market_data
+        from services.market_service import FALLBACK_ETFS, FALLBACK_INDICES, fetch_market_data
 
-        data = await run_in_threadpool(_fetch_market_data)
-        indices = data.get("indices") or list(_FALLBACK_INDICES)
-        etfs = data.get("etfs") or list(_FALLBACK_ETFS)
+        data = await run_in_threadpool(fetch_market_data)
+        indices = data.get("indices") or list(FALLBACK_INDICES)
+        etfs = data.get("etfs") or list(FALLBACK_ETFS)
         return {"indices": indices, "etfs": etfs}
     except Exception as e:
         try:
-            from pages.market_overview import _FALLBACK_ETFS, _FALLBACK_INDICES
-
             return {
-                "indices": list(_FALLBACK_INDICES),
-                "etfs": list(_FALLBACK_ETFS),
+                "indices": list(FALLBACK_INDICES),
+                "etfs": list(FALLBACK_ETFS),
                 "error": str(e),
             }
         except Exception:
@@ -161,19 +159,19 @@ async def market_top20():
         return merged
 
     try:
-        from pages.market_overview import (
-            _FALLBACK_TOP20_TW,
-            _FALLBACK_TOP20_US,
-            _fetch_top20_data,
-            _is_tw_market_open,
-            _is_us_market_open,
+        from services.market_service import (
+            FALLBACK_TOP20_TW,
+            FALLBACK_TOP20_US,
+            fetch_top20_data,
+            is_tw_market_open,
+            is_us_market_open,
         )
 
         now_utc = datetime.now(ZoneInfo("UTC"))
         tw_now = now_utc.astimezone(ZoneInfo("Asia/Taipei"))
         us_now = now_utc.astimezone(ZoneInfo("America/New_York"))
-        tw_open = _is_tw_market_open(tw_now)
-        us_open = _is_us_market_open(us_now)
+        tw_open = is_tw_market_open(tw_now)
+        us_open = is_us_market_open(us_now)
         both_closed = (not tw_open) and (not us_open)
 
         ttl = _TOP20_TTL_CLOSED_SEC if both_closed else _TOP20_TTL_OPEN_SEC
@@ -188,13 +186,13 @@ async def market_top20():
                 return cached
 
             try:
-                data = await asyncio.wait_for(run_in_threadpool(_fetch_top20_data), timeout=8.0)
+                data = await asyncio.wait_for(run_in_threadpool(fetch_top20_data), timeout=8.0)
             except asyncio.TimeoutError:
                 if _TOP20_CACHE.get("data"):
                     return _TOP20_CACHE["data"]
                 payload = {
-                    "tw": fallback_bucket(_FALLBACK_TOP20_TW),
-                    "us": fallback_bucket(_FALLBACK_TOP20_US),
+                    "tw": fallback_bucket(FALLBACK_TOP20_TW),
+                    "us": fallback_bucket(FALLBACK_TOP20_US),
                     "error": "top20_timeout",
                     "meta": {
                         "generated_at": datetime.now(ZoneInfo("UTC")).isoformat(),
@@ -233,7 +231,7 @@ async def market_top20():
 
             def sort_data(rows, market: str):
                 items = sanitize(rows, market)
-                fallback_rows = list((_FALLBACK_TOP20_TW if market == "tw" else _FALLBACK_TOP20_US) or [])[:20]
+                fallback_rows = list((FALLBACK_TOP20_TW if market == "tw" else FALLBACK_TOP20_US) or [])[:20]
                 items = [r for r in items if not is_placeholder_row(r)]
                 if not items:
                     # Keep a stable non-empty table even when upstream data is empty.
@@ -278,10 +276,9 @@ async def market_top20():
             return payload
     except Exception as e:
         try:
-            from pages.market_overview import _FALLBACK_TOP20_TW, _FALLBACK_TOP20_US
             return {
-                "tw": fallback_bucket(_FALLBACK_TOP20_TW),
-                "us": fallback_bucket(_FALLBACK_TOP20_US),
+                "tw": fallback_bucket(FALLBACK_TOP20_TW),
+                "us": fallback_bucket(FALLBACK_TOP20_US),
                 "error": str(e),
             }
         except Exception:
@@ -330,6 +327,6 @@ async def _safe_news_brief(fn):
 @router.get("/market/hours")
 async def market_hours():
     """Return market hours status using 2026 holiday calendars."""
-    from pages.market_overview import get_market_hours_snapshot
+    from services.market_service import get_market_hours_snapshot
 
     return get_market_hours_snapshot()

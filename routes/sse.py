@@ -71,7 +71,7 @@ async def _fetch_market_snapshot() -> dict:
     snapshot: dict = {"ts": time.time()}
 
     try:
-        from pages.market_overview import _fetch_market_data, _FALLBACK_INDICES
+        from services.market_service import fetch_market_data as _fetch_market_data, FALLBACK_INDICES as _FALLBACK_INDICES
         data = await run_in_threadpool(_fetch_market_data)
         snapshot["indices"] = data.get("indices") or list(_FALLBACK_INDICES)
     except Exception as e:
@@ -79,7 +79,7 @@ async def _fetch_market_snapshot() -> dict:
         snapshot["indices_error"] = str(e)
 
     try:
-        from pages.market_overview import get_market_hours_snapshot
+        from services.market_service import get_market_hours_snapshot
         hours = await run_in_threadpool(get_market_hours_snapshot)
         snapshot["hours"] = hours
     except Exception:

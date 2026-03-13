@@ -29,6 +29,15 @@ class PendingModerateRequest(BaseModel):
     expires_at: Optional[str] = None
 
 
+class PromptChangeRequest(BaseModel):
+    change_type: str = "prompt"
+    old_version: str = ""
+    new_version: str = ""
+    reason: str = ""
+    expected_improvement: str = ""
+    evidence: str = ""
+
+
 from utils.auth import require_admin as _require_admin_shared
 
 
@@ -378,5 +387,40 @@ async def get_predictions_quarterly(
     try:
         from services.ai_prediction_tracker import prediction_tracker
         return prediction_tracker.get_quarterly_audit(year=year, quarter=quarter)
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/prompt-changes")
+async def list_prompt_changes(request: Request):
+    """List prompt/rule change history."""
+    _require_admin(request)
+    try:
+        from adapters.local_store import local_store
+        rows = local_store.list_prompt_changes(limit=200)
+        return {"changes": rows}
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.post("/admin/prompt-changes")
+async def add_prompt_change(req: PromptChangeRequest, request: Request):
+    """Record a prompt/rule/system change with reason and evidence."""
+    _require_admin(request)
+    try:
+        import uuid
+        from adapters.local_store import local_store
+        record = {
+            "id": str(uuid.uuid4()),
+            "change_type": req.change_type,
+            "old_version": req.old_version,
+            "new_version": req.new_version,
+            "reason": req.reason,
+            "expected_improvement": req.expected_improvement,
+            "evidence": req.evidence,
+            "changed_by": "admin",
+        }
+        ok = local_store.add_prompt_change(record)
+        return {"success": ok, "record": record}
     except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")

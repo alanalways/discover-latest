@@ -27,7 +27,7 @@ def _preload_task() -> None:
 
     def _preload_top20():
         try:
-            from pages.market_overview import _refresh_top20_background
+            from services.market_service import refresh_top20_background as _refresh_top20_background
             _refresh_top20_background()
             logger.info("Top20 background preload completed")
         except Exception as e:

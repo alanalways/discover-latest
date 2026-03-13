@@ -11,54 +11,34 @@ from .market_scanner import scan_market
 from .weekly_picks import generate_weekly_picks
 from .budget_manager import BudgetManager, budget_manager
 
-# Phase 3-6 modules (lazy-safe imports)
-from . import portfolio_optimizer
 from . import risk_metrics
 from . import stress_test
 from . import strategy_templates
 from . import pretrade_checker
-from . import signal_evaluator
 from . import slo_monitor
-from . import event_calendar
 from . import gemini_circuit_breaker
 
 __all__ = [
-    # Rate Limiter
     "RateLimiter",
     "rate_limiter",
     "TIER_LIMITS",
-    # Stock Service
     "StockService",
     "stock_service",
-    # Backtest Service
     "BacktestService",
     "backtest_service",
-    # SMC Service
     "smc_service",
     "SMCService",
-    # Auth Service
     "AuthService",
     "auth_service",
-    # Growth Services
     "calculate_profile",
     "scan_market",
     "generate_weekly_picks",
-    # Budget Manager
     "BudgetManager",
     "budget_manager",
-    # Phase 3: Portfolio Risk
-    "portfolio_optimizer",
     "risk_metrics",
     "stress_test",
-    # Phase 4: Customization
     "strategy_templates",
     "pretrade_checker",
-    # Phase 5: Signal Loop
-    "signal_evaluator",
     "slo_monitor",
-    # Phase 6: Event Calendar
-    "event_calendar",
-    # Circuit Breaker
     "gemini_circuit_breaker",
 ]
-

@@ -24,7 +24,6 @@ COPY --chown=user:user services/ services/
 COPY --chown=user:user adapters/ adapters/
 COPY --chown=user:user config/ config/
 COPY --chown=user:user pages/ pages/
-COPY --chown=user:user components/ components/
 COPY --chown=user:user locales/ locales/
 COPY --chown=user:user static/ static/
 COPY --chown=user:user utils/ utils/

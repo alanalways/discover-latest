@@ -136,6 +136,18 @@ class LocalStore:
                         details_json TEXT DEFAULT ''
                     );
 
+                    CREATE TABLE IF NOT EXISTS prompt_change_log (
+                        id TEXT PRIMARY KEY,
+                        change_type TEXT NOT NULL DEFAULT 'prompt',
+                        old_version TEXT DEFAULT '',
+                        new_version TEXT DEFAULT '',
+                        reason TEXT DEFAULT '',
+                        expected_improvement TEXT DEFAULT '',
+                        evidence TEXT DEFAULT '',
+                        changed_by TEXT DEFAULT 'system',
+                        created_at TEXT DEFAULT (datetime('now'))
+                    );
+
                     CREATE INDEX IF NOT EXISTS idx_ai_usage_user_date ON ai_usage(user_id, date);
                     CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
                     CREATE INDEX IF NOT EXISTS idx_portfolios_user ON portfolios(user_id);
@@ -567,6 +579,50 @@ class LocalStore:
             finally:
                 conn.close()
 
+    # ────────────────────── Prompt / Rule Change Log ──────────────────────
+
+    def add_prompt_change(self, record: Dict[str, Any]) -> bool:
+        change_id = str(record.get("id") or "").strip()
+        if not change_id:
+            return False
+        with self._lock:
+            conn = self._conn()
+            try:
+                conn.execute("""
+                    INSERT INTO prompt_change_log (
+                        id, change_type, old_version, new_version,
+                        reason, expected_improvement, evidence, changed_by, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                    ON CONFLICT(id) DO NOTHING
+                """, (
+                    change_id,
+                    str(record.get("change_type") or "prompt").strip(),
+                    str(record.get("old_version") or "").strip(),
+                    str(record.get("new_version") or "").strip(),
+                    str(record.get("reason") or "").strip(),
+                    str(record.get("expected_improvement") or "").strip(),
+                    str(record.get("evidence") or "").strip(),
+                    str(record.get("changed_by") or "system").strip(),
+                ))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.warning("[LocalStore] add_prompt_change failed: %s", e)
+                return False
+            finally:
+                conn.close()
+
+    def list_prompt_changes(self, limit: int = 200) -> List[Dict[str, Any]]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM prompt_change_log ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(int(limit), 1000)),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+
     # ────────────────────── 匯入/匯出（同步用）──────────────────────
 
     def import_users(self, users: List[Dict[str, Any]]) -> int:
@@ -619,7 +675,7 @@ class LocalStore:
         conn = self._conn()
         try:
             result = {}
-            for table in ("users", "user_subscriptions", "ai_usage", "watchlist", "portfolios", "ai_predictions", "ai_evaluation_runs"):
+            for table in ("users", "user_subscriptions", "ai_usage", "watchlist", "portfolios", "ai_predictions", "ai_evaluation_runs", "prompt_change_log"):
                 rows = conn.execute(f"SELECT * FROM {table}").fetchall()
                 result[table] = [dict(r) for r in rows]
             return result
@@ -640,7 +696,7 @@ class LocalStore:
         conn = self._conn()
         try:
             stats = {}
-            for table in ("users", "user_subscriptions", "ai_usage", "watchlist", "portfolios", "ai_predictions", "ai_evaluation_runs"):
+            for table in ("users", "user_subscriptions", "ai_usage", "watchlist", "portfolios", "ai_predictions", "ai_evaluation_runs", "prompt_change_log"):
                 row = conn.execute(f"SELECT COUNT(*) as cnt FROM {table}").fetchone()
                 stats[table] = row["cnt"] if row else 0
             return stats
