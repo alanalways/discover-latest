@@ -399,6 +399,54 @@ class DexterAgent:
             if avg20 > 0:
                 vol_ratio = vols[-1] / avg20
 
+        # RSI-14
+        rsi14 = 50.0
+        if len(closes) >= 15:
+            deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+            gains = [max(0.0, d) for d in deltas[-14:]]
+            losses = [max(0.0, -d) for d in deltas[-14:]]
+            avg_g = sum(gains) / 14.0
+            avg_l = sum(losses) / 14.0
+            rsi14 = 100.0 - (100.0 / (1.0 + avg_g / avg_l)) if avg_l > 0 else (100.0 if avg_g > 0 else 50.0)
+
+        # MACD (12, 26, 9)
+        macd_val = macd_signal = macd_hist = 0.0
+        if len(closes) >= 26:
+            def _ema(data: list, n: int) -> list:
+                k = 2.0 / (n + 1)
+                res = [data[0]]
+                for v in data[1:]:
+                    res.append(v * k + res[-1] * (1 - k))
+                return res
+            ema12 = _ema(closes, 12)
+            ema26 = _ema(closes, 26)
+            macd_line = [e12 - e26 for e12, e26 in zip(ema12, ema26)]
+            if len(macd_line) >= 9:
+                sig_line = _ema(macd_line, 9)
+                macd_val = macd_line[-1]
+                macd_signal = sig_line[-1]
+                macd_hist = macd_val - macd_signal
+
+        # KDJ (9, 3, 3)
+        kdj_k = kdj_d = kdj_j = 50.0
+        if len(closes) >= 9:
+            k_v, d_v = 50.0, 50.0
+            for i in range(8, len(closes)):
+                h9 = max(highs[max(0, i - 8):i + 1])
+                l9 = min(lows[max(0, i - 8):i + 1])
+                rsv = (closes[i] - l9) / (h9 - l9) * 100.0 if h9 != l9 else 50.0
+                k_v = 2 / 3 * k_v + 1 / 3 * rsv
+                d_v = 2 / 3 * d_v + 1 / 3 * k_v
+            kdj_k, kdj_d = k_v, d_v
+            kdj_j = 3 * kdj_k - 2 * kdj_d
+
+        # Bollinger (20, 2)
+        bb_upper = bb_lower = sma20
+        if len(closes) >= 20:
+            std20 = (sum((c - sma20) ** 2 for c in closes[-20:]) / 20.0) ** 0.5
+            bb_upper = sma20 + 2 * std20
+            bb_lower = sma20 - 2 * std20
+
         def zone(a: float, b: float) -> Tuple[float, float]:
             lo, hi = (a, b) if a <= b else (b, a)
             return round(max(0.01, lo), 2), round(max(0.01, hi), 2)
@@ -425,6 +473,15 @@ class DexterAgent:
             "sma20": round(sma20, 2),
             "sma60": round(sma60, 2),
             "vol_ratio20": round(vol_ratio, 2),
+            "rsi14": round(rsi14, 1),
+            "macd": round(macd_val, 3),
+            "macd_signal": round(macd_signal, 3),
+            "macd_hist": round(macd_hist, 3),
+            "kdj_k": round(kdj_k, 1),
+            "kdj_d": round(kdj_d, 1),
+            "kdj_j": round(kdj_j, 1),
+            "bb_upper": round(bb_upper, 2),
+            "bb_lower": round(bb_lower, 2),
             "short_entry": short_entry,
             "mid_entry": mid_entry,
             "long_entry": long_entry,
@@ -443,6 +500,10 @@ class DexterAgent:
             f"現價 {levels['last']:.2f} 日變動 {levels['chg1']:+.2f}% 5日 {levels['chg5']:+.2f}%\n"
             f"支撐 {levels['support']:.2f} 壓力 {levels['resistance']:.2f} ATR14 {levels['atr14']:.2f} "
             f"SMA20 {levels['sma20']:.2f} SMA60 {levels['sma60']:.2f} 量比20日 {levels['vol_ratio20']:.2f}\n"
+            f"RSI14 {levels.get('rsi14', 50):.1f} "
+            f"MACD {levels.get('macd', 0):.3f}/Signal {levels.get('macd_signal', 0):.3f}/Hist {levels.get('macd_hist', 0):+.3f}\n"
+            f"KDJ K {levels.get('kdj_k', 50):.1f}/D {levels.get('kdj_d', 50):.1f}/J {levels.get('kdj_j', 50):.1f} "
+            f"Bollinger 上 {levels.get('bb_upper', levels['sma20']):.2f}/下 {levels.get('bb_lower', levels['sma20']):.2f}\n"
             f"短線進場 {levels['short_entry'][0]:.2f}-{levels['short_entry'][1]:.2f} "
             f"停損 {levels['short_stop']:.2f} 目標 {levels['short_target']:.2f}\n"
             f"中線進場 {levels['mid_entry'][0]:.2f}-{levels['mid_entry'][1]:.2f} "
@@ -794,6 +855,26 @@ class DexterAgent:
             dy = signals.get("dividend_yield")
             market = str(signals.get("market") or "").strip().upper()
 
+            # 美股 PE/PB/dividend 補充：FinMind 通常無此資料，改用 yfinance
+            if market == "US" and any(v is None for v in (pe_ratio, pb_ratio, dy)):
+                try:
+                    import yfinance as _yf
+                    _info = (_yf.Ticker(symbol).info or {})
+                    if pe_ratio is None:
+                        _pe = _info.get("trailingPE") or _info.get("forwardPE")
+                        if isinstance(_pe, (int, float)) and 0 < _pe < 500:
+                            pe_ratio = signals["pe_ratio"] = round(float(_pe), 2)
+                    if pb_ratio is None:
+                        _pb = _info.get("priceToBook")
+                        if isinstance(_pb, (int, float)) and 0 < _pb < 100:
+                            pb_ratio = signals["pb_ratio"] = round(float(_pb), 2)
+                    if dy is None:
+                        _dy = _info.get("dividendYield")
+                        if isinstance(_dy, (int, float)) and _dy > 0:
+                            dy = signals["dividend_yield"] = round(float(_dy) * 100, 2)
+                except Exception:
+                    pass
+
             score = 0
             if regime == "偏多趨勢":
                 score += 1
@@ -839,14 +920,17 @@ class DexterAgent:
                 margin_line = f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。"
             macro_index = self._macro_index_hint(signals)
             lines = [
+                "我是 DiscoverLatest 專屬 AI 🚀",
                 "1.市場快報",
                 f"• 標的 {symbol} 現價 {levels['last']:.2f}，當日 {levels['chg1']:+.2f}%、近5日 {levels['chg5']:+.2f}%，量比20日 {levels['vol_ratio20']:.2f}。",
                 f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
                 inst_line,
                 margin_line,
                 f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{event_snippet}，判定 {div_bias}。",
-                "2.技術面分析",
+                "2.技術面分析 📈",
                 f"• 結構判定 {regime}；SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}。",
+                f"• RSI14 {levels['rsi14']:.1f}，{'超買警戒（>70）' if levels['rsi14'] > 70 else ('超賣反彈（<30）' if levels['rsi14'] < 30 else '中性區間（30-70）')}；布林通道(20,2) 上軌 {levels['bb_upper']:.2f}、下軌 {levels['bb_lower']:.2f}，收盤{'突破上軌偏強' if levels['last'] > levels['bb_upper'] else ('跌破下軌偏弱' if levels['last'] < levels['bb_lower'] else '通道內震盪')}。",
+                f"• MACD(12,26,9) DIF {levels['macd']:.3f}／DEA {levels['macd_signal']:.3f}，柱狀 {levels['macd_hist']:+.3f}，{'金叉偏多' if levels['macd_hist'] > 0 else '死叉偏空'}；KDJ(9,3,3) K {levels['kdj_k']:.1f}／D {levels['kdj_d']:.1f}／J {levels['kdj_j']:.1f}，{'超買' if levels['kdj_k'] > 80 else ('超賣' if levels['kdj_k'] < 20 else '中性')}。",
                 f"• 關鍵價位：支撐 {levels['support']:.2f}，壓力 {levels['resistance']:.2f}；收盤若連2日跌破支撐視為弱化。",
                 "• 量價條件：量比 > 1.20 才允許追價，量比 < 0.85 以回測承接為主。",
                 "3.進出場計劃",
@@ -870,6 +954,7 @@ class DexterAgent:
         else:
             event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
             lines = [
+                "我是 DiscoverLatest 專屬 AI 🚀",
                 "1.市場快報",
                 f"• 標的 {symbol}：目前資料源未取得足夠 OHLCV 序列（至少 30 根），不輸出虛構價位。",
                 f"• 事件摘要：{event_snippet}。",
@@ -1091,7 +1176,7 @@ class DexterAgent:
             grounding_compact = self._clean_grounding_text(grounding_text, max_len=2200)
             today_str = _dt.now().strftime("%Y-%m-%d")
             tier_extra = TIER_EXTRA.get(tier_norm, TIER_EXTRA["free"])
-            max_tokens = 2048 if tier_norm == "free" else (3200 if tier_norm == "pro" else 4096)
+            max_tokens = 3500 if tier_norm == "free" else (5000 if tier_norm == "pro" else 6000)
 
             stage2_prompt = (
                 f"{UNIFIED_SYSTEM_PROMPT.replace('{today}', today_str)}\n"
