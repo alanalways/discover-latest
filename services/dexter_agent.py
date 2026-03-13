@@ -524,6 +524,11 @@ class DexterAgent:
                 continue
             if any(tok in s for tok in ban_tokens):
                 continue
+            # 過濾純數字行 或 長度不足 5 字的無意義行
+            if re.match(r"^\d+\.?\d*$", s):
+                continue
+            if len(s) < 5:
+                continue
             cleaned_lines.append(s)
         if not cleaned_lines:
             return "無可用外部事件摘要"
@@ -834,7 +839,6 @@ class DexterAgent:
                 margin_line = f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。"
             macro_index = self._macro_index_hint(signals)
             lines = [
-                "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
                 f"• 標的 {symbol} 現價 {levels['last']:.2f}，當日 {levels['chg1']:+.2f}%、近5日 {levels['chg5']:+.2f}%，量比20日 {levels['vol_ratio20']:.2f}。",
                 f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
@@ -866,7 +870,6 @@ class DexterAgent:
         else:
             event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
             lines = [
-                "我是 DiscoverLatest 專屬 AI",
                 "1.市場快報",
                 f"• 標的 {symbol}：目前資料源未取得足夠 OHLCV 序列（至少 30 根），不輸出虛構價位。",
                 f"• 事件摘要：{event_snippet}。",
