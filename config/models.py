@@ -4,14 +4,15 @@ DiscoverLatest 洞察運算 - Gemini 模型設定
 """
 
 # 固定模型名稱（禁止散落在各處）
+# 以 Gemini free tier 穩定可用的 Flash 系列為主，避免使用 preview / 高成本模型。
 MODEL_GROUNDING = "gemini-2.5-flash"
-MODEL_FINAL = "gemini-3-flash-preview"
-MODEL_DEXTER = "gemini-3-flash-preview"
+MODEL_FINAL = "gemini-2.5-flash"
+MODEL_DEXTER = "gemini-2.5-flash"
 
 
 def get_model_list():
     """取得所有允許使用的模型清單"""
-    return [MODEL_GROUNDING, MODEL_FINAL, MODEL_DEXTER]
+    return list(dict.fromkeys([MODEL_GROUNDING, MODEL_FINAL, MODEL_DEXTER]))
 
 
 async def validate_models_on_startup(genai_client):

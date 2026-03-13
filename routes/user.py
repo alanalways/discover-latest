@@ -9,7 +9,7 @@ P01：投資人格檔案
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -77,7 +77,7 @@ async def get_profile(request: Request):
         from adapters.supabase_adapter import supabase_adapter
         profile = supabase_adapter.get_user_profile(user_id)
         return {"profile": profile or {}}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -103,7 +103,7 @@ async def update_profile(req: ProfileUpdate, request: Request):
         return {"success": bool(ok)}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -117,7 +117,7 @@ async def list_templates(request: Request):
         from adapters.supabase_adapter import supabase_adapter
         templates = supabase_adapter.get_strategy_templates(user_id)
         return {"templates": templates or []}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -136,7 +136,7 @@ async def create_template(req: StrategyTemplateCreate, request: Request):
         return {"success": True, "template_id": template_id}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -148,7 +148,7 @@ async def delete_template(template_id: str, request: Request):
         from adapters.supabase_adapter import supabase_adapter
         ok = supabase_adapter.delete_strategy_template(user_id, template_id)
         return {"success": bool(ok)}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -162,7 +162,7 @@ async def list_journal(request: Request):
         from adapters.supabase_adapter import supabase_adapter
         entries = supabase_adapter.get_trade_journal(user_id)
         return {"entries": entries or []}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -174,7 +174,7 @@ async def add_journal_entry(req: TradeJournalEntry, request: Request):
         from adapters.supabase_adapter import supabase_adapter
         entry_id = supabase_adapter.add_trade_journal_entry(user_id, req.dict())
         return {"success": True, "entry_id": entry_id}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -192,14 +192,14 @@ async def pretrade_check(request: Request):
 
         # 取得當前持倉
         from adapters.supabase_adapter import supabase_adapter
-        portfolio = supabase_adapter.get_watchlist(user_id) or []
+        portfolio = supabase_adapter.get_user_portfolio(user_id) or []
 
         from services.pretrade_checker import run_pretrade_check
         result = run_pretrade_check(trade, portfolio, config=body.get("config"))
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -214,14 +214,14 @@ async def portfolio_checkup(request: Request):
         from services.risk_metrics import compute_portfolio_risk, risk_attribution, check_risk_budget
         from services.stress_test import run_stress_test
 
-        watchlist = supabase_adapter.get_watchlist(user_id) or []
-        if not watchlist:
+        holdings = supabase_adapter.get_user_portfolio(user_id) or []
+        if not holdings:
             return {"checkup": None, "message": "無持倉資料"}
 
-        # 將 watchlist 轉換為 risk 計算所需格式（含 closes/weight/industry）
+        # 將 portfolio 轉換為 risk 計算所需格式（含 closes/weight/industry）
         portfolio = []
-        equal_weight = round(1.0 / len(watchlist), 4) if watchlist else 0
-        for item in watchlist:
+        equal_weight = round(1.0 / len(holdings), 4) if holdings else 0
+        for item in holdings:
             sym = item.get("symbol") or item.get("stock_id") or ""
             if not sym:
                 continue
@@ -259,5 +259,5 @@ async def portfolio_checkup(request: Request):
                 "holding_count": len(portfolio),
             }
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")

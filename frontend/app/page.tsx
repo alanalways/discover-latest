@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -179,7 +179,7 @@ function pickStableNewsPayload(nextPayload: NewsBrief | null | undefined, prevPa
   return nextPayload;
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> { // eslint-disable-line @typescript-eslint/no-unused-vars
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -279,7 +279,7 @@ export default function Dashboard() {
 
   // ── sessionStorage 快取 helpers ──
   const CACHE_KEY = 'dl_dashboard_cache';
-  const CACHE_TTL_MS = 3 * 60 * 1000; // 3 分鐘內快取有效
+  const CACHE_TTL_MS = 3 * 60 * 1000;
 
   const saveCache = useCallback((data: DashboardCachePayload) => {
     try {
@@ -295,7 +295,7 @@ export default function Dashboard() {
       if (parsed._ts && Date.now() - parsed._ts > CACHE_TTL_MS) return null;
       return parsed;
     } catch { return null; }
-  }, []);
+  }, [CACHE_TTL_MS]);
 
   // ── 將 API 結果寫入 state ──
   const applyData = useCallback((

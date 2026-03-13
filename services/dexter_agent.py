@@ -248,7 +248,7 @@ class DexterAgent:
             data = finmind_adapter.get_us_stock_price_sync(symbol, start_date, end_date)
             if data and len(data) > 0:
                 last = data[-1]
-                prev = data[-2] if len(data) > 1 else last
+                data[-2] if len(data) > 1 else last
                 return {
                     "name": symbol,
                     "price": last["close"],
@@ -384,11 +384,11 @@ class DexterAgent:
         trs: List[float] = []
         for i in range(1, len(price_rows)):
             h = highs[i]
-            l = lows[i]
+            low_val = lows[i]
             pc = closes[i - 1]
-            if h <= 0 or l <= 0 or pc <= 0:
+            if h <= 0 or low_val <= 0 or pc <= 0:
                 continue
-            trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+            trs.append(max(h - low_val, abs(h - pc), abs(low_val - pc)))
         atr = (sum(trs[-14:]) / 14.0) if len(trs) >= 14 else 0.0
         if atr <= 0:
             atr = max(0.01, last * 0.012)
@@ -927,7 +927,7 @@ class DexterAgent:
             if not rows:
                 return f"{name}: 無資料"
             last = rows[-1] if isinstance(rows[-1], dict) else {}
-            first = rows[0] if isinstance(rows[0], dict) else {}
+            rows[0] if isinstance(rows[0], dict) else {}
 
             # Price/OHLCV rows
             if "close" in last and ("open" in last or "high" in last or "low" in last):

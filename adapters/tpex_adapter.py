@@ -5,7 +5,6 @@ import logging
 import httpx
 from datetime import datetime
 from typing import Optional, List, Dict
-import json
 
 
 
@@ -185,14 +184,14 @@ class TPEXAdapter:
         """解析數字"""
         try:
             return int(str(value).replace(",", ""))
-        except:
+        except Exception:
             return 0
     
     def _parse_price(self, value: str) -> float:
         """解析價格"""
         try:
             return float(str(value).replace(",", ""))
-        except:
+        except Exception:
             return 0.0
     
     def _parse_roc_date(self, roc_date: str) -> str:
@@ -201,7 +200,7 @@ class TPEXAdapter:
             parts = roc_date.split("/")
             year = int(parts[0]) + 1911
             return f"{year}-{parts[1]}-{parts[2]}"
-        except:
+        except Exception:
             return roc_date
     
     async def close(self):

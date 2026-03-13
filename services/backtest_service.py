@@ -2,7 +2,7 @@
 Backtest Service - 回測服務
 提供均線、突破、動能等策略的歷史回測功能
 """
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 import math
 from adapters.finmind_adapter import finmind_adapter

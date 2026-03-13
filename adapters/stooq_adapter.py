@@ -5,7 +5,7 @@ import logging
 import httpx
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from typing import List, Dict
 from io import StringIO
 
 

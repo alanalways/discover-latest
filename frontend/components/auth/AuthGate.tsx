@@ -2,11 +2,23 @@
 
 import React from 'react';
 import styles from './AuthGate.module.css';
+import { createPkceSession } from '@/lib/pkce';
 
 export default function AuthGate() {
-    const handleGoogleLogin = () => {
-        const callback = `${window.location.origin}/auth/callback`;
-        window.location.href = `/api/auth/google/start?redirect_to=${encodeURIComponent(callback)}`;
+    const handleGoogleLogin = async () => {
+        try {
+            const callback = `${window.location.origin}/auth/callback`;
+            const pkce = await createPkceSession();
+            const params = new URLSearchParams({
+                redirect_to: callback,
+                state: pkce.state,
+                code_challenge: pkce.codeChallenge,
+                code_challenge_method: pkce.codeChallengeMethod,
+            });
+            window.location.href = `/api/auth/google/start?${params.toString()}`;
+        } catch {
+            alert('登入失敗，請稍後再試');
+        }
     };
 
     return (

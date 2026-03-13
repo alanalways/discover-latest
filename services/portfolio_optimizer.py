@@ -6,7 +6,6 @@ C11：<20 檔投組最佳化，考慮相關性、單檔上限 30%、產業上限
 
 from __future__ import annotations
 
-import math
 import logging
 from typing import Any, Dict, List, Optional
 

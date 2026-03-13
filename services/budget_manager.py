@@ -12,7 +12,7 @@ import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +142,7 @@ class BudgetManager:
 
     def _flush_to_supabase(self) -> None:
         """Write current usage to Supabase api_usage_daily table."""
+        flush_failed = False
         try:
             from adapters.supabase_adapter import supabase_adapter
 
@@ -155,19 +156,27 @@ class BudgetManager:
             for provider, count in snapshot.items():
                 try:
                     supabase_adapter._request(
-                        method="POST",
-                        path=f"/rest/v1/api_usage_daily",
-                        json_body={
+                        "POST",
+                        "api_usage_daily",
+                        params={"on_conflict": "date,provider"},
+                        json={
                             "date": today,
                             "provider": provider,
                             "count": count,
                         },
-                        headers_extra={"Prefer": "resolution=merge-duplicates"},
+                        use_service_key=True,
+                        silent=True,
                     )
                 except Exception as e:
+                    flush_failed = True
                     logger.debug("[BudgetManager] flush %s failed: %s", provider, e)
         except Exception as e:
+            flush_failed = True
             logger.debug("[BudgetManager] flush error: %s", e)
+        finally:
+            if flush_failed:
+                with self._lock:
+                    self._dirty = True
 
 
 # Singleton

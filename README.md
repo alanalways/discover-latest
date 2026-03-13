@@ -4,7 +4,7 @@ emoji: 📈
 colorFrom: blue
 colorTo: purple
 sdk: docker
-app_file: app.py
+app_file: main.py
 pinned: true
 license: mit
 ---
@@ -72,8 +72,8 @@ AI 智慧投資分析平台 — Next.js 前端 + FastAPI 後端，部署於 Hugg
 | 用途 | 模型 | 說明 |
 |------|------|------|
 | Grounding 搜尋 | `gemini-2.5-flash` | Google Search grounding，500 RPD free tier |
-| 深度分析 / 報告 | `gemini-3-flash-preview` | 最終研報輸出、AI 週報月報 |
-| Dexter 研究員 | `gemini-3-flash-preview` | 雙階段分析 agent |
+| 深度分析 / 報告 | `gemini-2.5-flash` | 最終研報輸出、AI 週報月報 |
+| Dexter 研究員 | `gemini-2.5-flash` | 雙階段分析 agent |
 
 所有模型名稱統一定義於 `config/models.py`，禁止散落各處。
 
@@ -103,7 +103,7 @@ main.py                     # FastAPI 入口，21 route modules 組裝
 Dockerfile                  # Multi-stage: Node build → Python runtime
 
 frontend/                   # Next.js 16 前端
-  app/                      # 17 頁面 (market, analysis, chat, screener, ...)
+  app/                      # 21 頁面 (market, analysis, chat, screener, ...)
   components/               # 共用元件 (Auth, Charts, Sidebar, Onboarding)
   lib/                      # API client, auth helpers
 

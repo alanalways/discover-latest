@@ -79,6 +79,8 @@ class GoogleAuthRequest(BaseModel):
     """Google OAuth callback 資料"""
     token: Optional[str] = None      # ID token (implicit flow)
     code: Optional[str] = None       # Auth code (authorization code flow)
+    state: Optional[str] = None
+    code_verifier: Optional[str] = None
 
 
 class AuthResponse(BaseModel):
@@ -129,7 +131,7 @@ async def google_auth(req: GoogleAuthRequest):
             if user:
                 access_token = user.pop("access_token", req.token)
         elif req.code:
-            access_token = auth_service.exchange_code_for_token(req.code)
+            access_token = auth_service.exchange_code_for_token(req.code, code_verifier=req.code_verifier)
             if access_token:
                 user = auth_service.verify_session(access_token)
 
@@ -149,7 +151,7 @@ async def google_auth(req: GoogleAuthRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -189,7 +191,7 @@ async def get_auth_config():
         if not client_id:
             raise HTTPException(status_code=500, detail="OAuth 設定缺失")
         return {"client_id": client_id}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -202,7 +204,12 @@ _ALLOWED_REDIRECT_HOSTS = {
 
 
 @router.get("/auth/google/start")
-async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
+async def google_auth_start(
+    redirect_to: Optional[str] = Query(default=None),
+    state: Optional[str] = Query(default=None),
+    code_challenge: Optional[str] = Query(default=None),
+    code_challenge_method: Optional[str] = Query(default=None),
+):
     """開始 Google OAuth（前端直接導向此端點）"""
     supabase_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
     if not supabase_url:
@@ -227,6 +234,13 @@ async def google_auth_start(redirect_to: Optional[str] = Query(default=None)):
         "redirect_to": callback_url,
         "scopes": oauth_scopes,
     }
+    if state:
+        params_dict["state"] = state.strip()
+    if code_challenge:
+        params_dict["code_challenge"] = code_challenge.strip()
+        params_dict["code_challenge_method"] = (
+            code_challenge_method.strip() if code_challenge_method else "S256"
+        )
     if oauth_prompt:
         params_dict["prompt"] = oauth_prompt
     params = urlencode(params_dict)

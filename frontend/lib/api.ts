@@ -643,10 +643,10 @@ export class ApiClient {
         return res;
     }
 
-    async loginWithGoogleCode(code: string) {
+    async loginWithGoogleCode(code: string, state?: string, codeVerifier?: string) {
         const res = await this.fetch<AuthResponse>('/api/auth/google', {
             method: 'POST',
-            body: JSON.stringify({ code }),
+            body: JSON.stringify({ code, state, code_verifier: codeVerifier }),
             skipAuth: true,
         });
         return res;

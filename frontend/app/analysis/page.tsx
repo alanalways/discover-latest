@@ -563,8 +563,8 @@ function AnalysisContent() {
         }
     };
 
-    const info = data?.info || {};
-    const history = data?.history || [];
+    const info = useMemo(() => data?.info || {}, [data]);
+    const history = useMemo(() => data?.history || [], [data]);
 
     const chartData = history.map((h: StockHistoryRow) => ({
         time: h.time || h.date || '',
@@ -578,9 +578,9 @@ function AnalysisContent() {
     const lastPrice = history.length > 0 ? history[history.length - 1].close : '-';
 
     // ── 基本面計算 ──
-    const revenueData = fundamentals?.revenue || [];
-    const latestRevenues = revenueData.slice(-12); // 最近 12 個月
-    const perPbrData = fundamentals?.per_pbr || [];
+    const revenueData = useMemo(() => fundamentals?.revenue || [], [fundamentals]);
+    const latestRevenues = revenueData.slice(-12);
+    const perPbrData = useMemo(() => fundamentals?.per_pbr || [], [fundamentals]);
     const dividendData = fundamentals?.dividend || [];
 
     const latestPerPbrRow = useMemo(() => {

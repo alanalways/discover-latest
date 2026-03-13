@@ -2074,7 +2074,7 @@ class SupabaseAdapter:
         """查詢 stock_events 表（若表不存在會靜默返回空）。"""
         from datetime import datetime, timedelta
         today = datetime.now().strftime("%Y-%m-%d")
-        future = (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        (datetime.now() + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
         result = self._request(
             "GET", "stock_events",
             params={

@@ -79,8 +79,8 @@ async def _fetch_market_snapshot() -> dict:
         snapshot["indices_error"] = str(e)
 
     try:
-        from pages.market_overview import get_market_hours
-        hours = await run_in_threadpool(get_market_hours)
+        from pages.market_overview import get_market_hours_snapshot
+        hours = await run_in_threadpool(get_market_hours_snapshot)
         snapshot["hours"] = hours
     except Exception:
         snapshot["hours"] = None

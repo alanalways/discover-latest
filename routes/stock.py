@@ -113,7 +113,7 @@ async def get_stock_history(
         return await stock_service.get_stock_history(symbol, period=period)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -124,7 +124,7 @@ async def search_stocks(query: str, limit: int = 10):
         return await stock_service.search_symbols(query, limit=limit)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 

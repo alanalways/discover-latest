@@ -6,6 +6,7 @@ import asyncio
 import logging
 import json
 import math
+import re
 from statistics import pstdev
 from typing import Any, Callable, Optional
 
@@ -47,6 +48,38 @@ def _safe_num(value: Any) -> float:
 
 def _clamp(v: float, low: float, high: float) -> float:
     return max(low, min(high, v))
+
+
+def _extract_numeric_levels(value: Any) -> list[float]:
+    if value is None:
+        return []
+    if isinstance(value, (int, float)):
+        return [float(value)] if float(value) > 0 else []
+    text = str(value).strip().replace(",", "")
+    if not text:
+        return []
+    nums: list[float] = []
+    for raw in re.findall(r"\d+(?:\.\d+)?", text):
+        try:
+            val = float(raw)
+            if val > 0:
+                nums.append(val)
+        except Exception:
+            continue
+    return nums
+
+
+def _pick_tracking_price(*values: Any, prefer: str = "mid") -> float:
+    for value in values:
+        nums = _extract_numeric_levels(value)
+        if not nums:
+            continue
+        if prefer == "low":
+            return round(min(nums), 4)
+        if prefer == "high":
+            return round(max(nums), 4)
+        return round(sum(nums) / len(nums), 4)
+    return 0.0
 
 
 def _extract_user_id(auth_header: str) -> Optional[str]:
@@ -159,11 +192,11 @@ def _build_technical_snapshot(history: list[dict]) -> str:
     trs = []
     for i in range(1, len(history)):
         h = float(history[i].get("high", 0) or 0)
-        l = float(history[i].get("low", 0) or 0)
+        low_val = float(history[i].get("low", 0) or 0)
         pc = float(history[i - 1].get("close", 0) or 0)
-        if h <= 0 or l <= 0 or pc <= 0:
+        if h <= 0 or low_val <= 0 or pc <= 0:
             continue
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+        trs.append(max(h - low_val, abs(h - pc), abs(low_val - pc)))
     atr14 = sum(trs[-14:]) / 14 if len(trs) >= 14 else None
     keltner_mid = ema20
     keltner_up = (keltner_mid + 2 * atr14) if (keltner_mid is not None and atr14 is not None) else None
@@ -233,14 +266,14 @@ def _summarize_smc(result: Optional[dict], tier: str = "free") -> str:
     structures = [s for s in (result.get("structures") or []) if isinstance(s, dict)]
     order_blocks = [o for o in (result.get("order_blocks") or []) if isinstance(o, dict)]
     fvg = [g for g in (result.get("fvg") or []) if isinstance(g, dict)]
-    liquidity = [l for l in (result.get("liquidity") or []) if isinstance(l, dict)]
+    liquidity = [liq for liq in (result.get("liquidity") or []) if isinstance(liq, dict)]
 
     bos_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "BOS")
     choch_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "CHOCH")
     active_ob = [o for o in order_blocks if not bool(o.get("mitigated"))]
     open_fvg = [g for g in fvg if not bool(g.get("filled"))]
-    buy_liq = [l for l in liquidity if str(l.get("type") or "") == "buy_side_liquidity"]
-    sell_liq = [l for l in liquidity if str(l.get("type") or "") == "sell_side_liquidity"]
+    buy_liq = [liq for liq in liquidity if str(liq.get("type") or "") == "buy_side_liquidity"]
+    sell_liq = [liq for liq in liquidity if str(liq.get("type") or "") == "sell_side_liquidity"]
 
     lines = [
         f"Trend={trend}",
@@ -312,7 +345,6 @@ async def _run_ai_analysis_pipeline(
     from services.feature_gate import can_access
     from services.rate_limiter import rate_limiter
     from services.stock_service import stock_service
-    from services.gemini_service import gemini_service
 
     if not user_id:
         raise HTTPException(status_code=401, detail="Please log in before using AI analysis.")
@@ -573,6 +605,12 @@ async def _run_ai_analysis_pipeline(
 
         # Record AI prediction for accuracy tracking (with calibrated confidence)
         try:
+            from config.analysis_versions import (
+                PROMPT_ANALYSIS_VERSION,
+                RULE_ANALYSIS_VERSION,
+                SYSTEM_ANALYSIS_VERSION,
+            )
+            from config.models import MODEL_FINAL
             from services.ai_prediction_tracker import prediction_tracker
             if isinstance(summary, dict) and summary.get("verdict"):
                 entry_prices = summary.get("entry", {}) if isinstance(summary.get("entry"), dict) else {}
@@ -593,11 +631,37 @@ async def _run_ai_analysis_pipeline(
                     symbol=req.symbol.upper(),
                     direction=str(summary.get("verdict", "")),
                     confidence=calibrated_conf,
-                    entry_price=float(entry_prices.get("short") or entry_prices.get("mid") or last_price or 0),
-                    target_price=float(targets.get("short") or targets.get("mid") or 0),
-                    stop_price=float(stops.get("short") or stops.get("mid") or 0),
-                    horizon_days=20,
+                    entry_price=_pick_tracking_price(
+                        entry_prices.get("short"),
+                        entry_prices.get("mid"),
+                        entry_prices.get("long"),
+                        last_price,
+                        prefer="mid",
+                    ),
+                    target_price=_pick_tracking_price(
+                        targets.get("short"),
+                        targets.get("mid"),
+                        targets.get("long"),
+                        prefer="high",
+                    ),
+                    stop_price=_pick_tracking_price(
+                        stops.get("short"),
+                        stops.get("mid"),
+                        stops.get("long"),
+                        prefer="low",
+                    ),
+                    horizon_days=max(5, int(req.horizon or 20)),
                     tier=tier,
+                    user_id=user_id,
+                    raw_confidence=raw_conf,
+                    model_name=MODEL_FINAL,
+                    analysis_type=req.analysis_type,
+                    source_route="/api/analysis/ai",
+                    prompt_version=PROMPT_ANALYSIS_VERSION,
+                    rule_version=RULE_ANALYSIS_VERSION,
+                    system_version=SYSTEM_ANALYSIS_VERSION,
+                    quality_pass=quality_pass,
+                    summary_json=summary,
                 )
         except Exception:
             pass  # Don't let tracking failures affect the analysis response

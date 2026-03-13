@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Wallet, Loader2, Plus, TrendingUp, TrendingDown } from 'lucide-react';
+import { Wallet, Loader2, Plus, TrendingUp } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
 import styles from '../shared.module.css';
@@ -44,7 +44,7 @@ export default function PaperTradePage() {
 
     useEffect(() => {
         if (isLoggedIn) loadPositions();
-    }, [isLoggedIn]);
+    }, [isLoggedIn]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const loadPositions = async () => {
         setPosLoading(true);

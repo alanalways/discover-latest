@@ -2,9 +2,7 @@
 SMC/ICT Service - Smart Money Concepts 技術分析
 提供 BOS/CHoCH/OB/FVG/Liquidity 計算
 """
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
-import math
+from typing import List, Dict, Optional
 import os
 import time
 import copy
@@ -405,19 +403,19 @@ class SMCService:
                     "description": f"{len(cluster)} 個等高點，買方流動性"
                 })
         
-        for i, l1 in enumerate(lows):
-            cluster = [l1]
-            for l2 in lows[i+1:]:
-                if abs(l1["price"] - l2["price"]) / l1["price"] < tolerance:
-                    cluster.append(l2)
+        for i, low1 in enumerate(lows):
+            cluster = [low1]
+            for low2 in lows[i+1:]:
+                if abs(low1["price"] - low2["price"]) / low1["price"] < tolerance:
+                    cluster.append(low2)
             
             if len(cluster) >= 2:
-                avg_price = sum(l["price"] for l in cluster) / len(cluster)
+                avg_price = sum(low_s["price"] for low_s in cluster) / len(cluster)
                 liquidity.append({
                     "type": "sell_side_liquidity",
                     "price": avg_price,
                     "count": len(cluster),
-                    "dates": [l["date"] for l in cluster],
+                    "dates": [low_s["date"] for low_s in cluster],
                     "swept": False,
                     "description": f"{len(cluster)} 個等低點，賣方流動性"
                 })

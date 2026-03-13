@@ -1,6 +1,6 @@
-﻿'use client';
+'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Activity,
   AlertCircle,
@@ -120,12 +120,12 @@ export default function PortfolioHealthPage() {
 
   const isTwSymbol = (symbol: string): boolean => /^[0-9]{4,6}$/.test(symbol.trim());
 
-  const normalizeShares = (symbol: string, sharesRaw: string, unit: 'shares' | 'lot'): number => {
+  const normalizeShares = useCallback((symbol: string, sharesRaw: string, unit: 'shares' | 'lot'): number => {
     const base = Number(sharesRaw);
     if (!Number.isFinite(base) || base <= 0) return 0;
     if (unit === 'lot' && isTwSymbol(symbol)) return base * 1000;
     return base;
-  };
+  }, []);
 
   const isValidSymbol = (symbol: string): boolean => /^[A-Z0-9.\-]{1,10}$/.test(symbol);
 
@@ -143,7 +143,7 @@ export default function PortfolioHealthPage() {
         const shares = normalizeShares(symbol, p.shares, p.unit);
         return Boolean(symbol) && isValidSymbol(symbol) && Number.isFinite(shares) && shares > 0;
       }).length,
-    [positions],
+    [positions, normalizeShares],
   );
 
   /* ── Health Check ── */

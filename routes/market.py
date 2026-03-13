@@ -330,28 +330,6 @@ async def _safe_news_brief(fn):
 @router.get("/market/hours")
 async def market_hours():
     """Return market hours status using 2026 holiday calendars."""
-    from pages.market_overview import (
-        _is_tw_market_open,
-        _is_tw_trading_day,
-        _is_us_market_open,
-        _is_us_trading_day,
-    )
+    from pages.market_overview import get_market_hours_snapshot
 
-    now = datetime.now(ZoneInfo("UTC"))
-    tw_now = now.astimezone(ZoneInfo("Asia/Taipei"))
-    us_now = now.astimezone(ZoneInfo("America/New_York"))
-
-    return {
-        "tw": {
-            "is_open": _is_tw_market_open(tw_now),
-            "is_trading_day": _is_tw_trading_day(tw_now),
-            "time": tw_now.strftime("%H:%M"),
-            "timezone": "Asia/Taipei",
-        },
-        "us": {
-            "is_open": _is_us_market_open(us_now),
-            "is_trading_day": _is_us_trading_day(us_now),
-            "time": us_now.strftime("%H:%M"),
-            "timezone": "America/New_York",
-        },
-    }
+    return get_market_hours_snapshot()

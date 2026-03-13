@@ -2,7 +2,7 @@
 
 import time
 import threading
-from services.cache_manager import CacheStore, CacheRegistry, cache_registry
+from services.cache_manager import CacheStore, CacheRegistry
 
 
 def test_cache_store_basic_get_set():
@@ -59,7 +59,7 @@ def test_cache_store_stats():
 def test_cache_registry():
     reg = CacheRegistry()
     s1 = reg.create("cache_a", ttl_sec=60, max_size=50)
-    s2 = reg.create("cache_b", ttl_sec=120, max_size=100)
+    reg.create("cache_b", ttl_sec=120, max_size=100)
     s1.set("k", "v")
     all_stats = reg.get_all_stats()
     assert len(all_stats) == 2

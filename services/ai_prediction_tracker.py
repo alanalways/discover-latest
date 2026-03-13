@@ -1,22 +1,27 @@
 """
 AI Prediction Tracker Service
-\u8ffd\u8e64 AI \u5206\u6790\u9810\u6e2c\u7d00\u9304\u4e26\u8a08\u7b97\u6e96\u78ba\u5ea6\uff0c\u63d0\u4f9b\u6bcf\u65e5/\u6bcf\u9031/\u6bcf\u6708/\u6bcf\u5b63\u5831\u544a\u3002
+
+以本地 SQLite 為主儲存 AI 建議與驗證結果，預設不強依賴 Supabase 額外表，
+避免超出 free tier 寫入與查詢成本。若使用者之後建立 `ai_predictions` 表，
+可透過環境變數啟用低頻鏡像。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
-
-import httpx
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 _TZ_NAME = str(os.environ.get("AI_USAGE_TIMEZONE", "Asia/Taipei") or "Asia/Taipei").strip()
+_ENABLE_SUPABASE_MIRROR = str(
+    os.environ.get("AI_PREDICTIONS_ENABLE_SUPABASE_MIRROR", "0") or ""
+).strip().lower() in {"1", "true", "yes", "on"}
 
 try:
     _TZ = ZoneInfo(_TZ_NAME)
@@ -28,16 +33,55 @@ def _now() -> datetime:
     return datetime.now(_TZ)
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _normalize_direction(direction: str) -> str:
+    raw = str(direction or "").strip().lower()
+    mapping = {
+        "偏多": "bullish",
+        "看多": "bullish",
+        "bullish": "bullish",
+        "long": "bullish",
+        "偏空": "bearish",
+        "看空": "bearish",
+        "bearish": "bearish",
+        "short": "bearish",
+        "中性": "neutral",
+        "觀望": "neutral",
+        "neutral": "neutral",
+    }
+    return mapping.get(raw, raw)
+
+
+def _parse_month(iso_str: str) -> int:
+    try:
+        return datetime.fromisoformat(str(iso_str or "")).month
+    except Exception:
+        return 0
+
+
 class AIPredictionTracker:
-    """Track AI predictions and compute accuracy metrics."""
+    """Track AI recommendations, evaluate outcomes, and summarize tuning signals."""
 
     def __init__(self):
         self._url: Optional[str] = None
         self._service_key: Optional[str] = None
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Storage helpers
     # ------------------------------------------------------------------
+
+    def _get_local_store(self):
+        from adapters.local_store import local_store
+
+        return local_store
 
     def _get_config(self):
         if not self._url:
@@ -45,63 +89,45 @@ class AIPredictionTracker:
             self._service_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         return self._url, self._service_key
 
-    def _headers(self) -> Dict[str, str]:
-        url, key = self._get_config()
-        return {
-            "apikey": key or "",
-            "Authorization": f"Bearer {key}" if key else "",
-            "Content-Type": "application/json",
-            "Prefer": "return=representation",
-        }
-
-    def _rest_url(self, table: str) -> str:
-        url, _ = self._get_config()
-        return f"{url}/rest/v1/{table}" if url else ""
-
-    def _request(
-        self,
-        method: str,
-        table: str,
-        params: Optional[Dict[str, str]] = None,
-        json_body: Any = None,
-        silent: bool = False,
-    ) -> Optional[Any]:
-        """Generic REST request to Supabase PostgREST."""
+    def _mirror_to_supabase(self, row: Dict[str, Any]) -> None:
+        """Best-effort mirror for users who explicitly create ai_predictions table."""
+        if not _ENABLE_SUPABASE_MIRROR:
+            return
         try:
-            rest = self._rest_url(table)
-            if not rest:
-                logger.warning("[PredictionTracker] Supabase URL not configured")
-                return None
-            with httpx.Client(timeout=30.0) as client:
-                resp = client.request(
-                    method=method,
-                    url=rest,
-                    headers=self._headers(),
-                    params=params or {},
-                    json=json_body,
-                )
-                resp.raise_for_status()
-                return resp.json() if resp.text else None
-        except httpx.HTTPStatusError as exc:
-            if not silent:
-                status = exc.response.status_code if exc.response is not None else "?"
-                body = ""
-                try:
-                    body = (exc.response.text or "")[:300] if exc.response is not None else ""
-                except Exception:
-                    pass
-                logger.warning(
-                    "[PredictionTracker] %s %s failed: HTTP %s %s",
-                    method, table, status, body,
-                )
-            return None
-        except Exception as exc:
-            if not silent:
-                logger.warning(
-                    "[PredictionTracker] %s %s error: %s: %s",
-                    method, table, type(exc).__name__, exc,
-                )
-            return None
+            from adapters.supabase_adapter import supabase_adapter
+
+            payload = dict(row)
+            payload["quality_pass"] = bool(payload.get("quality_pass", True))
+            supabase_adapter._request(
+                "POST",
+                "ai_predictions",
+                params={"on_conflict": "id"},
+                json=payload,
+                use_service_key=True,
+                silent=True,
+            )
+        except Exception:
+            # Mirror is optional. Never let it affect primary path.
+            pass
+
+    def list_predictions(
+        self,
+        *,
+        status: Optional[str] = None,
+        exclude_status: Optional[str] = None,
+        predicted_since: Optional[str] = None,
+        predicted_before: Optional[str] = None,
+        evaluated_since: Optional[str] = None,
+        limit: int = 5000,
+    ) -> List[Dict[str, Any]]:
+        return self._get_local_store().list_ai_predictions(
+            status=status,
+            exclude_status=exclude_status,
+            predicted_since=predicted_since,
+            predicted_before=predicted_before,
+            evaluated_since=evaluated_since,
+            limit=limit,
+        )
 
     # ------------------------------------------------------------------
     # 1) Record prediction
@@ -117,180 +143,176 @@ class AIPredictionTracker:
         stop_price: float,
         horizon_days: int,
         tier: str,
+        *,
+        user_id: str = "",
+        raw_confidence: Optional[int] = None,
+        model_name: str = "",
+        analysis_type: str = "full",
+        source_route: str = "",
+        prompt_version: str = "",
+        rule_version: str = "",
+        system_version: str = "",
+        quality_pass: bool = True,
+        summary_json: Any = None,
+        predicted_at: Optional[str] = None,
     ) -> dict:
-        """
-        \u8a18\u9304\u4e00\u7b46 AI \u9810\u6e2c\u5230 ai_predictions \u8868\u3002
-        Returns the inserted row dict on success, or an error dict.
-        """
-        # Map Chinese verdicts to English
-        _direction_map = {
-            "\u504f\u591a": "bullish", "\u770b\u591a": "bullish", "bullish": "bullish",
-            "\u504f\u7a7a": "bearish", "\u770b\u7a7a": "bearish", "bearish": "bearish",
-            "\u4e2d\u6027": "neutral", "\u89c0\u671b": "neutral", "neutral": "neutral",
-        }
-        direction = _direction_map.get(direction.strip(), direction.strip().lower())
-        if direction not in ("bullish", "bearish", "neutral"):
+        direction = _normalize_direction(direction)
+        if direction not in {"bullish", "bearish", "neutral"}:
             return {"ok": False, "error": "direction must be bullish/bearish/neutral"}
-        if not (0 <= confidence <= 100):
-            return {"ok": False, "error": "confidence must be 0-100"}
 
-        prediction_id = str(uuid.uuid4())
-        now_iso = _now().isoformat()
-
-        row = {
-            "id": prediction_id,
-            "symbol": symbol.upper().strip(),
-            "predicted_at": now_iso,
+        conf = max(0, min(100, int(confidence or 0)))
+        raw_conf = max(0, min(100, int(raw_confidence if raw_confidence is not None else conf)))
+        record = {
+            "id": str(uuid.uuid4()),
+            "user_id": str(user_id or "").strip(),
+            "symbol": str(symbol or "").strip().upper(),
+            "predicted_at": predicted_at or _now().isoformat(),
+            "evaluated_at": None,
             "direction": direction,
-            "confidence": confidence,
-            "entry_price": float(entry_price),
-            "target_price": float(target_price),
-            "stop_price": float(stop_price),
-            "horizon_days": int(horizon_days),
-            "tier": tier,
+            "confidence": conf,
+            "raw_confidence": raw_conf,
+            "entry_price": round(_safe_float(entry_price), 4),
+            "target_price": round(_safe_float(target_price), 4),
+            "stop_price": round(_safe_float(stop_price), 4),
+            "horizon_days": max(1, int(horizon_days or 20)),
+            "tier": str(tier or "free").strip().lower(),
+            "model_name": str(model_name or "").strip(),
+            "analysis_type": str(analysis_type or "full").strip(),
+            "source_route": str(source_route or "").strip(),
+            "prompt_version": str(prompt_version or "").strip(),
+            "rule_version": str(rule_version or "").strip(),
+            "system_version": str(system_version or "").strip(),
+            "quality_pass": bool(quality_pass),
             "status": "open",
             "actual_return_pct": None,
-            "evaluated_at": None,
-            "evaluation_notes": None,
+            "evaluation_notes": "",
+            "summary_json": json.dumps(summary_json, ensure_ascii=False) if summary_json is not None else "",
         }
 
-        result = self._request("POST", "ai_predictions", json_body=row)
-        if result:
-            inserted = result[0] if isinstance(result, list) and result else result
-            return {"ok": True, "prediction": inserted}
-        return {"ok": False, "error": "Failed to insert prediction"}
+        if not record["symbol"]:
+            return {"ok": False, "error": "symbol is required"}
+
+        ok = self._get_local_store().save_ai_prediction(record)
+        if not ok:
+            return {"ok": False, "error": "Failed to save prediction in local store"}
+
+        self._mirror_to_supabase(record)
+        return {"ok": True, "prediction": record}
 
     # ------------------------------------------------------------------
     # 2) Evaluate open predictions
     # ------------------------------------------------------------------
 
     async def evaluate_open_predictions(self) -> dict:
-        """
-        \u6aa2\u67e5\u6240\u6709 status='open' \u7684\u9810\u6e2c\uff0c\u5c0d\u7167\u7576\u524d\u50f9\u683c\u5224\u65b7\u662f\u5426\u547d\u4e2d target/stop \u6216\u904e\u671f\u3002
-        Uses yfinance for current prices.
-        """
-        open_rows = self._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "status": "eq.open",
-                "select": "*",
-                "order": "predicted_at.asc",
-            },
-        )
+        open_rows = self.list_predictions(status="open", limit=2000)
         if not open_rows:
             return {"ok": True, "evaluated": 0, "message": "No open predictions"}
 
-        if not isinstance(open_rows, list):
-            open_rows = [open_rows]
-
-        # Group by symbol to batch price lookups
-        symbols: set[str] = {row["symbol"] for row in open_rows if row.get("symbol")}
-        current_prices = self._fetch_current_prices(list(symbols))
-
+        prices = self._fetch_current_prices(
+            sorted({str(row.get("symbol") or "").strip().upper() for row in open_rows if row.get("symbol")})
+        )
         now = _now()
-        evaluated_count = 0
         results: List[Dict[str, Any]] = []
+        evaluated_count = 0
 
         for row in open_rows:
-            symbol = row.get("symbol", "")
-            price = current_prices.get(symbol)
-            if price is None:
+            symbol = str(row.get("symbol") or "").strip().upper()
+            current_price = prices.get(symbol)
+            if current_price is None or current_price <= 0:
                 results.append({
-                    "id": row["id"],
+                    "id": row.get("id"),
                     "symbol": symbol,
                     "status": "skipped",
                     "reason": "price_unavailable",
                 })
                 continue
 
-            entry = float(row.get("entry_price") or 0)
-            target = float(row.get("target_price") or 0)
-            stop = float(row.get("stop_price") or 0)
-            direction = row.get("direction", "bullish")
-            horizon = int(row.get("horizon_days") or 30)
-            predicted_at_str = row.get("predicted_at", "")
+            entry = _safe_float(row.get("entry_price"))
+            target = _safe_float(row.get("target_price"))
+            stop = _safe_float(row.get("stop_price"))
+            direction = _normalize_direction(str(row.get("direction") or "neutral"))
+            horizon = max(1, int(row.get("horizon_days") or 20))
 
-            # Parse predicted_at
             try:
-                predicted_at = datetime.fromisoformat(predicted_at_str)
+                predicted_at = datetime.fromisoformat(str(row.get("predicted_at") or ""))
                 if predicted_at.tzinfo is None:
                     predicted_at = predicted_at.replace(tzinfo=_TZ)
             except Exception:
                 predicted_at = now - timedelta(days=horizon + 1)
 
             expired = (now - predicted_at).days >= horizon
-
-            # Determine outcome
-            new_status = "open"
+            status = "open"
             return_pct = 0.0
             notes = ""
 
             if entry > 0:
                 if direction == "bullish":
-                    return_pct = round(((price - entry) / entry) * 100, 2)
-                    if target > 0 and price >= target:
-                        new_status = "hit_target"
-                        notes = f"Target {target} hit at {price}"
-                    elif stop > 0 and price <= stop:
-                        new_status = "hit_stop"
-                        notes = f"Stop {stop} hit at {price}"
+                    return_pct = round(((current_price - entry) / entry) * 100, 2)
+                    if target > 0 and current_price >= target:
+                        status = "hit_target"
+                        notes = f"Target {target:.2f} hit at {current_price:.2f}"
+                    elif stop > 0 and current_price <= stop:
+                        status = "hit_stop"
+                        notes = f"Stop {stop:.2f} hit at {current_price:.2f}"
                     elif expired:
-                        new_status = "expired"
-                        notes = f"Expired after {horizon}d, price={price}"
+                        status = "expired"
+                        notes = f"Expired after {horizon}d at {current_price:.2f}"
                 elif direction == "bearish":
-                    return_pct = round(((entry - price) / entry) * 100, 2)
-                    if target > 0 and price <= target:
-                        new_status = "hit_target"
-                        notes = f"Target {target} hit at {price}"
-                    elif stop > 0 and price >= stop:
-                        new_status = "hit_stop"
-                        notes = f"Stop {stop} hit at {price}"
+                    return_pct = round(((entry - current_price) / entry) * 100, 2)
+                    if target > 0 and current_price <= target:
+                        status = "hit_target"
+                        notes = f"Target {target:.2f} hit at {current_price:.2f}"
+                    elif stop > 0 and current_price >= stop:
+                        status = "hit_stop"
+                        notes = f"Stop {stop:.2f} hit at {current_price:.2f}"
                     elif expired:
-                        new_status = "expired"
-                        notes = f"Expired after {horizon}d, price={price}"
+                        status = "expired"
+                        notes = f"Expired after {horizon}d at {current_price:.2f}"
                 else:
-                    # neutral
-                    return_pct = round(((price - entry) / entry) * 100, 2)
+                    return_pct = round(((current_price - entry) / entry) * 100, 2)
                     if expired:
-                        new_status = "expired"
-                        notes = f"Neutral expired after {horizon}d, price={price}"
-            else:
-                if expired:
-                    new_status = "expired"
-                    notes = "No entry price, expired"
+                        status = "expired"
+                        notes = f"Neutral expired after {horizon}d at {current_price:.2f}"
+            elif expired:
+                status = "expired"
+                notes = "No entry price, expired"
 
-            if new_status == "open":
+            if status == "open":
                 results.append({
-                    "id": row["id"],
+                    "id": row.get("id"),
                     "symbol": symbol,
                     "status": "still_open",
-                    "current_price": price,
+                    "current_price": current_price,
                     "return_pct": return_pct,
                 })
                 continue
 
-            # Update the row
-            update_data = {
-                "status": new_status,
+            updates = {
+                "status": status,
                 "actual_return_pct": return_pct,
                 "evaluated_at": now.isoformat(),
                 "evaluation_notes": notes,
             }
-            self._request(
-                "PATCH",
-                "ai_predictions",
-                params={"id": f"eq.{row['id']}"},
-                json_body=update_data,
-            )
+            self._get_local_store().update_ai_prediction(str(row.get("id") or ""), updates)
+            self._mirror_to_supabase({**row, **updates})
             evaluated_count += 1
             results.append({
-                "id": row["id"],
+                "id": row.get("id"),
                 "symbol": symbol,
-                "status": new_status,
+                "status": status,
                 "return_pct": return_pct,
                 "notes": notes,
             })
+
+        try:
+            self._get_local_store().add_ai_evaluation_run(
+                run_id=str(uuid.uuid4()),
+                run_type="scheduled",
+                evaluated_count=evaluated_count,
+                details_json=json.dumps(results, ensure_ascii=False)[:20000],
+            )
+        except Exception:
+            pass
 
         return {
             "ok": True,
@@ -299,72 +321,150 @@ class AIPredictionTracker:
             "details": results,
         }
 
+    def _quote_candidates(self, symbol: str) -> List[str]:
+        sym = str(symbol or "").strip().upper()
+        if not sym:
+            return []
+        if sym.isdigit():
+            return [f"{sym}.TW", f"{sym}.TWO", sym]
+        return [sym]
+
     def _fetch_current_prices(self, symbols: List[str]) -> Dict[str, Optional[float]]:
-        """Fetch current prices for a list of symbols via yfinance."""
         prices: Dict[str, Optional[float]] = {}
         if not symbols:
             return prices
         try:
             import yfinance as yf
 
-            for sym in symbols:
-                try:
-                    ticker = yf.Ticker(sym)
-                    info = ticker.fast_info
-                    last_price = getattr(info, "last_price", None)
-                    if last_price is None:
-                        hist = ticker.history(period="1d")
-                        if not hist.empty:
-                            last_price = float(hist["Close"].iloc[-1])
-                    prices[sym] = float(last_price) if last_price else None
-                except Exception as exc:
-                    logger.debug("[PredictionTracker] Price fetch failed for %s: %s", sym, exc)
-                    prices[sym] = None
+            for symbol in symbols:
+                price: Optional[float] = None
+                for candidate in self._quote_candidates(symbol):
+                    try:
+                        ticker = yf.Ticker(candidate)
+                        fast_info = getattr(ticker, "fast_info", None)
+                        last_price = getattr(fast_info, "last_price", None) if fast_info is not None else None
+                        if last_price is None:
+                            hist = ticker.history(period="5d")
+                            if hist is not None and not hist.empty:
+                                last_price = float(hist["Close"].dropna().iloc[-1])
+                        if last_price:
+                            price = float(last_price)
+                            break
+                    except Exception:
+                        continue
+                prices[symbol] = price
         except ImportError:
-            logger.warning("[PredictionTracker] yfinance not installed, cannot fetch prices")
+            logger.warning("[PredictionTracker] yfinance not installed, cannot evaluate prices")
         return prices
+
+    # ------------------------------------------------------------------
+    # Shared aggregation helpers
+    # ------------------------------------------------------------------
+
+    def _split_rows(self, rows: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        evaluated = [r for r in rows if str(r.get("status") or "") != "open"]
+        still_open = [r for r in rows if str(r.get("status") or "") == "open"]
+        return evaluated, still_open
+
+    def _returns(self, rows: List[Dict[str, Any]]) -> List[float]:
+        values: List[float] = []
+        for row in rows:
+            val = row.get("actual_return_pct")
+            if val is None:
+                continue
+            try:
+                values.append(float(val))
+            except Exception:
+                continue
+        return values
+
+    def _version_breakdown(self, rows: List[Dict[str, Any]], field: str) -> List[Dict[str, Any]]:
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            key = str(row.get(field) or "unknown").strip() or "unknown"
+            bucket = grouped.setdefault(key, {"version": key, "total": 0, "wins": 0, "returns": []})
+            bucket["total"] += 1
+            if row.get("status") == "hit_target":
+                bucket["wins"] += 1
+            ret = row.get("actual_return_pct")
+            if ret is not None:
+                try:
+                    bucket["returns"].append(float(ret))
+                except Exception:
+                    pass
+
+        result: List[Dict[str, Any]] = []
+        for key, item in grouped.items():
+            total = int(item["total"])
+            wins = int(item["wins"])
+            returns = item["returns"]
+            result.append({
+                "version": key,
+                "total": total,
+                "wins": wins,
+                "win_rate": round((wins / total) * 100, 2) if total else 0.0,
+                "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else 0.0,
+            })
+        result.sort(key=lambda x: (x["total"], x["win_rate"]), reverse=True)
+        return result
+
+    def _confidence_buckets(self, rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        buckets: Dict[str, Dict[str, Any]] = {}
+        for label, lo, hi in [
+            ("0-20", 0, 20),
+            ("21-40", 21, 40),
+            ("41-60", 41, 60),
+            ("61-80", 61, 80),
+            ("81-100", 81, 100),
+        ]:
+            bucket_rows = [r for r in rows if lo <= int(r.get("confidence") or 0) <= hi]
+            wins = [r for r in bucket_rows if r.get("status") == "hit_target"]
+            buckets[label] = {
+                "total": len(bucket_rows),
+                "wins": len(wins),
+                "win_rate": round((len(wins) / len(bucket_rows)) * 100, 2) if bucket_rows else 0.0,
+            }
+        return buckets
+
+    def _build_recommendations(self, evaluated: List[Dict[str, Any]], confidence_buckets: Dict[str, Dict[str, Any]]) -> List[str]:
+        if not evaluated:
+            return ["目前尚無足夠已驗證樣本，先持續蒐集建議與結果。"]
+
+        wins = [r for r in evaluated if r.get("status") == "hit_target"]
+        expired = [r for r in evaluated if r.get("status") == "expired"]
+        win_rate = round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0
+        notes: List[str] = []
+
+        if win_rate < 40:
+            notes.append("整體命中率低於 40%，建議先收緊 prompt 的結論強度與進場條件。")
+        if len(expired) > len(evaluated) * 0.45:
+            notes.append("過期未達標比例偏高，建議縮短 horizon 或收斂目標價設定。")
+        high_conf = confidence_buckets.get("81-100", {})
+        if high_conf.get("total", 0) >= 5 and high_conf.get("win_rate", 0) < 50:
+            notes.append("高信心區間勝率偏低，表示模型過度自信，應優先調整 confidence calibration。")
+
+        prompt_versions = self._version_breakdown(evaluated, "prompt_version")
+        if prompt_versions:
+            worst_prompt = sorted(prompt_versions, key=lambda x: (x["win_rate"], -x["total"]))[0]
+            if worst_prompt["total"] >= 5:
+                notes.append(
+                    f"Prompt 版本 {worst_prompt['version']} 表現最弱，建議先檢查該版本的輸出格式與判斷規則。"
+                )
+
+        if not notes:
+            notes.append("目前模型與規則表現穩定，可先持續累積樣本再調整 prompt。")
+        return notes
 
     # ------------------------------------------------------------------
     # 3) Weekly stats
     # ------------------------------------------------------------------
 
     def get_weekly_stats(self, weeks_back: int = 1) -> dict:
-        """
-        \u904e\u53bb N \u9031\u7684\u52dd\u7387\u3001\u7e3d\u6578\u3001\u5e73\u5747\u5831\u916c\u7387\u3002
-        """
-        now = _now()
-        start = (now - timedelta(weeks=weeks_back)).isoformat()
-
-        rows = self._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "status": "neq.open",
-                "evaluated_at": f"gte.{start}",
-                "select": "id,symbol,direction,confidence,status,actual_return_pct,evaluated_at",
-                "order": "evaluated_at.desc",
-            },
-        )
-        if not rows or not isinstance(rows, list):
-            return {
-                "ok": True,
-                "period": f"last_{weeks_back}_weeks",
-                "total": 0,
-                "win_rate": 0.0,
-                "avg_return_pct": 0.0,
-                "predictions": [],
-            }
-
-        total = len(rows)
+        start = (_now() - timedelta(weeks=max(1, weeks_back))).isoformat()
+        rows = self.list_predictions(exclude_status="open", evaluated_since=start, limit=5000)
+        returns = self._returns(rows)
         wins = sum(1 for r in rows if r.get("status") == "hit_target")
-        returns = [
-            float(r["actual_return_pct"])
-            for r in rows
-            if r.get("actual_return_pct") is not None
-        ]
-        avg_return = round(sum(returns) / len(returns), 2) if returns else 0.0
-        win_rate = round((wins / total) * 100, 2) if total > 0 else 0.0
-
+        total = len(rows)
         return {
             "ok": True,
             "period": f"last_{weeks_back}_weeks",
@@ -372,8 +472,8 @@ class AIPredictionTracker:
             "total": total,
             "wins": wins,
             "losses": total - wins,
-            "win_rate": win_rate,
-            "avg_return_pct": avg_return,
+            "win_rate": round((wins / total) * 100, 2) if total else 0.0,
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else 0.0,
             "predictions": rows,
         }
 
@@ -382,74 +482,39 @@ class AIPredictionTracker:
     # ------------------------------------------------------------------
 
     def get_monthly_review(self, year: int, month: int) -> dict:
-        """
-        \u7279\u5b9a\u6708\u4efd\u8a73\u7d30\u5206\u6790\uff1a\u52dd\u7387\u3001\u5e73\u5747\u5831\u916c\u3001\u6700\u4f73/\u6700\u5dee\u9810\u6e2c\u3001\u65b9\u5411\u5206\u5e03\u3002
-        """
         month_start = datetime(year, month, 1, tzinfo=_TZ)
-        if month == 12:
-            month_end = datetime(year + 1, 1, 1, tzinfo=_TZ)
-        else:
-            month_end = datetime(year, month + 1, 1, tzinfo=_TZ)
-
-        rows = self._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "predicted_at": f"gte.{month_start.isoformat()}",
-                "and": f"(predicted_at.lt.{month_end.isoformat()})",
-                "select": "*",
-                "order": "predicted_at.asc",
-            },
+        month_end = datetime(year + (1 if month == 12 else 0), 1 if month == 12 else month + 1, 1, tzinfo=_TZ)
+        rows = self.list_predictions(
+            predicted_since=month_start.isoformat(),
+            predicted_before=month_end.isoformat(),
+            limit=5000,
         )
-        if not rows or not isinstance(rows, list):
-            rows = []
-
-        evaluated = [r for r in rows if r.get("status") != "open"]
-        still_open = [r for r in rows if r.get("status") == "open"]
-
+        evaluated, still_open = self._split_rows(rows)
         wins = [r for r in evaluated if r.get("status") == "hit_target"]
         stops = [r for r in evaluated if r.get("status") == "hit_stop"]
         expired = [r for r in evaluated if r.get("status") == "expired"]
+        returns = self._returns(evaluated)
 
-        returns = [
-            float(r["actual_return_pct"])
-            for r in evaluated
-            if r.get("actual_return_pct") is not None
-        ]
-        avg_return = round(sum(returns) / len(returns), 2) if returns else 0.0
-        best = max(returns) if returns else 0.0
-        worst = min(returns) if returns else 0.0
-
-        win_rate = (
-            round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0
-        )
-
-        # Direction breakdown
         direction_stats: Dict[str, Dict[str, Any]] = {}
-        for d in ("bullish", "bearish", "neutral"):
-            d_rows = [r for r in evaluated if r.get("direction") == d]
+        for direction in ("bullish", "bearish", "neutral"):
+            d_rows = [r for r in evaluated if r.get("direction") == direction]
+            d_returns = self._returns(d_rows)
             d_wins = [r for r in d_rows if r.get("status") == "hit_target"]
-            d_returns = [
-                float(r["actual_return_pct"])
-                for r in d_rows
-                if r.get("actual_return_pct") is not None
-            ]
-            direction_stats[d] = {
+            direction_stats[direction] = {
                 "total": len(d_rows),
                 "wins": len(d_wins),
                 "win_rate": round((len(d_wins) / len(d_rows)) * 100, 2) if d_rows else 0.0,
                 "avg_return_pct": round(sum(d_returns) / len(d_returns), 2) if d_returns else 0.0,
             }
 
-        # Tier breakdown
         tier_stats: Dict[str, Dict[str, Any]] = {}
-        for t in ("free", "pro", "premium"):
-            t_rows = [r for r in evaluated if r.get("tier") == t]
-            t_wins = [r for r in t_rows if r.get("status") == "hit_target"]
-            tier_stats[t] = {
-                "total": len(t_rows),
-                "wins": len(t_wins),
-                "win_rate": round((len(t_wins) / len(t_rows)) * 100, 2) if t_rows else 0.0,
+        for tier in ("free", "pro", "premium"):
+            tier_rows = [r for r in evaluated if str(r.get("tier") or "") == tier]
+            tier_wins = [r for r in tier_rows if r.get("status") == "hit_target"]
+            tier_stats[tier] = {
+                "total": len(tier_rows),
+                "wins": len(tier_wins),
+                "win_rate": round((len(tier_wins) / len(tier_rows)) * 100, 2) if tier_rows else 0.0,
             }
 
         return {
@@ -462,12 +527,15 @@ class AIPredictionTracker:
             "wins": len(wins),
             "stops": len(stops),
             "expired": len(expired),
-            "win_rate": win_rate,
-            "avg_return_pct": avg_return,
-            "best_return_pct": best,
-            "worst_return_pct": worst,
+            "win_rate": round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0,
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else 0.0,
+            "best_return_pct": max(returns) if returns else 0.0,
+            "worst_return_pct": min(returns) if returns else 0.0,
             "direction_stats": direction_stats,
             "tier_stats": tier_stats,
+            "prompt_versions": self._version_breakdown(evaluated, "prompt_version"),
+            "rule_versions": self._version_breakdown(evaluated, "rule_version"),
+            "model_versions": self._version_breakdown(evaluated, "model_name"),
         }
 
     # ------------------------------------------------------------------
@@ -475,136 +543,66 @@ class AIPredictionTracker:
     # ------------------------------------------------------------------
 
     def get_quarterly_audit(self, year: int, quarter: int) -> dict:
-        """
-        \u6bcf\u5b63\u5b8c\u6574\u5be9\u8a08\uff1a\u7d9c\u5408\u5206\u6790 + \u5efa\u8b70\u3002
-        """
         if quarter < 1 or quarter > 4:
             return {"ok": False, "error": "quarter must be 1-4"}
 
         start_month = (quarter - 1) * 3 + 1
-        end_month = start_month + 3
-
         q_start = datetime(year, start_month, 1, tzinfo=_TZ)
-        if end_month <= 12:
-            q_end = datetime(year, end_month, 1, tzinfo=_TZ)
-        else:
-            q_end = datetime(year + 1, 1, 1, tzinfo=_TZ)
-
-        rows = self._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "predicted_at": f"gte.{q_start.isoformat()}",
-                "and": f"(predicted_at.lt.{q_end.isoformat()})",
-                "select": "*",
-                "order": "predicted_at.asc",
-            },
+        end_month = start_month + 3
+        q_end = datetime(year + (1 if end_month > 12 else 0), 1 if end_month > 12 else end_month, 1, tzinfo=_TZ)
+        rows = self.list_predictions(
+            predicted_since=q_start.isoformat(),
+            predicted_before=q_end.isoformat(),
+            limit=5000,
         )
-        if not rows or not isinstance(rows, list):
-            rows = []
-
-        evaluated = [r for r in rows if r.get("status") != "open"]
-        still_open = [r for r in rows if r.get("status") == "open"]
-
+        evaluated, still_open = self._split_rows(rows)
         wins = [r for r in evaluated if r.get("status") == "hit_target"]
         stops = [r for r in evaluated if r.get("status") == "hit_stop"]
-        expired_rows = [r for r in evaluated if r.get("status") == "expired"]
+        expired = [r for r in evaluated if r.get("status") == "expired"]
+        returns = self._returns(evaluated)
 
-        returns = [
-            float(r["actual_return_pct"])
-            for r in evaluated
-            if r.get("actual_return_pct") is not None
-        ]
-        avg_return = round(sum(returns) / len(returns), 2) if returns else 0.0
-        best = max(returns) if returns else 0.0
-        worst = min(returns) if returns else 0.0
-        win_rate = round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0
-
-        # Monthly breakdown within the quarter
         monthly_breakdown: List[Dict[str, Any]] = []
-        for m_offset in range(3):
-            m = start_month + m_offset
-            m_rows = [
-                r for r in evaluated
-                if _parse_month(r.get("predicted_at", "")) == m
-            ]
+        for offset in range(3):
+            month = start_month + offset
+            m_rows = [r for r in evaluated if _parse_month(r.get("predicted_at", "")) == month]
+            m_returns = self._returns(m_rows)
             m_wins = [r for r in m_rows if r.get("status") == "hit_target"]
-            m_returns = [
-                float(r["actual_return_pct"])
-                for r in m_rows
-                if r.get("actual_return_pct") is not None
-            ]
             monthly_breakdown.append({
-                "month": m,
+                "month": month,
                 "total": len(m_rows),
                 "wins": len(m_wins),
                 "win_rate": round((len(m_wins) / len(m_rows)) * 100, 2) if m_rows else 0.0,
                 "avg_return_pct": round(sum(m_returns) / len(m_returns), 2) if m_returns else 0.0,
             })
 
-        # Top symbols
         symbol_stats: Dict[str, Dict[str, Any]] = {}
-        for r in evaluated:
-            sym = r.get("symbol", "UNKNOWN")
-            if sym not in symbol_stats:
-                symbol_stats[sym] = {"total": 0, "wins": 0, "returns": []}
-            symbol_stats[sym]["total"] += 1
-            if r.get("status") == "hit_target":
-                symbol_stats[sym]["wins"] += 1
-            ret = r.get("actual_return_pct")
-            if ret is not None:
-                symbol_stats[sym]["returns"].append(float(ret))
+        for row in evaluated:
+            symbol = str(row.get("symbol") or "UNKNOWN")
+            item = symbol_stats.setdefault(symbol, {"total": 0, "wins": 0, "returns": []})
+            item["total"] += 1
+            if row.get("status") == "hit_target":
+                item["wins"] += 1
+            if row.get("actual_return_pct") is not None:
+                try:
+                    item["returns"].append(float(row["actual_return_pct"]))
+                except Exception:
+                    pass
 
-        top_symbols = []
-        for sym, st in sorted(symbol_stats.items(), key=lambda x: x[1]["total"], reverse=True)[:10]:
+        top_symbols: List[Dict[str, Any]] = []
+        for symbol, item in sorted(symbol_stats.items(), key=lambda x: x[1]["total"], reverse=True)[:10]:
+            total = int(item["total"])
+            wins_for_symbol = int(item["wins"])
+            sym_returns = item["returns"]
             top_symbols.append({
-                "symbol": sym,
-                "total": st["total"],
-                "wins": st["wins"],
-                "win_rate": round((st["wins"] / st["total"]) * 100, 2) if st["total"] else 0.0,
-                "avg_return_pct": round(sum(st["returns"]) / len(st["returns"]), 2) if st["returns"] else 0.0,
+                "symbol": symbol,
+                "total": total,
+                "wins": wins_for_symbol,
+                "win_rate": round((wins_for_symbol / total) * 100, 2) if total else 0.0,
+                "avg_return_pct": round(sum(sym_returns) / len(sym_returns), 2) if sym_returns else 0.0,
             })
 
-        # Confidence calibration: group by confidence buckets
-        confidence_buckets: Dict[str, Dict[str, Any]] = {}
-        for bucket_label, lo, hi in [
-            ("0-20", 0, 20), ("21-40", 21, 40), ("41-60", 41, 60),
-            ("61-80", 61, 80), ("81-100", 81, 100),
-        ]:
-            b_rows = [
-                r for r in evaluated
-                if lo <= int(r.get("confidence") or 0) <= hi
-            ]
-            b_wins = [r for r in b_rows if r.get("status") == "hit_target"]
-            confidence_buckets[bucket_label] = {
-                "total": len(b_rows),
-                "wins": len(b_wins),
-                "win_rate": round((len(b_wins) / len(b_rows)) * 100, 2) if b_rows else 0.0,
-            }
-
-        # Generate recommendations
-        recommendations: List[str] = []
-        if win_rate < 40:
-            recommendations.append(
-                "Win rate below 40%: consider recalibrating AI analysis prompts."
-            )
-        if win_rate >= 60:
-            recommendations.append(
-                "Win rate above 60%: model performance is strong this quarter."
-            )
-        if len(expired_rows) > len(evaluated) * 0.5 and evaluated:
-            recommendations.append(
-                "Over 50% of predictions expired without hitting target or stop. "
-                "Consider tightening horizon or adjusting price targets."
-            )
-        high_conf = confidence_buckets.get("81-100", {})
-        if high_conf.get("total", 0) > 0 and high_conf.get("win_rate", 0) < 50:
-            recommendations.append(
-                "High-confidence (81-100) predictions have low win rate. "
-                "AI may be overconfident; review confidence calibration."
-            )
-        if not recommendations:
-            recommendations.append("No specific issues detected this quarter.")
+        confidence_buckets = self._confidence_buckets(evaluated)
+        recommendations = self._build_recommendations(evaluated, confidence_buckets)
 
         return {
             "ok": True,
@@ -616,96 +614,59 @@ class AIPredictionTracker:
             "still_open": len(still_open),
             "wins": len(wins),
             "stops": len(stops),
-            "expired": len(expired_rows),
-            "win_rate": win_rate,
-            "avg_return_pct": avg_return,
-            "best_return_pct": best,
-            "worst_return_pct": worst,
+            "expired": len(expired),
+            "win_rate": round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0,
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else 0.0,
+            "best_return_pct": max(returns) if returns else 0.0,
+            "worst_return_pct": min(returns) if returns else 0.0,
             "monthly_breakdown": monthly_breakdown,
             "top_symbols": top_symbols,
             "confidence_calibration": confidence_buckets,
+            "prompt_versions": self._version_breakdown(evaluated, "prompt_version"),
+            "rule_versions": self._version_breakdown(evaluated, "rule_version"),
+            "model_versions": self._version_breakdown(evaluated, "model_name"),
             "recommendations": recommendations,
         }
 
     # ------------------------------------------------------------------
-    # 6) Accuracy dashboard (overall)
+    # 6) Accuracy dashboard
     # ------------------------------------------------------------------
 
     def get_accuracy_dashboard(self) -> dict:
-        """
-        \u7576\u524d\u7e3d\u9ad4\u7d71\u8a08\u6578\u64da\uff0c\u4f9b Admin \u7528\u3002
-        """
-        # All evaluated predictions
-        all_rows = self._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "select": "id,symbol,direction,confidence,status,actual_return_pct,tier,predicted_at,evaluated_at",
-                "order": "predicted_at.desc",
-                "limit": "5000",
-            },
-        )
-        if not all_rows or not isinstance(all_rows, list):
-            all_rows = []
+        rows = self.list_predictions(limit=5000)
+        evaluated, still_open = self._split_rows(rows)
+        returns = self._returns(evaluated)
+        wins = [r for r in evaluated if r.get("status") == "hit_target"]
+        stops = [r for r in evaluated if r.get("status") == "hit_stop"]
+        expired = [r for r in evaluated if r.get("status") == "expired"]
 
-        total = len(all_rows)
-        open_count = sum(1 for r in all_rows if r.get("status") == "open")
-        evaluated = [r for r in all_rows if r.get("status") != "open"]
-        eval_count = len(evaluated)
-
-        wins = sum(1 for r in evaluated if r.get("status") == "hit_target")
-        stops = sum(1 for r in evaluated if r.get("status") == "hit_stop")
-        expired_count = sum(1 for r in evaluated if r.get("status") == "expired")
-
-        returns = [
-            float(r["actual_return_pct"])
-            for r in evaluated
-            if r.get("actual_return_pct") is not None
-        ]
-        avg_return = round(sum(returns) / len(returns), 2) if returns else 0.0
-        best = max(returns) if returns else 0.0
-        worst = min(returns) if returns else 0.0
-        win_rate = round((wins / eval_count) * 100, 2) if eval_count > 0 else 0.0
-
-        # Recent 7 days stats
-        now = _now()
-        week_ago = (now - timedelta(days=7)).isoformat()
-        recent = [
-            r for r in evaluated
-            if (r.get("evaluated_at") or "") >= week_ago
-        ]
-        recent_wins = sum(1 for r in recent if r.get("status") == "hit_target")
-        recent_win_rate = (
-            round((recent_wins / len(recent)) * 100, 2) if recent else 0.0
-        )
+        recent_start = (_now() - timedelta(days=7)).isoformat()
+        recent = [r for r in evaluated if str(r.get("evaluated_at") or "") >= recent_start]
+        recent_wins = [r for r in recent if r.get("status") == "hit_target"]
 
         return {
             "ok": True,
-            "total_predictions": total,
-            "open": open_count,
-            "evaluated": eval_count,
-            "wins": wins,
-            "stops": stops,
-            "expired": expired_count,
-            "win_rate": win_rate,
-            "avg_return_pct": avg_return,
-            "best_return_pct": best,
-            "worst_return_pct": worst,
+            "total_predictions": len(rows),
+            "open": len(still_open),
+            "evaluated": len(evaluated),
+            "wins": len(wins),
+            "stops": len(stops),
+            "expired": len(expired),
+            "win_rate": round((len(wins) / len(evaluated)) * 100, 2) if evaluated else 0.0,
+            "avg_return_pct": round(sum(returns) / len(returns), 2) if returns else 0.0,
+            "best_return_pct": max(returns) if returns else 0.0,
+            "worst_return_pct": min(returns) if returns else 0.0,
             "recent_7d": {
                 "evaluated": len(recent),
-                "wins": recent_wins,
-                "win_rate": recent_win_rate,
+                "wins": len(recent_wins),
+                "win_rate": round((len(recent_wins) / len(recent)) * 100, 2) if recent else 0.0,
             },
+            "confidence_calibration": self._confidence_buckets(evaluated),
+            "prompt_versions": self._version_breakdown(evaluated, "prompt_version"),
+            "rule_versions": self._version_breakdown(evaluated, "rule_version"),
+            "model_versions": self._version_breakdown(evaluated, "model_name"),
+            "recommendations": self._build_recommendations(evaluated, self._confidence_buckets(evaluated)),
         }
 
 
-def _parse_month(iso_str: str) -> int:
-    """Extract month number from an ISO datetime string."""
-    try:
-        return datetime.fromisoformat(iso_str).month
-    except Exception:
-        return 0
-
-
-# Module-level singleton
 prediction_tracker = AIPredictionTracker()

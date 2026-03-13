@@ -38,7 +38,7 @@ function RadarChart({ stocks }: { stocks: StockData[] }) {
     const cx = size / 2;
     const cy = size / 2;
     const maxR = size / 2 - 40;
-    const axes = ['本益比', '殖利率', '市值', '漲跌幅', '波動度'];
+    const axes = useMemo(() => ['本益比', '殖利率', '市值', '漲跌幅', '波動度'], []);
     const n = axes.length;
 
     const normalized = useMemo(() => {
@@ -56,7 +56,7 @@ function RadarChart({ stocks }: { stocks: StockData[] }) {
         });
         const maxes = axes.map((_, i) => Math.max(...vals.map(v => v[i]), 0.01));
         return vals.map(v => v.map((val, i) => Math.min(1, val / maxes[i])));
-    }, [stocks]);
+    }, [stocks, axes]);
 
     const getPoint = (fraction: number, axisIdx: number) => {
         const angle = (Math.PI * 2 * axisIdx) / n - Math.PI / 2;
@@ -129,7 +129,7 @@ export default function ComparePage() {
         if (!isLoggedIn || stocks.length < 2) return;
         setAiLoading(true);
         try {
-            const names = stocks.map(s => `${s.info.name}(${s.info.symbol})`).join('、');
+            const _names = stocks.map(s => `${s.info.name}(${s.info.symbol})`).join('、'); void _names;
             const res = await api.fetch<{ analysis?: string; result?: { analysis?: string } }>('/api/analysis/ai', {
                 method: 'POST',
                 body: JSON.stringify({ symbol: stocks[0]?.info?.symbol || '', period: '1y' }),

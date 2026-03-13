@@ -4,6 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import api from "@/lib/api";
+import { consumePkceVerifier } from "@/lib/pkce";
 
 interface AuthDiagnoseData {
     supabase_project_ref?: string;
@@ -27,6 +28,7 @@ function AuthCallbackContent() {
 
     useEffect(() => {
         const code = searchParams.get("code");
+        const state = searchParams.get("state");
         const queryToken = searchParams.get("access_token");
         const queryError = searchParams.get("error_description") || searchParams.get("error");
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
@@ -89,7 +91,12 @@ function AuthCallbackContent() {
                     throw new Error("缺少授權碼，請重新登入");
                 }
 
-                const res = await api.loginWithGoogleCode(code);
+                const codeVerifier = consumePkceVerifier(state);
+                if (!codeVerifier) {
+                    throw new Error("缺少 PKCE 驗證資訊，請重新登入");
+                }
+
+                const res = await api.loginWithGoogleCode(code, state || undefined, codeVerifier);
                 if (!res.success || !res.access_token) {
                     throw new Error(res.message || "OAuth 交換失敗");
                 }

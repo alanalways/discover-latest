@@ -4,9 +4,8 @@ TWSE Adapter - 台灣證券交易所資料抓取
 import logging
 import time
 import httpx
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
-import json
+from datetime import datetime
+from typing import Optional, List, Dict
 
 
 
@@ -213,14 +212,14 @@ class TWSEAdapter:
         """解析數字（移除逗號）"""
         try:
             return int(value.replace(",", ""))
-        except:
+        except Exception:
             return 0
     
     def _parse_price(self, value: str) -> float:
         """解析價格"""
         try:
             return float(value.replace(",", ""))
-        except:
+        except Exception:
             return 0.0
     
     def _parse_roc_date(self, roc_date: str) -> str:
@@ -229,7 +228,7 @@ class TWSEAdapter:
             parts = roc_date.split("/")
             year = int(parts[0]) + 1911
             return f"{year}-{parts[1]}-{parts[2]}"
-        except:
+        except Exception:
             return roc_date
     
     async def close(self):

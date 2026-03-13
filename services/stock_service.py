@@ -13,7 +13,7 @@ from collections import OrderedDict
 
 from adapters import (
     supabase, fx_adapter,
-    finmind_adapter, ndc_adapter
+    finmind_adapter
 )
 
 _STOCK_DATA_CACHE_TTL_SEC = max(30, int((os.environ.get("STOCK_DATA_CACHE_TTL_SEC") or "300").strip() or 300))
@@ -356,13 +356,15 @@ class StockService:
             try:
                 high_52w = max(d.get("high", 0) for d in recent_250)
                 low_52w = min(d.get("low", 0) for d in recent_250)
-            except:
+            except Exception:
                 pass
         
         # ?游???唳?澆 info
         if info:
-            if high_52w: info["high_52w"] = high_52w
-            if low_52w: info["low_52w"] = low_52w
+            if high_52w:
+                info["high_52w"] = high_52w
+            if low_52w:
+                info["low_52w"] = low_52w
 
             # ?冽風?脰???朣??啣?撞頝?嚗?頛?/????閬?
             try:
@@ -517,7 +519,7 @@ class StockService:
                     return str(data[0].get("market") or "").upper() or "TWSE"
                 if isinstance(data, dict):
                     return str(data.get("market") or "").upper() or "TWSE"
-            except:
+            except Exception:
                 pass
             
             # ?身?啗
@@ -678,7 +680,7 @@ class StockService:
             if rows:
                 print(f"[DataSource] Supabase DB OK: {symbol}")
                 return rows
-        except:
+        except Exception:
             pass
 
         # Fallback: Yahoo Finance (especially useful for 3y/5y periods)
@@ -1086,7 +1088,7 @@ class StockService:
                     })
                 else:
                     results.append(etf)
-            except:
+            except Exception:
                 results.append(etf)
         
         return results

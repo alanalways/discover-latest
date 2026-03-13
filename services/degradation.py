@@ -246,11 +246,11 @@ def _compute_atr(highs: List[float], lows: List[float], closes: List[float],
     trs = []
     for i in range(1, len(closes)):
         h = highs[i] if i < len(highs) else closes[i]
-        l = lows[i] if i < len(lows) else closes[i]
+        low_val = lows[i] if i < len(lows) else closes[i]
         pc = closes[i - 1]
-        if h <= 0 or l <= 0 or pc <= 0:
+        if h <= 0 or low_val <= 0 or pc <= 0:
             continue
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+        trs.append(max(h - low_val, abs(h - pc), abs(low_val - pc)))
     if len(trs) < period:
         return None
     return sum(trs[-period:]) / period

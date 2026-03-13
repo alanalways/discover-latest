@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Trophy, Loader2, Play, Share2, BarChart3 } from 'lucide-react';
+import { useState } from 'react';
+import { Trophy, Loader2, Play } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
 import styles from '../shared.module.css';

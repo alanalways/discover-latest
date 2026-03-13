@@ -115,14 +115,14 @@ def summarize_smc(result: Optional[dict], tier: str = "free") -> str:
     structures = [s for s in (result.get("structures") or []) if isinstance(s, dict)]
     order_blocks = [o for o in (result.get("order_blocks") or []) if isinstance(o, dict)]
     fvg = [g for g in (result.get("fvg") or []) if isinstance(g, dict)]
-    liquidity = [l for l in (result.get("liquidity") or []) if isinstance(l, dict)]
+    liquidity = [liq for liq in (result.get("liquidity") or []) if isinstance(liq, dict)]
 
     bos_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "BOS")
     choch_count = sum(1 for s in structures if str(s.get("type") or "").upper() == "CHOCH")
     active_ob = [o for o in order_blocks if not bool(o.get("mitigated"))]
     open_fvg = [g for g in fvg if not bool(g.get("filled"))]
-    buy_liq = [l for l in liquidity if str(l.get("type") or "") == "buy_side_liquidity"]
-    sell_liq = [l for l in liquidity if str(l.get("type") or "") == "sell_side_liquidity"]
+    buy_liq = [liq for liq in liquidity if str(liq.get("type") or "") == "buy_side_liquidity"]
+    sell_liq = [liq for liq in liquidity if str(liq.get("type") or "") == "sell_side_liquidity"]
 
     lines = [
         f"Trend={trend}",

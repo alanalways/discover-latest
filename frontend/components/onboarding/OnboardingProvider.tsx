@@ -88,18 +88,29 @@ export default function OnboardingProvider({ children }: { children: React.React
     // On mount + login, check localStorage
     useEffect(() => {
         if (!isInitialized || !isLoggedIn) return;
+        let cancelled = false;
+        const applyStep = (step: number) => {
+            window.setTimeout(() => {
+                if (!cancelled) {
+                    setCurrentStep(step);
+                }
+            }, 0);
+        };
         try {
             const completed = localStorage.getItem(STORAGE_KEY_COMPLETED);
             if (completed === '1') {
-                setCurrentStep(0);
-                return;
+                applyStep(0);
+            } else {
+                const saved = localStorage.getItem(STORAGE_KEY_STEP);
+                const step = saved ? parseInt(saved, 10) : 1;
+                applyStep(step >= 1 && step <= TOTAL_STEPS ? step : 1);
             }
-            const saved = localStorage.getItem(STORAGE_KEY_STEP);
-            const step = saved ? parseInt(saved, 10) : 1;
-            setCurrentStep(step >= 1 && step <= TOTAL_STEPS ? step : 1);
         } catch {
-            setCurrentStep(1);
+            applyStep(1);
         }
+        return () => {
+            cancelled = true;
+        };
     }, [isInitialized, isLoggedIn]);
 
     const next = useCallback(() => {

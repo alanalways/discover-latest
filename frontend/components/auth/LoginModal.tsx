@@ -3,6 +3,7 @@
 import React from 'react';
 import { useAuth } from './AuthProvider';
 import { X } from 'lucide-react';
+import { createPkceSession } from '@/lib/pkce';
 
 export default function LoginModal() {
     const { showLoginModal, setShowLoginModal } = useAuth();
@@ -12,7 +13,14 @@ export default function LoginModal() {
     const handleGoogleLogin = async () => {
         try {
             const callback = `${window.location.origin}/auth/callback`;
-            const authStartUrl = `/api/auth/google/start?redirect_to=${encodeURIComponent(callback)}`;
+            const pkce = await createPkceSession();
+            const params = new URLSearchParams({
+                redirect_to: callback,
+                state: pkce.state,
+                code_challenge: pkce.codeChallenge,
+                code_challenge_method: pkce.codeChallengeMethod,
+            });
+            const authStartUrl = `/api/auth/google/start?${params.toString()}`;
             window.location.href = authStartUrl;
         } catch {
             alert("登入失敗，請稍後再試");

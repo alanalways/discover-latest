@@ -7,7 +7,6 @@
   3. 檢查收件匣是否收到測試信
 """
 
-import os
 import sys
 from pathlib import Path
 

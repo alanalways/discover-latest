@@ -4,9 +4,7 @@ DiscoverLatest 洞察運算 - 市場總覽頁面
 """
 import logging
 import time
-import traceback
 import os
-import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -236,6 +234,27 @@ def _is_us_market_open(dt_local: datetime) -> bool:
         return False
     mins = dt_local.hour * 60 + dt_local.minute
     return 9 * 60 + 30 <= mins < 16 * 60
+
+
+def get_market_hours_snapshot(now_utc: Optional[datetime] = None) -> Dict[str, Dict[str, Any]]:
+    """共用台美股開市狀態快照，供 route / SSE / preload 共用。"""
+    now = now_utc or datetime.now(ZoneInfo("UTC"))
+    tw_now = now.astimezone(_TW_TZ)
+    us_now = now.astimezone(_US_TZ)
+    return {
+        "tw": {
+            "is_open": _is_tw_market_open(tw_now),
+            "is_trading_day": _is_tw_trading_day(tw_now),
+            "time": tw_now.strftime("%H:%M"),
+            "timezone": "Asia/Taipei",
+        },
+        "us": {
+            "is_open": _is_us_market_open(us_now),
+            "is_trading_day": _is_us_trading_day(us_now),
+            "time": us_now.strftime("%H:%M"),
+            "timezone": "America/New_York",
+        },
+    }
 
 
 def _top20_cache_ttl(now_utc: datetime) -> int:
@@ -777,7 +796,7 @@ def _build_fund_flow_section(fund_data: List[Dict]) -> str:
         elif v < 0:
             return f'<span style="color:#ef4444;">▼ {v:,}</span>'
         else:
-            return f'<span style="color:var(--text-3);">0</span>'
+            return '<span style="color:var(--text-3);">0</span>'
 
     rows_html = ""
     for item in fund_data:
@@ -820,7 +839,7 @@ def create_market_overview_page(lang: str = "zh-TW", watchlist: list = None):
 
     data = _fetch_market_data()
     indices = data.get("indices", [])
-    etfs = data.get("etfs", [])
+    data.get("etfs", [])
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     data_source_note = f"資料來源: FinMind &middot; 更新: {now_str}"

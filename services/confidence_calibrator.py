@@ -27,17 +27,8 @@ def _compute_calibration() -> Dict[str, Any]:
     """
     try:
         from services.ai_prediction_tracker import prediction_tracker
-        # Fetch all resolved predictions
-        data = prediction_tracker._request(
-            "GET",
-            "ai_predictions",
-            params={
-                "status": "neq.open",
-                "select": "confidence,status,direction",
-                "limit": "2000",
-            },
-            silent=True,
-        )
+        # Fetch all resolved predictions from the lightweight local tracker store.
+        data = prediction_tracker.list_predictions(exclude_status="open", limit=2000)
         if not isinstance(data, list) or len(data) < 10:
             return {"buckets": {}, "sample_size": 0, "ready": False}
 
@@ -51,7 +42,7 @@ def _compute_calibration() -> Dict[str, Any]:
             if bucket_key not in buckets:
                 buckets[bucket_key] = {"total": 0, "correct": 0}
             buckets[bucket_key]["total"] += 1
-            if status == "correct":
+            if status == "hit_target":
                 buckets[bucket_key]["correct"] += 1
 
         # Compute actual win rate per bucket

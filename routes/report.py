@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Request

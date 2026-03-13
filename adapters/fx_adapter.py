@@ -3,9 +3,8 @@ FX Adapter - 匯率資料
 """
 import logging
 import httpx
-from datetime import datetime, timedelta
-from typing import Optional, Dict, List
-import json
+from datetime import datetime
+from typing import Optional, Dict
 
 
 

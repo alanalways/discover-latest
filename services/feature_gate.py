@@ -3,7 +3,6 @@ Feature Gate Service
 管理所有功能的分級權限 (Free / Pro / Premium)
 Single Source of Truth for feature access control.
 """
-from typing import Dict, Union, Optional
 
 # 定義功能權限表
 # True: 可用, False: 鎖定

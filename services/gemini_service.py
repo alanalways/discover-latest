@@ -1219,7 +1219,8 @@ class GeminiService:
         investor_profile: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> Dict[str, Any]:
-        emit = lambda p, s, m, **kw: self._emit_progress(progress_callback, p, s, m, **kw)
+        def emit(p, s, m, **kw):
+            return self._emit_progress(progress_callback, p, s, m, **kw)
 
         # Circuit Breaker check — 斷路器 OPEN 時直接走降級路徑
         try:

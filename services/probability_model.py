@@ -12,7 +12,7 @@ Pure Python statistics, zero API consumption.
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 def compute_prob_up(closes: List[float], horizon: int = 20) -> float:

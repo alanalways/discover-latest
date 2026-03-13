@@ -5,11 +5,9 @@ Google OAuth via Supabase Auth + RBAC (custom claims + RLS)
 import logging
 import os
 import hashlib
-import time
 from datetime import datetime
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, List
 
-import httpx
 
 from adapters.supabase_adapter import supabase_adapter
 
@@ -85,9 +83,13 @@ class AuthService:
             logger.warning("[Auth] verify_google_token 錯誤: %s: %s", type(e).__name__, e)
         return None
 
-    def exchange_code_for_session(self, code: str) -> Optional[Dict]:
+    def exchange_code_for_session(self, code: str, code_verifier: Optional[str] = None) -> Optional[Dict]:
         """PKCE flow: 用 authorization code 交換 access_token，然後取得用戶資料"""
         if not code:
+            return None
+        verifier = str(code_verifier or "").strip()
+        if not verifier:
+            logger.warning("[Auth] PKCE exchange 缺少 code_verifier")
             return None
         try:
             url = os.environ.get("SUPABASE_URL", "")
@@ -106,7 +108,7 @@ class AuthService:
                     },
                     json={
                         "auth_code": code,
-                        "code_verifier": "",  # 伺服器端不需要 verifier
+                        "code_verifier": verifier,
                     },
                 )
                 logger.info("[Auth] PKCE token exchange: status=%d", resp.status_code)
@@ -127,9 +129,13 @@ class AuthService:
             logger.warning("[Auth] PKCE exchange 錯誤: %s: %s", type(e).__name__, e)
         return None
 
-    def exchange_code_for_token(self, code: str) -> Optional[str]:
+    def exchange_code_for_token(self, code: str, code_verifier: Optional[str] = None) -> Optional[str]:
         """PKCE flow: 用 authorization code 交換 access_token（只回傳 token 字串）"""
         if not code:
+            return None
+        verifier = str(code_verifier or "").strip()
+        if not verifier:
+            logger.warning("[Auth] code exchange 缺少 code_verifier")
             return None
         try:
             url = os.environ.get("SUPABASE_URL", "")
@@ -145,7 +151,7 @@ class AuthService:
                         "apikey": anon_key,
                         "Content-Type": "application/json",
                     },
-                    json={"auth_code": code, "code_verifier": ""},
+                    json={"auth_code": code, "code_verifier": verifier},
                 )
                 if resp.status_code == 200:
                     return resp.json().get("access_token")
@@ -157,7 +163,7 @@ class AuthService:
                         "apikey": anon_key,
                         "Content-Type": "application/json",
                     },
-                    json={"code": code, "code_verifier": ""},
+                    json={"code": code, "code_verifier": verifier},
                 )
                 logger.info("[Auth] code exchange fallback: status=%d", resp2.status_code)
                 if resp2.status_code == 200:

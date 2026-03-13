@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -47,6 +47,34 @@ interface Stats {
   pending_upgrade_count?: number;
 }
 
+interface VersionStat {
+  version: string;
+  total: number;
+  wins: number;
+  win_rate: number;
+  avg_return_pct?: number;
+}
+
+interface PredictionDashboard {
+  ok: boolean;
+  total_predictions: number;
+  open: number;
+  evaluated: number;
+  wins: number;
+  stops: number;
+  expired: number;
+  win_rate: number;
+  avg_return_pct: number;
+  best_return_pct: number;
+  worst_return_pct: number;
+  recent_7d?: { evaluated: number; wins: number; win_rate: number };
+  confidence_calibration?: Record<string, { total: number; wins: number; win_rate: number }>;
+  prompt_versions?: VersionStat[];
+  rule_versions?: VersionStat[];
+  model_versions?: VersionStat[];
+  recommendations?: string[];
+}
+
 interface ApiKeyUsage {
   masked: string;
   calls: number;
@@ -82,6 +110,7 @@ export default function AdminPage() {
   const [moderatingUserId, setModeratingUserId] = useState<string | null>(null);
   const [hiddenPendingUntil, setHiddenPendingUntil] = useState<Record<string, number>>({});
   const [diagnostic, setDiagnostic] = useState<Record<string, unknown> | null>(null);
+  const [predDash, setPredDash] = useState<PredictionDashboard | null>(null);
 
   const adminEmails = useMemo(() => {
     return getAdminEmailsFromEnv();
@@ -134,7 +163,7 @@ export default function AdminPage() {
     setError('');
     const errors: string[] = [];
     try {
-      const [statsRes, usersRes, pendingRes, sysRes] = await Promise.all([
+      const [statsRes, usersRes, pendingRes, sysRes, predRes] = await Promise.all([
         apiClient.fetch<Stats>('/api/admin/stats', { method: 'GET' }).catch((e) => {
           errors.push(`統計: ${getErrorMessage(e, '載入失敗')}`);
           return null;
@@ -155,12 +184,14 @@ export default function AdminPage() {
           errors.push(`系統狀態: ${getErrorMessage(e, '載入失敗')}`);
           return null;
         }),
+        apiClient.fetch<PredictionDashboard>('/api/admin/predictions/dashboard', { method: 'GET' }).catch(() => null),
       ]);
       if (statsRes) setStats(statsRes);
       setUsers(usersRes?.users || []);
       if (usersRes?.diagnostic) setDiagnostic(usersRes.diagnostic);
       setPending(pendingRes?.pending || []);
       if (sysRes) setSystemStatus(sysRes);
+      if (predRes) setPredDash(predRes);
 
       if (errors.length > 0) {
         setError(errors.join(' ｜ '));
@@ -596,6 +627,106 @@ export default function AdminPage() {
           <div className={styles.loadingText}>載入中...</div>
         )}
       </div>
+      {/* AI Prediction Accuracy Panel */}
+      {predDash && (
+        <div className={styles.section} style={{ marginTop: 16 }}>
+          <div className={styles.sectionHeader}>
+            <h3>AI 預測追蹤</h3>
+          </div>
+          <div className={styles.statsGrid}>
+            <div className={styles.statCard}>
+              <Activity size={18} />
+              <div>
+                <div className={styles.statValue}>{predDash.total_predictions}</div>
+                <div className={styles.statLabel}>總建議數</div>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <Star size={18} style={{ color: '#22c55e' }} />
+              <div>
+                <div className={styles.statValue}>{predDash.win_rate}%</div>
+                <div className={styles.statLabel}>命中率</div>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <Activity size={18} />
+              <div>
+                <div className={styles.statValue}>{predDash.avg_return_pct}%</div>
+                <div className={styles.statLabel}>平均報酬</div>
+              </div>
+            </div>
+            <div className={styles.statCard}>
+              <Activity size={18} />
+              <div>
+                <div className={styles.statValue}>{predDash.open}</div>
+                <div className={styles.statLabel}>待驗證</div>
+              </div>
+            </div>
+          </div>
+
+          {predDash.recent_7d && (
+            <div style={{ padding: '12px 16px', background: 'var(--bg-elevated)', borderRadius: 8, marginTop: 12, fontSize: 13, color: 'var(--text-2)' }}>
+              近 7 天：{predDash.recent_7d.evaluated} 筆已驗證，命中 {predDash.recent_7d.wins} 筆（{predDash.recent_7d.win_rate}%）
+            </div>
+          )}
+
+          {predDash.confidence_calibration && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 8 }}>信心校正分佈</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+                {Object.entries(predDash.confidence_calibration).map(([bucket, data]) => (
+                  <div key={bucket} style={{ padding: '10px 8px', background: 'var(--bg-elevated)', borderRadius: 8, textAlign: 'center', fontSize: 12 }}>
+                    <div style={{ color: 'var(--text-3)', marginBottom: 4 }}>{bucket}</div>
+                    <div style={{ fontWeight: 600, color: data.win_rate >= 50 ? '#22c55e' : data.total > 0 ? '#ef4444' : 'var(--text-3)' }}>
+                      {data.total > 0 ? `${data.win_rate}%` : '—'}
+                    </div>
+                    <div style={{ color: 'var(--text-3)', marginTop: 2 }}>{data.total} 筆</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {predDash.prompt_versions && predDash.prompt_versions.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 8 }}>Prompt 版本表現</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {predDash.prompt_versions.map((v) => (
+                  <div key={v.version} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: 6, fontSize: 12, color: 'var(--text-2)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-1)' }}>{v.version}</span>
+                    <span>{v.total} 筆 · 命中 {v.wins} · <span style={{ fontWeight: 600, color: v.win_rate >= 50 ? '#22c55e' : '#ef4444' }}>{v.win_rate}%</span></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {predDash.model_versions && predDash.model_versions.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 8 }}>模型版本表現</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {predDash.model_versions.map((v) => (
+                  <div key={v.version} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--bg-elevated)', borderRadius: 6, fontSize: 12, color: 'var(--text-2)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-1)' }}>{v.version}</span>
+                    <span>{v.total} 筆 · 命中 {v.wins} · <span style={{ fontWeight: 600, color: v.win_rate >= 50 ? '#22c55e' : '#ef4444' }}>{v.win_rate}%</span></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {predDash.recommendations && predDash.recommendations.length > 0 && (
+            <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(255,170,68,0.08)', border: '1px solid rgba(255,170,68,0.2)', borderRadius: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#ffaa44', marginBottom: 6 }}>系統調校建議</div>
+              {predDash.recommendations.map((rec, i) => (
+                <div key={i} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.6, paddingLeft: 12, position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 0 }}>·</span>{rec}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

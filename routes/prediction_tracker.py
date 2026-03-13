@@ -6,7 +6,6 @@ Prediction Tracker API Routes
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -47,7 +46,7 @@ async def evaluate_predictions(request: Request):
 
         result = await prediction_tracker.evaluate_open_predictions()
         return result
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] evaluate error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -62,7 +61,7 @@ async def get_accuracy_dashboard(request: Request):
         from services.ai_prediction_tracker import prediction_tracker
 
         return prediction_tracker.get_accuracy_dashboard()
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] stats error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -80,7 +79,7 @@ async def get_weekly_report(
         from services.ai_prediction_tracker import prediction_tracker
 
         return prediction_tracker.get_weekly_stats(weeks_back=weeks_back)
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] weekly error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -99,7 +98,7 @@ async def get_monthly_review(
         from services.ai_prediction_tracker import prediction_tracker
 
         return prediction_tracker.get_monthly_review(year=year, month=month)
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] monthly error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -118,7 +117,7 @@ async def get_quarterly_audit(
         from services.ai_prediction_tracker import prediction_tracker
 
         return prediction_tracker.get_quarterly_audit(year=year, quarter=quarter)
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] quarterly error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -147,6 +146,6 @@ async def record_prediction(request: Request, body: RecordPredictionRequest):
         return result
     except HTTPException:
         raise
-    except Exception as exc:
+    except Exception:
         logger.exception("[PredictionTracker] record error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")

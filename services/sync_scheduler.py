@@ -37,6 +37,7 @@ class SyncScheduler:
     def __init__(self):
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
         self._last_backup_supabase: Optional[str] = None
         self._last_backup_hf: Optional[float] = None
         self._last_cleanup: Optional[str] = None
@@ -45,12 +46,17 @@ class SyncScheduler:
         if self._running:
             return
         self._running = True
+        self._stop_event.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True, name="SyncScheduler")
         self._thread.start()
         logger.info("[SyncScheduler] 排程啟動")
 
     def stop(self):
         self._running = False
+        self._stop_event.set()
+        thread = self._thread
+        if thread and thread.is_alive():
+            thread.join(timeout=2.0)
 
     # ────────────────────── 首次同步：還原 SQLite ──────────────────────
 
@@ -229,7 +235,8 @@ class SyncScheduler:
             except Exception as e:
                 logger.warning("[SyncScheduler] 排程循環異常: %s", e)
 
-            time.sleep(_CHECK_INTERVAL_SEC)
+            if self._stop_event.wait(_CHECK_INTERVAL_SEC):
+                break
 
     # ────────────────────── Supabase 每日備份 ──────────────────────
 

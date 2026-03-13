@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -94,7 +93,7 @@ async def get_crypto_tickers():
             "majors": majors,
             "source": "pionex",
         }
-    except Exception as e:
+    except Exception:
         logger.exception("[Crypto] get_crypto_tickers error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -132,7 +131,7 @@ async def get_crypto_ticker(symbol: str):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("[Crypto] get_crypto_ticker error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -166,7 +165,7 @@ async def get_crypto_klines(
             "klines": klines,
             "count": len(klines),
         }
-    except Exception as e:
+    except Exception:
         logger.exception("[Crypto] get_crypto_klines error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -185,7 +184,7 @@ async def get_crypto_symbols():
             "symbols": spot_symbols,
             "count": len(spot_symbols),
         }
-    except Exception as e:
+    except Exception:
         logger.exception("[Crypto] get_crypto_symbols error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
@@ -274,7 +273,7 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
 
     # 檢查額度
     from services.rate_limiter import rate_limiter
-    tier = rate_limiter.check_and_downgrade(user_id)
+    rate_limiter.check_and_downgrade(user_id)
     allowed, reason = rate_limiter.acquire_request(user_id)
     if not allowed:
         raise HTTPException(status_code=429, detail=reason or "今日 AI 分析次數已達上限")
@@ -345,7 +344,7 @@ async def crypto_ai_analysis(req: CryptoAnalysisRequest, request: Request):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("[Crypto] AI analysis error")
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 

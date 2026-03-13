@@ -3,9 +3,8 @@ Yahoo Finance Adapter - 使用 yfinance 封裝
 """
 import logging
 import yfinance as yf
-import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from datetime import datetime
+from typing import Optional, List, Dict
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -216,7 +215,7 @@ class YahooAdapter:
                 
                 return results[:limit]
                 
-            except:
+            except Exception:
                 return []
         
         loop = asyncio.get_event_loop()

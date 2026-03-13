@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, Loader2, Sparkles, Download } from 'lucide-react';
+import { FileText, Loader2, Sparkles } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/components/auth/AuthProvider';
 import styles from '../shared.module.css';

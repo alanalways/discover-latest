@@ -1,4 +1,4 @@
-﻿"""Admin API routes."""
+"""Admin API routes."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 import time
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class PendingModerateRequest(BaseModel):
     expires_at: Optional[str] = None
 
 
-from utils.auth import require_admin as _require_admin_shared, collect_admin_emails as _collect_admin_emails, is_admin_user as _is_admin_user
+from utils.auth import require_admin as _require_admin_shared
 
 
 @router.get("/admin/users")
@@ -75,7 +75,7 @@ async def update_tier(req: TierUpdateRequest, request: Request):
             except Exception:
                 pass
         return {"success": bool(ok)}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -99,7 +99,7 @@ async def get_stats(request: Request):
             "tier_distribution": tier_counts,
             "pending_upgrade_count": len(pending),
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -112,7 +112,7 @@ async def list_upgrade_pending(request: Request):
 
         rows = supabase_adapter.list_pending_upgrade_requests() or []
         return {"pending": rows}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -174,7 +174,7 @@ async def approve_upgrade_pending(req: PendingModerateRequest, request: Request)
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -225,7 +225,7 @@ async def reject_upgrade_pending(req: PendingModerateRequest, request: Request):
         }
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -235,7 +235,6 @@ async def get_system_status(request: Request):
     _require_admin(request)
     try:
         from services.gemini_service import get_key_usage_stats
-        import main as _main
 
         # API key usage
         api_keys = get_key_usage_stats()
@@ -256,7 +255,6 @@ async def get_system_status(request: Request):
             supabase_latency_ms = None
 
         # Server uptime
-        from fastapi import Request as _Req
         startup_time = getattr(request.app.state, 'startup_time', None)
         uptime_sec = round(time.time() - startup_time) if startup_time else None
 
@@ -274,7 +272,7 @@ async def get_system_status(request: Request):
             "server_uptime_sec": uptime_sec,
             "local_store_stats": local_stats,
         }
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -287,7 +285,7 @@ async def get_circuit_breaker_status(request: Request):
         return gemini_breaker.get_status()
     except ImportError:
         return {"state": "unavailable", "error": "circuit breaker module not loaded"}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -301,7 +299,7 @@ async def reset_circuit_breaker(request: Request):
         return {"success": True, "state": gemini_breaker.state.value, "message": "Circuit breaker 已重置為 CLOSED"}
     except ImportError:
         raise HTTPException(status_code=500, detail="circuit breaker module not loaded")
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
 
 
@@ -339,5 +337,46 @@ async def get_macro_context(request: Request):
     try:
         from services.macro_context_service import macro_context_service
         return macro_context_service.get_context(force_refresh=True)
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/predictions/dashboard")
+async def get_predictions_dashboard(request: Request):
+    """AI prediction accuracy dashboard with version-level breakdown."""
+    _require_admin(request)
+    try:
+        from services.ai_prediction_tracker import prediction_tracker
+        return prediction_tracker.get_accuracy_dashboard()
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/predictions/monthly")
+async def get_predictions_monthly(
+    request: Request,
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+):
+    """Monthly prediction review with prompt/rule/model version breakdown."""
+    _require_admin(request)
+    try:
+        from services.ai_prediction_tracker import prediction_tracker
+        return prediction_tracker.get_monthly_review(year=year, month=month)
+    except Exception:
+        raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")
+
+
+@router.get("/admin/predictions/quarterly")
+async def get_predictions_quarterly(
+    request: Request,
+    year: int = Query(..., ge=2020, le=2100),
+    quarter: int = Query(..., ge=1, le=4),
+):
+    """Quarterly audit with tuning recommendations."""
+    _require_admin(request)
+    try:
+        from services.ai_prediction_tracker import prediction_tracker
+        return prediction_tracker.get_quarterly_audit(year=year, quarter=quarter)
     except Exception:
         raise HTTPException(status_code=500, detail="\u4f3a\u670d\u5668\u66ab\u6642\u7121\u6cd5\u8655\u7406\u8acb\u6c42")

@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -30,32 +30,41 @@ sys.path.insert(0, str(ROOT_DIR))
 async def lifespan(app: FastAPI):
     """啟動 / 關閉事件"""
     app.state.startup_time = time.time()
+    app.state.boot_status = {
+        "adapter_load": {"ok": False, "critical": True, "detail": "not_started"},
+        "sync_scheduler": {"ok": False, "critical": False, "detail": "not_started"},
+        "preloader": {"ok": False, "critical": False, "detail": "not_started"},
+    }
     logger.info("===== DiscoverLatest API Starting =====")
     # 預載入 adapters（觸發快取初始化）
     try:
         from adapters.finmind_adapter import finmind_adapter
-        from adapters.supabase_adapter import supabase_adapter
         logger.info("[Boot] Adapters loaded")
+        app.state.boot_status["adapter_load"] = {"ok": True, "critical": True, "detail": "ready"}
     except Exception as e:
         logger.warning("[Boot] Adapter load warning: %s", e)
+        app.state.boot_status["adapter_load"] = {"ok": False, "critical": True, "detail": str(e)}
 
     # 初始化本地 SQLite 儲存 + 同步排程
     try:
-        from adapters.local_store import local_store
         from services.sync_scheduler import sync_scheduler
         sync_scheduler.initial_sync()
         sync_scheduler.start()
         logger.info("[Boot] LocalStore + SyncScheduler 初始化完成")
+        app.state.boot_status["sync_scheduler"] = {"ok": True, "critical": False, "detail": "running"}
     except Exception as e:
         logger.warning("[Boot] LocalStore/SyncScheduler 初始化警告: %s", e)
+        app.state.boot_status["sync_scheduler"] = {"ok": False, "critical": False, "detail": str(e)}
 
     try:
         from services.preloader import start_preload
 
         start_preload()
         logger.info("[Boot] Preloader started")
+        app.state.boot_status["preloader"] = {"ok": True, "critical": False, "detail": "started"}
     except Exception as e:
         logger.warning("[Boot] Preloader warning: %s", e)
+        app.state.boot_status["preloader"] = {"ok": False, "critical": False, "detail": str(e)}
     yield
     # 關閉連線池
     try:
@@ -290,7 +299,23 @@ app.include_router(prediction_tracker_router, prefix="/api", tags=["PredictionTr
 # ── Health Check ──
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "version": app.version}
+    components = getattr(app.state, "boot_status", {}) or {}
+    critical_failures = [
+        name for name, info in components.items()
+        if isinstance(info, dict) and not info.get("ok") and info.get("critical")
+    ]
+    degraded = any(
+        isinstance(info, dict) and not info.get("ok")
+        for info in components.values()
+    )
+    payload = {
+        "status": "error" if critical_failures else ("degraded" if degraded else "ok"),
+        "version": app.version,
+        "components": components,
+    }
+    if critical_failures:
+        return JSONResponse(status_code=503, content=payload)
+    return payload
 
 
 @app.get("/api/system/slo-report")
