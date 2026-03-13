@@ -409,15 +409,20 @@ class DexterAgent:
             avg_l = sum(losses) / 14.0
             rsi14 = 100.0 - (100.0 / (1.0 + avg_g / avg_l)) if avg_l > 0 else (100.0 if avg_g > 0 else 50.0)
 
+        # EMA helper (shared by MACD + EMA20/50/200)
+        def _ema(data: list, n: int) -> list:
+            if not data:
+                return []
+            k = 2.0 / (n + 1)
+            seed = sum(data[:min(n, len(data))]) / min(n, len(data))
+            res = [seed]
+            for v in data[min(n, len(data)):]:
+                res.append(v * k + res[-1] * (1 - k))
+            return res
+
         # MACD (12, 26, 9)
         macd_val = macd_signal = macd_hist = 0.0
         if len(closes) >= 26:
-            def _ema(data: list, n: int) -> list:
-                k = 2.0 / (n + 1)
-                res = [data[0]]
-                for v in data[1:]:
-                    res.append(v * k + res[-1] * (1 - k))
-                return res
             ema12 = _ema(closes, 12)
             ema26 = _ema(closes, 26)
             macd_line = [e12 - e26 for e12, e26 in zip(ema12, ema26)]
@@ -426,6 +431,11 @@ class DexterAgent:
                 macd_val = macd_line[-1]
                 macd_signal = sig_line[-1]
                 macd_hist = macd_val - macd_signal
+
+        # EMA20, EMA50, EMA200
+        ema20_val = _ema(closes, 20)[-1] if len(closes) >= 20 else sma20
+        ema50_val = _ema(closes, 50)[-1] if len(closes) >= 30 else sma20
+        ema200_val = _ema(closes, 200)[-1] if len(closes) >= 60 else sma60
 
         # KDJ (9, 3, 3)
         kdj_k = kdj_d = kdj_j = 50.0
@@ -482,6 +492,9 @@ class DexterAgent:
             "kdj_j": round(kdj_j, 1),
             "bb_upper": round(bb_upper, 2),
             "bb_lower": round(bb_lower, 2),
+            "ema20": round(ema20_val, 2),
+            "ema50": round(ema50_val, 2),
+            "ema200": round(ema200_val, 2),
             "short_entry": short_entry,
             "mid_entry": mid_entry,
             "long_entry": long_entry,
@@ -791,12 +804,94 @@ class DexterAgent:
         last = float(levels.get("last") or 0.0)
         sma20 = float(levels.get("sma20") or 0.0)
         sma60 = float(levels.get("sma60") or 0.0)
+        ema200 = float(levels.get("ema200") or sma60)
         chg5 = float(levels.get("chg5") or 0.0)
+        if last > sma20 > sma60 and last > ema200 and chg5 >= 0:
+            return "偏多趨勢"
+        if last < sma20 < sma60 and last < ema200 and chg5 <= 0:
+            return "偏空趨勢"
         if last > sma20 > sma60 and chg5 >= 0:
             return "偏多趨勢"
         if last < sma20 < sma60 and chg5 <= 0:
             return "偏空趨勢"
         return "區間震盪"
+
+    @staticmethod
+    def _fetch_macro_snapshot(closes: List[float]) -> Dict[str, Any]:
+        """Fetch DXY, VIX, QQQ, 10Y yield from yfinance for macro context."""
+        result: Dict[str, Any] = {}
+        try:
+            import yfinance as _yf
+            _macro_map = {"DXY": "^DXY", "VIX": "^VIX", "QQQ": "QQQ", "TNX": "^TNX"}
+            for name, sym in _macro_map.items():
+                try:
+                    hist = _yf.Ticker(sym).history(period="5d", auto_adjust=True)
+                    if hist.empty:
+                        continue
+                    c_last = float(hist["Close"].iloc[-1])
+                    c_prev = float(hist["Close"].iloc[-2]) if len(hist) >= 2 else c_last
+                    chg = (c_last - c_prev) / c_prev * 100.0 if c_prev > 0 else 0.0
+                    result[name] = {"price": round(c_last, 2), "chg1": round(chg, 2)}
+                except Exception:
+                    pass
+            # QQQ 20-day correlation with the stock
+            if "QQQ" in result and len(closes) >= 20:
+                try:
+                    qqq_hist = _yf.Ticker("QQQ").history(period="3mo", auto_adjust=True)
+                    if not qqq_hist.empty and len(qqq_hist) >= 20:
+                        qqq_c = [float(v) for v in qqq_hist["Close"].tail(20)]
+                        stk_c = closes[-20:]
+                        if len(qqq_c) == len(stk_c):
+                            n = len(qqq_c)
+                            mq = sum(qqq_c) / n
+                            ms = sum(stk_c) / n
+                            cov = sum((qqq_c[i] - mq) * (stk_c[i] - ms) for i in range(n)) / n
+                            vq = sum((c - mq) ** 2 for c in qqq_c) / n
+                            vs = sum((c - ms) ** 2 for c in stk_c) / n
+                            result["QQQ_CORR"] = round(cov / (vq ** 0.5 * vs ** 0.5), 2) if vq > 0 and vs > 0 else 0.0
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return result
+
+    @staticmethod
+    def _build_fallback_summary_dict(
+        symbol: str, levels: Dict[str, Any], stance: str, regime: str
+    ) -> Dict[str, Any]:
+        """Build summary dict compatible with prediction_tracker from fallback levels."""
+        if not levels:
+            return {}
+        verdict = "bullish" if stance == "偏多" else ("bearish" if stance == "偏空" else "neutral")
+        confidence = 60 if stance in ("偏多", "偏空") else 50
+        se0, se1 = levels["short_entry"]
+        me0, me1 = levels["mid_entry"]
+        le0, le1 = levels["long_entry"]
+        return {
+            "verdict": verdict,
+            "confidence": confidence,
+            "entry": {
+                "short": f"{se0:.2f}-{se1:.2f}",
+                "mid": f"{me0:.2f}-{me1:.2f}",
+                "long": f"{le0:.2f}-{le1:.2f}",
+            },
+            "stop_loss": {
+                "short": str(levels["short_stop"]),
+                "mid": str(levels["mid_stop"]),
+                "long": str(levels["long_stop"]),
+            },
+            "target": {
+                "short": str(levels["short_target"]),
+                "mid": str(levels["mid_target"]),
+                "long": str(levels["long_target"]),
+            },
+            "key_levels": {
+                "support": [str(levels["support"])],
+                "resistance": [str(levels["resistance"])],
+            },
+            "one_liner": f"{symbol} {regime}，短線進場 {se0:.2f}-{se1:.2f}，停損 {levels['short_stop']:.2f}",
+            "scores": {"technical": 50, "fundamental": 50, "chips": 50, "macro": 50},
+        }
 
     @staticmethod
     def _calc_rr(entry_lo: float, entry_hi: float, stop: float, target: float) -> float:
@@ -845,6 +940,7 @@ class DexterAgent:
         levels = self._compute_trade_levels(price_rows)
         signals = self._collect_quant_signals(context, levels)
         regime = self._regime_from_levels(levels)
+        closes_for_macro = [self._to_float(r.get("close")) for r in price_rows]
 
         if levels:
             inst_net = signals.get("inst_net_8d")
@@ -919,62 +1015,159 @@ class DexterAgent:
             else:
                 margin_line = f"• 驅動因子二（融資融券）近8日融資減融券淨變化 {self._fmt_num(margin_net, 0)}，判定 {margin_bias}。"
             macro_index = self._macro_index_hint(signals)
+            ema20 = levels.get("ema20", levels["sma20"])
+            ema50 = levels.get("ema50", levels["sma60"])
+            ema200 = levels.get("ema200", levels["sma60"])
+            rsi = levels["rsi14"]
+            bb_lower = levels["bb_lower"]
+            bb_upper = levels["bb_upper"]
+            last_p = levels["last"]
+            support = levels["support"]
+            resistance = levels["resistance"]
+            macd_hist = levels["macd_hist"]
+
+            # EMA alignment
+            if last_p > ema20 > ema50 > ema200:
+                ema_align = f"多頭完整排列（EMA20 {ema20:.2f} > EMA50 {ema50:.2f} > EMA200 {ema200:.2f}），長線偏強"
+            elif last_p < ema20 < ema50 < ema200:
+                ema_align = f"空頭完整排列（EMA20 {ema20:.2f} < EMA50 {ema50:.2f} < EMA200 {ema200:.2f}），長線偏弱"
+            elif last_p > ema200:
+                ema_align = f"收盤在EMA200（{ema200:.2f}）上方，長線仍屬多頭區域；但短中期排列混亂需謹慎"
+            else:
+                ema_align = f"收盤在EMA200（{ema200:.2f}）下方，長線熊市壓制；需站回EMA200才能轉強"
+
+            # Entry WHY
+            rsi_why_s = (f"RSI {rsi:.1f} 接近超賣，反彈機率偏高" if rsi < 35
+                         else (f"RSI {rsi:.1f} 中性偏低，動能偏弱但未超賣" if rsi < 50
+                               else f"RSI {rsi:.1f} 偏中性，宜等回測再介入"))
+            bb_why_s = (f"布林下軌 {bb_lower:.2f} 附近具支撐" if last_p <= bb_lower * 1.015
+                        else f"距布林下軌 {bb_lower:.2f} 尚有緩衝")
+            short_why = f"  ↳ WHY：{rsi_why_s}；{bb_why_s}；進場區貼近 EMA20 {ema20:.2f}"
+
+            mid_why = (f"  ↳ WHY：SMA20 {levels['sma20']:.2f} 為短中期均線支撐；"
+                       f"{'MACD柱狀轉正動能回升' if macd_hist > 0 else 'MACD柱狀仍負，等待轉正確認'}；"
+                       f"進場於 EMA50 {ema50:.2f} 附近，回撤深度可控")
+
+            long_why = (f"  ↳ WHY：SMA60 {levels['sma60']:.2f} / EMA200 {ema200:.2f} 為長線錨點；"
+                        f"{'位於多頭區域，長線持有邏輯成立' if last_p > ema200 else '目前低於EMA200，長線佈局需等回測站穩再確認'}；"
+                        f"停損設在 {levels['long_stop']:.2f}，控制在長線入場成本 1% 以內")
+
+            # Conclusion action
+            if stance == "偏多":
+                if macd_hist > 0:
+                    action = (f"建議多方操作。短線等量縮回測 {se0:.2f}-{se1:.2f} 介入，"
+                              f"MACD柱狀正值確認動能；突破壓力 {resistance:.2f} 且量比>1.2 時加碼至60%倉。"
+                              f"停損 {levels['short_stop']:.2f} 嚴格執行，破位即出。")
+                else:
+                    action = (f"趨勢偏多但MACD尚未轉正，建議等待柱狀轉正後再進場。"
+                              f"重點觀察 {se1:.2f} 能否站穩；若量縮回測支撐 {support:.2f} 未破，可小倉試多（30%）。")
+            elif stance == "偏空":
+                action = (f"趨勢偏空，建議減倉或觀望為主。"
+                          f"若反彈至 {resistance:.2f} 附近且量縮，可考慮空方布局；"
+                          f"跌破支撐 {support:.2f} 且隔日未收復，確認下行加速信號，可加空至60%倉。"
+                          f"空單停損設在 {resistance:.2f} 上方。")
+            else:
+                action = (f"區間震盪格局，建議高拋低吸策略：支撐 {support:.2f} 附近量增可試多（30%倉），"
+                          f"壓力 {resistance:.2f} 附近量縮分批減碼；"
+                          f"等待突破 {resistance:.2f}（量比>1.2）或跌破 {support:.2f} 才決定方向性趨勢操作。")
+
+            # Macro snapshot
+            macro_snap = self._fetch_macro_snapshot(closes_for_macro)
+            macro_lines: List[str] = []
+            dxy = macro_snap.get("DXY", {})
+            vix = macro_snap.get("VIX", {})
+            qqq = macro_snap.get("QQQ", {})
+            tnx = macro_snap.get("TNX", {})
+            qqq_corr = macro_snap.get("QQQ_CORR")
+            if dxy:
+                dxy_desc = ("走強壓制風險資產" if dxy["chg1"] > 0.3
+                            else ("走弱支撐風險資產" if dxy["chg1"] < -0.3 else "走勢中性"))
+                macro_lines.append(f"• 美元指數(DXY) {dxy['price']:.2f}（日 {dxy['chg1']:+.2f}%），{dxy_desc}；美元走強通常壓制以美元計價的風險資產，需同步觀察。")
+            if vix:
+                vix_desc = ("高恐慌（>30），宜大幅降低倉位或持現金等待" if vix["price"] > 30
+                            else ("恐慌升溫（20-30），提高警覺、縮小倉位" if vix["price"] > 20
+                                  else ("正常波動（15-20），可正常操作" if vix["price"] > 15
+                                        else "低恐慌（<15），市場風險偏好較高")))
+                macro_lines.append(f"• 恐慌指數(VIX) {vix['price']:.1f}，{vix_desc}。")
+            if qqq:
+                qqq_str = f"QQQ 現價 {qqq['price']:.2f}（日 {qqq['chg1']:+.2f}%）"
+                if qqq_corr is not None:
+                    corr_desc = ("高度正相關，走勢同步QQQ" if qqq_corr > 0.7
+                                 else ("中度相關，需獨立判斷" if qqq_corr > 0.4
+                                       else "低相關，走勢相對獨立"))
+                    qqq_str += f"；{symbol}與QQQ 20日相關係數 {qqq_corr:.2f}（{corr_desc}）"
+                macro_lines.append(f"• 大盤動向：{qqq_str}。")
+            if tnx:
+                tnx_desc = ("殖利率上升壓制高PE成長股估值" if tnx["chg1"] > 0.05
+                            else ("殖利率下行，有利成長股重估" if tnx["chg1"] < -0.05
+                                  else "殖利率走平，利率環境中性"))
+                macro_lines.append(f"• 10Y美債殖利率 {tnx['price']:.2f}%（日 {tnx['chg1']:+.2f}%），{tnx_desc}。")
+            if not macro_lines:
+                macro_lines.append(f"• 宏觀資料暫時無法取得，請手動追蹤 DXY / VIX / 10Y 殖利率。")
+            macro_lines.append(f"• {macro_index}走勢：與{symbol}高度相關，需同步確認產業強弱後再決定倉位方向。")
+            macro_lines.append(f"• 近一季優先追蹤三大變數：① 聯準會FOMC聲明與降息時間表 ② 產業鏈月報（出貨量/庫存周期/毛利率趨勢） ③ {macro_index}相對強弱與資金輪動信號。")
+
             lines = [
                 "我是 DiscoverLatest 專屬 AI 🚀",
-                "1.市場快報",
+                "1.市場快報 📰",
                 f"• 標的 {symbol} 現價 {levels['last']:.2f}，當日 {levels['chg1']:+.2f}%、近5日 {levels['chg5']:+.2f}%，量比20日 {levels['vol_ratio20']:.2f}。",
                 f"• 估值快照 PE {self._fmt_num(pe_ratio)}｜PB {self._fmt_num(pb_ratio)}｜股息率 {self._fmt_num(dy, 2, '%')}，綜合判定 {stance}。",
                 inst_line,
                 margin_line,
-                f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面摘要：{event_snippet}，判定 {div_bias}。",
+                f"• 驅動因子三（股息/事件）現金股利 {self._fmt_num(signals.get('cash_dividend'))}、事件面：{event_snippet}，判定 {div_bias}。",
                 "2.技術面分析 📈",
-                f"• 結構判定 {regime}；SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}。",
-                f"• RSI14 {levels['rsi14']:.1f}，{'超買警戒（>70）' if levels['rsi14'] > 70 else ('超賣反彈（<30）' if levels['rsi14'] < 30 else '中性區間（30-70）')}；布林通道(20,2) 上軌 {levels['bb_upper']:.2f}、下軌 {levels['bb_lower']:.2f}，收盤{'突破上軌偏強' if levels['last'] > levels['bb_upper'] else ('跌破下軌偏弱' if levels['last'] < levels['bb_lower'] else '通道內震盪')}。",
-                f"• MACD(12,26,9) DIF {levels['macd']:.3f}／DEA {levels['macd_signal']:.3f}，柱狀 {levels['macd_hist']:+.3f}，{'金叉偏多' if levels['macd_hist'] > 0 else '死叉偏空'}；KDJ(9,3,3) K {levels['kdj_k']:.1f}／D {levels['kdj_d']:.1f}／J {levels['kdj_j']:.1f}，{'超買' if levels['kdj_k'] > 80 else ('超賣' if levels['kdj_k'] < 20 else '中性')}。",
-                f"• 關鍵價位：支撐 {levels['support']:.2f}，壓力 {levels['resistance']:.2f}；收盤若連2日跌破支撐視為弱化。",
+                f"• 結構判定 {regime}；{ema_align}。",
+                f"• SMA20 {levels['sma20']:.2f}、SMA60 {levels['sma60']:.2f}、ATR14 {levels['atr14']:.2f}；20日支撐 {support:.2f}、壓力 {resistance:.2f}。",
+                f"• RSI14 {rsi:.1f}，{'超買警戒（>70）' if rsi > 70 else ('超賣反彈（<30）' if rsi < 30 else '中性區間（30-70）')}；布林通道(20,2) 上軌 {bb_upper:.2f}、下軌 {bb_lower:.2f}，收盤{'突破上軌偏強' if last_p > bb_upper else ('跌破下軌偏弱' if last_p < bb_lower else '通道內震盪')}。",
+                f"• MACD(12,26,9) DIF {levels['macd']:.3f}／DEA {levels['macd_signal']:.3f}，柱狀 {macd_hist:+.3f}，{'金叉偏多' if macd_hist > 0 else '死叉偏空'}；KDJ(9,3,3) K {levels['kdj_k']:.1f}／D {levels['kdj_d']:.1f}／J {levels['kdj_j']:.1f}，{'超買' if levels['kdj_k'] > 80 else ('超賣' if levels['kdj_k'] < 20 else '中性')}。",
                 "• 量價條件：量比 > 1.20 才允許追價，量比 < 0.85 以回測承接為主。",
-                "3.進出場計劃",
+                "3.進出場計劃 🎯",
                 f"• 短線(1-5日)：進場 {se0:.2f}-{se1:.2f}，停損 {levels['short_stop']:.2f}，目標1 {levels['short_target']:.2f}，目標2 {t2_s:.2f}，風報比 {rr_s:.2f}。",
+                short_why,
                 f"• 中線(2-6週)：進場 {me0:.2f}-{me1:.2f}，停損 {levels['mid_stop']:.2f}，目標1 {levels['mid_target']:.2f}，目標2 {t2_m:.2f}，風報比 {rr_m:.2f}。",
+                mid_why,
                 f"• 長線(2-4季)：進場 {le0:.2f}-{le1:.2f}，停損 {levels['long_stop']:.2f}，目標1 {levels['long_target']:.2f}，目標2 {t2_l:.2f}，風報比 {rr_l:.2f}。",
+                long_why,
                 "• 倉位規則：首筆 30%，確認訊號加到 60%，突破後再加碼至上限；單筆風險控制在資金 1%。",
-                "4.風險提示",
-                "• 失效條件：收盤跌破各週期停損且隔日未收復，需執行減碼或離場。",
-                "• 事件風險：財報、政策與地緣事件可能造成 ATR 擴張，需同步下修槓桿。",
-                "5.結論",
-                f"• 綜合判定 {stance}。策略上先看支撐/壓力區間反應，再依量價決定追擊或等待回測。",
-                "• 本報告價位由實際 OHLCV 序列推導，不使用臆測價格。",
-                "6.情境交易地圖 偏多 偏空 震盪",
-                f"• 偏多：收盤站穩 {levels['resistance']:.2f} 且量比 > 1.20，策略為回測不破加碼。",
-                f"• 偏空：跌破 {levels['support']:.2f} 且反彈量縮，策略為降倉與防守。",
-                f"• 震盪：於 {levels['support']:.2f}-{levels['resistance']:.2f} 區間內高拋低吸，嚴控停損。",
-                "7.宏觀進階分析",
-                f"• 追蹤利率、美元與{macro_index}波動，若風險資產相關性上升，需降低單一產業曝險。",
-            ]
+                "4.風險提示 ⚠️",
+                "• 失效條件：收盤跌破各週期停損且隔日未收復，需立即執行減碼或離場，不留情緒。",
+                "• 事件風險：財報、央行聲明、地緣事件可能造成 ATR 瞬間擴張 2-3 倍，需同步下修槓桿至標準的 50%。",
+                f"• 流動性風險：量比持續低於 0.7（量縮）時不追價，等待量能回升後再行動。",
+                "5.結論 ✅",
+                f"• 綜合判定 {stance}。{action}",
+                "• 本報告所有價位由近30+根實際OHLCV序列推導，不使用臆測或插值。",
+                "6.情境交易地圖 偏多 偏空 震盪 🗺️",
+                f"• 偏多觸發：收盤站穩 {resistance:.2f} 且量比 > 1.20，加碼做多，目標延伸至 {t2_s:.2f}。",
+                f"• 偏空觸發：跌破 {support:.2f} 且隔日反彈量縮，減倉並設空方停損在 {support:.2f} 上方。",
+                f"• 震盪操作：於 {support:.2f}-{resistance:.2f} 區間內高拋低吸，每次進場不超過 30% 倉，嚴控單次虧損在資金 1% 以內。",
+                "7.宏觀進階分析 🌍",
+            ] + macro_lines
+            fallback_summary = self._build_fallback_summary_dict(symbol, levels, stance, regime)
         else:
             event_snippet = self._clean_grounding_snippet(grounding_text, max_len=120)
             lines = [
                 "我是 DiscoverLatest 專屬 AI 🚀",
-                "1.市場快報",
+                "1.市場快報 📰",
                 f"• 標的 {symbol}：目前資料源未取得足夠 OHLCV 序列（至少 30 根），不輸出虛構價位。",
                 f"• 事件摘要：{event_snippet}。",
-                "2.技術面分析",
+                "2.技術面分析 📈",
                 "• 價格序列不足，無法建立可靠 SMA/ATR 與結構判定。",
-                "3.進出場計劃",
+                "3.進出場計劃 🎯",
                 "• 價格序列不足，暫不提供進場區間、停損與目標價。",
-                "4.風險提示",
+                "4.風險提示 ⚠️",
                 "• 在資料不足情境下僅可觀察，不建議主動建立方向性倉位。",
-                "5.結論",
+                "5.結論 ✅",
                 "• 先補齊歷史行情資料，再生成可執行的交易地圖。",
-                "6.情境交易地圖 偏多 偏空 震盪",
+                "6.情境交易地圖 偏多 偏空 震盪 🗺️",
                 "• 待資料完整後再定義條件觸發與倉位管理。",
-                "7.宏觀進階分析",
-                "• 事件與宏觀變數可先追蹤，但不應替代價格證據。",
+                "7.宏觀進階分析 🌍",
+                "• 事件與宏觀變數可先追蹤，但不應替代價格序列證據。",
             ]
+            fallback_summary = {}
         out = "\n".join(lines)
         out = gemini_service._sanitize_analysis_text(out)
         out = self._normalize_na_tokens(out)
-        return gemini_service._pad_to_min_chars(out, tier_norm)
+        return gemini_service._pad_to_min_chars(out, tier_norm), fallback_summary
 
     def _gemini_synthesize(self, symbol: str, context: Dict) -> Dict:
         """Stage1 grounding (flash) + Stage2 深度分析"""
@@ -1230,7 +1423,7 @@ class DexterAgent:
                 except ImportError:
                     pass
                 try:
-                    fallback = self._build_data_driven_fallback(
+                    fallback, fb_summary = self._build_data_driven_fallback(
                         symbol=symbol,
                         tier_norm=tier_norm,
                         context=context,
@@ -1241,7 +1434,7 @@ class DexterAgent:
                         return {
                             "success": True,
                             "analysis": fallback,
-                            "summary": {},
+                            "summary": fb_summary,
                             "degraded": True,
                             "fallback_reason": "stage2_exception",
                             "stage2_error": f"{type(_stage2_last_error).__name__}: {_stage2_last_error}",
@@ -1267,7 +1460,7 @@ class DexterAgent:
             if not text:
                 logger.warning("[Dexter] Stage 2 returned empty text for %s", symbol)
                 try:
-                    fallback = self._build_data_driven_fallback(
+                    fallback, fb_summary = self._build_data_driven_fallback(
                         symbol=symbol,
                         tier_norm=tier_norm,
                         context=context,
@@ -1279,7 +1472,7 @@ class DexterAgent:
                         return {
                             "success": True,
                             "analysis": fallback,
-                            "summary": summary_data or {},
+                            "summary": fb_summary or summary_data or {},
                             "degraded": True,
                             "fallback_reason": "stage2_empty_response",
                         }
@@ -1292,7 +1485,7 @@ class DexterAgent:
             text = self._inject_trade_plan_if_missing(text, trade_levels)
             if self._is_analysis_quality_low(text, trade_levels):
                 try:
-                    fallback = self._build_data_driven_fallback(
+                    fallback, fb_summary = self._build_data_driven_fallback(
                         symbol=symbol,
                         tier_norm=tier_norm,
                         context=context,
@@ -1303,7 +1496,7 @@ class DexterAgent:
                         return {
                             "success": True,
                             "analysis": fallback,
-                            "summary": summary_data or {},
+                            "summary": fb_summary or summary_data or {},
                             "degraded": True,
                             "fallback_reason": "quality_gate",
                         }
