@@ -1,5 +1,0 @@
-:HL["/_next/static/chunks/9d2589c6b86ffc8e.css","style"]
-:HL["/_next/static/chunks/9182d30f13a8f3d0.css","style"]
-:HL["/_next/static/chunks/48d1263ef29a0c58.css","style"]
-:HL["https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&display=swap","style"]
-0:{"buildId":"N32oVXjXyO4Fbi9zffhhv","tree":{"name":"","paramType":null,"paramKey":"","hasRuntimePrefetch":false,"slots":{"children":{"name":"help","paramType":null,"paramKey":"help","hasRuntimePrefetch":false,"slots":{"children":{"name":"__PAGE__","paramType":null,"paramKey":"__PAGE__","hasRuntimePrefetch":false,"slots":null,"isRootLayout":false}},"isRootLayout":false}},"isRootLayout":true},"staleTime":300}
