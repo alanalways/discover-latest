@@ -58,6 +58,36 @@ SUPABASE_SERVICE_KEY: str = (
 SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
 
 # ─────────────────────────────────────────────────────────
+# Google OAuth
+# ─────────────────────────────────────────────────────────
+GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+
+# ─────────────────────────────────────────────────────────
+# Admin
+# ─────────────────────────────────────────────────────────
+DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "cmshj30326@gmail.com")
+
+# ─────────────────────────────────────────────────────────
+# Gmail SMTP
+# ─────────────────────────────────────────────────────────
+GMAIL_SMTP_USER: str = os.getenv("GMAIL_SMTP_USER", "cmshj30326@gmail.com")
+GMAIL_SMTP_APP_PASSWORD: str = os.getenv("GMAIL_SMTP_APP_PASSWORD", "")
+
+# ─────────────────────────────────────────────────────────
+# 使用者方案等級限制
+# ─────────────────────────────────────────────────────────
+TIER_LIMITS: dict[str, dict[str, int]] = {
+    "free":    {"daily_limit": 5,   "per_minute": 2},
+    "pro":     {"daily_limit": 30,  "per_minute": 5},
+    "premium": {"daily_limit": 200, "per_minute": 15},
+}
+
+# ─────────────────────────────────────────────────────────
+# Space URL（OAuth redirect）
+# ─────────────────────────────────────────────────────────
+SPACE_URL: str = os.getenv("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
+
+# ─────────────────────────────────────────────────────────
 # Pinecone（RAG 知識庫）
 # ─────────────────────────────────────────────────────────
 PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
