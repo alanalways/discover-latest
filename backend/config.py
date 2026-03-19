@@ -17,21 +17,30 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
 # ─────────────────────────────────────────────────────────
 # Gemini API（Runtime AI 大腦）
 # ─────────────────────────────────────────────────────────
-# 相容 HuggingFace 上的命名（GEMINI_API_KEYS 複數）
-GEMINI_API_KEY: str = (
-    os.getenv("GEMINI_API_KEY")
-    or os.getenv("GEMINI_API_KEYS")
+# 相容 HuggingFace 上的命名（GEMINI_API_KEYS 複數，逗號分隔多把 key）
+_raw_keys: str = (
+    os.getenv("GEMINI_API_KEYS")
+    or os.getenv("GEMINI_API_KEY")
     or ""
 )
 
-# Startup debug（不印全 key，只印來源和長度）
+# 解析為 key pool（支援逗號分隔的多把 key）
+GEMINI_API_KEYS_LIST: list[str] = [
+    k.strip() for k in _raw_keys.split(",") if k.strip()
+]
+
+# 向下相容：單一 key（取第一把）
+GEMINI_API_KEY: str = GEMINI_API_KEYS_LIST[0] if GEMINI_API_KEYS_LIST else ""
+
+# Startup debug（不印全 key，只印來源和數量）
 import logging as _logging
 _cfg_logger = _logging.getLogger("backend.config")
-if GEMINI_API_KEY:
-    _src = "GEMINI_API_KEY" if os.getenv("GEMINI_API_KEY") else "GEMINI_API_KEYS"
+if GEMINI_API_KEYS_LIST:
+    _src = "GEMINI_API_KEYS" if os.getenv("GEMINI_API_KEYS") else "GEMINI_API_KEY"
     _cfg_logger.warning(
-        f"[Config] Gemini key loaded from {_src}, "
-        f"len={len(GEMINI_API_KEY)}, prefix={GEMINI_API_KEY[:8]}..."
+        f"[Config] Gemini key pool loaded from {_src}, "
+        f"count={len(GEMINI_API_KEYS_LIST)}, "
+        f"prefixes={[k[:8]+'...' for k in GEMINI_API_KEYS_LIST]}"
     )
 else:
     _cfg_logger.warning("[Config] Gemini key NOT found in any env var")

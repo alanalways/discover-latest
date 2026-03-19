@@ -137,13 +137,15 @@ class MemoryAgent:
         try:
             from google import genai
             from google.genai import types
-            from backend.config import GEMINI_API_KEY
+            from backend.config import GEMINI_API_KEYS_LIST
 
-            if not GEMINI_API_KEY:
-                logger.warning(f"[{_AGENT_DISPLAY}] GEMINI_API_KEY 未設定，跳過 embedding")
+            if not GEMINI_API_KEYS_LIST:
+                logger.warning(f"[{_AGENT_DISPLAY}] GEMINI_API_KEYS 未設定，跳過 embedding")
                 return None
 
-            client = genai.Client(api_key=GEMINI_API_KEY)
+            # 使用 client.py 的 key 輪換機制
+            from backend.gemini.client import _get_next_key
+            client = genai.Client(api_key=_get_next_key())
 
             # 截斷過長文字（embedding 有 token 上限）
             truncated = text[:8000]

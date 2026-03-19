@@ -7,28 +7,59 @@ backend/gemini/client.py
 - 所有 Gemini 呼叫必須經過此模組
 - 超出 rate limit 自動降級（見 FALLBACK_MODEL）
 - 失敗最多重試 3 次（2s / 4s / 8s backoff）
+- 多把 API Key 輪流使用（round-robin），遵守 Free Tier 限制
 
 ⚠️ 使用新版 SDK（google-genai），不是舊版 google-generativeai
 """
 import time
 import logging
+import threading
 from typing import Optional
 
 from google import genai
 from google.genai import types
 
-from backend.config import AGENT_MODEL_MAP, FALLBACK_MODEL, GEMINI_API_KEY
+from backend.config import (
+    AGENT_MODEL_MAP, FALLBACK_MODEL,
+    GEMINI_API_KEYS_LIST,
+)
 from backend.gemini.rate_limiter import RateLimiter
 from backend.core.audit_log import log_gemini_call
 
 logger = logging.getLogger(__name__)
 
-# ── 初始化 Gemini Client（新版 SDK）──────────────────────
-_client: Optional[genai.Client] = None
-if GEMINI_API_KEY:
-    _client = genai.Client(api_key=GEMINI_API_KEY)
+# ── Key Pool（多把 API Key 輪流使用）─────────────────────
+_key_pool: list[str] = GEMINI_API_KEYS_LIST
+_key_index: int = 0
+_key_lock = threading.Lock()
+_key_usage_counts: dict[str, int] = {}
+
+if _key_pool:
+    logger.warning(
+        f"[GeminiClient] Key pool initialized: {len(_key_pool)} keys, "
+        f"prefixes={[k[:8]+'...' for k in _key_pool]}"
+    )
 else:
-    logger.warning("[GeminiClient] GEMINI_API_KEY 未設定，呼叫將失敗")
+    logger.warning("[GeminiClient] GEMINI_API_KEYS 未設定，呼叫將失敗")
+
+
+def _get_next_key() -> str:
+    """Round-robin 取得下一把 API Key（thread-safe）。"""
+    global _key_index
+    with _key_lock:
+        key = _key_pool[_key_index % len(_key_pool)]
+        _key_index += 1
+        # 使用量追蹤（masked）
+        masked = key[:8] + "..."
+        _key_usage_counts[masked] = _key_usage_counts.get(masked, 0) + 1
+    return key
+
+
+def _create_client() -> genai.Client:
+    """每次呼叫建立新 Client，使用輪流的 API Key。"""
+    api_key = _get_next_key()
+    return genai.Client(api_key=api_key)
+
 
 # ── Rate Limiter 單例 ────────────────────────────────────
 _rate_limiter = RateLimiter()
@@ -56,13 +87,13 @@ def call_gemini(
             "error":       str | None,
         }
     """
-    if _client is None:
+    if not _key_pool:
         return {
             "status": "failed",
             "output": None,
             "model_used": "none",
             "duration_ms": 0,
-            "error": "GEMINI_API_KEY 未設定",
+            "error": "GEMINI_API_KEYS 未設定",
         }
 
     # ── 決定使用模型 ─────────────────────────────────────
@@ -81,6 +112,9 @@ def call_gemini(
     for attempt in range(_MAX_RETRIES):
         start = time.time()
         try:
+            # 每次呼叫建立新 Client（輪流使用不同 key）
+            client = _create_client()
+
             # 新版 SDK 寫法（google-genai>=1.0.0）
             config = types.GenerateContentConfig(temperature=1.0)
             if use_grounding:
@@ -89,7 +123,7 @@ def call_gemini(
                     tools=[types.Tool(google_search=types.GoogleSearch())],
                 )
 
-            response = _client.models.generate_content(
+            response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
                 config=config,
@@ -133,6 +167,13 @@ def call_gemini(
                     continue
                 else:
                     break
+
+            # API_KEY_INVALID：換下一把 key 重試（不 sleep）
+            if "API_KEY_INVALID" in str(e):
+                logger.warning(
+                    f"[GeminiClient] Key invalid，輪換下一把 key 重試"
+                )
+                continue
 
             # 其他錯誤：backoff 後重試
             if attempt < _MAX_RETRIES - 1:
@@ -185,3 +226,13 @@ def _resolve_model(agent_name: str) -> Optional[str]:
 def get_rate_limiter_status() -> dict:
     """供 cost_monitor 查詢目前 rate limit 使用狀況。"""
     return _rate_limiter.get_status()
+
+
+def get_key_usage_stats() -> dict:
+    """查詢各 API Key 的使用次數（masked）。"""
+    with _key_lock:
+        return {
+            "total_keys": len(_key_pool),
+            "current_index": _key_index,
+            "usage_counts": dict(_key_usage_counts),
+        }
