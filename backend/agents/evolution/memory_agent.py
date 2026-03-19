@@ -11,7 +11,6 @@ RAG 記憶官（Sonnet 撰寫）
 """
 
 import logging
-import os
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -138,13 +137,13 @@ class MemoryAgent:
         try:
             from google import genai
             from google.genai import types
+            from backend.config import GEMINI_API_KEY
 
-            api_key = os.environ.get("GEMINI_API_KEY", "")
-            if not api_key:
+            if not GEMINI_API_KEY:
                 logger.warning(f"[{_AGENT_DISPLAY}] GEMINI_API_KEY 未設定，跳過 embedding")
                 return None
 
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=GEMINI_API_KEY)
 
             # 截斷過長文字（embedding 有 token 上限）
             truncated = text[:8000]

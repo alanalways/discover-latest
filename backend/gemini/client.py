@@ -3,17 +3,19 @@ backend/gemini/client.py
 統一 Gemini API 呼叫入口（Sonnet 撰寫）
 
 規則：
-- 禁止在其他地方直接 import google.generativeai
+- 禁止在其他地方直接 import genai
 - 所有 Gemini 呼叫必須經過此模組
 - 超出 rate limit 自動降級（見 FALLBACK_MODEL）
 - 失敗最多重試 3 次（2s / 4s / 8s backoff）
+
+⚠️ 使用新版 SDK（google-genai），不是舊版 google-generativeai
 """
-import os
 import time
 import logging
 from typing import Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from backend.config import AGENT_MODEL_MAP, FALLBACK_MODEL, GEMINI_API_KEY
 from backend.gemini.rate_limiter import RateLimiter
@@ -21,9 +23,10 @@ from backend.core.audit_log import log_gemini_call
 
 logger = logging.getLogger(__name__)
 
-# ── 初始化 Gemini SDK ────────────────────────────────────
+# ── 初始化 Gemini Client（新版 SDK）──────────────────────
+_client: Optional[genai.Client] = None
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+    _client = genai.Client(api_key=GEMINI_API_KEY)
 else:
     logger.warning("[GeminiClient] GEMINI_API_KEY 未設定，呼叫將失敗")
 
@@ -44,21 +47,24 @@ def call_gemini(
     """
     統一 Gemini 呼叫入口。
 
-    Args:
-        agent_name:    呼叫者名稱（對應 AGENT_MODEL_MAP key）
-        prompt:        傳入 Gemini 的完整 prompt
-        use_grounding: 是否啟用 Google Search grounding
-        report_id:     關聯的報告 UUID（可選，用於 audit log）
-
     Returns:
         {
             "status":      "success" | "rate_limited" | "failed",
             "output":      str | None,
             "model_used":  str,
             "duration_ms": int,
-            "error":       str | None,   # 僅 failed 時存在
+            "error":       str | None,
         }
     """
+    if _client is None:
+        return {
+            "status": "failed",
+            "output": None,
+            "model_used": "none",
+            "duration_ms": 0,
+            "error": "GEMINI_API_KEY 未設定",
+        }
+
     # ── 決定使用模型 ─────────────────────────────────────
     model_name = _resolve_model(agent_name)
     if model_name is None:
@@ -75,19 +81,23 @@ def call_gemini(
     for attempt in range(_MAX_RETRIES):
         start = time.time()
         try:
-            tools = [{"google_search": {}}] if use_grounding else None
-            model = genai.GenerativeModel(
-                model_name,
-                generation_config={"temperature": 1.0},  # Gemini 3 建議保持 1.0
-                tools=tools,
+            # 新版 SDK 寫法（google-genai>=1.0.0）
+            config = types.GenerateContentConfig(temperature=1.0)
+            if use_grounding:
+                config = types.GenerateContentConfig(
+                    temperature=1.0,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                )
+
+            response = _client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
             )
-            response = model.generate_content(prompt)
             duration_ms = int((time.time() - start) * 1000)
 
-            # 記錄成功的呼叫到 rate limiter
             _rate_limiter.record_call(model_name)
 
-            # 寫入 audit log
             log_gemini_call(
                 agent_name=agent_name,
                 model_name=model_name,
@@ -152,15 +162,12 @@ def _resolve_model(agent_name: str) -> Optional[str]:
     """
     決定使用哪個模型。
     若主要模型達到 rate limit，沿 FALLBACK_MODEL 鏈往下找。
-    找不到可用模型回傳 None。
     """
     model_name = AGENT_MODEL_MAP.get(agent_name, "gemini-2.5-flash")
 
-    # 嘗試主要模型
     if _rate_limiter.can_call(model_name):
         return model_name
 
-    # 沿降級鏈往下找
     current = model_name
     while current in FALLBACK_MODEL:
         fallback = FALLBACK_MODEL[current]

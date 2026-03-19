@@ -17,10 +17,10 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
 # ─────────────────────────────────────────────────────────
 # Gemini API（Runtime AI 大腦）
 # ─────────────────────────────────────────────────────────
-# 相容 HuggingFace 上可能的命名（GEMINI_API_KEY6 等舊版名稱）
+# 相容 HuggingFace 上的命名（GEMINI_API_KEYS 複數）
 GEMINI_API_KEY: str = (
     os.getenv("GEMINI_API_KEY")
-    or os.getenv("GEMINI_API_KEY6")
+    or os.getenv("GEMINI_API_KEYS")
     or ""
 )
 
