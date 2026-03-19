@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base:      #0D1117;
+  --bg-card:      #161B22;
+  --bg-hover:     #21262D;
+  --border:       #30363D;
+  --text-primary: #E6EDF3;
+  --text-secondary: #8B949E;
+  --accent:       #1B9AAA;
+  --bullish:      #3FB950;
+  --bearish:      #F85149;
+  --neutral:      #8B949E;
+  --warning:      #D29922;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Noto Sans TC', system-ui, sans-serif;
+  margin: 0;
+  min-height: 100vh;
+}
+
+code, .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: var(--bg-base); }
+::-webkit-scrollbar-thumb  { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* Transitions */
+.transition-fast { transition: all 0.15s ease; }
+
+/* Rating badges */
+.badge-buy        { background: rgba(63,185,80,0.15);  color: var(--bullish); border: 1px solid rgba(63,185,80,0.3); }
+.badge-sell       { background: rgba(248,81,73,0.15);  color: var(--bearish); border: 1px solid rgba(248,81,73,0.3); }
+.badge-hold       { background: rgba(139,148,158,0.15); color: var(--neutral); border: 1px solid rgba(139,148,158,0.3); }
+.badge-strong-buy { background: rgba(63,185,80,0.25);  color: #52d168; border: 1px solid rgba(63,185,80,0.5); }
