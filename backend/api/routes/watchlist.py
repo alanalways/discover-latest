@@ -131,6 +131,8 @@ async def add_to_watchlist(
                 {"user_id": user.user_id, "watchlist": watchlist},
                 on_conflict="user_id",
             ).execute()
+        except Exception as e:
+            logger.error(f"[Watchlist] add {item.symbol} 失敗: {e}")
 
     return {"watchlist": watchlist, "count": len(watchlist)}
 
