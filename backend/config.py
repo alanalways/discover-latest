@@ -24,6 +24,18 @@ GEMINI_API_KEY: str = (
     or ""
 )
 
+# Startup debug（不印全 key，只印來源和長度）
+import logging as _logging
+_cfg_logger = _logging.getLogger("backend.config")
+if GEMINI_API_KEY:
+    _src = "GEMINI_API_KEY" if os.getenv("GEMINI_API_KEY") else "GEMINI_API_KEYS"
+    _cfg_logger.warning(
+        f"[Config] Gemini key loaded from {_src}, "
+        f"len={len(GEMINI_API_KEY)}, prefix={GEMINI_API_KEY[:8]}..."
+    )
+else:
+    _cfg_logger.warning("[Config] Gemini key NOT found in any env var")
+
 # ─────────────────────────────────────────────────────────
 # Supabase
 # ─────────────────────────────────────────────────────────
