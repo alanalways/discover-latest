@@ -58,19 +58,26 @@ async def trigger_analysis(
     3. 回傳報告
     """
     guard = get_budget_guard()
-    if not guard.can_proceed(estimated_calls=8):
+    can_proceed, reason = guard.can_proceed(estimated_calls=8)
+    if not can_proceed:
         return AnalysisResponse(
             status="budget_exceeded",
-            message="今日 Gemini API 配額已接近上限，請明天再試"
+            message=f"今日 Gemini API 配額已接近上限，請明天再試（{reason}）"
         )
 
     symbol = body.symbol.strip().upper()
     market = body.market.strip().upper()
 
     try:
+        import uuid
         from backend.agents.ceo_agent import get_ceo_agent
-        ceo    = get_ceo_agent()
-        result = ceo._run_analysis(symbol=symbol, market=market)
+        ceo = get_ceo_agent()
+        # _run_analysis 接受 job dict（與 TaskQueue 相同格式）
+        fake_job = {
+            "id": str(uuid.uuid4()),
+            "payload": {"symbol": symbol, "market": market},
+        }
+        result = ceo._run_analysis(fake_job)
 
         if result.get("status") == "success":
             return AnalysisResponse(
