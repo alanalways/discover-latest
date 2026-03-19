@@ -17,13 +17,23 @@ SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
 # ─────────────────────────────────────────────────────────
 # Gemini API（Runtime AI 大腦）
 # ─────────────────────────────────────────────────────────
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+# 相容 HuggingFace 上可能的命名（GEMINI_API_KEY6 等舊版名稱）
+GEMINI_API_KEY: str = (
+    os.getenv("GEMINI_API_KEY")
+    or os.getenv("GEMINI_API_KEY6")
+    or ""
+)
 
 # ─────────────────────────────────────────────────────────
 # Supabase
 # ─────────────────────────────────────────────────────────
 SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY: str = os.getenv("SUPABASE_SERVICE_KEY", "")
+# 相容 HuggingFace Spaces 慣用名稱 SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_SERVICE_KEY: str = (
+    os.getenv("SUPABASE_SERVICE_KEY")
+    or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    or ""
+)
 SUPABASE_ANON_KEY: str = os.getenv("SUPABASE_ANON_KEY", "")
 
 # ─────────────────────────────────────────────────────────
