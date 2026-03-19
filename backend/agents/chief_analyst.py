@@ -143,7 +143,7 @@ class ChiefAnalystAgent(BaseAgent):
                 "target_price_low":    float | None,
                 "target_price_high":   float | None,
                 "confidence_score":    float,
-                "prediction_ids":      list[str],
+                "pending_predictions":  list[dict],
                 "model_used":          str,
                 "duration_ms":         int,
                 "total_gemini_calls":  int,
@@ -217,8 +217,8 @@ class ChiefAnalystAgent(BaseAgent):
         # ── 5. 提取結構化資料 ────────────────────────────
         structured = self._extract_structured_data(final_report, current_price)
 
-        # ── 6. 寫入預測記錄 ──────────────────────────────
-        prediction_ids = self._save_predictions(
+        # ── 6. 準備預測資料（不寫入 DB，等報告先存入後再寫）──
+        pending_predictions = self._prepare_predictions(
             report_id=report_id,
             symbol=symbol,
             market=market,
@@ -235,7 +235,7 @@ class ChiefAnalystAgent(BaseAgent):
                 "rating": structured["rating"],
                 "target_low": structured["target_price_low"],
                 "target_high": structured["target_price_high"],
-                "prediction_count": len(prediction_ids),
+                "prediction_count": len(pending_predictions),
                 "model_used": gemini_result.get("model_used"),
             },
         )
@@ -248,7 +248,7 @@ class ChiefAnalystAgent(BaseAgent):
             target_price_low=structured["target_price_low"],
             target_price_high=structured["target_price_high"],
             confidence_score=arb["stance_confidence"],
-            prediction_ids=prediction_ids,
+            pending_predictions=pending_predictions,
             model_used=gemini_result.get("model_used", "unknown"),
             duration_ms=total_duration,
             total_gemini_calls=1,
@@ -671,28 +671,26 @@ class ChiefAnalystAgent(BaseAgent):
     # 預測記錄寫入
     # ═════════════════════════════════════════════════════
 
-    def _save_predictions(
+    def _prepare_predictions(
         self,
         report_id: str,
         symbol: str,
         market: str,
         structured_data: dict,
         arbitration: dict,
-    ) -> list[str]:
+    ) -> list[dict]:
         """
-        根據報告的結構化資料，建立三個時間維度的預測記錄。
+        準備三個時間維度的預測資料（不寫入 DB）。
 
         預測方向由仲裁的 final_stance 決定。
-        目標價優先使用各時間維度的進出場計畫 TP/SL，
-        降級為報告整體目標價。
+        回傳 prediction dict 列表，由 CEO Agent 在報告存入後再寫入。
 
         Returns:
-            成功寫入的 prediction UUID 列表
+            待寫入的 prediction dict 列表
         """
-        prediction_ids: list[str] = []
+        predictions: list[dict] = []
         today = date.today()
 
-        # 預測方向
         stance = arbitration.get("final_stance", "neutral")
         predicted_direction = _STANCE_TO_DIRECTION.get(stance, "neutral")
 
@@ -701,12 +699,11 @@ class ChiefAnalystAgent(BaseAgent):
             trading_days = spec["trading_days"]
             verify_date = self._add_trading_days(today, trading_days)
 
-            # 決定該時間維度的目標價
             target_low, target_high = self._resolve_timeframe_targets(
                 tf_key, structured_data
             )
 
-            prediction_data = {
+            predictions.append({
                 "report_id":           report_id,
                 "symbol":              symbol,
                 "market":              market,
@@ -717,30 +714,9 @@ class ChiefAnalystAgent(BaseAgent):
                 "prediction_date":     today.isoformat(),
                 "verify_date":         verify_date.isoformat(),
                 "is_verified":         False,
-            }
+            })
 
-            row = insert_row("predictions", prediction_data)
-            if row and row.get("id"):
-                prediction_ids.append(row["id"])
-                logger.info(
-                    f"[ChiefAnalyst] 建立預測 {tf_key}: "
-                    f"{symbol} {predicted_direction} "
-                    f"({target_low} ~ {target_high}), "
-                    f"verify={verify_date}"
-                )
-            else:
-                logger.warning(
-                    f"[ChiefAnalyst] 預測寫入失敗 ({tf_key}): "
-                    f"Supabase 可能不可用"
-                )
-
-        if prediction_ids:
-            logger.info(
-                f"[ChiefAnalyst] 共寫入 {len(prediction_ids)} 筆預測 "
-                f"for {symbol}"
-            )
-
-        return prediction_ids
+        return predictions
 
     @staticmethod
     def _resolve_timeframe_targets(
@@ -821,7 +797,7 @@ class ChiefAnalystAgent(BaseAgent):
         target_price_low: Optional[float] = None,
         target_price_high: Optional[float] = None,
         confidence_score: float = 0.5,
-        prediction_ids: Optional[list] = None,
+        pending_predictions: Optional[list] = None,
         model_used: str = "",
         duration_ms: int = 0,
         total_gemini_calls: int = 0,
@@ -836,7 +812,7 @@ class ChiefAnalystAgent(BaseAgent):
             "target_price_low":    target_price_low,
             "target_price_high":   target_price_high,
             "confidence_score":    confidence_score,
-            "prediction_ids":      prediction_ids or [],
+            "pending_predictions": pending_predictions or [],
             "model_used":          model_used,
             "duration_ms":         duration_ms,
             "total_gemini_calls":  total_gemini_calls,

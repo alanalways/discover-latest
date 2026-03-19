@@ -610,6 +610,23 @@ class CEOAgent:
             duration_ms=duration_ms,
         )
 
+        # ── 7b. 儲存 predictions（必須在 report 寫入後）───
+        if db_saved:
+            from backend.data.storage.supabase_client import insert_row
+            pending_preds = chief_result.get("pending_predictions", [])
+            for pred in pending_preds:
+                try:
+                    insert_row("predictions", pred)
+                except Exception as e:
+                    logger.warning(
+                        f"[{_AGENT_DISPLAY}] prediction 寫入失敗: {e}"
+                    )
+            if pending_preds:
+                logger.info(
+                    f"[{_AGENT_DISPLAY}] {symbol} 已寫入 "
+                    f"{len(pending_preds)} 筆 predictions"
+                )
+
         # ── 8. 標記工作完成或失敗 ────────────────────────
         analysis_status = chief_result.get("status", "failed")
 

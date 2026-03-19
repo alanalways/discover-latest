@@ -120,6 +120,25 @@ async def get_top_bullish(
         return {"items": []}
 
 
+@router.get("/score")
+async def score_symbols(
+    symbols: Optional[str] = Query(default=None, description="逗號分隔股票代號"),
+    limit:   int           = Query(default=20, le=50),
+):
+    """
+    即時 5 因子評分（momentum/volume/volatility/valuation/trend）。
+    不依賴 DB，直接從 Yahoo Finance 取資料計算。
+    """
+    try:
+        from backend.services.market_scanner import scan_market
+        sym_list = [s.strip().upper() for s in symbols.split(",")] if symbols else None
+        results = scan_market(limit=limit, symbols=sym_list)
+        return {"items": results, "total": len(results)}
+    except Exception as e:
+        logger.error(f"[Scanner] score 失敗: {e}")
+        return {"error": str(e), "items": []}
+
+
 @router.post("/run")
 async def run_scanner(
     market: str = Query(default="TW", description="TW / US"),
