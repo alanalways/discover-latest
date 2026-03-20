@@ -76,6 +76,57 @@ export const removeFromWatchlist = (symbol: string, market: string, token: strin
     token
   )
 
+// ─── Market Data ─────────────────────────────────────────────────────────────
+
+export const getMarketOverview = () =>
+  request<MarketOverview>('/api/market/overview')
+
+export const getMarketIndices = () =>
+  request<MarketIndices>('/api/market/indices')
+
+export const getMarketMacro = () =>
+  request<MacroContext>('/api/market/macro')
+
+export const getMarketHours = () =>
+  request<MarketHours>('/api/market/hours')
+
+// ─── SSE Streaming Analysis ─────────────────────────────────────────────────
+
+export function streamAnalysis(
+  symbol: string,
+  market: string,
+  onChunk: (chunk: string) => void,
+  onDone: (data: AnalysisResponse) => void,
+  onError: (err: string) => void
+): () => void {
+  const url = `${BASE_URL}/api/analysis/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`
+  const evtSource = new EventSource(url)
+
+  evtSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data)
+      if (data.type === 'chunk') {
+        onChunk(data.content)
+      } else if (data.type === 'done') {
+        onDone(data)
+        evtSource.close()
+      } else if (data.type === 'error') {
+        onError(data.message || 'Analysis failed')
+        evtSource.close()
+      }
+    } catch {
+      onChunk(event.data)
+    }
+  }
+
+  evtSource.onerror = () => {
+    onError('連線中斷，請重試')
+    evtSource.close()
+  }
+
+  return () => evtSource.close()
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface AccuracyStats {
@@ -153,4 +204,50 @@ export interface ReportSummary {
 export interface WatchlistItem {
   symbol: string
   market: string
+}
+
+// ─── Market Types ────────────────────────────────────────────────────────────
+
+export interface MarketQuote {
+  symbol:     string
+  name?:      string
+  price:      number
+  change_pct: number
+  prev_close?: number
+  type?:      string
+}
+
+export interface MarketIndices {
+  tw: MarketQuote[]
+  us: MarketQuote[]
+}
+
+export interface MarketSession {
+  is_open:     boolean
+  local_time:  string
+  session:     string
+}
+
+export interface MarketHours {
+  tw: MarketSession
+  us: MarketSession
+}
+
+export interface MacroIndicator {
+  price:      number
+  change_pct: number
+}
+
+export interface MacroContext {
+  indicators:   Record<string, MacroIndicator>
+  regime:       string
+  yield_spread: number | null
+  timestamp:    number
+}
+
+export interface MarketOverview {
+  market_hours: MarketHours
+  indices:      MarketIndices
+  top20_tw:     MarketQuote[]
+  top20_us:     MarketQuote[]
 }
