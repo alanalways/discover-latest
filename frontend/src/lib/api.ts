@@ -247,6 +247,7 @@ export interface ReportSummary {
   target_price_low?:  number | null
   target_price_high?: number | null
   created_at:      string
+  final_report?:   string | null
 }
 
 export interface WatchlistItem {

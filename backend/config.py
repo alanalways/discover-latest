@@ -196,11 +196,13 @@ FALLBACK_MODEL: dict[str, str] = {
 }
 
 # ─────────────────────────────────────────────────────────
-# Free tier 安全 rate limit（留 buffer）
+# Free tier 安全 rate limit（2026-03 更新，留 buffer）
+# Google 於 2025-12 大幅下調免費額度
+# 官方文件：https://ai.google.dev/gemini-api/docs/rate-limits
 # ─────────────────────────────────────────────────────────
 RATE_LIMITS: dict[str, dict[str, int]] = {
-    "gemini-2.5-flash":        {"rpm": 12, "rpd": 900},
-    "gemini-2.5-pro":          {"rpm": 4,  "rpd": 90},
-    "gemini-2.5-flash-lite":   {"rpm": 14, "rpd": 900},
-    "gemini-3-flash-preview":  {"rpm": 8,  "rpd": 400},
+    "gemini-2.5-flash":        {"rpm": 8,   "rpd": 220},   # 實際: 10 RPM, 250 RPD
+    "gemini-2.5-pro":          {"rpm": 4,   "rpd": 85},    # 實際: 5 RPM, 100 RPD
+    "gemini-2.5-flash-lite":   {"rpm": 12,  "rpd": 900},   # 實際: 15 RPM, 1000 RPD
+    "gemini-3-flash-preview":  {"rpm": 8,   "rpd": 200},   # 實際: ~10 RPM, ~250 RPD（預覽版）
 }

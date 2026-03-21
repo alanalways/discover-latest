@@ -41,7 +41,7 @@ async def get_scanner_results(
             client.table("reports")
             .select(
                 "id, symbol, market, rating, confidence_score, "
-                "target_price_low, target_price_high, created_at"
+                "target_price_low, target_price_high, created_at, final_report"
             )
             .eq("is_archived", False)
             .order("created_at", desc=True)
@@ -90,7 +90,7 @@ async def get_top_bullish(
             client.table("reports")
             .select(
                 "id, symbol, market, rating, confidence_score, "
-                "target_price_low, target_price_high, created_at"
+                "target_price_low, target_price_high, created_at, final_report"
             )
             .eq("is_archived", False)
             .in_("rating", list(_BULLISH_RATINGS))

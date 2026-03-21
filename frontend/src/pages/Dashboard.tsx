@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, RefreshCw,
@@ -226,6 +226,62 @@ function MarketRecommendations({
   loading: boolean
 }) {
   const navigate = useNavigate()
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const handleRowClick = (item: ReportSummary) => {
+    if (item.final_report) {
+      setExpandedId(expandedId === item.id ? null : item.id)
+    } else {
+      navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)
+    }
+  }
+
+  const ExpandedReport = ({ item }: { item: ReportSummary }) => {
+    if (expandedId !== item.id || !item.final_report) return null
+    return (
+      <tr>
+        <td colSpan={99}>
+          <div
+            className="px-5 py-4 animate-fade-in"
+            style={{
+              borderTop: '2px solid var(--accent-bdr)',
+              background: 'rgba(124,58,237,0.03)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <DirectionIcon rating={item.rating} size={16} />
+                <span className="font-mono font-bold text-sm" style={{ color: 'var(--t1)' }}>
+                  {item.symbol}
+                </span>
+                <RatingBadge rating={item.rating} />
+                <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`) }}
+                className="btn-ghost text-xs flex items-center gap-1"
+              >
+                重新分析 <ArrowRight size={10} />
+              </button>
+            </div>
+            <div
+              className="text-sm leading-relaxed max-h-96 overflow-y-auto pr-2"
+              style={{
+                color: 'var(--t2)',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {item.final_report.length > 2000
+                ? item.final_report.slice(0, 2000) + '\n\n...(點擊「重新分析」查看完整報告)'
+                : item.final_report
+              }
+            </div>
+          </div>
+        </td>
+      </tr>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -266,53 +322,58 @@ function MarketRecommendations({
               </thead>
               <tbody>
                 {bullish.map((item, i) => (
-                  <tr
-                    key={item.id}
-                    className="cursor-pointer transition-colors"
-                    onClick={() => navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <td>
-                      <span
-                        className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
-                        style={{
-                          background: i < 3 ? 'rgba(234,179,8,0.15)' : 'rgba(148,163,184,0.06)',
-                          color: i < 3 ? 'var(--gold)' : 'var(--t4)',
-                          border: i < 3 ? '1px solid rgba(234,179,8,0.25)' : '1px solid transparent',
-                        }}
-                      >
-                        {i + 1}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <DirectionIcon rating={item.rating} />
-                        <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
-                          {item.symbol}
+                  <React.Fragment key={item.id}>
+                    <tr
+                      className="cursor-pointer transition-colors"
+                      onClick={() => handleRowClick(item)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <td>
+                        <span
+                          className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
+                          style={{
+                            background: i < 3 ? 'rgba(234,179,8,0.15)' : 'rgba(148,163,184,0.06)',
+                            color: i < 3 ? 'var(--gold)' : 'var(--t4)',
+                            border: i < 3 ? '1px solid rgba(234,179,8,0.25)' : '1px solid transparent',
+                          }}
+                        >
+                          {i + 1}
                         </span>
-                        <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
-                      </div>
-                    </td>
-                    <td><RatingBadge rating={item.rating} /></td>
-                    <td className="text-right">
-                      {item.confidence_score != null
-                        ? <ConfidenceGauge value={item.confidence_score} size={38} />
-                        : <span style={{ color: 'var(--t4)' }}>—</span>
-                      }
-                    </td>
-                    <td className="text-right">
-                      <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
-                    </td>
-                    <td className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <span className="text-xs" style={{ color: 'var(--t4)' }}>
-                          {item.created_at?.slice(0, 10)}
-                        </span>
-                        <ChevronRight size={12} style={{ color: 'var(--t4)' }} />
-                      </div>
-                    </td>
-                  </tr>
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <DirectionIcon rating={item.rating} />
+                          <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
+                            {item.symbol}
+                          </span>
+                          <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
+                        </div>
+                      </td>
+                      <td><RatingBadge rating={item.rating} /></td>
+                      <td className="text-right">
+                        {item.confidence_score != null
+                          ? <ConfidenceGauge value={item.confidence_score} size={38} />
+                          : <span style={{ color: 'var(--t4)' }}>—</span>
+                        }
+                      </td>
+                      <td className="text-right">
+                        <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
+                      </td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-xs" style={{ color: 'var(--t4)' }}>
+                            {item.created_at?.slice(0, 10)}
+                          </span>
+                          {item.final_report
+                            ? <Eye size={12} style={{ color: expandedId === item.id ? 'var(--accent-2)' : 'var(--t4)' }} />
+                            : <ChevronRight size={12} style={{ color: 'var(--t4)' }} />
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                    <ExpandedReport item={item} />
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -353,36 +414,46 @@ function MarketRecommendations({
               </thead>
               <tbody>
                 {latest.map(item => (
-                  <tr
-                    key={item.id}
-                    className="cursor-pointer transition-colors"
-                    onClick={() => navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <DirectionIcon rating={item.rating} size={12} />
-                        <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
-                          {item.symbol}
-                        </span>
-                        <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
-                      </div>
-                    </td>
-                    <td><RatingBadge rating={item.rating} /></td>
-                    <td className="text-right">
-                      {item.confidence_score != null
-                        ? <ConfidenceGauge value={item.confidence_score} size={34} />
-                        : <span style={{ color: 'var(--t4)' }}>—</span>
-                      }
-                    </td>
-                    <td className="text-right">
-                      <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
-                    </td>
-                    <td className="text-right text-xs" style={{ color: 'var(--t4)' }}>
-                      {item.created_at?.slice(0, 16).replace('T', ' ')}
-                    </td>
-                  </tr>
+                  <React.Fragment key={item.id}>
+                    <tr
+                      className="cursor-pointer transition-colors"
+                      onClick={() => handleRowClick(item)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <DirectionIcon rating={item.rating} size={12} />
+                          <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
+                            {item.symbol}
+                          </span>
+                          <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
+                        </div>
+                      </td>
+                      <td><RatingBadge rating={item.rating} /></td>
+                      <td className="text-right">
+                        {item.confidence_score != null
+                          ? <ConfidenceGauge value={item.confidence_score} size={34} />
+                          : <span style={{ color: 'var(--t4)' }}>—</span>
+                        }
+                      </td>
+                      <td className="text-right">
+                        <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
+                      </td>
+                      <td className="text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-xs" style={{ color: 'var(--t4)' }}>
+                            {item.created_at?.slice(0, 16).replace('T', ' ')}
+                          </span>
+                          {item.final_report
+                            ? <Eye size={12} style={{ color: expandedId === item.id ? 'var(--accent-2)' : 'var(--t4)' }} />
+                            : <ChevronRight size={12} style={{ color: 'var(--t4)' }} />
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                    <ExpandedReport item={item} />
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
