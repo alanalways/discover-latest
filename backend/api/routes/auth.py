@@ -308,11 +308,12 @@ async def get_google_client_id():
 
 
 @router.get("/login-url")
-async def get_login_url():
+async def get_login_url(request: Request = None):
     """取得 Supabase Google OAuth 登入 URL。"""
     if not SUPABASE_URL:
-        return {"url": ""}
-    redirect = SPACE_URL
+        return {"url": "", "error": "Supabase 尚未設定，請聯繫管理員"}
+    # 回調導向 /profile 頁面，該頁會從 URL hash 擷取 access_token
+    redirect = f"{SPACE_URL}/profile"
     return {
         "url": f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to={redirect}"
     }

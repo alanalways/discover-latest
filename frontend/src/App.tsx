@@ -1,8 +1,8 @@
-import { useState } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { BrowserRouter, Routes, Route, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Search, ScanLine, BarChart2,
-  Star, Menu, X, LogIn, User, ShieldCheck, Target
+  Star, Menu, X, LogIn, User, ShieldCheck, Target, LogOut
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Analysis  from './pages/Analysis'
@@ -28,11 +28,108 @@ const SECONDARY_NAV = [
   { to: '/admin',     label: '後台',     icon: ShieldCheck },
 ]
 
+// ── Auth Helpers ─────────────────────────────────────────────────────────────
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? ''
+
+function getToken(): string | null {
+  return localStorage.getItem('dl_token')
+}
+
+function setToken(token: string) {
+  localStorage.setItem('dl_token', token)
+}
+
+function clearToken() {
+  localStorage.removeItem('dl_token')
+  localStorage.removeItem('dl_user')
+}
+
+function getSavedUser(): { name?: string; email?: string } | null {
+  try {
+    const raw = localStorage.getItem('dl_user')
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+// ── OAuth Callback Handler ──────────────────────────────────────────────────
+
+function OAuthCallbackHandler() {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    // 檢查 URL hash 是否有 OAuth callback token
+    const hash = window.location.hash
+    if (hash && hash.includes('access_token=')) {
+      const params = new URLSearchParams(hash.replace('#', ''))
+      const token = params.get('access_token')
+      if (token) {
+        setToken(token)
+        // 取得使用者資訊並儲存
+        fetch(`${BASE_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data) {
+              localStorage.setItem('dl_user', JSON.stringify({
+                name: data.name || data.email,
+                email: data.email,
+                is_admin: data.is_admin,
+              }))
+            }
+          })
+          .catch(() => {})
+        // 清除 hash，導航到 profile
+        window.history.replaceState(null, '', '/profile')
+        navigate('/profile', { replace: true })
+      }
+    }
+  }, [navigate])
+
+  return null
+}
+
 // ── Nav Bar ───────────────────────────────────────────────────────────────────
 
 function NavBar() {
   const [open, setOpen] = useState(false)
   const { pathname } = useLocation()
+  const [loggedIn, setLoggedIn] = useState(!!getToken())
+  const [userName, setUserName] = useState(getSavedUser()?.name || '')
+
+  // 監聽 localStorage 變化（登入/登出）
+  useEffect(() => {
+    const check = () => {
+      setLoggedIn(!!getToken())
+      setUserName(getSavedUser()?.name || '')
+    }
+    check()
+    window.addEventListener('storage', check)
+    const interval = setInterval(check, 2000) // 每2秒檢查
+    return () => { window.removeEventListener('storage', check); clearInterval(interval) }
+  }, [])
+
+  const handleLogin = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login-url`)
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        alert('登入服務尚未設定，請聯繫管理員')
+      }
+    } catch {
+      alert('無法連接登入服務')
+    }
+  }
+
+  const handleLogout = () => {
+    clearToken()
+    setLoggedIn(false)
+    setUserName('')
+    window.location.href = '/'
+  }
 
   const isActive = (to: string) =>
     to === '/' ? pathname === '/' : pathname.startsWith(to)
@@ -107,6 +204,27 @@ function NavBar() {
               <span>{label}</span>
             </NavLink>
           ))}
+          {/* Login / Logout */}
+          {loggedIn ? (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md cursor-pointer transition-all text-xs"
+              style={{ background: 'rgba(148,163,184,0.06)', border: '1px solid var(--bdr-1)', color: 'var(--t3)' }}
+              title={userName || '登出'}
+            >
+              <LogOut size={11} aria-hidden />
+              <span className="max-w-[80px] truncate">{userName || '登出'}</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleLogin}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer transition-all text-xs font-medium"
+              style={{ background: 'var(--accent-glow)', border: '1px solid var(--accent-bdr)', color: 'var(--accent-2)' }}
+            >
+              <LogIn size={12} aria-hidden />
+              <span>登入</span>
+            </button>
+          )}
         </div>
 
         {/* Mobile Toggle */}
@@ -155,6 +273,25 @@ function NavBar() {
               <span>{label}</span>
             </NavLink>
           ))}
+          {loggedIn ? (
+            <button
+              onClick={() => { setOpen(false); handleLogout() }}
+              className="nav-link w-full cursor-pointer"
+              style={{ background: 'none', border: 'none', textAlign: 'left' }}
+            >
+              <LogOut size={14} aria-hidden />
+              <span>登出</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => { setOpen(false); handleLogin() }}
+              className="nav-link w-full cursor-pointer"
+              style={{ background: 'none', border: 'none', textAlign: 'left' }}
+            >
+              <LogIn size={14} aria-hidden />
+              <span>登入</span>
+            </button>
+          )}
         </div>
       )}
     </header>
@@ -166,6 +303,7 @@ function NavBar() {
 export default function App() {
   return (
     <BrowserRouter>
+      <OAuthCallbackHandler />
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-1)' }}>
         <NavBar />
 

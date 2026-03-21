@@ -121,6 +121,56 @@ async def get_accuracy_history(
         return {"error": str(e), "data": []}
 
 
+@router.get("/predictions")
+async def get_all_predictions(
+    symbol: Optional[str] = Query(default=None, description="股票代號（不填回傳全部）"),
+    market: Optional[str] = Query(default=None, description="TW / US"),
+    status: Optional[str] = Query(default=None, description="pending=待驗證 / verified=已驗證 / all=全部"),
+    limit: int = Query(default=50, le=200),
+):
+    """
+    查詢預測記錄（包含待驗證）— 完全公開，無需 token。
+    status: pending=待驗證, verified=已驗證, all/空=全部
+    """
+    client = get_client()
+    if not client:
+        return {"predictions": [], "total": 0}
+
+    try:
+        query = client.table("predictions").select(
+            "id, symbol, market, predicted_direction, "
+            "predicted_target_low, predicted_target_high, "
+            "timeframe, prediction_date, verify_date, "
+            "is_verified, created_at"
+        )
+
+        if symbol:
+            query = query.eq("symbol", symbol.upper())
+        if market:
+            query = query.eq("market", market)
+        if status == "pending":
+            query = query.eq("is_verified", False)
+        elif status == "verified":
+            query = query.eq("is_verified", True)
+
+        result = query.order("created_at", desc=True).limit(limit).execute()
+        rows = result.data or []
+
+        pending_count = sum(1 for r in rows if not r.get("is_verified"))
+        verified_count = sum(1 for r in rows if r.get("is_verified"))
+
+        return {
+            "predictions": rows,
+            "total": len(rows),
+            "pending_count": pending_count,
+            "verified_count": verified_count,
+        }
+
+    except Exception as e:
+        logger.error(f"[Accuracy] 查詢預測失敗: {e}")
+        return {"predictions": [], "total": 0}
+
+
 @router.get("/weekly-trend")
 async def get_weekly_trend(weeks: int = Query(default=12, le=52)):
     """

@@ -30,6 +30,16 @@ export const getAccuracyHistory = (symbol: string, market: string, limit = 50) =
 export const getWeeklyTrend = (weeks = 12) =>
   request<WeeklyTrend>(`/api/accuracy/weekly-trend?weeks=${weeks}`)
 
+export const getPredictions = (opts?: { symbol?: string; market?: string; status?: string; limit?: number }) => {
+  const params = new URLSearchParams()
+  if (opts?.symbol) params.set('symbol', opts.symbol)
+  if (opts?.market) params.set('market', opts.market)
+  if (opts?.status) params.set('status', opts.status)
+  if (opts?.limit)  params.set('limit', String(opts.limit))
+  const qs = params.toString()
+  return request<PredictionsResponse>(`/api/accuracy/predictions${qs ? `?${qs}` : ''}`)
+}
+
 // ─── Analysis ────────────────────────────────────────────────────────────────
 
 export const triggerAnalysis = (symbol: string, market: string, token?: string) =>
@@ -170,6 +180,27 @@ export interface AccuracyRecord {
 export interface WeeklyTrend {
   weeks:          string[]
   accuracy_pcts:  number[]
+}
+
+export interface PredictionRecord {
+  id:                    string
+  symbol:                string
+  market:                string
+  predicted_direction:   string
+  predicted_target_low:  number | null
+  predicted_target_high: number | null
+  timeframe:             string
+  prediction_date:       string
+  verify_date:           string
+  is_verified:           boolean
+  created_at:            string
+}
+
+export interface PredictionsResponse {
+  predictions:    PredictionRecord[]
+  total:          number
+  pending_count:  number
+  verified_count: number
 }
 
 export interface AnalysisResponse {

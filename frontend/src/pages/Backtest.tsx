@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react'
 import {
   BarChart2, Target, CheckCircle2, XCircle,
-  TrendingUp, TrendingDown, Calendar, Filter
+  TrendingUp, TrendingDown, Calendar, Filter,
+  Clock, AlertCircle, Search
 } from 'lucide-react'
-import { getAccuracyStats, getWeeklyTrend, getAccuracyHistory } from '../lib/api'
-import type { AccuracyStats, WeeklyTrend, AccuracyRecord } from '../lib/api'
-import { Spinner, RatingBadge, ChangePct, EmptyState } from '../components/ui'
+import {
+  getAccuracyStats, getWeeklyTrend, getAccuracyHistory, getPredictions,
+} from '../lib/api'
+import type {
+  AccuracyStats, WeeklyTrend as WeeklyTrendType, AccuracyRecord, PredictionRecord,
+} from '../lib/api'
+import { Spinner, ChangePct, EmptyState } from '../components/ui'
 
 // ── Weekly Bar Chart (pure CSS) ────────────────────────
 
@@ -112,21 +117,117 @@ function AccuracyTable({ data }: { data: AccuracyStats['by_symbol'] }) {
   )
 }
 
-// ── History Records ────────────────────────────────────
+// ── Pending Predictions Table ──────────────────────────
 
-function HistoryTable({ records }: { records: AccuracyRecord[] }) {
-  if (!records.length) {
-    return (
-      <div className="glass-card py-12 text-center">
-        <p className="text-xs" style={{ color: 'var(--t4)' }}>
-          輸入股票代號查看歷史預測記錄
-        </p>
-      </div>
-    )
-  }
+function PendingPredictions({ predictions }: { predictions: PredictionRecord[] }) {
+  if (!predictions.length) return null
 
   return (
     <div className="glass-card overflow-hidden">
+      <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
+        <div className="flex items-center gap-2">
+          <Clock size={12} style={{ color: 'var(--warn)' }} />
+          <span className="label">待驗證預測</span>
+        </div>
+        <span
+          className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
+          style={{ background: 'var(--warn-glow)', color: 'var(--warn)' }}
+        >
+          {predictions.length} 筆
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--bdr-1)' }}>
+              {['代號', '市場', '預測方向', '目標價區間', '週期', '預測日', '驗證日', '狀態'].map(h => (
+                <th key={h} className="px-3 py-2.5 text-left font-medium" style={{ color: 'var(--t4)' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {predictions.map((p) => {
+              const isBull = p.predicted_direction?.includes('bull') || p.predicted_direction?.includes('buy')
+              const verifyDate = new Date(p.verify_date)
+              const now = new Date()
+              const daysLeft = Math.ceil((verifyDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+
+              return (
+                <tr key={p.id} style={{ borderBottom: '1px solid var(--bdr-1)' }}>
+                  <td className="px-3 py-2.5 font-mono font-semibold" style={{ color: 'var(--t1)' }}>
+                    {p.symbol}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span
+                      className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                      style={{ background: 'rgba(148,163,184,0.06)', color: 'var(--t3)' }}
+                    >
+                      {p.market}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="flex items-center gap-1">
+                      {isBull
+                        ? <TrendingUp size={11} style={{ color: 'var(--bull)' }} />
+                        : <TrendingDown size={11} style={{ color: 'var(--bear)' }} />
+                      }
+                      <span style={{ color: isBull ? 'var(--bull)' : 'var(--bear)' }}>
+                        {p.predicted_direction}
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--t2)' }}>
+                    {p.predicted_target_low && p.predicted_target_high
+                      ? `${p.predicted_target_low}–${p.predicted_target_high}`
+                      : '—'
+                    }
+                  </td>
+                  <td className="px-3 py-2.5" style={{ color: 'var(--t3)' }}>{p.timeframe}</td>
+                  <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--t3)' }}>
+                    {p.prediction_date}
+                  </td>
+                  <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--t3)' }}>
+                    {p.verify_date}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    {p.is_verified ? (
+                      <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--bull)' }}>
+                        <CheckCircle2 size={11} /> 已驗證
+                      </span>
+                    ) : daysLeft > 0 ? (
+                      <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--warn)' }}>
+                        <Clock size={11} /> {daysLeft} 天後驗證
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--accent-2)' }}>
+                        <AlertCircle size={11} /> 待回測
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── History Records ────────────────────────────────────
+
+function HistoryTable({ records }: { records: AccuracyRecord[] }) {
+  return (
+    <div className="glass-card overflow-hidden">
+      <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
+        <div className="flex items-center gap-2">
+          <Target size={12} style={{ color: 'var(--accent-2)' }} />
+          <span className="label">歷史驗證記錄</span>
+        </div>
+        <span className="text-[11px] font-mono" style={{ color: 'var(--t4)' }}>
+          {records.length} 筆
+        </span>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -179,24 +280,32 @@ function HistoryTable({ records }: { records: AccuracyRecord[] }) {
 // ── Main Page ──────────────────────────────────────────
 
 export default function Backtest() {
-  const [stats, setStats]       = useState<AccuracyStats | null>(null)
-  const [trend, setTrend]       = useState<WeeklyTrend | null>(null)
-  const [records, setRecords]   = useState<AccuracyRecord[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [histLoading, setHistLoading] = useState(false)
-  const [market, setMarket]     = useState<string>('')
-  const [symbol, setSymbol]     = useState('')
-  const [histMkt, setHistMkt]   = useState('TW')
+  const [stats, setStats]               = useState<AccuracyStats | null>(null)
+  const [trend, setTrend]               = useState<WeeklyTrendType | null>(null)
+  const [predictions, setPredictions]   = useState<PredictionRecord[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [records, setRecords]           = useState<AccuracyRecord[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [histLoading, setHistLoading]   = useState(false)
+  const [market, setMarket]             = useState<string>('')
+  const [symbol, setSymbol]             = useState('')
+  const [histMkt, setHistMkt]           = useState('TW')
+  const [activeTab, setActiveTab]       = useState<'overview' | 'search'>('overview')
 
   useEffect(() => {
     async function load() {
       try {
-        const [s, t] = await Promise.all([
+        const [s, t, p] = await Promise.allSettled([
           getAccuracyStats(market || undefined),
           getWeeklyTrend(12),
+          getPredictions({ market: market || undefined, status: 'all', limit: 100 }),
         ])
-        setStats(s)
-        setTrend(t)
+        if (s.status === 'fulfilled') setStats(s.value)
+        if (t.status === 'fulfilled') setTrend(t.value)
+        if (p.status === 'fulfilled') {
+          setPredictions(p.value.predictions || [])
+          setPendingCount(p.value.pending_count || 0)
+        }
       } catch {
         // silent
       } finally {
@@ -210,14 +319,23 @@ export default function Backtest() {
     if (!symbol.trim()) return
     setHistLoading(true)
     try {
-      const res = await getAccuracyHistory(symbol.trim().toUpperCase(), histMkt, 50)
-      setRecords(res.records || [])
+      const [hist, preds] = await Promise.allSettled([
+        getAccuracyHistory(symbol.trim().toUpperCase(), histMkt, 50),
+        getPredictions({ symbol: symbol.trim().toUpperCase(), market: histMkt, status: 'all', limit: 50 }),
+      ])
+      if (hist.status === 'fulfilled') setRecords(hist.value.records || [])
+      if (preds.status === 'fulfilled') setPredictions(preds.value.predictions || [])
+      setActiveTab('search')
     } catch {
       setRecords([])
     } finally {
       setHistLoading(false)
     }
   }
+
+  const totalPredictions = (stats?.total_predictions ?? 0) + pendingCount
+  const pendingPreds = predictions.filter(p => !p.is_verified)
+  const verifiedPreds = predictions.filter(p => p.is_verified)
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 space-y-5">
@@ -229,7 +347,7 @@ export default function Backtest() {
             <span className="text-gradient">回測系統</span>
           </h1>
           <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-            AI 預測準確率追蹤 · 100% 透明公開 · 無需登入
+            AI 預測追蹤 · 100% 透明公開 · 無需登入
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -237,7 +355,7 @@ export default function Backtest() {
           {['全部', 'TW', 'US'].map(m => (
             <button
               key={m}
-              onClick={() => setMarket(m === '全部' ? '' : m)}
+              onClick={() => { setMarket(m === '全部' ? '' : m); setActiveTab('overview') }}
               className="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition-all"
               style={{
                 background: (m === '全部' ? '' : m) === market
@@ -264,18 +382,20 @@ export default function Backtest() {
             {[
               {
                 label: '整體準確率',
-                value: `${stats?.overall_accuracy_pct ?? 0}%`,
-                color: (stats?.overall_accuracy_pct ?? 0) >= 55 ? 'var(--bull)' : 'var(--warn)',
+                value: stats?.total_predictions
+                  ? `${stats.overall_accuracy_pct}%`
+                  : '累積中',
+                color: (stats?.overall_accuracy_pct ?? 0) >= 55 ? 'var(--bull)' : 'var(--accent-2)',
               },
               {
-                label: '總預測數',
+                label: '已驗證預測',
                 value: stats?.total_predictions ?? 0,
                 color: 'var(--accent-2)',
               },
               {
-                label: '正確預測',
-                value: stats?.total_correct ?? 0,
-                color: 'var(--bull)',
+                label: '待驗證預測',
+                value: pendingCount,
+                color: 'var(--warn)',
               },
               {
                 label: '追蹤股數',
@@ -297,31 +417,58 @@ export default function Backtest() {
             <WeeklyChart weeks={trend.weeks} pcts={trend.accuracy_pcts} />
           )}
 
-          {/* By Symbol Table */}
-          {stats?.by_symbol && stats.by_symbol.length > 0 ? (
+          {/* By Symbol Table (verified) */}
+          {stats?.by_symbol && stats.by_symbol.length > 0 && (
             <AccuracyTable data={stats.by_symbol} />
-          ) : (
-            <div className="glass-card py-16 text-center animate-fade-in">
-              <EmptyState
-                icon={BarChart2}
-                title="尚無回測資料"
-                subtitle="系統會在預測到期後自動驗證並記錄結果"
-              />
+          )}
+
+          {/* Pending Predictions */}
+          {activeTab === 'overview' && pendingPreds.length > 0 && (
+            <PendingPredictions predictions={pendingPreds} />
+          )}
+
+          {/* Empty state when nothing at all */}
+          {activeTab === 'overview' && !stats?.by_symbol?.length && pendingPreds.length === 0 && (
+            <div className="glass-card p-10 text-center animate-fade-in">
+              <div className="flex flex-col items-center gap-3">
+                <div className="relative">
+                  <BarChart2 size={40} style={{ color: 'var(--t4)', opacity: 0.3 }} />
+                  <div
+                    className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full animate-pulse"
+                    style={{ background: 'var(--accent-2)' }}
+                  />
+                </div>
+                <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>
+                  回測資料累積中
+                </p>
+                <p className="text-xs max-w-sm" style={{ color: 'var(--t4)' }}>
+                  系統每次產生分析報告時會自動建立預測紀錄。
+                  當預測到期後，回測引擎會自動驗證結果。
+                  請先使用「深度分析」功能分析幾檔股票。
+                </p>
+                <a
+                  href="/analysis"
+                  className="btn-primary text-xs no-underline mt-2"
+                  role="button"
+                >
+                  前往分析
+                </a>
+              </div>
             </div>
           )}
 
-          {/* History Search */}
+          {/* Search Section */}
           <div className="glass-card p-5 space-y-4">
             <div className="flex items-center gap-2">
-              <Target size={12} style={{ color: 'var(--accent-2)' }} />
-              <span className="label">查詢歷史預測</span>
+              <Search size={12} style={{ color: 'var(--accent-2)' }} />
+              <span className="label">查詢特定股票預測記錄</span>
             </div>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={symbol}
                 onChange={e => setSymbol(e.target.value)}
-                placeholder="輸入股票代號"
+                placeholder="輸入股票代號，例如 2330"
                 className="input-field flex-1 font-mono"
                 onKeyDown={e => e.key === 'Enter' && searchHistory()}
               />
@@ -338,18 +485,41 @@ export default function Backtest() {
                 disabled={histLoading || !symbol.trim()}
                 className="btn-primary sm:w-24 flex items-center justify-center gap-1.5"
               >
-                {histLoading ? <Spinner size={12} /> : <Target size={12} />}
+                {histLoading ? <Spinner size={12} /> : <Search size={12} />}
                 <span>查詢</span>
               </button>
             </div>
           </div>
 
-          {histLoading ? (
-            <div className="flex items-center justify-center py-10">
-              <Spinner size={20} />
-            </div>
-          ) : (
-            records.length > 0 && <HistoryTable records={records} />
+          {/* Search Results */}
+          {activeTab === 'search' && (
+            <>
+              {histLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <Spinner size={20} />
+                </div>
+              ) : (
+                <>
+                  {/* Show pending predictions for searched symbol */}
+                  {predictions.filter(p => !p.is_verified).length > 0 && (
+                    <PendingPredictions predictions={predictions.filter(p => !p.is_verified)} />
+                  )}
+                  {/* Show verified history */}
+                  {records.length > 0 && <HistoryTable records={records} />}
+                  {/* Nothing found */}
+                  {records.length === 0 && predictions.filter(p => !p.is_verified).length === 0 && (
+                    <div className="glass-card py-12 text-center">
+                      <p className="text-sm" style={{ color: 'var(--t3)' }}>
+                        未找到 <span className="font-mono font-bold">{symbol.toUpperCase()}</span> 的預測記錄
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
+                        請先到「深度分析」頁面分析此股票，系統會自動產生預測
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </>
       )}

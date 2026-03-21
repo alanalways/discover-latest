@@ -255,6 +255,17 @@ export default function Dashboard() {
   useEffect(() => {
     loadReports()
     loadMarket()
+
+    // 自動刷新：每 30 秒檢查一次新報告（背景掃描完成後自動更新）
+    const interval = setInterval(() => {
+      loadReports()
+    }, 30_000)
+    // 市場資料每 2 分鐘刷新
+    const mktInterval = setInterval(() => {
+      loadMarket()
+    }, 120_000)
+
+    return () => { clearInterval(interval); clearInterval(mktInterval) }
   }, [loadReports, loadMarket])
 
   const avgConfidence = bullish.length > 0
@@ -354,9 +365,9 @@ export default function Dashboard() {
                   <TrendingUp size={36} style={{ opacity: 0.4 }} />
                   <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full animate-pulse" style={{ background: 'var(--accent-2)' }} />
                 </div>
-                <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>系統初始化掃描中</p>
+                <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>AI 正在分析中</p>
                 <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-                  首次啟動需掃描熱門標的，約需 3-5 分鐘
+                  背景自動掃描熱門標的，頁面每 30 秒自動刷新
                 </p>
                 <div className="mt-4 w-48 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bdr-1)' }}>
                   <div
@@ -368,17 +379,9 @@ export default function Dashboard() {
                     }}
                   />
                 </div>
-                <button
-                  onClick={loadReports}
-                  className="mt-4 text-xs px-4 py-1.5 rounded-md cursor-pointer transition-all"
-                  style={{
-                    background: 'rgba(124,58,237,0.1)',
-                    border: '1px solid var(--accent-bdr)',
-                    color: 'var(--accent-2)',
-                  }}
-                >
-                  重新載入
-                </button>
+                <p className="text-[11px] mt-3 font-mono" style={{ color: 'var(--t4)' }}>
+                  自動刷新中 · 每 30 秒更新
+                </p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -450,7 +453,10 @@ export default function Dashboard() {
               <BarChart3 size={32} style={{ opacity: 0.4 }} className="mb-3" />
               <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>報告生成中</p>
               <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-                系統正在進行首批分析，稍後會自動出現
+                背景分析進行中，報告完成後自動顯示
+              </p>
+              <p className="text-[11px] mt-2 font-mono" style={{ color: 'var(--t4)' }}>
+                自動刷新中 · 每 30 秒更新
               </p>
             </div>
           ) : (
