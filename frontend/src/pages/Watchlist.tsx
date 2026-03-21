@@ -4,8 +4,12 @@ import {
   Search, AlertCircle, Eye, ExternalLink
 } from 'lucide-react'
 import { getWatchlist, addToWatchlist, removeFromWatchlist, WatchlistItem } from '../lib/api'
-import { getAccessToken } from '../lib/supabase'
 import { LoadingSkeleton, EmptyState, SectionHeader, Spinner } from '../components/ui'
+
+// 統一用 localStorage 取 token（與 App.tsx 登入流程一致）
+function getToken(): string | null {
+  return localStorage.getItem('dl_token')
+}
 
 export default function Watchlist() {
   const [items, setItems]     = useState<WatchlistItem[]>([])
@@ -20,7 +24,7 @@ export default function Watchlist() {
     setLoading(true)
     setError(null)
     try {
-      const token = await getAccessToken()
+      const token = getToken()
       if (!token) {
         setError('請先登入以使用自選股功能')
         setLoading(false)
@@ -44,7 +48,7 @@ export default function Watchlist() {
     setAdding(true)
     setError(null)
     try {
-      const token = await getAccessToken()
+      const token = getToken()
       if (!token) { setError('請先登入'); return }
       const res = await addToWatchlist(sym, market, token)
       setItems(res.watchlist || [])
@@ -60,7 +64,7 @@ export default function Watchlist() {
     const key = `${sym}-${mkt}`
     setRemoving(key)
     try {
-      const token = await getAccessToken()
+      const token = getToken()
       if (!token) return
       const res = await removeFromWatchlist(sym, mkt, token)
       setItems(res.watchlist || [])
