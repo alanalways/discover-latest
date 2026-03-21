@@ -12,11 +12,9 @@ Fast Path 回傳報告給使用者後，Background Path 異步處理：
   - audit_log
   - LINE 通知
 """
-import json
 import time
 import logging
 import asyncio
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import AsyncGenerator, Optional
 from uuid import uuid4
 
@@ -29,10 +27,12 @@ from backend.agents.departments.sentiment import SentimentAgent
 from backend.agents.arbitrator import ArbitratorAgent
 from backend.agents.chief_analyst import ChiefAnalystAgent
 from backend.gemini.cache import get_cached_grounding, set_grounding_cache
-from backend.data.sources.yahoo import get_price_data as fetch_price_data
+from backend.data.sources.yahoo import (
+    get_price_data as fetch_price_data,
+    get_info as fetch_fundamentals,
+)
 from backend.data.sources.finmind import (
     get_institutional_investors as fetch_institutional_data,
-    get_price_data as fetch_fundamental_data,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,8 +47,6 @@ _sentiment = SentimentAgent()
 _arbitrator = ArbitratorAgent()
 _chief = ChiefAnalystAgent()
 
-# 並行上限：6 個 Agent 同時跑
-_AGENT_POOL_SIZE = 6
 
 
 async def fast_analysis(
@@ -76,8 +74,8 @@ async def fast_analysis(
     try:
         price_data, institutional, fundamentals = await asyncio.gather(
             asyncio.to_thread(fetch_price_data, symbol, market),
-            asyncio.to_thread(fetch_institutional_data, symbol, market),
-            asyncio.to_thread(fetch_fundamental_data, symbol, market),
+            asyncio.to_thread(fetch_institutional_data, symbol),
+            asyncio.to_thread(fetch_fundamentals, symbol, market),
         )
     except Exception as e:
         logger.error(f"[Pipeline] 資料收集失敗: {e}")
@@ -122,7 +120,14 @@ async def fast_analysis(
 
     stage3_start = time.time()
     arbitration = await asyncio.to_thread(
-        _arbitrator.arbitrate, dept_results, report_id=report_id
+        _arbitrator.arbitrate,
+        technical=dept_results.get("technical", {}),
+        fundamental=dept_results.get("fundamental", {}),
+        chips=dept_results.get("chips", {}),
+        event=dept_results.get("event", {}),
+        macro=dept_results.get("macro", {}),
+        sentiment=dept_results.get("sentiment", {}),
+        report_id=report_id,
     )
     stage3a_ms = int((time.time() - stage3_start) * 1000)
     logger.info(f"[Pipeline] Stage 3a 仲裁完成: {stage3a_ms}ms")
@@ -161,6 +166,10 @@ async def fast_analysis(
     yield {
         "type": "done",
         "report_id": report_id,
+        # 前端直接讀取的扁平欄位
+        "final_report": full_report,
+        "rating": arbitration.get("final_stance"),
+        "confidence": arbitration.get("stance_confidence"),
         "meta": {
             "symbol": symbol,
             "market": market,
@@ -194,14 +203,14 @@ async def _run_agents_parallel(
     fundamentals: dict,
 ) -> dict:
     """
-    6 個 Agent 全部並行執行。
+    6 個 Agent 全部並行執行（asyncio.to_thread 支援 kwargs）。
 
     無 grounding 的 Agent（technical, fundamental, chips）使用傳入的資料。
     有 grounding 的 Agent（event, macro, sentiment）先查快取，未命中才呼叫 Gemini。
     """
 
     def _run_agent(agent, agent_name: str, **kwargs) -> tuple[str, dict]:
-        """在 ThreadPool 中執行單一 Agent。"""
+        """在背景執行緒中執行單一 Agent。"""
         try:
             # Grounding Agent 先查快取
             if hasattr(agent, 'use_grounding') and agent.use_grounding:
@@ -227,29 +236,18 @@ async def _run_agents_parallel(
             logger.error(f"[Pipeline] {agent_name} 執行失敗: {e}")
             return (agent_name, {"status": "failed", "error": str(e)})
 
-    loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor(max_workers=_AGENT_POOL_SIZE) as pool:
-        futures = {
-            loop.run_in_executor(pool, _run_agent, _technical, "technical",
-                                 **{"price_data": price_data}):
-                "technical",
-            loop.run_in_executor(pool, _run_agent, _fundamental, "fundamental",
-                                 **{"fundamentals": fundamentals}):
-                "fundamental",
-            loop.run_in_executor(pool, _run_agent, _chips, "chips",
-                                 **{"institutional": institutional}):
-                "chips",
-            loop.run_in_executor(pool, _run_agent, _event, "event"):
-                "event",
-            loop.run_in_executor(pool, _run_agent, _macro, "macro"):
-                "macro",
-            loop.run_in_executor(pool, _run_agent, _sentiment, "sentiment"):
-                "sentiment",
-        }
+    # asyncio.to_thread 支援 **kwargs（Python 3.9+），
+    # 比 run_in_executor 更適合傳遞關鍵字參數
+    results = await asyncio.gather(
+        asyncio.to_thread(_run_agent, _technical, "technical",
+                          price_data=price_data),
+        asyncio.to_thread(_run_agent, _fundamental, "fundamental",
+                          financial_data=fundamentals),
+        asyncio.to_thread(_run_agent, _chips, "chips",
+                          chips_data=institutional),
+        asyncio.to_thread(_run_agent, _event, "event"),
+        asyncio.to_thread(_run_agent, _macro, "macro"),
+        asyncio.to_thread(_run_agent, _sentiment, "sentiment"),
+    )
 
-        dept_results = {}
-        for future in asyncio.as_completed(futures):
-            agent_name, result = await future
-            dept_results[agent_name] = result
-
-    return dept_results
+    return {name: result for name, result in results}

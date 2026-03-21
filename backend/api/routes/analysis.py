@@ -185,7 +185,7 @@ async def trigger_analysis(
             get_user_rate_limiter().record_request(user.user_id)
 
         return AnalysisResponse(
-            report_id=meta.get("report_id") if meta else None,
+            report_id=report_data.get("report_id") if report_data else None,
             status="completed",
             final_report="".join(report_chunks),
             rating=meta.get("final_stance") if meta else None,

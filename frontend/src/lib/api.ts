@@ -97,9 +97,10 @@ export function streamAnalysis(
   market: string,
   onChunk: (chunk: string) => void,
   onDone: (data: AnalysisResponse) => void,
-  onError: (err: string) => void
+  onError: (err: string) => void,
+  onStatus?: (stage: string, message: string) => void,
 ): () => void {
-  const url = `${BASE_URL}/api/analysis/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`
+  const url = `${BASE_URL}/api/analysis/stream/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`
   const evtSource = new EventSource(url)
 
   evtSource.onmessage = (event) => {
@@ -107,6 +108,8 @@ export function streamAnalysis(
       const data = JSON.parse(event.data)
       if (data.type === 'chunk') {
         onChunk(data.content)
+      } else if (data.type === 'status') {
+        onStatus?.(data.stage, data.message)
       } else if (data.type === 'done') {
         onDone(data)
         evtSource.close()

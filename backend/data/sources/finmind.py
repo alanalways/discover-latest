@@ -224,6 +224,32 @@ def get_margin_trading(
     return result
 
 
+def get_chips_data(symbol: str, days: int = 30) -> dict:
+    """
+    取得完整籌碼資料（三大法人 + 融資融券）。
+
+    整合 get_institutional_investors 與 get_margin_trading 的結果。
+
+    Returns:
+        dict: 包含 institutional 和 margin 兩組資料
+    """
+    institutional = get_institutional_investors(symbol, days)
+    margin = get_margin_trading(symbol, days)
+
+    return {
+        "symbol": symbol,
+        "institutional": institutional,
+        "margin": margin,
+        "foreign_net": institutional.get("foreign_net", []),
+        "trust_net": institutional.get("trust_net", []),
+        "dealer_net": institutional.get("dealer_net", []),
+        "margin_balance": margin.get("margin_balance", []),
+        "short_balance": margin.get("short_balance", []),
+        "dates": institutional.get("dates", []),
+        "error": institutional.get("error") or margin.get("error"),
+    }
+
+
 def get_current_price(symbol: str) -> Optional[float]:
     """
     取得台股最近收盤價（用最新一天的 close）。

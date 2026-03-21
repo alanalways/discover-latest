@@ -2,13 +2,16 @@
 backend/core/heartbeat.py
 APScheduler 排程心跳（Sonnet 撰寫）
 
-排程表：
-  每小時整點      → ceo.hourly_watchlist_scan + ceo.run_pending_jobs
-  08:25（台北）   → ceo.premarket_scan
-  15:05（台北）   → ceo.postmarket_summary
+排程表（交易日 = 週一至週五，時區 Asia/Taipei）：
+  09:10          → 台股開盤後首次掃描 + run_pending_jobs
+  12:00          → 午盤掃描 + run_pending_jobs
+  13:35          → 台股收盤後掃描 + postmarket_summary
   週一 07:00      → ceo.weekly_backtest
   每6小時         → ceo.storage_check
-  每日 00:01      → 重置 BudgetGuard 計數器（冗余保護）
+  每日 00:01      → 重置 BudgetGuard 計數器
+
+特殊：
+  伺服器啟動      → 檢查 DB 是否為空，空則掃描熱門台股
 
 設計：
 - 使用 BackgroundScheduler，不阻斷主執行緒
@@ -20,41 +23,45 @@ import logging
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 
 logger = logging.getLogger(__name__)
 
 _TZ = "Asia/Taipei"
 
+# 啟動掃描用的熱門台股（DB 為空時使用）
+_DEFAULT_STOCKS = [
+    ("2330", "TW"),   # 台積電
+    ("2317", "TW"),   # 鴻海
+    ("2454", "TW"),   # 聯發科
+    ("2308", "TW"),   # 台達電
+    ("2881", "TW"),   # 富邦金
+]
+
 
 # ─── Job 包裝函式（捕捉例外，確保 scheduler 不崩潰）──────────────
 
-def _job_hourly_scan() -> None:
+def _job_market_scan() -> None:
+    """交易日定時掃描：自選股 + 工作佇列處理。"""
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
         ceo.hourly_watchlist_scan()
-        ceo.run_pending_jobs(max_jobs=5)
-    except Exception as e:
-        logger.error(f"[Heartbeat] hourly_scan 失敗: {e}", exc_info=True)
-
-
-def _job_premarket() -> None:
-    try:
-        from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
-        ceo.premarket_scan()
         ceo.run_pending_jobs(max_jobs=10)
     except Exception as e:
-        logger.error(f"[Heartbeat] premarket_scan 失敗: {e}", exc_info=True)
+        logger.error(f"[Heartbeat] market_scan 失敗: {e}", exc_info=True)
 
 
 def _job_postmarket() -> None:
+    """台股收盤後：最後一次掃描 + 盤後總結。"""
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
+        ceo.hourly_watchlist_scan()
+        ceo.run_pending_jobs(max_jobs=10)
         ceo.postmarket_summary()
     except Exception as e:
-        logger.error(f"[Heartbeat] postmarket_summary 失敗: {e}", exc_info=True)
+        logger.error(f"[Heartbeat] postmarket 失敗: {e}", exc_info=True)
 
 
 def _job_weekly_backtest() -> None:
@@ -85,6 +92,45 @@ def _job_reset_budget() -> None:
         logger.error(f"[Heartbeat] budget_reset 失敗: {e}", exc_info=True)
 
 
+def _job_startup_scan() -> None:
+    """
+    伺服器啟動時檢查 DB，若無任何報告則掃描熱門台股。
+    確保 Dashboard 首次載入不會完全空白。
+    """
+    try:
+        from backend.data.storage.supabase_client import get_client
+        client = get_client()
+        if not client:
+            logger.warning("[Heartbeat] 啟動掃描: DB 不可用，跳過")
+            return
+
+        # 檢查是否已有報告
+        result = client.table("reports").select("id", count="exact").limit(1).execute()
+        if result.count and result.count > 0:
+            logger.info("[Heartbeat] DB 已有 %d 筆報告，跳過啟動掃描", result.count)
+            return
+
+        logger.info("[Heartbeat] DB 無報告，啟動初始掃描 %d 檔股票...", len(_DEFAULT_STOCKS))
+
+        from backend.agents.ceo_agent import get_ceo_agent
+        ceo = get_ceo_agent()
+
+        for symbol, market in _DEFAULT_STOCKS:
+            try:
+                ceo._task_queue.enqueue(
+                    job_type="analyze_stock",
+                    payload={"symbol": symbol, "market": market},
+                    priority=1,
+                )
+            except Exception as e:
+                logger.warning(f"[Heartbeat] 入隊 {symbol} 失敗: {e}")
+
+        ceo.run_pending_jobs(max_jobs=len(_DEFAULT_STOCKS))
+
+    except Exception as e:
+        logger.error(f"[Heartbeat] 啟動掃描失敗: {e}", exc_info=True)
+
+
 # ─── 啟動函式 ─────────────────────────────────────────────────────
 
 def start_heartbeat() -> BackgroundScheduler:
@@ -96,32 +142,36 @@ def start_heartbeat() -> BackgroundScheduler:
     """
     scheduler = BackgroundScheduler(timezone=_TZ)
 
-    # 每小時整點：自選股掃描 + 工作佇列處理
-    scheduler.add_job(
-        _job_hourly_scan,
-        CronTrigger(minute=0, timezone=_TZ),
-        id="hourly_scan",
-        replace_existing=True,
-        misfire_grace_time=300,   # 最多延誤 5 分鐘仍執行
-    )
+    # ── 交易日三段掃描（週一至週五）─────────────────────
 
-    # 台股盤前 08:25
+    # 09:10 — 台股開盤後首次掃描
     scheduler.add_job(
-        _job_premarket,
-        CronTrigger(hour=8, minute=25, timezone=_TZ),
-        id="premarket",
+        _job_market_scan,
+        CronTrigger(day_of_week="mon-fri", hour=9, minute=10, timezone=_TZ),
+        id="morning_scan",
         replace_existing=True,
         misfire_grace_time=600,
     )
 
-    # 台股收盤後 15:05
+    # 12:00 — 午盤掃描
+    scheduler.add_job(
+        _job_market_scan,
+        CronTrigger(day_of_week="mon-fri", hour=12, minute=0, timezone=_TZ),
+        id="midday_scan",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    # 13:35 — 台股收盤後掃描 + 盤後總結
     scheduler.add_job(
         _job_postmarket,
-        CronTrigger(hour=15, minute=5, timezone=_TZ),
+        CronTrigger(day_of_week="mon-fri", hour=13, minute=35, timezone=_TZ),
         id="postmarket",
         replace_existing=True,
         misfire_grace_time=600,
     )
+
+    # ── 週期性維護 ──────────────────────────────────────
 
     # 每週一 07:00：準確率回測
     scheduler.add_job(
@@ -141,7 +191,7 @@ def start_heartbeat() -> BackgroundScheduler:
         misfire_grace_time=1800,
     )
 
-    # 每日 00:01：預算計數器重置（冗余保護，BudgetGuard 本身也會自動重置）
+    # 每日 00:01：預算計數器重置
     scheduler.add_job(
         _job_reset_budget,
         CronTrigger(hour=0, minute=1, timezone=_TZ),
@@ -150,9 +200,22 @@ def start_heartbeat() -> BackgroundScheduler:
         misfire_grace_time=600,
     )
 
+    # ── 伺服器啟動掃描（延遲 10 秒，等待應用完全就緒）────
+    from datetime import datetime, timedelta
+    import pytz
+    tz = pytz.timezone(_TZ)
+    run_at = datetime.now(tz) + timedelta(seconds=10)
+    scheduler.add_job(
+        _job_startup_scan,
+        DateTrigger(run_date=run_at, timezone=_TZ),
+        id="startup_scan",
+        replace_existing=True,
+        misfire_grace_time=120,
+    )
+
     scheduler.start()
     logger.info(
-        "[Heartbeat] 排程器啟動完成，共 %d 個 job",
+        "[Heartbeat] 排程器啟動完成，共 %d 個 job（含啟動掃描）",
         len(scheduler.get_jobs()),
     )
 

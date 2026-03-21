@@ -1218,13 +1218,13 @@ class CEOAgent:
             基本面資料 dict，取得失敗時回傳空 dict
         """
         try:
-            from backend.data.sources.yahoo import get_fundamental_data
-            data = get_fundamental_data(symbol, market)
+            from backend.data.sources.yahoo import get_info
+            data = get_info(symbol, market)
             if data:
                 return data
         except ImportError:
             logger.debug(
-                f"[{_AGENT_DISPLAY}] yahoo.get_fundamental_data 尚未實作"
+                f"[{_AGENT_DISPLAY}] yahoo.get_info 尚未實作"
             )
         except Exception as e:
             logger.warning(
@@ -1245,11 +1245,11 @@ class CEOAgent:
         Returns:
             籌碼資料 dict，取得失敗時回傳空 dict
         """
-        # 台股優先嘗試 FinMind
-        if market == "TW":
+        # 台股使用 FinMind 籌碼資料
+        if market in ("TW", "TWO"):
             try:
                 from backend.data.sources.finmind import get_chips_data
-                data = get_chips_data(symbol, market)
+                data = get_chips_data(symbol)
                 if data:
                     return data
             except ImportError:
@@ -1261,17 +1261,7 @@ class CEOAgent:
                     f"[{_AGENT_DISPLAY}] 取得 {symbol} 籌碼資料失敗: {e}"
                 )
 
-        # 美股或 FinMind 失敗時嘗試 yahoo
-        try:
-            from backend.data.sources.yahoo import get_chips_data as yahoo_chips
-            data = yahoo_chips(symbol, market)
-            if data:
-                return data
-        except (ImportError, AttributeError):
-            pass
-        except Exception as e:
-            logger.debug(f"[{_AGENT_DISPLAY}] yahoo chips 取得失敗: {e}")
-
+        # 美股暫無籌碼來源，回傳空 dict
         return {}
 
     # ═════════════════════════════════════════════════════════

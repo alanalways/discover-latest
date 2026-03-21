@@ -210,7 +210,13 @@ export default function Analysis() {
           } finally {
             setLoading(false)
           }
-        }
+        },
+        (stage) => {
+          const stageMap: Record<string, number> = {
+            data: 0, agents: 1, arbitration: 3, report: 4,
+          }
+          if (stage in stageMap) setActiveStep(stageMap[stage])
+        },
       )
     } catch {
       try {
