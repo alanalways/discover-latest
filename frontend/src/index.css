@@ -457,6 +457,88 @@ body {
   .stat-card   { padding: 14px 16px; }
 }
 
+/* ── Report Markdown Styles ──────────────────────────────── */
+.report-content {
+  color: var(--t2);
+  font-family: 'Noto Sans TC', 'Inter', sans-serif;
+  line-height: 1.8;
+}
+
+.report-h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 1.8rem 0 0.8rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--bdr-1);
+  color: var(--t1);
+  letter-spacing: 0.02em;
+}
+
+.report-h2:first-child {
+  margin-top: 0;
+}
+
+.report-h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin: 1.2rem 0 0.5rem 0;
+  color: var(--accent-2);
+}
+
+.report-h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0.8rem 0 0.4rem 0;
+  color: var(--gold);
+}
+
+.report-p {
+  margin: 0.5rem 0;
+  color: var(--t2);
+  font-size: 0.875rem;
+}
+
+.report-ul, .report-ol {
+  margin: 0.4rem 0 0.6rem 0;
+  padding-left: 1.2rem;
+}
+
+.report-ol {
+  list-style-type: decimal;
+}
+
+.report-li {
+  font-size: 0.85rem;
+  color: var(--t2);
+  margin: 0.25rem 0;
+  padding-left: 0.3rem;
+}
+
+.report-li::marker {
+  color: var(--accent-2);
+}
+
+.report-strong {
+  color: var(--t1);
+  font-weight: 600;
+}
+
+.report-divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--bdr-2), transparent);
+  margin: 1.5rem 0;
+}
+
+.report-quote {
+  border-left: 3px solid var(--accent);
+  padding: 0.6rem 1rem;
+  margin: 0.8rem 0;
+  background: var(--accent-glow);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.85rem;
+  color: var(--t2);
+}
+
 /* ── Accessibility: reduce motion ────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

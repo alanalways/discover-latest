@@ -4,6 +4,7 @@ import {
   Shield, Brain, TrendingUp, Activity,
   ChevronDown, ChevronUp, Sparkles, CheckCircle2
 } from 'lucide-react'
+import Markdown from 'react-markdown'
 import { triggerAnalysis, streamAnalysis, AnalysisResponse } from '../lib/api'
 import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../components/ui'
 
@@ -383,11 +384,26 @@ export default function Analysis() {
           {displayReport && (
             <Section title="完整分析報告" icon={FileText}>
               <article
-                className="prose prose-sm max-w-none text-sm leading-relaxed whitespace-pre-wrap"
-                style={{ color: 'var(--t2)' }}
+                className="report-content max-w-none text-sm leading-relaxed"
                 aria-label="AI 分析報告"
               >
-                {displayReport}
+                <Markdown
+                  components={{
+                    h1: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                    h2: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                    h3: ({ children }) => <h3 className="report-h3">{children}</h3>,
+                    h4: ({ children }) => <h4 className="report-h4">{children}</h4>,
+                    p: ({ children }) => <p className="report-p">{children}</p>,
+                    ul: ({ children }) => <ul className="report-ul">{children}</ul>,
+                    ol: ({ children }) => <ol className="report-ol">{children}</ol>,
+                    li: ({ children }) => <li className="report-li">{children}</li>,
+                    strong: ({ children }) => <strong className="report-strong">{children}</strong>,
+                    hr: () => <div className="report-divider" />,
+                    blockquote: ({ children }) => <blockquote className="report-quote">{children}</blockquote>,
+                  }}
+                >
+                  {displayReport}
+                </Markdown>
               </article>
             </Section>
           )}

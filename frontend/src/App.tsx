@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Search, ScanLine, BarChart2,
-  Star, Menu, X, Sparkles, Zap
+  Star, Menu, X, LogIn, User
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Analysis  from './pages/Analysis'
@@ -39,15 +39,13 @@ function NavBar() {
           className="flex items-center gap-2.5 no-underline shrink-0 group"
           aria-label="DiscoverLatest 首頁"
         >
-          <div
-            className="w-7 h-7 rounded-lg flex items-center justify-center transition-shadow group-hover:shadow-lg"
-            style={{
-              background: 'linear-gradient(135deg, var(--accent), var(--sky))',
-              boxShadow: '0 2px 8px rgba(124,58,237,0.4)',
-            }}
-          >
-            <Sparkles size={14} color="#fff" aria-hidden />
-          </div>
+          <img
+            src="/logo.svg"
+            alt="DiscoverLatest"
+            width={28}
+            height={28}
+            className="transition-shadow group-hover:shadow-lg rounded-lg"
+          />
           <div className="flex items-baseline gap-1.5">
             <span className="font-semibold text-sm tracking-tight" style={{ color: 'var(--t1)' }}>
               Discover<span className="text-gradient">Latest</span>
@@ -89,13 +87,19 @@ function NavBar() {
               AI ONLINE
             </span>
           </div>
-          <div
-            className="flex items-center gap-1.5 text-xs"
-            style={{ color: 'var(--t4)' }}
+          {/* Login Button */}
+          <button
+            onClick={() => window.location.href = '/api/auth/google/login'}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer transition-all text-xs font-medium"
+            style={{
+              background: 'rgba(124,58,237,0.1)',
+              border: '1px solid var(--accent-bdr)',
+              color: 'var(--accent-2)',
+            }}
           >
-            <Zap size={11} aria-hidden />
-            <span className="font-mono">Gemini 2.5</span>
-          </div>
+            <LogIn size={12} aria-hidden />
+            <span>登入</span>
+          </button>
         </div>
 
         {/* Mobile Toggle */}
@@ -162,7 +166,7 @@ export default function App() {
           <p className="font-mono text-xs" style={{ color: 'var(--t4)' }}>
             DiscoverLatest 2.0 —{' '}
             <span style={{ color: 'var(--t5)' }}>
-              Powered by Gemini AI · 六部門自動分析 · 100% 透明追蹤
+              AI 驅動 · 六部門自動分析 · 100% 透明追蹤
             </span>
           </p>
         </footer>

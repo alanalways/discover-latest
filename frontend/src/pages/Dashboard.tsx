@@ -328,7 +328,7 @@ export default function Dashboard() {
           <StatCard
             title="分析引擎"
             value="ACTIVE"
-            subtitle="Gemini 2.5 Flash"
+            subtitle="AI 分析就緒"
             icon={Zap}
             color="var(--bull)"
             glow
@@ -349,11 +349,37 @@ export default function Dashboard() {
             {loading ? (
               <LoadingSkeleton rows={6} />
             ) : bullish.length === 0 ? (
-              <EmptyState
-                icon={TrendingUp}
-                title="尚無偏多訊號"
-                subtitle="系統分析中，稍後查看"
-              />
+              <div className="flex flex-col items-center justify-center py-16" style={{ color: 'var(--t4)' }}>
+                <div className="relative mb-4">
+                  <TrendingUp size={36} style={{ opacity: 0.4 }} />
+                  <div className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full animate-pulse" style={{ background: 'var(--accent-2)' }} />
+                </div>
+                <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>系統初始化掃描中</p>
+                <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
+                  首次啟動需掃描熱門標的，約需 3-5 分鐘
+                </p>
+                <div className="mt-4 w-48 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bdr-1)' }}>
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      background: 'linear-gradient(90deg, var(--accent), var(--sky))',
+                      animation: 'shimmer 2s infinite',
+                      width: '60%',
+                    }}
+                  />
+                </div>
+                <button
+                  onClick={loadReports}
+                  className="mt-4 text-xs px-4 py-1.5 rounded-md cursor-pointer transition-all"
+                  style={{
+                    background: 'rgba(124,58,237,0.1)',
+                    border: '1px solid var(--accent-bdr)',
+                    color: 'var(--accent-2)',
+                  }}
+                >
+                  重新載入
+                </button>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table">
@@ -420,11 +446,13 @@ export default function Dashboard() {
           {loading ? (
             <LoadingSkeleton rows={5} />
           ) : latest.length === 0 ? (
-            <EmptyState
-              icon={BarChart3}
-              title="尚無報告"
-              subtitle="等待系統產生第一份分析"
-            />
+            <div className="flex flex-col items-center justify-center py-12" style={{ color: 'var(--t4)' }}>
+              <BarChart3 size={32} style={{ opacity: 0.4 }} className="mb-3" />
+              <p className="text-sm font-medium" style={{ color: 'var(--t3)' }}>報告生成中</p>
+              <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
+                系統正在進行首批分析，稍後會自動出現
+              </p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table">
