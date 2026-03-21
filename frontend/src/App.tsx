@@ -2,13 +2,16 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Search, ScanLine, BarChart2,
-  Star, Menu, X, LogIn, User
+  Star, Menu, X, LogIn, User, ShieldCheck, Target
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import Analysis  from './pages/Analysis'
 import Scanner   from './pages/Scanner'
 import Accuracy  from './pages/Accuracy'
 import Watchlist from './pages/Watchlist'
+import Profile   from './pages/Profile'
+import Backtest  from './pages/Backtest'
+import Admin     from './pages/Admin'
 
 // ── Nav Items ─────────────────────────────────────────────────────────────────
 
@@ -16,8 +19,13 @@ const NAV_ITEMS = [
   { to: '/',          label: '市場概覽', icon: LayoutDashboard },
   { to: '/analysis',  label: '深度分析', icon: Search },
   { to: '/scanner',   label: '智慧掃描', icon: ScanLine },
-  { to: '/accuracy',  label: '準確率',   icon: BarChart2 },
+  { to: '/backtest',  label: '回測',     icon: Target },
   { to: '/watchlist', label: '自選股',   icon: Star },
+]
+
+const SECONDARY_NAV = [
+  { to: '/profile',   label: '會員',     icon: User },
+  { to: '/admin',     label: '後台',     icon: ShieldCheck },
 ]
 
 // ── Nav Bar ───────────────────────────────────────────────────────────────────
@@ -76,7 +84,7 @@ function NavBar() {
         </nav>
 
         {/* Right side */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="hidden md:flex items-center gap-2">
           {/* AI Status indicator */}
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md"
@@ -87,19 +95,18 @@ function NavBar() {
               AI ONLINE
             </span>
           </div>
-          {/* Login Button */}
-          <button
-            onClick={() => window.location.href = '/api/auth/google/login'}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md cursor-pointer transition-all text-xs font-medium"
-            style={{
-              background: 'rgba(124,58,237,0.1)',
-              border: '1px solid var(--accent-bdr)',
-              color: 'var(--accent-2)',
-            }}
-          >
-            <LogIn size={12} aria-hidden />
-            <span>登入</span>
-          </button>
+          {/* Secondary nav (Profile / Admin) */}
+          {SECONDARY_NAV.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={`nav-link ${isActive(to) ? 'active' : ''}`}
+              aria-current={isActive(to) ? 'page' : undefined}
+            >
+              <Icon size={12} aria-hidden />
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </div>
 
         {/* Mobile Toggle */}
@@ -135,6 +142,19 @@ function NavBar() {
               <span>{label}</span>
             </NavLink>
           ))}
+          <div className="my-1.5" style={{ borderTop: '1px solid var(--bdr-1)' }} />
+          {SECONDARY_NAV.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              onClick={() => setOpen(false)}
+              className={`nav-link w-full ${isActive(to) ? 'active' : ''}`}
+              aria-current={isActive(to) ? 'page' : undefined}
+            >
+              <Icon size={14} aria-hidden />
+              <span>{label}</span>
+            </NavLink>
+          ))}
         </div>
       )}
     </header>
@@ -155,7 +175,10 @@ export default function App() {
             <Route path="/analysis"  element={<Analysis />}  />
             <Route path="/scanner"   element={<Scanner />}   />
             <Route path="/accuracy"  element={<Accuracy />}  />
+            <Route path="/backtest"  element={<Backtest />}   />
             <Route path="/watchlist" element={<Watchlist />} />
+            <Route path="/profile"   element={<Profile />}   />
+            <Route path="/admin"     element={<Admin />}     />
           </Routes>
         </main>
 
