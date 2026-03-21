@@ -10,8 +10,18 @@ FastAPI 主程式（Sonnet 撰寫）
 """
 
 import logging
+import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# 抑制 yfinance 內部 Pandas 棄用警告（yfinance 鎖定 <0.2.59，無法修改其原始碼）
+warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
+try:
+    from pandas.errors import Pandas4Warning
+    warnings.filterwarnings("ignore", category=Pandas4Warning)
+except ImportError:
+    pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

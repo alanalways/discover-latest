@@ -280,13 +280,6 @@ async def verify_token(body: VerifyRequest):
     return _user_dict_to_info(user, body.token)
 
 
-@router.get("/me", response_model=UserInfo)
-async def get_me(user: UserInfo = Depends(lambda: None)):
-    """取得目前登入使用者資訊（需帶 Bearer token）。"""
-    # 透過 require_user dependency
-    pass
-
-
 @router.get("/google-client-id")
 async def get_google_client_id():
     """回傳 Google OAuth Client ID（前端 GIS 初始化用）。"""
@@ -317,14 +310,6 @@ async def get_login_url(request: Request = None):
     return {
         "url": f"{SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to={redirect}"
     }
-
-
-# ─────────────────────────────────────────────────────────
-# Fix /me route to use proper dependency
-# ─────────────────────────────────────────────────────────
-
-# Remove the placeholder and add proper implementation
-router.routes = [r for r in router.routes if getattr(r, "path", "") != "/me"]
 
 
 @router.get("/me", response_model=UserInfo)

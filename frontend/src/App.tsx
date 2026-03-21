@@ -298,6 +298,83 @@ function NavBar() {
   )
 }
 
+// ── Require Auth ─────────────────────────────────────────────────────────────
+
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const [checking, setChecking] = useState(true)
+  const [authed, setAuthed] = useState(false)
+
+  useEffect(() => {
+    const token = getToken()
+    setAuthed(!!token)
+    setChecking(false)
+  }, [])
+
+  if (checking) {
+    return (
+      <div className="flex items-center justify-center py-32">
+        <div className="animate-spin w-6 h-6 rounded-full" style={{ border: '2px solid var(--bdr-2)', borderTopColor: 'var(--accent-2)' }} />
+      </div>
+    )
+  }
+
+  if (!authed) {
+    return <LoginGate />
+  }
+
+  return <>{children}</>
+}
+
+function LoginGate() {
+  const handleLogin = async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/api/auth/login-url`)
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        alert('登入服務尚未設定，請聯繫管理員')
+      }
+    } catch {
+      alert('無法連接登入服務')
+    }
+  }
+
+  return (
+    <div className="max-w-md mx-auto px-5 py-20 text-center">
+      <div
+        className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
+        style={{ background: 'var(--accent-glow)', border: '1px solid var(--accent-bdr)' }}
+      >
+        <LogIn size={28} style={{ color: 'var(--accent-2)' }} />
+      </div>
+      <h1 className="text-xl font-bold mb-2" style={{ color: 'var(--t1)' }}>
+        需要登入
+      </h1>
+      <p className="text-sm mb-6" style={{ color: 'var(--t3)' }}>
+        此功能需要登入後才能使用。登入後可查看您的自選股分析、目標價追蹤、評分系統等完整功能。
+      </p>
+      <button
+        onClick={handleLogin}
+        className="btn-primary text-sm px-8 py-2.5"
+        style={{ cursor: 'pointer' }}
+      >
+        <LogIn size={14} aria-hidden />
+        Google 帳號登入
+      </button>
+      <div className="mt-6">
+        <a href="/" className="text-xs no-underline" style={{ color: 'var(--accent-2)' }}>
+          ← 返回首頁
+        </a>
+        <span className="mx-2 text-xs" style={{ color: 'var(--bdr-2)' }}>·</span>
+        <a href="/accuracy" className="text-xs no-underline" style={{ color: 'var(--accent-2)' }}>
+          查看準確率（免登入）
+        </a>
+      </div>
+    </div>
+  )
+}
+
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -309,14 +386,17 @@ export default function App() {
 
         <main className="flex-1 pb-16">
           <Routes>
+            {/* 公開頁面 */}
             <Route path="/"          element={<Dashboard />} />
-            <Route path="/analysis"  element={<Analysis />}  />
-            <Route path="/scanner"   element={<Scanner />}   />
             <Route path="/accuracy"  element={<Accuracy />}  />
-            <Route path="/backtest"  element={<Backtest />}   />
-            <Route path="/watchlist" element={<Watchlist />} />
-            <Route path="/profile"   element={<Profile />}   />
-            <Route path="/admin"     element={<Admin />}     />
+
+            {/* 需要登入的頁面 */}
+            <Route path="/analysis"  element={<RequireAuth><Analysis /></RequireAuth>}  />
+            <Route path="/scanner"   element={<RequireAuth><Scanner /></RequireAuth>}   />
+            <Route path="/backtest"  element={<RequireAuth><Backtest /></RequireAuth>}   />
+            <Route path="/watchlist" element={<RequireAuth><Watchlist /></RequireAuth>} />
+            <Route path="/profile"   element={<RequireAuth><Profile /></RequireAuth>}   />
+            <Route path="/admin"     element={<RequireAuth><Admin /></RequireAuth>}     />
           </Routes>
         </main>
 
