@@ -48,7 +48,7 @@ _NORMAL_PRIORITY = 5
 _BACKTEST_PRIORITY = 3
 
 # run_pending_jobs 預設單批次處理上限
-_DEFAULT_MAX_JOBS = 3
+_DEFAULT_MAX_JOBS = 20
 
 # Agent 顯示名稱（用於日誌）
 _AGENT_DISPLAY = "CEOAgent"

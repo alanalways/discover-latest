@@ -1,25 +1,30 @@
 """
 backend/core/heartbeat.py
-APScheduler 排程心跳（Sonnet 撰寫）
+APScheduler 排程心跳
 
 排程表（交易日 = 週一至週五，時區 Asia/Taipei）：
-  09:10          → 台股開盤後首次掃描 + run_pending_jobs
-  12:00          → 午盤掃描 + run_pending_jobs
-  13:35          → 台股收盤後掃描 + postmarket_summary
+  08:00          → 盤前掃描 — TOP 500 + 全體使用者自選股
+  12:00          → 盤中掃描 — TOP 500 + 全體使用者自選股
+  13:40          → 盤後掃描 — TOP 500 + 全體使用者自選股 + 盤後總結
+  21:00          → 美股盤前 — 美股藍籌 + 使用者自選股中的美股
   週一 07:00      → ceo.weekly_backtest
   每6小時         → ceo.storage_check
   每日 00:01      → 重置 BudgetGuard 計數器
 
 特殊：
-  伺服器啟動      → 檢查 DB 是否為空，空則掃描熱門台股
+  伺服器啟動      → 啟動掃描（TOP 500 中沒有近期報告的股票）
 
 設計：
 - 使用 BackgroundScheduler，不阻斷主執行緒
 - timezone 固定為 Asia/Taipei
 - 所有 job 失敗時只 log，不讓 scheduler 崩潰
 - start_heartbeat() 回傳 scheduler 實例，供 main.py lifespan 管理
+- TOP 500 動態取得：從 FinMind 抓取台股完整清單，取前 500 檔
 """
 import logging
+import time
+import re
+from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -29,74 +34,259 @@ logger = logging.getLogger(__name__)
 
 _TZ = "Asia/Taipei"
 
-# 啟動掃描用的熱門股票（DB 為空時使用 + 每日定時擴大掃描）
-_DEFAULT_STOCKS = [
-    # 台股權值股 Top 20
-    ("2330", "TW"),   # 台積電
-    ("2317", "TW"),   # 鴻海
-    ("2454", "TW"),   # 聯發科
-    ("2308", "TW"),   # 台達電
-    ("2881", "TW"),   # 富邦金
-    ("2882", "TW"),   # 國泰金
-    ("2891", "TW"),   # 中信金
-    ("2303", "TW"),   # 聯電
-    ("2412", "TW"),   # 中華電
-    ("3711", "TW"),   # 日月光
-    ("2886", "TW"),   # 兆豐金
-    ("1301", "TW"),   # 台塑
-    ("2002", "TW"),   # 中鋼
-    ("1303", "TW"),   # 南亞
-    ("2884", "TW"),   # 玉山金
-    ("3008", "TW"),   # 大立光
-    ("2892", "TW"),   # 第一金
-    ("2382", "TW"),   # 廣達
-    ("6505", "TW"),   # 台塑化
-    ("2880", "TW"),   # 華南金
-    # 台股人氣股
-    ("2603", "TW"),   # 長榮
-    ("3037", "TW"),   # 欣興
-    ("2345", "TW"),   # 智邦
-    ("2379", "TW"),   # 瑞昱
-    ("3034", "TW"),   # 聯詠
-    # 美股藍籌
-    ("AAPL", "US"),   # Apple
-    ("NVDA", "US"),   # NVIDIA
-    ("MSFT", "US"),   # Microsoft
-    ("TSLA", "US"),   # Tesla
-    ("GOOG", "US"),   # Google
+# 快取 TOP 500 清單（每日更新一次）
+_top500_cache: list[tuple[str, str]] = []
+_top500_cache_ts: float = 0
+_TOP500_CACHE_TTL = 86400  # 24 小時
+
+# 美股藍籌（固定清單）
+_US_BLUE_CHIPS = [
+    ("AAPL",  "US"),  # Apple
+    ("NVDA",  "US"),  # NVIDIA
+    ("MSFT",  "US"),  # Microsoft
+    ("GOOG",  "US"),  # Google
+    ("AMZN",  "US"),  # Amazon
+    ("META",  "US"),  # Meta
+    ("TSLA",  "US"),  # Tesla
+    ("TSM",   "US"),  # 台積電 ADR
+    ("AVGO",  "US"),  # Broadcom
+    ("AMD",   "US"),  # AMD
 ]
+
+# Fallback 台股權值股（FinMind 無法連線時使用）
+_TW_FALLBACK = [
+    "2330", "2317", "2454", "2308", "2881", "2882", "2891", "2303",
+    "2412", "3711", "2886", "1301", "2002", "1303", "2884", "3008",
+    "2892", "2382", "6505", "2880", "2603", "3037", "2345", "2379",
+    "3034", "2301", "1216", "2327", "2357", "5880", "2885", "2883",
+    "3045", "2912", "1326", "2395", "5871", "6669", "4904", "2207",
+    "2409", "3231", "2801", "9910", "2615", "1101", "2408", "3443",
+]
+
+
+# ─── TOP 500 動態取得 ─────────────────────────────────────────────
+
+def _get_top500() -> list[tuple[str, str]]:
+    """
+    從 FinMind 取得台股完整清單，篩選出 TOP 500 檔。
+
+    篩選邏輯：
+    1. 從 FinMind TaiwanStockInfo 取全量股票
+    2. 只保留 4 位數字代號（過濾 ETF、權證、特殊代碼）
+    3. 依代號排序（較小代號 ≈ 較大市值，合理近似）
+    4. 取前 500 檔
+
+    快取 24 小時，避免頻繁呼叫 FinMind。
+    """
+    global _top500_cache, _top500_cache_ts
+
+    now = time.time()
+    if _top500_cache and (now - _top500_cache_ts) < _TOP500_CACHE_TTL:
+        return _top500_cache
+
+    try:
+        from backend.data.sources.finmind import get_stock_info
+        all_stocks = get_stock_info()
+
+        if not all_stocks:
+            raise ValueError("FinMind 回傳空清單")
+
+        # 篩選：只要 4 位數字代號（一般上市股票）
+        tw_stocks = []
+        for s in all_stocks:
+            symbol = s.get("symbol", "")
+            if re.match(r"^\d{4}$", symbol):
+                tw_stocks.append(symbol)
+
+        # 排序（較小代號 ≈ 較大市值）
+        tw_stocks.sort(key=lambda x: int(x))
+
+        # 取前 500
+        top500 = [(sym, "TW") for sym in tw_stocks[:500]]
+
+        logger.info(
+            "[Heartbeat] TOP 500 清單更新: 篩選出 %d 檔（全量 %d 檔）",
+            len(top500), len(all_stocks),
+        )
+
+        _top500_cache = top500
+        _top500_cache_ts = now
+        return top500
+
+    except Exception as e:
+        logger.warning(f"[Heartbeat] FinMind 取 TOP 500 失敗，使用 fallback: {e}")
+        fallback = [(sym, "TW") for sym in _TW_FALLBACK]
+        _top500_cache = fallback
+        _top500_cache_ts = now
+        return fallback
+
+
+def _get_full_scan_list() -> list[tuple[str, str]]:
+    """取得完整掃描清單：TOP 500 台股 + 美股藍籌 + 使用者自選股。"""
+    symbols: dict[str, str] = {}  # key: "SYMBOL:MARKET", value: market
+
+    # 1. TOP 500 台股
+    for sym, mkt in _get_top500():
+        symbols[f"{sym}:{mkt}"] = mkt
+
+    # 2. 美股藍籌
+    for sym, mkt in _US_BLUE_CHIPS:
+        symbols[f"{sym}:{mkt}"] = mkt
+
+    # 3. 所有使用者自選股（可能包含不在 TOP 500 的股票）
+    try:
+        from backend.agents.ceo_agent import get_ceo_agent
+        ceo = get_ceo_agent()
+        watchlist = ceo._get_watchlist_symbols()
+        for item in watchlist:
+            sym = item.get("symbol", "")
+            mkt = item.get("market", "TW")
+            if sym:
+                symbols[f"{sym}:{mkt}"] = mkt
+    except Exception as e:
+        logger.warning(f"[Heartbeat] 取得使用者自選股失敗: {e}")
+
+    # 轉回 list[tuple]
+    result = [(key.split(":")[0], key.split(":")[1]) for key in symbols]
+    return result
 
 
 # ─── Job 包裝函式（捕捉例外，確保 scheduler 不崩潰）──────────────
 
-def _job_market_scan() -> None:
-    """交易日定時掃描：自選股 + 工作佇列處理。"""
+def _job_full_scan(scan_label: str, priority: int = 5, max_jobs: int = 20) -> None:
+    """
+    全市場掃描：TOP 500 + 使用者自選股。
+
+    每次掃描會：
+    1. 取得完整掃描清單（~510+ 檔）
+    2. 跳過有近期報告的股票（2 小時內）
+    3. 跳過預算不足的
+    4. 入隊分析工作
+    5. 立即處理 max_jobs 個工作
+    """
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
-        ceo.hourly_watchlist_scan()
-        ceo.run_pending_jobs(max_jobs=10)
+
+        scan_list = _get_full_scan_list()
+        enqueued = 0
+        skipped_fresh = 0
+        skipped_budget = 0
+
+        logger.info(
+            "[Heartbeat] %s: 開始掃描 %d 檔股票...",
+            scan_label, len(scan_list),
+        )
+
+        for symbol, market in scan_list:
+            # 檢查近期報告
+            if ceo._has_recent_report(symbol, market, hours=2):
+                skipped_fresh += 1
+                continue
+
+            # 檢查預算
+            from backend.core.budget_guard import get_budget_guard
+            can_proceed, _ = get_budget_guard().can_proceed(estimated_calls=8)
+            if not can_proceed:
+                skipped_budget += 1
+                continue
+
+            # 入隊
+            job_id = ceo._task_queue.enqueue(
+                job_type="analyze_stock",
+                payload={
+                    "symbol": symbol,
+                    "market": market,
+                    "triggered_by": scan_label,
+                },
+                priority=priority,
+            )
+            if job_id:
+                enqueued += 1
+
+        logger.info(
+            "[Heartbeat] %s 入隊完成: 入隊 %d，跳過(已有報告) %d，跳過(預算) %d",
+            scan_label, enqueued, skipped_fresh, skipped_budget,
+        )
+
+        # 立即處理一批工作
+        if enqueued > 0:
+            result = ceo.run_pending_jobs(max_jobs=max_jobs)
+            logger.info(
+                "[Heartbeat] %s 處理完成: 成功 %d / 失敗 %d",
+                scan_label,
+                result.get("succeeded", 0),
+                result.get("failed", 0),
+            )
+
     except Exception as e:
-        logger.error(f"[Heartbeat] market_scan 失敗: {e}", exc_info=True)
+        logger.error(f"[Heartbeat] {scan_label} 失敗: {e}", exc_info=True)
+
+
+def _job_premarket() -> None:
+    """盤前掃描（08:00）— 最高優先級"""
+    _job_full_scan("盤前掃描", priority=1, max_jobs=20)
+
+
+def _job_midday() -> None:
+    """盤中掃描（12:00）— 一般優先級"""
+    _job_full_scan("盤中掃描", priority=5, max_jobs=20)
 
 
 def _job_postmarket() -> None:
-    """台股收盤後：最後一次掃描 + 盤後總結。"""
+    """盤後掃描（13:40）— 一般優先級 + 盤後總結"""
+    _job_full_scan("盤後掃描", priority=5, max_jobs=20)
+    try:
+        from backend.agents.ceo_agent import get_ceo_agent
+        get_ceo_agent().postmarket_summary()
+    except Exception as e:
+        logger.error(f"[Heartbeat] 盤後總結失敗: {e}", exc_info=True)
+
+
+def _job_us_premarket() -> None:
+    """美股盤前掃描（21:00）— 只掃美股"""
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
-        ceo.hourly_watchlist_scan()
-        ceo.run_pending_jobs(max_jobs=10)
-        ceo.postmarket_summary()
+
+        enqueued = 0
+        for symbol, market in _US_BLUE_CHIPS:
+            if not ceo._has_recent_report(symbol, market, hours=8):
+                job_id = ceo._task_queue.enqueue(
+                    job_type="analyze_stock",
+                    payload={"symbol": symbol, "market": market, "triggered_by": "美股盤前"},
+                    priority=3,
+                )
+                if job_id:
+                    enqueued += 1
+
+        # 加上使用者自選的美股
+        watchlist = ceo._get_watchlist_symbols()
+        for item in watchlist:
+            if item.get("market") == "US":
+                sym = item.get("symbol", "")
+                if sym and not ceo._has_recent_report(sym, "US", hours=8):
+                    job_id = ceo._task_queue.enqueue(
+                        job_type="analyze_stock",
+                        payload={"symbol": sym, "market": "US", "triggered_by": "美股盤前"},
+                        priority=3,
+                    )
+                    if job_id:
+                        enqueued += 1
+
+        if enqueued > 0:
+            ceo.run_pending_jobs(max_jobs=15)
+
+        logger.info("[Heartbeat] 美股盤前掃描: 入隊 %d 檔", enqueued)
+
     except Exception as e:
-        logger.error(f"[Heartbeat] postmarket 失敗: {e}", exc_info=True)
+        logger.error(f"[Heartbeat] 美股盤前掃描失敗: {e}", exc_info=True)
 
 
 def _job_weekly_backtest() -> None:
     try:
         from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
-        ceo.weekly_backtest()
+        get_ceo_agent().weekly_backtest()
     except Exception as e:
         logger.error(f"[Heartbeat] weekly_backtest 失敗: {e}", exc_info=True)
 
@@ -104,14 +294,13 @@ def _job_weekly_backtest() -> None:
 def _job_storage_check() -> None:
     try:
         from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
-        ceo.storage_check()
+        get_ceo_agent().storage_check()
     except Exception as e:
         logger.error(f"[Heartbeat] storage_check 失敗: {e}", exc_info=True)
 
 
 def _job_reset_budget() -> None:
-    """每日凌晨重置 BudgetGuard（APScheduler 觸發的冗余保護）。"""
+    """每日凌晨重置 BudgetGuard。"""
     try:
         from backend.core.budget_guard import get_budget_guard
         get_budget_guard().reset()
@@ -122,9 +311,8 @@ def _job_reset_budget() -> None:
 
 def _job_startup_scan() -> None:
     """
-    伺服器啟動時掃描熱門股票。
-    - DB 為空：掃描全部 _DEFAULT_STOCKS（30 檔）
-    - DB 已有資料：檢查哪些預設股票還沒有近期報告，補掃
+    伺服器啟動掃描：從 TOP 500 中挑出沒有近期報告的股票掃描。
+    最多處理 20 檔，避免啟動時卡太久。
     """
     try:
         from backend.data.storage.supabase_client import get_client
@@ -136,70 +324,46 @@ def _job_startup_scan() -> None:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
 
-        # 決定需要掃描的股票
-        stocks_to_scan = []
-        for symbol, market in _DEFAULT_STOCKS:
+        scan_list = _get_full_scan_list()
+        enqueued = 0
+
+        for symbol, market in scan_list:
+            if enqueued >= 30:  # 啟動掃描上限
+                break
             if not ceo._has_recent_report(symbol, market, hours=8):
-                stocks_to_scan.append((symbol, market))
-
-        if not stocks_to_scan:
-            logger.info("[Heartbeat] 所有預設股票都有近期報告，跳過啟動掃描")
-            return
-
-        logger.info(
-            "[Heartbeat] 啟動掃描 %d 檔股票（共 %d 檔預設，%d 已有報告）",
-            len(stocks_to_scan), len(_DEFAULT_STOCKS),
-            len(_DEFAULT_STOCKS) - len(stocks_to_scan),
-        )
-
-        for symbol, market in stocks_to_scan:
-            try:
-                ceo._task_queue.enqueue(
+                job_id = ceo._task_queue.enqueue(
                     job_type="analyze_stock",
-                    payload={"symbol": symbol, "market": market},
+                    payload={"symbol": symbol, "market": market, "triggered_by": "啟動掃描"},
                     priority=1,
                 )
-            except Exception as e:
-                logger.warning(f"[Heartbeat] 入隊 {symbol} 失敗: {e}")
+                if job_id:
+                    enqueued += 1
 
-        # 每次最多處理 10 檔，避免一次把 API 配額用完
-        ceo.run_pending_jobs(max_jobs=10)
+        if enqueued > 0:
+            logger.info("[Heartbeat] 啟動掃描: 入隊 %d 檔（TOP 500 + 自選股）", enqueued)
+            ceo.run_pending_jobs(max_jobs=15)
+        else:
+            logger.info("[Heartbeat] 所有股票都有近期報告，跳過啟動掃描")
 
     except Exception as e:
         logger.error(f"[Heartbeat] 啟動掃描失敗: {e}", exc_info=True)
 
 
-def _job_broad_market_scan() -> None:
-    """
-    每日全市場掃描：掃描所有預設股票 + 所有使用者自選股。
-    在非繁忙時段執行，確保涵蓋面更廣。
-    """
+# 持續處理排隊工作（每 5 分鐘檢查一次）
+def _job_process_queue() -> None:
+    """持續處理排隊中的分析工作。"""
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
-
-        # 先掃預設股票（全市場熱門股）
-        enqueued = 0
-        for symbol, market in _DEFAULT_STOCKS:
-            if not ceo._has_recent_report(symbol, market, hours=8):
-                job_id = ceo._task_queue.enqueue(
-                    job_type="analyze_stock",
-                    payload={"symbol": symbol, "market": market, "triggered_by": "每日全市場掃描"},
-                    priority=3,
-                )
-                if job_id:
-                    enqueued += 1
-
-        logger.info("[Heartbeat] 每日全市場掃描: 預設股票入隊 %d 檔", enqueued)
-
-        # 再掃自選股（CEO agent 自己會處理）
-        ceo.hourly_watchlist_scan()
-
-        # 處理排隊工作
-        ceo.run_pending_jobs(max_jobs=15)
-
+        result = ceo.run_pending_jobs(max_jobs=5)
+        processed = result.get("processed", 0)
+        if processed > 0:
+            logger.info(
+                "[Heartbeat] 佇列處理: 成功 %d / 失敗 %d",
+                result.get("succeeded", 0), result.get("failed", 0),
+            )
     except Exception as e:
-        logger.error(f"[Heartbeat] 每日全市場掃描失敗: {e}", exc_info=True)
+        logger.error(f"[Heartbeat] 佇列處理失敗: {e}", exc_info=True)
 
 
 # ─── 啟動函式 ─────────────────────────────────────────────────────
@@ -208,38 +372,67 @@ def start_heartbeat() -> BackgroundScheduler:
     """
     建立並啟動 APScheduler 排程器。
 
+    排程表：
+    - 08:00  盤前掃描（TOP 500 + 自選股，最高優先級）
+    - 12:00  盤中掃描（TOP 500 + 自選股）
+    - 13:40  盤後掃描 + 盤後總結
+    - 21:00  美股盤前掃描
+    - 每5分鐘 持續處理排隊工作
+    - 週一 07:00  準確率回測
+    - 每6小時  儲存管理
+    - 每日 00:01  預算重置
+
     Returns:
-        BackgroundScheduler 實例（供 lifespan 在關機時呼叫 shutdown()）
+        BackgroundScheduler 實例
     """
     scheduler = BackgroundScheduler(timezone=_TZ)
 
     # ── 交易日三段掃描（週一至週五）─────────────────────
 
-    # 09:10 — 台股開盤後首次掃描
+    # 08:00 — 盤前全市場掃描（最高優先級）
     scheduler.add_job(
-        _job_market_scan,
-        CronTrigger(day_of_week="mon-fri", hour=9, minute=10, timezone=_TZ),
-        id="morning_scan",
+        _job_premarket,
+        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_TZ),
+        id="premarket_scan",
         replace_existing=True,
-        misfire_grace_time=600,
+        misfire_grace_time=1800,
     )
 
-    # 12:00 — 午盤掃描
+    # 12:00 — 盤中掃描
     scheduler.add_job(
-        _job_market_scan,
+        _job_midday,
         CronTrigger(day_of_week="mon-fri", hour=12, minute=0, timezone=_TZ),
         id="midday_scan",
         replace_existing=True,
-        misfire_grace_time=600,
+        misfire_grace_time=1800,
     )
 
-    # 13:35 — 台股收盤後掃描 + 盤後總結
+    # 13:40 — 盤後掃描 + 盤後總結
     scheduler.add_job(
         _job_postmarket,
-        CronTrigger(day_of_week="mon-fri", hour=13, minute=35, timezone=_TZ),
-        id="postmarket",
+        CronTrigger(day_of_week="mon-fri", hour=13, minute=40, timezone=_TZ),
+        id="postmarket_scan",
         replace_existing=True,
-        misfire_grace_time=600,
+        misfire_grace_time=1800,
+    )
+
+    # 21:00 — 美股盤前掃描
+    scheduler.add_job(
+        _job_us_premarket,
+        CronTrigger(day_of_week="mon-fri", hour=21, minute=0, timezone=_TZ),
+        id="us_premarket_scan",
+        replace_existing=True,
+        misfire_grace_time=1800,
+    )
+
+    # ── 持續處理排隊工作（每 5 分鐘）────────────────────
+
+    scheduler.add_job(
+        _job_process_queue,
+        CronTrigger(minute="*/5", timezone=_TZ),
+        id="process_queue",
+        replace_existing=True,
+        misfire_grace_time=300,
     )
 
     # ── 週期性維護 ──────────────────────────────────────
@@ -253,7 +446,7 @@ def start_heartbeat() -> BackgroundScheduler:
         misfire_grace_time=3600,
     )
 
-    # 每 6 小時：儲存管理檢查（00:00 / 06:00 / 12:00 / 18:00）
+    # 每 6 小時：儲存管理檢查
     scheduler.add_job(
         _job_storage_check,
         CronTrigger(hour="0,6,12,18", minute=0, timezone=_TZ),
@@ -271,27 +464,11 @@ def start_heartbeat() -> BackgroundScheduler:
         misfire_grace_time=600,
     )
 
-    # 每日 08:00 + 21:00：全市場掃描（台股盤前 + 美股盤前）
-    scheduler.add_job(
-        _job_broad_market_scan,
-        CronTrigger(day_of_week="mon-fri", hour=8, minute=0, timezone=_TZ),
-        id="broad_scan_morning",
-        replace_existing=True,
-        misfire_grace_time=1800,
-    )
-    scheduler.add_job(
-        _job_broad_market_scan,
-        CronTrigger(day_of_week="mon-fri", hour=21, minute=0, timezone=_TZ),
-        id="broad_scan_evening",
-        replace_existing=True,
-        misfire_grace_time=1800,
-    )
-
-    # ── 伺服器啟動掃描（延遲 10 秒，等待應用完全就緒）────
+    # ── 伺服器啟動掃描（延遲 15 秒）───────────────────
     from datetime import datetime, timedelta
     import pytz
     tz = pytz.timezone(_TZ)
-    run_at = datetime.now(tz) + timedelta(seconds=10)
+    run_at = datetime.now(tz) + timedelta(seconds=15)
     scheduler.add_job(
         _job_startup_scan,
         DateTrigger(run_date=run_at, timezone=_TZ),
@@ -302,7 +479,9 @@ def start_heartbeat() -> BackgroundScheduler:
 
     scheduler.start()
     logger.info(
-        "[Heartbeat] 排程器啟動完成，共 %d 個 job（含啟動掃描）",
+        "[Heartbeat] 排程器啟動完成，共 %d 個 job（含啟動掃描）\n"
+        "  盤前 08:00 | 盤中 12:00 | 盤後 13:40 | 美股 21:00\n"
+        "  佇列處理: 每 5 分鐘 | 掃描範圍: TOP 500 + 自選股",
         len(scheduler.get_jobs()),
     )
 

@@ -152,7 +152,7 @@ HF_DATASET_REPO: str = os.getenv("HF_DATASET_REPO", "")
 # ─────────────────────────────────────────────────────────
 # 預算守門設定
 # ─────────────────────────────────────────────────────────
-DAILY_GEMINI_RPD_BUDGET: int = int(os.getenv("DAILY_GEMINI_RPD_BUDGET", "800"))
+DAILY_GEMINI_RPD_BUDGET: int = int(os.getenv("DAILY_GEMINI_RPD_BUDGET", "5000"))
 SUPABASE_WARN_MB: int = int(os.getenv("SUPABASE_WARN_MB", "350"))
 SUPABASE_CRITICAL_MB: int = int(os.getenv("SUPABASE_CRITICAL_MB", "425"))
 
