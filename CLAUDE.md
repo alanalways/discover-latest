@@ -1,5 +1,5 @@
 # CLAUDE.md — DiscoverLatest 2.0 完整重建指令
-> 版本：2.1.0 | 日期：2026-03-19（已根據實際專案現況更新）
+> 版本：2.2.0 | 日期：2026-03-20（已更新加速 Pipeline + 缺陷評估）
 > 本檔案是給 Claude Code 的最高指令。所有開發行為以此為準。
 
 ---
@@ -1002,7 +1002,7 @@ G3  更新 README.md 加入 YAML header
 G4  git add . && git commit -m "feat: DiscoverLatest 2.0 complete rebuild"
 G5  git push → 等待 HuggingFace 自動 redeploy
 
-✓ 驗證G：從 HuggingFace URL 輸入 "2330" → 確認完整報告輸出，90 秒內完成
+✓ 驗證G：從 HuggingFace URL 輸入 "2330" → 確認完整報告輸出，60 秒內完成
 ```
 
 ---
@@ -1028,11 +1028,234 @@ G5  git push → 等待 HuggingFace 自動 redeploy
 - **json.loads 失敗**：回傳 `{"parse_failed": True, "raw": ...}`，上層繼續處理
 - **Supabase 連線失敗**：記憶體暫存，30 秒後重試
 - **HuggingFace 上傳失敗**：本地 Parquet 保留，下次 storage_check 重試
-- **前端逾時**：90 秒後顯示「分析需要較長時間，請稍候」
+- **前端逾時**：60 秒後顯示「分析需要較長時間，請稍候」
 
 ---
 
-*本 CLAUDE.md 由 Claude (claude-sonnet-4-6) 於 2026-03-19 生成，版本 2.1.0。*
-*已根據實際專案現況更新：google-genai 新版 SDK、FinMind 台股資料源、yfinance 版本鎖定。*
+## 20. 加速 Pipeline 架構（30-60 秒目標）
+
+> 版本：2.2.0 | 日期：2026-03-20
+> 核心改動：並行執行 + SSE Streaming + Fast/Background 雙軌分離
+
+### 20.1 架構總覽
+
+```
+舊版 Pipeline（~90s 串行）:
+  資料收集 → Stage 1 grounding → Stage 2 合成 → DB 寫入
+
+新版 Pipeline（30-60s 並行 + streaming）:
+  ┌─ 資料收集（並行）─┐
+  │ Yahoo + FinMind   │ 3-5s
+  └────────┬──────────┘
+           │
+  ┌────────┴──────────────────────┐
+  │  6 Agent 全部並行              │ 10-15s（取最慢的）
+  │  ├─ Technical  (flash, 無grounding)  │
+  │  ├─ Fundamental(flash, 無grounding)  │
+  │  ├─ Chips      (flash, 無grounding)  │
+  │  ├─ Event      (flash, grounding✅)  │
+  │  ├─ Macro      (flash, grounding✅)  │
+  │  └─ Sentiment  (flash, grounding✅)  │
+  └────────┬──────────────────────┘
+           │
+  ┌────────┴──────────┐
+  │  Arbitrator       │ 8-10s
+  └────────┬──────────┘
+           │
+  ┌────────┴──────────┐
+  │  Chief Analyst    │ 10-15s（SSE streaming，TTFT 0.4s）
+  │  (streaming 回傳) │
+  └────────┬──────────┘
+           │
+  ── 用戶收到報告 ✅ ──  總計 ~31-45s
+           │
+  [背景異步] predictions 寫入、audit_log、LINE 通知
+```
+
+### 20.2 Fast Path / Background Path 分離
+
+```python
+# backend/agents/pipeline.py
+async def fast_analysis(symbol: str, market: str) -> AsyncGenerator:
+    """Fast Path：使用者等待，目標 30-60 秒"""
+
+    # Step 1: 資料收集（並行）
+    price_data, institutional, fundamentals = await asyncio.gather(
+        fetch_price_data(symbol, market),
+        fetch_institutional_data(symbol, market),
+        fetch_fundamental_data(symbol, market),
+    )
+
+    # Step 2: 6 Agent 全部並行
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        futures = {
+            "technical":   pool.submit(TechnicalAgent().analyze, ...),
+            "fundamental": pool.submit(FundamentalAgent().analyze, ...),
+            "chips":       pool.submit(ChipsAgent().analyze, ...),
+            "event":       pool.submit(EventAgent().analyze, ...),
+            "macro":       pool.submit(MacroAgent().analyze, ...),
+            "sentiment":   pool.submit(SentimentAgent().analyze, ...),
+        }
+        dept_results = {k: f.result() for k, f in futures.items()}
+
+    # Step 3: Arbitrator
+    arbitration = ArbitratorAgent().arbitrate(dept_results)
+
+    # Step 4: Chief Analyst（streaming）
+    async for chunk in ChiefAnalystAgent().stream_report(
+        dept_results, arbitration, symbol, market
+    ):
+        yield chunk  # SSE 逐段推送給前端
+
+# 報告完成後啟動背景任務
+async def background_tasks(report_data, user_id):
+    """Background Path：使用者不等"""
+    asyncio.create_task(save_report_to_db(report_data))
+    asyncio.create_task(create_predictions(report_data))
+    asyncio.create_task(log_agent_actions(report_data))
+    asyncio.create_task(notify_line_if_signal(report_data, user_id))
+```
+
+### 20.3 SSE Streaming 端點
+
+```python
+# backend/api/routes/analysis.py
+from fastapi.responses import StreamingResponse
+
+@router.get("/api/analysis/{symbol}")
+async def analyze_stock(symbol: str, market: str = "TW"):
+    async def event_stream():
+        async for chunk in fast_analysis(symbol, market):
+            yield f"data: {json.dumps({'type': 'chunk', 'content': chunk})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+```
+
+### 20.4 Gemini Streaming 呼叫
+
+```python
+# backend/gemini/client.py 新增
+async def call_gemini_streaming(agent_name, prompt, use_grounding=False):
+    """Streaming 版本，用於 Chief Analyst"""
+    model_name = AGENT_MODEL_MAP.get(agent_name, "gemini-2.5-flash")
+
+    config = types.GenerateContentConfig(temperature=1.0)
+    if use_grounding:
+        config = types.GenerateContentConfig(
+            temperature=1.0,
+            tools=[types.Tool(google_search=types.GoogleSearch())]
+        )
+
+    async for chunk in _client.models.generate_content_stream(
+        model=model_name, contents=prompt, config=config
+    ):
+        if chunk.text:
+            yield chunk.text
+```
+
+### 20.5 Grounding 快取
+
+```python
+# 同一檔股票同一天的 grounding 結果快取 4 小時
+# 快取 key: f"{symbol}_{date}_{agent_type}"
+# TTL: 4 hours
+# 命中時直接用快取，省 8-12 秒
+GROUNDING_CACHE = {}  # 或用 Redis
+
+def get_grounding_cache(symbol, agent_type):
+    key = f"{symbol}_{date.today()}_{agent_type}"
+    cached = GROUNDING_CACHE.get(key)
+    if cached and (time.time() - cached["ts"]) < 14400:  # 4h
+        return cached["data"]
+    return None
+```
+
+### 20.6 時序預估
+
+```
+最佳情況（grounding 快取命中）:
+  資料 3s + 6 Agent 並行 8s + 仲裁 6s + 報告 streaming 8s = ~25s ✅
+
+一般情況（無快取）:
+  資料 4s + 6 Agent 並行 12s + 仲裁 8s + 報告 streaming 12s = ~36s ✅
+
+最差情況（rate limit 降級）:
+  資料 5s + 6 Agent 並行 15s + 仲裁 10s + 報告 streaming 15s = ~45s ✅
+
+極端情況（降級 + 重試）:
+  ~55-60s ⚠️ 仍在 60s 內
+```
+
+### 20.7 需要的新檔案
+
+| 檔案 | 用途 |
+|------|------|
+| `backend/agents/pipeline.py` | 並行調度器（Fast Path 主邏輯） |
+| `backend/core/background_tasks.py` | 背景任務管理 |
+| `backend/gemini/cache.py` | Grounding 快取層 |
+
+### 20.8 需要修改的檔案
+
+| 檔案 | 改動 |
+|------|------|
+| `backend/gemini/client.py` | 新增 `call_gemini_streaming()` |
+| `backend/api/routes/analysis.py` | 改為 SSE streaming 端點 |
+| `frontend/src/pages/Analysis.tsx` | EventSource 接收 + 漸進渲染 |
+
+---
+
+## 21. 舊系統缺陷評估摘要
+
+> 日期：2026-03-20 | 基於三份獨立 Agent 分析報告整合
+
+### 21.1 後端 Critical 問題
+
+| # | 問題 | 檔案 | 影響 |
+|---|------|------|------|
+| 1 | `supabase_adapter.py` 是 2253 行 God Object，每次請求建新 HTTP client | adapters/ | 效能 + 可維護性 |
+| 2 | `gemini_service.py` 每次呼叫建新 `genai.Client`（6 次實例化） | services/ | 記憶體 + 效能 |
+| 3 | IP rate limit 可被 `X-Forwarded-For` 偽造繞過 | services/rate_limiter.py | 安全性 |
+| 4 | Auth rate limit 只檢查 `Authorization` header 存在，不驗證 token | services/rate_limiter.py | 安全性 |
+| 5 | Yahoo adapter 用已棄用的 `asyncio.get_event_loop()` | adapters/yahoo.py | 穩定性 |
+| 6 | `increment_ai_usage` 有 230 行 5 層 fallback（FK 約束不匹配） | adapters/supabase.py | 可維護性 |
+| 7 | `time.sleep()` 在 async context 中（阻塞事件迴圈） | services/gemini.py | 效能 |
+| 8 | EMA/RSI/safe_num 函式跨 3+ 檔重複定義 | routes + services | 維護性 |
+
+### 21.2 前端 Critical 問題
+
+| # | 問題 | 影響 |
+|---|------|------|
+| 1 | 目前部署的是空殼 Vite 前端（4 個空頁面） | 用戶看到醜的頁面 |
+| 2 | 舊版 Next.js 用 CDN Tailwind（效能災難） | 載入速度 |
+| 3 | 字體 Orbitron 不能顯示中文 | 中文全 fallback |
+| 4 | analysis 頁 1199 行單檔怪獸 | 不可維護 |
+| 5 | api.ts 700+ 行單檔 | 不可維護 |
+| 6 | 無共用元件庫（每頁重做 button/card） | 不一致 |
+| 7 | 響應式不完整（無平板斷點） | 行動裝置體驗差 |
+
+### 21.3 MiniMax 2.7 評估結論
+
+**維持 Gemini，不切換。** 原因：
+- Google Search grounding 是 Gemini 獨有殺手功能（3 個 Agent 依賴）
+- MiniMax 免費試用 2026/11 到期後要付費
+- Gemini Flash 速度快 3-4 倍（224 vs 48 tok/s）
+- 繁中台股術語 Gemini 更精準
+- 唯一可用場景：非 grounding Agent 的 fallback
+
+### 21.4 修復策略
+
+**新系統直接避免所有舊版問題：**
+- 單例 Gemini Client（不重複建立）
+- 正確的 async/await（不用 time.sleep）
+- 拆分 God Object 為獨立模組
+- Rate limit 用 JWT 驗證而非 header 存在
+- 前端：以 Next.js 為基礎遷移至 Vite，保留設計系統
+- 字體改回 Noto Sans TC + JetBrains Mono
+
+---
+
+*本 CLAUDE.md 由 Claude (claude-opus-4-6) 於 2026-03-20 更新，版本 2.2.0。*
+*新增：加速 Pipeline 架構（Section 20）、舊系統缺陷評估（Section 21）*
 *Runtime AI 分析：Gemini API（Free Tier，gemini-2.5-flash 為主力）*
 *程式碼撰寫：Opus 4.6（複雜邏輯）+ Sonnet 4.6（其他）*

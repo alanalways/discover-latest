@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, RefreshCw,
-  Activity, Target, Zap, BarChart3, ArrowRight, Globe,
-  Clock, ChevronRight
+  Activity, Target, Zap, ArrowRight, Globe, Clock,
+  BarChart3, Sparkles
 } from 'lucide-react'
 import {
   getTopBullish, getScannerResults, getMarketOverview,
@@ -10,251 +10,246 @@ import {
 } from '../lib/api'
 import {
   RatingBadge, DirectionIcon, ConfidenceGauge,
-  LoadingSkeleton, StatCard, EmptyState, SectionHeader
+  LoadingSkeleton, StatCard, EmptyState, SectionHeader, ChangePct, SignalDot
 } from '../components/ui'
 
-// ── Market Ticker Bar ──────────────────────────────────────────────────────
+// ── Ticker Item ───────────────────────────────────────────────────────────────
 
-function TickerItem({ quote }: { quote: MarketQuote }) {
-  const isUp = quote.change_pct >= 0
-  const color = isUp ? 'var(--bullish)' : 'var(--bearish)'
-
+function TickerItem({ q }: { q: MarketQuote }) {
+  const isUp = (q.change_pct ?? 0) >= 0
   return (
-    <div className="flex items-center gap-2 px-4 py-1 shrink-0">
-      <span className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
-        {quote.name || quote.symbol}
+    <div className="flex items-center gap-2.5 px-5 py-2 shrink-0 select-none">
+      <span className="text-[11px] font-mono font-medium" style={{ color: 'var(--t3)' }}>
+        {q.name || q.symbol}
       </span>
-      <span className="font-mono text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-        {quote.price?.toLocaleString()}
+      <span className="font-mono text-xs font-bold" style={{ color: 'var(--t1)' }}>
+        {q.price?.toLocaleString('en-US', { maximumFractionDigits: 2 })}
       </span>
-      <span
-        className="font-mono text-xs flex items-center gap-0.5"
-        style={{ color }}
-      >
-        {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-        {isUp ? '+' : ''}{quote.change_pct?.toFixed(2)}%
-      </span>
+      <ChangePct value={q.change_pct} />
     </div>
   )
 }
 
-function MarketTickerBar({ indices }: { indices: { tw: MarketQuote[]; us: MarketQuote[] } }) {
-  const allQuotes = [...(indices.tw || []), ...(indices.us || [])]
+function MarketTickerBar({ indices }: { indices?: { tw: MarketQuote[]; us: MarketQuote[] } }) {
+  const quotes = [...(indices?.tw ?? []), ...(indices?.us ?? [])]
+  if (quotes.length === 0) return null
 
-  if (allQuotes.length === 0) return null
+  // Duplicate for seamless loop
+  const items = [...quotes, ...quotes]
 
   return (
-    <div
-      className="overflow-hidden"
-      style={{
-        background: 'rgba(15, 23, 42, 0.95)',
-        borderBottom: '1px solid var(--border)',
-      }}
-    >
-      <div className="flex items-center overflow-x-auto scrollbar-hide py-1">
-        {allQuotes.map((q, i) => (
-          <TickerItem key={`${q.symbol}-${i}`} quote={q} />
+    <div className="ticker-bar py-0.5" aria-label="市場即時行情">
+      <div className="ticker-inner">
+        {items.map((q, i) => (
+          <div key={i} className="flex items-center">
+            <TickerItem q={q} />
+            <span style={{ color: 'var(--bdr-2)', fontSize: 10 }}>·</span>
+          </div>
         ))}
       </div>
     </div>
   )
 }
 
-// ── Market Status Badge ────────────────────────────────────────────────────
+// ── Market Status ─────────────────────────────────────────────────────────────
 
-function MarketStatusBadge({ hours }: { hours: MarketHours }) {
+function MarketStatus({ hours }: { hours: MarketHours }) {
   return (
     <div className="flex items-center gap-4">
-      <div className="flex items-center gap-1.5">
-        <div
-          className="w-2 h-2 rounded-full"
-          style={{
-            background: hours.tw.is_open ? 'var(--bullish)' : 'var(--text-muted)',
-            boxShadow: hours.tw.is_open ? '0 0 6px var(--bullish)' : 'none',
-          }}
-        />
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          台股 {hours.tw.is_open ? '開盤中' : '休市'}
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <div
-          className="w-2 h-2 rounded-full"
-          style={{
-            background: hours.us.is_open ? 'var(--bullish)' : 'var(--text-muted)',
-            boxShadow: hours.us.is_open ? '0 0 6px var(--bullish)' : 'none',
-          }}
-        />
-        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-          美股 {hours.us.is_open ? '開盤中' : '休市'}
-        </span>
-      </div>
+      <SignalDot on={hours.tw.is_open} label={`台股 ${hours.tw.is_open ? '開盤' : '休市'}`} />
+      <SignalDot on={hours.us.is_open} label={`美股 ${hours.us.is_open ? '開盤' : '休市'}`} />
     </div>
   )
 }
 
-// ── Top 20 Card ────────────────────────────────────────────────────────────
+// ── Top 20 Panel ──────────────────────────────────────────────────────────────
 
-function Top20Card({
-  title,
-  items,
-  tab,
-  onTabChange,
+function Top20Panel({
+  tw, us,
 }: {
-  title: string
-  items: MarketQuote[]
-  tab: 'tw' | 'us'
-  onTabChange: (t: 'tw' | 'us') => void
+  tw: MarketQuote[]
+  us: MarketQuote[]
 }) {
+  const [tab, setTab] = useState<'tw' | 'us'>('tw')
+  const items = tab === 'tw' ? tw : us
+
   return (
     <div className="glass-card overflow-hidden">
-      <SectionHeader
-        title={title}
-        action={
-          <div className="flex gap-1">
-            {(['tw', 'us'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => onTabChange(t)}
-                className="px-2.5 py-1 rounded-md text-xs font-medium transition-all"
-                style={{
-                  background: tab === t ? 'var(--accent-glow)' : 'transparent',
-                  color: tab === t ? 'var(--accent)' : 'var(--text-muted)',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                {t === 'tw' ? '台股' : '美股'}
-              </button>
-            ))}
-          </div>
-        }
-      />
-      <div className="divide-y" style={{ borderColor: 'rgba(30,42,58,0.5)' }}>
-        {items.slice(0, 8).map((item, i) => (
-          <div
-            key={`${item.symbol}-${i}`}
-            className="flex items-center justify-between px-5 py-2.5 transition-colors"
-            style={{ borderBottom: '1px solid rgba(30,42,58,0.3)' }}
-          >
-            <div className="flex items-center gap-3">
-              <span
-                className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold font-mono"
-                style={{
-                  background: i < 3 ? 'var(--accent-glow)' : 'var(--bg-elevated)',
-                  color: i < 3 ? 'var(--accent)' : 'var(--text-muted)',
-                }}
-              >
-                {i + 1}
-              </span>
-              <span className="font-mono text-xs font-bold" style={{ color: 'var(--text-primary)' }}>
-                {item.symbol}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>
-                {item.price?.toLocaleString()}
-              </span>
-              <span
-                className="font-mono text-xs font-semibold"
-                style={{ color: (item.change_pct ?? 0) >= 0 ? 'var(--bullish)' : 'var(--bearish)' }}
-              >
-                {(item.change_pct ?? 0) >= 0 ? '+' : ''}{item.change_pct?.toFixed(2)}%
-              </span>
-            </div>
-          </div>
-        ))}
+      <div className="section-header">
+        <span className="label">漲幅排行</span>
+        <div className="flex gap-1">
+          {(['tw', 'us'] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className="px-2.5 py-0.5 rounded text-[11px] font-medium transition-all cursor-pointer"
+              style={{
+                background: tab === t ? 'var(--accent-glow)' : 'transparent',
+                color: tab === t ? 'var(--accent-2)' : 'var(--t4)',
+                border: `1px solid ${tab === t ? 'var(--accent-bdr)' : 'transparent'}`,
+              }}
+            >
+              {t === 'tw' ? '🇹🇼 台股' : '🇺🇸 美股'}
+            </button>
+          ))}
+        </div>
       </div>
+
+      {items.length === 0 ? (
+        <div className="py-8 text-center" style={{ color: 'var(--t4)', fontSize: 12 }}>
+          載入市場資料中…
+        </div>
+      ) : (
+        <div>
+          {items.slice(0, 8).map((item, i) => (
+            <div
+              key={`${item.symbol}-${i}`}
+              className="flex items-center justify-between px-4 py-2.5 transition-colors cursor-default"
+              style={{ borderBottom: i < 7 ? '1px solid var(--bdr-1)' : 'none' }}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="w-5 h-5 rounded flex items-center justify-center font-mono text-[10px] font-bold shrink-0"
+                  style={{
+                    background: i < 3 ? 'var(--accent-glow)' : 'rgba(148,163,184,0.06)',
+                    color: i < 3 ? 'var(--accent-2)' : 'var(--t4)',
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <span className="font-mono text-xs font-semibold" style={{ color: 'var(--t1)' }}>
+                  {item.symbol}
+                </span>
+                {item.name && (
+                  <span className="text-[11px] hide-mobile" style={{ color: 'var(--t4)' }}>
+                    {item.name.slice(0, 8)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-xs" style={{ color: 'var(--t2)' }}>
+                  {item.price?.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+                </span>
+                <ChangePct value={item.change_pct} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Stock Row ──────────────────────────────────────────────────────────────
+// ── Stock Row ─────────────────────────────────────────────────────────────────
 
 function StockRow({ item, rank }: { item: ReportSummary; rank: number }) {
   return (
     <tr>
       <td>
-        <div className="flex items-center gap-3">
-          <span
-            className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold font-mono"
-            style={{
-              background: rank <= 3 ? 'var(--accent-glow)' : 'var(--bg-elevated)',
-              color: rank <= 3 ? 'var(--accent)' : 'var(--text-muted)',
-            }}
-          >
-            {rank}
+        <span
+          className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
+          style={{
+            background: rank <= 3 ? 'var(--accent-glow)' : 'rgba(148,163,184,0.06)',
+            color: rank <= 3 ? 'var(--accent-2)' : 'var(--t4)',
+          }}
+        >
+          {rank}
+        </span>
+      </td>
+      <td>
+        <div className="flex items-center gap-2">
+          <DirectionIcon rating={item.rating} />
+          <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
+            {item.symbol}
           </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <DirectionIcon rating={item.rating} size={14} />
-              <span className="font-mono font-bold" style={{ color: 'var(--text-primary)' }}>
-                {item.symbol}
-              </span>
-            </div>
-            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{item.market}</span>
-          </div>
+          <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
         </div>
       </td>
       <td><RatingBadge rating={item.rating} /></td>
       <td className="text-right">
-        {item.confidence_score != null ? (
-          <ConfidenceGauge value={item.confidence_score} size={40} />
-        ) : (
-          <span style={{ color: 'var(--text-muted)' }}>—</span>
-        )}
+        {item.confidence_score != null
+          ? <ConfidenceGauge value={item.confidence_score} size={38} />
+          : <span style={{ color: 'var(--t4)' }}>—</span>
+        }
       </td>
-      <td className="text-right font-mono" style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
+      <td className="text-right font-mono text-xs" style={{ color: 'var(--t3)' }}>
         {item.target_price_low && item.target_price_high
           ? `${item.target_price_low}–${item.target_price_high}`
-          : '—'}
+          : '—'
+        }
       </td>
-      <td className="text-right" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+      <td className="text-right text-xs" style={{ color: 'var(--t4)' }}>
         {item.created_at?.slice(0, 10)}
       </td>
     </tr>
   )
 }
 
-// ── Main Dashboard ─────────────────────────────────────────────────────────
+// ── AI Status ────────────────────────────────────────────────────────────────
+
+const AGENTS = [
+  '技術分析師', '基本面研究員', '籌碼分析師',
+  '事件驅動官', '宏觀策略師', '情緒雷達官',
+]
+
+function AIStatusPanel() {
+  return (
+    <div className="glass-card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="live-dot live-dot-bull" />
+        <span className="label">AI 引擎狀態</span>
+        <span
+          className="ml-auto font-mono text-[10px] font-bold"
+          style={{ color: 'var(--bull)' }}
+        >
+          ALL ONLINE
+        </span>
+      </div>
+      <div className="space-y-2">
+        {AGENTS.map(name => (
+          <div key={name} className="flex items-center justify-between">
+            <span className="text-xs" style={{ color: 'var(--t3)' }}>{name}</span>
+            <div className="flex items-center gap-1.5">
+              <div className="live-dot live-dot-bull" style={{ width: 5, height: 5 }} />
+              <span className="font-mono text-[10px] font-semibold" style={{ color: 'var(--bull)' }}>ON</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const [bullish, setBullish] = useState<ReportSummary[]>([])
-  const [latest, setLatest]   = useState<ReportSummary[]>([])
-  const [loading, setLoading] = useState(true)
-  const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [bullish, setBullish]   = useState<ReportSummary[]>([])
+  const [latest, setLatest]     = useState<ReportSummary[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [lastRefresh, setLast]  = useState(new Date())
 
-  // Market data
-  const [indices, setIndices]       = useState<{ tw: MarketQuote[]; us: MarketQuote[] }>({ tw: [], us: [] })
-  const [hours, setHours]           = useState<MarketHours | null>(null)
-  const [top20tw, setTop20tw]       = useState<MarketQuote[]>([])
-  const [top20us, setTop20us]       = useState<MarketQuote[]>([])
-  const [top20Tab, setTop20Tab]     = useState<'tw' | 'us'>('tw')
-  const [marketLoading, setMarketLoading] = useState(true)
+  const [indices, setIndices]   = useState<{ tw: MarketQuote[]; us: MarketQuote[] }>({ tw: [], us: [] })
+  const [hours, setHours]       = useState<MarketHours | null>(null)
+  const [top20tw, setTop20tw]   = useState<MarketQuote[]>([])
+  const [top20us, setTop20us]   = useState<MarketQuote[]>([])
 
   const loadReports = useCallback(() => {
     setLoading(true)
     Promise.all([getTopBullish(undefined, 10), getScannerResults(undefined, 20)])
-      .then(([b, s]) => {
-        setBullish(b.items)
-        setLatest(s.items)
-        setLastRefresh(new Date())
-      })
+      .then(([b, s]) => { setBullish(b.items); setLatest(s.items); setLast(new Date()) })
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
 
   const loadMarket = useCallback(() => {
-    setMarketLoading(true)
     getMarketOverview()
-      .then(data => {
-        if (data.indices) setIndices(data.indices)
-        if (data.market_hours) setHours(data.market_hours)
-        if (data.top20_tw) setTop20tw(data.top20_tw)
-        if (data.top20_us) setTop20us(data.top20_us)
+      .then(d => {
+        if (d.indices)      setIndices(d.indices)
+        if (d.market_hours) setHours(d.market_hours)
+        if (d.top20_tw)     setTop20tw(d.top20_tw)
+        if (d.top20_us)     setTop20us(d.top20_us)
       })
       .catch(console.error)
-      .finally(() => setMarketLoading(false))
   }, [])
 
   useEffect(() => {
@@ -262,92 +257,109 @@ export default function Dashboard() {
     loadMarket()
   }, [loadReports, loadMarket])
 
+  const avgConfidence = bullish.length > 0
+    ? Math.round(
+        bullish.filter(b => b.confidence_score != null)
+          .reduce((s, b) => s + b.confidence_score!, 0)
+        / bullish.filter(b => b.confidence_score != null).length
+        * 100
+      )
+    : null
+
   return (
     <div>
-      {/* Market Ticker Bar */}
+      {/* Ticker */}
       <MarketTickerBar indices={indices} />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-        {/* Hero Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-5 py-6 space-y-6">
+
+        {/* Hero Row */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-3">
-              <LayoutDashboard size={28} style={{ color: 'var(--accent)' }} />
+            <h1 className="text-xl font-bold flex items-center gap-2.5">
+              <LayoutDashboard size={20} style={{ color: 'var(--accent-2)' }} aria-hidden />
               <span className="text-gradient">市場概覽</span>
             </h1>
-            <div className="flex items-center gap-4 mt-2">
-              <p className="text-xs flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
-                <Clock size={11} />
-                更新於 {lastRefresh.toLocaleTimeString('zh-TW')}
-              </p>
-              {hours && <MarketStatusBadge hours={hours} />}
+            <div className="flex items-center gap-4 mt-1">
+              <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--t4)' }}>
+                <Clock size={10} aria-hidden />
+                更新 {lastRefresh.toLocaleTimeString('zh-TW')}
+              </span>
+              {hours && <MarketStatus hours={hours} />}
             </div>
           </div>
-          <button onClick={() => { loadReports(); loadMarket() }} disabled={loading} className="btn-ghost flex items-center gap-2">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+
+          <button
+            onClick={() => { loadReports(); loadMarket() }}
+            disabled={loading}
+            className="btn-ghost flex items-center gap-2"
+            aria-label="重新整理資料"
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
             重新整理
           </button>
         </div>
 
-        {/* Stat Cards Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Stat Cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard
             title="今日分析"
-            value={latest.length || '—'}
+            value={loading ? '…' : (latest.length || '0')}
             subtitle="24h 最新報告"
             icon={Activity}
-            color="var(--accent)"
+            color="var(--accent-2)"
           />
           <StatCard
             title="偏多訊號"
-            value={bullish.length || '—'}
+            value={loading ? '…' : (bullish.length || '0')}
             subtitle="Top 10 精選"
             icon={TrendingUp}
-            color="var(--bullish)"
+            color="var(--bull)"
             trend="up"
+            glow={bullish.length > 0}
           />
           <StatCard
             title="平均信心度"
-            value={
-              bullish.length > 0
-                ? `${Math.round(
-                    (bullish.reduce((s, b) => s + (b.confidence_score ?? 0), 0) /
-                      bullish.filter(b => b.confidence_score != null).length) * 100
-                  )}%`
-                : '—'
-            }
+            value={loading ? '…' : (avgConfidence != null ? `${avgConfidence}%` : '—')}
             subtitle="偏多標的平均"
             icon={Target}
-            color="var(--warning)"
+            color="var(--gold)"
           />
           <StatCard
             title="分析引擎"
-            value="Active"
-            subtitle="Gemini AI 運行中"
+            value="ACTIVE"
+            subtitle="Gemini 2.5 Flash"
             icon={Zap}
-            color="var(--premium)"
+            color="var(--bull)"
+            glow
           />
         </div>
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Top Bullish */}
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+          {/* Left: Bullish Table */}
           <div className="lg:col-span-2 glass-card overflow-hidden">
             <SectionHeader
               title="偏多精選 Top 10"
               action={
-                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>依信心度排序</span>
+                <span className="text-xs" style={{ color: 'var(--t4)' }}>依信心度排序</span>
               }
             />
             {loading ? (
-              <LoadingSkeleton rows={5} />
+              <LoadingSkeleton rows={6} />
             ) : bullish.length === 0 ? (
-              <EmptyState icon={TrendingUp} title="尚無偏多訊號" subtitle="系統分析中，稍後查看" />
+              <EmptyState
+                icon={TrendingUp}
+                title="尚無偏多訊號"
+                subtitle="系統分析中，稍後查看"
+              />
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table">
                   <thead>
                     <tr>
+                      <th className="w-8">#</th>
                       <th className="text-left">股票</th>
                       <th className="text-left">評級</th>
                       <th className="text-right">信心度</th>
@@ -365,56 +377,29 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Right: Quick Info Panel */}
-          <div className="space-y-6">
-            {/* Top 20 */}
-            <Top20Card
-              title="漲幅排行"
-              items={top20Tab === 'tw' ? top20tw : top20us}
-              tab={top20Tab}
-              onTabChange={setTop20Tab}
-            />
+          {/* Right: Panels */}
+          <div className="flex flex-col gap-4">
+            <Top20Panel tw={top20tw} us={top20us} />
+            <AIStatusPanel />
 
-            {/* AI Status Card */}
-            <div className="glass-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="w-2 h-2 rounded-full animate-pulse-glow" style={{ background: 'var(--bullish)' }} />
-                <span className="section-title">AI 引擎狀態</span>
-              </div>
-              <div className="space-y-3">
-                {[
-                  { name: '技術分析師', status: 'online' },
-                  { name: '基本面研究員', status: 'online' },
-                  { name: '籌碼分析師', status: 'online' },
-                  { name: '事件驅動官', status: 'online' },
-                  { name: '宏觀策略師', status: 'online' },
-                  { name: '情緒雷達', status: 'online' },
-                ].map((agent) => (
-                  <div key={agent.name} className="flex items-center justify-between">
-                    <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{agent.name}</span>
-                    <div className="flex items-center gap-1.5">
-                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--bullish)' }} />
-                      <span className="text-xs font-mono" style={{ color: 'var(--bullish)' }}>ON</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* CTA Card */}
+            {/* CTA */}
             <div className="gradient-border">
               <div className="glass-card p-5">
                 <div className="flex items-center gap-2 mb-2">
-                  <BarChart3 size={16} style={{ color: 'var(--premium)' }} />
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                    深度分析
+                  <Sparkles size={14} style={{ color: 'var(--accent-2)' }} aria-hidden />
+                  <span className="font-semibold text-sm" style={{ color: 'var(--t1)' }}>
+                    深度 AI 分析
                   </span>
                 </div>
-                <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-                  輸入任意股票代號，6 位 AI 分析師同步為你解讀
+                <p className="text-xs mb-4" style={{ color: 'var(--t4)' }}>
+                  6 位 AI 分析師同步研究，30–60 秒輸出完整投行報告
                 </p>
-                <a href="/analysis" className="btn-primary inline-flex items-center gap-2 text-xs no-underline">
-                  開始分析 <ArrowRight size={12} />
+                <a
+                  href="/analysis"
+                  className="btn-primary text-xs no-underline w-full"
+                  role="button"
+                >
+                  開始分析 <ArrowRight size={12} aria-hidden />
                 </a>
               </div>
             </div>
@@ -426,25 +411,31 @@ export default function Dashboard() {
           <SectionHeader
             title="最新分析報告"
             action={
-              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                共 {latest.length} 筆
-              </span>
+              <div className="flex items-center gap-2">
+                <Globe size={10} style={{ color: 'var(--t4)' }} aria-hidden />
+                <span className="text-xs" style={{ color: 'var(--t4)' }}>共 {latest.length} 筆</span>
+              </div>
             }
           />
           {loading ? (
-            <LoadingSkeleton rows={6} />
+            <LoadingSkeleton rows={5} />
           ) : latest.length === 0 ? (
-            <EmptyState icon={BarChart3} title="尚無報告" subtitle="等待系統產生第一份分析報告" />
+            <EmptyState
+              icon={BarChart3}
+              title="尚無報告"
+              subtitle="等待系統產生第一份分析"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th className="w-8">#</th>
                     <th className="text-left">股票</th>
                     <th className="text-left">評級</th>
                     <th className="text-right">信心度</th>
                     <th className="text-right">目標價區間</th>
-                    <th className="text-right">報告日期</th>
+                    <th className="text-right">日期</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -456,6 +447,7 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
       </div>
     </div>
   )

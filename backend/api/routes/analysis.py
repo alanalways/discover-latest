@@ -1,16 +1,21 @@
 """
 backend/api/routes/analysis.py
-分析 API — 整合使用者方案限額
+分析 API — SSE Streaming + 背景任務
 
-- POST /api/analysis        — 觸發完整分析（檢查 Gemini 預算 + 使用者限額）
-- GET  /api/analysis/{id}   — 查詢報告
-- GET  /api/analysis/latest — 查詢最新報告列表
+v2.2: 加速 Pipeline
+- GET  /api/analysis/stream/{symbol}  — SSE streaming 即時分析（30-60 秒）
+- POST /api/analysis                  — 同步分析（向後相容）
+- GET  /api/analysis/{id}             — 查詢報告
+- GET  /api/analysis/latest           — 查詢最新報告列表
 """
 
+import json
 import logging
+import asyncio
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.api.routes.auth import get_current_user, UserInfo
@@ -33,7 +38,7 @@ class AnalysisRequest(BaseModel):
 
 class AnalysisResponse(BaseModel):
     report_id:    Optional[str] = None
-    status:       str           # "queued" | "running" | "completed" | "failed" | "budget_exceeded" | "rate_limited"
+    status:       str
     message:      Optional[str] = None
     final_report: Optional[str] = None
     rating:       Optional[str] = None
@@ -41,7 +46,92 @@ class AnalysisResponse(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────
-# Routes
+# SSE Streaming 端點（主要用這個）
+# ─────────────────────────────────────────────────────────
+
+@router.get("/stream/{symbol}")
+async def stream_analysis(
+    symbol: str,
+    market: str = Query(default="TW"),
+    user: Optional[UserInfo] = Depends(get_current_user),
+):
+    """
+    SSE Streaming 分析端點。
+
+    前端用 EventSource 連接，即時收到分析進度和報告內容。
+    目標：30-60 秒完成，TTFT < 15 秒。
+
+    SSE 事件格式：
+      data: {"type": "status",  "stage": "data",   "message": "..."}
+      data: {"type": "status",  "stage": "agents", "message": "..."}
+      data: {"type": "chunk",   "content": "報告文字片段"}
+      data: {"type": "done",    "report_id": "...", "meta": {...}}
+      data: {"type": "error",   "message": "..."}
+    """
+    # ── 權限檢查 ───────────────────────────────────────
+    if user:
+        from backend.core.user_rate_limiter import get_user_rate_limiter
+        limiter = get_user_rate_limiter()
+        allowed, reason = limiter.can_make_request(user.user_id)
+        if not allowed:
+            async def error_stream():
+                yield f"data: {json.dumps({'type': 'error', 'message': reason})}\n\n"
+            return StreamingResponse(
+                error_stream(), media_type="text/event-stream"
+            )
+
+    # ── 預算檢查（3 calls: 6 Agent 並行算 1 批 + arbitrator + chief）
+    guard = get_budget_guard()
+    can_proceed, reason = guard.can_proceed(estimated_calls=8)
+    if not can_proceed:
+        async def budget_error():
+            yield f"data: {json.dumps({'type': 'error', 'message': f'API 配額接近上限: {reason}'})}\n\n"
+        return StreamingResponse(
+            budget_error(), media_type="text/event-stream"
+        )
+
+    symbol = symbol.strip().upper()
+    market = market.strip().upper()
+
+    async def event_stream():
+        from backend.agents.pipeline import fast_analysis
+        from backend.core.background_tasks import run_all_background_tasks
+
+        report_data = None
+        meta = None
+
+        async for event in fast_analysis(symbol, market, user_id=user.user_id if user else None):
+            event_type = event.get("type")
+
+            # 保存最終數據供背景任務使用
+            if event_type == "done":
+                report_data = event.get("report_data")
+                meta = event.get("meta")
+
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+        # ── 報告完成後，啟動背景任務 ──────────────────
+        if report_data:
+            asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
+
+        # 記錄使用者用量
+        if user:
+            from backend.core.user_rate_limiter import get_user_rate_limiter
+            get_user_rate_limiter().record_request(user.user_id)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ─────────────────────────────────────────────────────────
+# 同步端點（向後相容）
 # ─────────────────────────────────────────────────────────
 
 @router.post("", response_model=AnalysisResponse)
@@ -49,66 +139,58 @@ async def trigger_analysis(
     body: AnalysisRequest,
     user: Optional[UserInfo] = Depends(get_current_user),
 ):
-    """
-    觸發完整分析 Pipeline。
-
-    流程：
-    1. 檢查使用者方案限額（每日次數 + 每分鐘頻率）
-    2. 檢查 BudgetGuard（全域 Gemini API 預算）
-    3. 呼叫 CEOAgent._run_analysis（同步執行）
-    4. 回傳報告
-    """
-    # ── 使用者方案限額檢查 ─────────────────────────────
+    """同步分析（向後相容，會等待完整報告完成才回傳）。"""
     if user:
         from backend.core.user_rate_limiter import get_user_rate_limiter
         limiter = get_user_rate_limiter()
         allowed, reason = limiter.can_make_request(user.user_id)
         if not allowed:
-            return AnalysisResponse(
-                status="rate_limited",
-                message=reason,
-            )
+            return AnalysisResponse(status="rate_limited", message=reason)
 
-    # ── Gemini 全域預算檢查 ───────────────────────────
     guard = get_budget_guard()
     can_proceed, reason = guard.can_proceed(estimated_calls=8)
     if not can_proceed:
         return AnalysisResponse(
             status="budget_exceeded",
-            message=f"今日 Gemini API 配額已接近上限，請明天再試（{reason}）",
+            message=f"今日 Gemini API 配額已接近上限（{reason}）",
         )
 
     symbol = body.symbol.strip().upper()
     market = body.market.strip().upper()
 
     try:
-        import uuid
-        from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
-        fake_job = {
-            "id": str(uuid.uuid4()),
-            "payload": {"symbol": symbol, "market": market},
-        }
-        result = ceo._run_analysis(fake_job)
+        from backend.agents.pipeline import fast_analysis
+        from backend.core.background_tasks import run_all_background_tasks
 
-        # 記錄使用者用量
+        report_chunks = []
+        report_data = None
+        meta = None
+
+        async for event in fast_analysis(symbol, market, user_id=user.user_id if user else None):
+            if event["type"] == "chunk":
+                report_chunks.append(event["content"])
+            elif event["type"] == "done":
+                report_data = event.get("report_data")
+                meta = event.get("meta")
+            elif event["type"] == "error":
+                return AnalysisResponse(
+                    status="failed", message=event["message"]
+                )
+
+        if report_data:
+            asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
+
         if user:
             from backend.core.user_rate_limiter import get_user_rate_limiter
             get_user_rate_limiter().record_request(user.user_id)
 
-        if result.get("status") == "success":
-            return AnalysisResponse(
-                report_id    = result.get("report_id"),
-                status       = "completed",
-                final_report = result.get("final_report"),
-                rating       = result.get("rating"),
-                confidence   = result.get("confidence_score"),
-            )
-        else:
-            return AnalysisResponse(
-                status  = "failed",
-                message = result.get("error", "分析失敗，請稍後再試"),
-            )
+        return AnalysisResponse(
+            report_id=meta.get("report_id") if meta else None,
+            status="completed",
+            final_report="".join(report_chunks),
+            rating=meta.get("final_stance") if meta else None,
+            confidence=meta.get("stance_confidence") if meta else None,
+        )
 
     except Exception as e:
         logger.error(f"[Analysis] {symbol} 分析異常: {e}")

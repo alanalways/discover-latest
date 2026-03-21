@@ -107,6 +107,74 @@ class ChiefAnalystAgent(BaseAgent):
     # 公開介面
     # ═════════════════════════════════════════════════════
 
+    def stream_report(
+        self,
+        dept_results: dict,
+        arbitration: dict,
+        symbol: str,
+        market: str,
+        report_id: str = None,
+    ):
+        """
+        Streaming 版報告生成（Pipeline 呼叫此方法）。
+
+        透過 call_gemini_streaming() 逐段 yield 報告文字，
+        讓前端可以即時顯示。
+
+        Args:
+            dept_results: 6 部門分析結果 dict
+            arbitration:  仲裁結果 dict
+            symbol:       股票代號
+            market:       市場 (TW/US)
+            report_id:    報告 ID
+
+        Yields:
+            str: 報告文字片段
+        """
+        from backend.gemini.client import call_gemini_streaming
+
+        report_id = report_id or str(uuid.uuid4())
+
+        # 提取部門摘要
+        summaries = {}
+        for dept_key in ["technical", "fundamental", "chips", "event", "macro", "sentiment"]:
+            dept_output = dept_results.get(dept_key, {})
+            display_name = _DEPT_DISPLAY_NAMES.get(dept_key, dept_key)
+            summaries[dept_key] = self._extract_summary(dept_output, display_name)
+
+        # 安全解析仲裁結果
+        arb = self._safe_parse_arbitration(arbitration)
+
+        # 建立 prompt
+        prompt = self.get_prompt(
+            symbol=symbol,
+            market=market,
+            company_name=symbol,  # 如無公司名稱用代號
+            industry="",
+            current_price="N/A",
+            report_date=date.today().isoformat(),
+            technical_summary=summaries["technical"],
+            fundamental_summary=summaries["fundamental"],
+            chips_summary=summaries["chips"],
+            event_summary=summaries["event"],
+            macro_summary=summaries["macro"],
+            sentiment_summary=summaries["sentiment"],
+            final_stance=arb["final_stance"],
+            stance_confidence=str(arb["stance_confidence"]),
+            arbitration_summary=arb["arbitration_summary"],
+            key_risks=arb["key_risks"],
+            key_catalysts=arb["key_catalysts"],
+        )
+
+        # Streaming 呼叫 Gemini
+        for chunk in call_gemini_streaming(
+            agent_name=self.agent_name,
+            prompt=prompt,
+            use_grounding=False,
+            report_id=report_id,
+        ):
+            yield chunk
+
     def generate_report(
         self,
         symbol: str,

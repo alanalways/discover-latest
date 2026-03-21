@@ -1,11 +1,14 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL  ?? ''
-const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY ?? ''
+const supabaseUrl  = import.meta.env.VITE_SUPABASE_URL  || ''
+const supabaseAnon = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-export const supabase = createClient(supabaseUrl, supabaseAnon)
+// Supabase client — only create if URL is configured, otherwise null
+export const supabase: SupabaseClient | null =
+  supabaseUrl ? createClient(supabaseUrl, supabaseAnon) : null
 
 export async function getSession() {
+  if (!supabase) return null
   const { data } = await supabase.auth.getSession()
   return data.session
 }
@@ -16,5 +19,5 @@ export async function getAccessToken(): Promise<string | null> {
 }
 
 export async function signOut() {
-  await supabase.auth.signOut()
+  if (supabase) await supabase.auth.signOut()
 }

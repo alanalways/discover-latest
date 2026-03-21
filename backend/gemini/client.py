@@ -236,3 +236,89 @@ def get_key_usage_stats() -> dict:
             "current_index": _key_index,
             "usage_counts": dict(_key_usage_counts),
         }
+
+
+# ── Streaming 版本（Chief Analyst 用）────────────────────
+from typing import Generator
+
+
+def call_gemini_streaming(
+    agent_name: str,
+    prompt: str,
+    use_grounding: bool = False,
+    report_id: Optional[str] = None,
+) -> Generator[str, None, dict]:
+    """
+    Streaming 版 Gemini 呼叫，逐段 yield 文字。
+
+    用於 Chief Analyst 報告生成，讓前端透過 SSE 即時顯示。
+    最終 return 完整結果 dict（可用 generator.send() 取得）。
+
+    Usage:
+        chunks = []
+        gen = call_gemini_streaming("chief_analyst", prompt)
+        for chunk in gen:
+            chunks.append(chunk)
+            # 透過 SSE 推給前端
+        full_text = "".join(chunks)
+    """
+    if not _key_pool:
+        return
+
+    model_name = _resolve_model(agent_name)
+    if model_name is None:
+        logger.warning(f"[GeminiClient] {agent_name} streaming: 所有模型達 rate limit")
+        return
+
+    start = time.time()
+    try:
+        client = _create_client()
+
+        config = types.GenerateContentConfig(temperature=1.0)
+        if use_grounding:
+            config = types.GenerateContentConfig(
+                temperature=1.0,
+                tools=[types.Tool(google_search=types.GoogleSearch())],
+            )
+
+        # Streaming 呼叫
+        response_stream = client.models.generate_content_stream(
+            model=model_name,
+            contents=prompt,
+            config=config,
+        )
+
+        full_text_parts = []
+        for chunk in response_stream:
+            if chunk.text:
+                full_text_parts.append(chunk.text)
+                yield chunk.text
+
+        duration_ms = int((time.time() - start) * 1000)
+        _rate_limiter.record_call(model_name)
+
+        log_gemini_call(
+            agent_name=agent_name,
+            model_name=model_name,
+            report_id=report_id,
+            status="success",
+            duration_ms=duration_ms,
+            use_grounding=use_grounding,
+        )
+
+        logger.info(
+            f"[GeminiClient] {agent_name} streaming 完成: "
+            f"{model_name}, {duration_ms}ms, "
+            f"{len(full_text_parts)} chunks"
+        )
+
+    except Exception as e:
+        duration_ms = int((time.time() - start) * 1000)
+        logger.error(f"[GeminiClient] {agent_name} streaming 失敗: {e}")
+        log_gemini_call(
+            agent_name=agent_name,
+            model_name=model_name,
+            report_id=report_id,
+            status="failed",
+            error=str(e),
+        )
