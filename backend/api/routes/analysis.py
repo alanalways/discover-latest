@@ -197,6 +197,186 @@ async def trigger_analysis(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/my-reports")
+async def get_my_reports(
+    user: UserInfo = Depends(get_current_user),
+    limit: int = Query(default=50, le=200),
+):
+    """
+    取得使用者自選股的分析報告。
+    只回傳該使用者 watchlist 中股票的報告。
+    需要登入。
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="請先登入")
+
+    client = get_client()
+    if not client:
+        return {"reports": [], "watchlist": [], "total_analyzed": 0, "remaining": 0}
+
+    try:
+        # 1. 取得使用者的 watchlist
+        prefs_result = (
+            client.table("user_prefs")
+            .select("watchlist")
+            .eq("user_id", user.user_id)
+            .limit(1)
+            .execute()
+        )
+        prefs_rows = prefs_result.data or []
+        watchlist = prefs_rows[0].get("watchlist", []) if prefs_rows else []
+
+        if not watchlist:
+            return {"reports": [], "watchlist": [], "total_analyzed": 0, "remaining": 0}
+
+        # 2. 用 watchlist 中的 symbol 查詢最新報告
+        symbols = [w.get("symbol", "") for w in watchlist if w.get("symbol")]
+        if not symbols:
+            return {"reports": [], "watchlist": watchlist, "total_analyzed": 0, "remaining": 0}
+
+        result = (
+            client.table("reports")
+            .select(
+                "id, symbol, market, rating, confidence_score, "
+                "target_price_low, target_price_high, created_at, final_report"
+            )
+            .in_("symbol", symbols)
+            .eq("is_archived", False)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        reports = result.data or []
+
+        # 3. 計算哪些 watchlist 股票已有報告
+        analyzed_symbols = set(r["symbol"] for r in reports)
+        total_analyzed = len(analyzed_symbols)
+        remaining = len(symbols) - total_analyzed
+
+        return {
+            "reports": reports,
+            "watchlist": watchlist,
+            "total_analyzed": total_analyzed,
+            "remaining": max(0, remaining),
+        }
+
+    except Exception as e:
+        logger.error(f"[Analysis] my-reports 查詢失敗: {e}")
+        return {"reports": [], "watchlist": [], "total_analyzed": 0, "remaining": 0}
+
+
+@router.get("/stats")
+async def get_system_stats():
+    """
+    公開系統統計：總分析數、準確率。
+    無需登入。
+    """
+    client = get_client()
+    if not client:
+        return {"total_reports": 0, "total_symbols": 0, "accuracy_pct": 0}
+
+    try:
+        # 總報告數
+        reports_result = (
+            client.table("reports")
+            .select("id", count="exact")
+            .eq("is_archived", False)
+            .execute()
+        )
+        total_reports = reports_result.count or 0
+
+        # 不重複股票數
+        symbols_result = (
+            client.table("reports")
+            .select("symbol")
+            .eq("is_archived", False)
+            .execute()
+        )
+        unique_symbols = set(r["symbol"] for r in (symbols_result.data or []))
+        total_symbols = len(unique_symbols)
+
+        # 準確率
+        accuracy_result = (
+            client.table("outcomes")
+            .select("direction_correct")
+            .execute()
+        )
+        outcomes = accuracy_result.data or []
+        if outcomes:
+            correct = sum(1 for o in outcomes if o.get("direction_correct"))
+            accuracy_pct = round(correct / len(outcomes) * 100, 1)
+        else:
+            accuracy_pct = 0
+
+        return {
+            "total_reports": total_reports,
+            "total_symbols": total_symbols,
+            "accuracy_pct": accuracy_pct,
+        }
+
+    except Exception as e:
+        logger.error(f"[Analysis] stats 查詢失敗: {e}")
+        return {"total_reports": 0, "total_symbols": 0, "accuracy_pct": 0}
+
+
+class RateRequest(BaseModel):
+    rating: int  # 1-5 星
+    comment: Optional[str] = None
+
+
+@router.post("/{report_id}/rate")
+async def rate_report(
+    report_id: str,
+    body: RateRequest,
+    user: UserInfo = Depends(get_current_user),
+):
+    """
+    使用者對分析報告評分（1-5 星）。
+    需要登入。
+    """
+    if not user:
+        raise HTTPException(status_code=401, detail="請先登入")
+    if body.rating < 1 or body.rating > 5:
+        raise HTTPException(status_code=400, detail="評分必須在 1-5 之間")
+
+    client = get_client()
+    if not client:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    try:
+        # 用 upsert 避免重複評分（user_id + report_id 唯一）
+        row = {
+            "report_id": report_id,
+            "user_id": user.user_id,
+            "rating": body.rating,
+            "comment": body.comment,
+        }
+        # 先嘗試插入 report_ratings 表，若表不存在則寫入 agent_logs
+        try:
+            client.table("report_ratings").upsert(
+                row, on_conflict="report_id,user_id"
+            ).execute()
+        except Exception:
+            # Fallback: 表可能不存在，用 agent_logs 記錄
+            from backend.core.audit_log import log_agent_action
+            log_agent_action(
+                agent_name="user_rating",
+                report_id=report_id,
+                status="success",
+                metadata={
+                    "user_id": user.user_id,
+                    "rating": body.rating,
+                    "comment": body.comment,
+                },
+            )
+
+        return {"status": "ok", "rating": body.rating}
+
+    except Exception as e:
+        logger.error(f"[Analysis] rate 失敗: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/latest")
 async def get_latest_reports(
     market: Optional[str] = Query(default=None),
@@ -212,7 +392,7 @@ async def get_latest_reports(
             client.table("reports")
             .select(
                 "id, symbol, market, report_type, tier, rating, "
-                "confidence_score, created_at"
+                "confidence_score, target_price_low, target_price_high, created_at"
             )
             .eq("is_archived", False)
             .order("created_at", desc=True)

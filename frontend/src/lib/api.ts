@@ -56,6 +56,20 @@ export const getLatestReports = (market?: string, limit = 20) =>
     `/api/analysis/latest${market ? `?market=${market}` : ''}${limit ? `${market ? '&' : '?'}limit=${limit}` : ''}`
   )
 
+// ─── My Reports (auth required) ──────────────────────────────────────────────
+
+export const getMyReports = (token: string, limit = 50) =>
+  request<MyReportsResponse>(`/api/analysis/my-reports?limit=${limit}`, {}, token)
+
+export const getSystemStats = () =>
+  request<SystemStats>('/api/analysis/stats')
+
+export const rateReport = (reportId: string, rating: number, token: string, comment?: string) =>
+  request<{ status: string; rating: number }>(`/api/analysis/${reportId}/rate`, {
+    method: 'POST',
+    body: JSON.stringify({ rating, comment }),
+  }, token)
+
 // ─── Scanner ─────────────────────────────────────────────────────────────────
 
 export const getScannerResults = (market?: string, limit = 20) =>
@@ -238,6 +252,25 @@ export interface ReportSummary {
 export interface WatchlistItem {
   symbol: string
   market: string
+}
+
+// ─── My Reports / Stats Types ────────────────────────────────────────────────
+
+export interface MyReportsResponse {
+  reports:         ReportWithContent[]
+  watchlist:       WatchlistItem[]
+  total_analyzed:  number
+  remaining:       number
+}
+
+export interface ReportWithContent extends ReportSummary {
+  final_report?:  string
+}
+
+export interface SystemStats {
+  total_reports:  number
+  total_symbols:  number
+  accuracy_pct:   number
 }
 
 // ─── Market Types ────────────────────────────────────────────────────────────

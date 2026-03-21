@@ -141,15 +141,24 @@ async def run_all_background_tasks(report_data: dict, meta: dict) -> None:
     啟動所有背景任務（fire-and-forget）。
 
     在 analysis route 中，報告 streaming 完成後呼叫此函式。
+    ⚠️ 順序很重要：report 必須先寫入 DB，predictions 才能用 FK 引用它
     """
-    tasks = [
-        save_report_to_db(report_data),
-        create_predictions(report_data),
-        log_pipeline_result(report_data, meta),
-    ]
+    # Step 1: 先儲存報告（predictions FK 依賴 reports.id）
+    try:
+        report_id = await save_report_to_db(report_data)
+        if not report_id:
+            logger.error("[Background] 報告儲存失敗，跳過 predictions 建立")
+    except Exception as e:
+        logger.error(f"[Background] 報告儲存異常: {e}")
+        report_id = None
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Step 2: 報告儲存成功後，並行執行其他任務
+    parallel_tasks = [log_pipeline_result(report_data, meta)]
+    if report_id:
+        parallel_tasks.append(create_predictions(report_data))
+
+    results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
 
     for i, result in enumerate(results):
         if isinstance(result, Exception):
-            logger.error(f"[Background] 任務 {i} 失敗: {result}")
+            logger.error(f"[Background] 並行任務 {i} 失敗: {result}")
