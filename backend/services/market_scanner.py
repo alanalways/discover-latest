@@ -72,20 +72,8 @@ def _detect_regime(closes: list[float]) -> str:
     return "sideways"
 
 
-def _get_history_as_dicts(symbol: str, market: str, period: str = "6mo") -> tuple[list[dict], dict]:
-    """
-    透過新架構的 yahoo.py 取得歷史資料，轉為 list[dict] 格式。
-
-    Returns:
-        (history_list, info_dict)
-    """
-    from backend.data.sources.yahoo import get_price_data, get_info
-
-    price_data = get_price_data(symbol, market, period=period)
-
-    if price_data.get("error") or not price_data.get("closes"):
-        return [], {}
-
+def _price_to_history(price_data: dict) -> list[dict]:
+    """將 price_data dict 轉為 list[dict] 格式。"""
     dates = price_data.get("dates", [])
     opens = price_data.get("opens", [])
     highs = price_data.get("highs", [])
@@ -103,8 +91,45 @@ def _get_history_as_dicts(symbol: str, market: str, period: str = "6mo") -> tupl
             "close": closes[i] if i < len(closes) else 0,
             "volume": volumes[i] if i < len(volumes) else 0,
         })
+    return history
 
-    info = get_info(symbol, market)
+
+def _get_history_as_dicts(symbol: str, market: str, period: str = "6mo") -> tuple[list[dict], dict]:
+    """
+    取得歷史資料（FinMind 為主，Yahoo 為備）。
+
+    Returns:
+        (history_list, info_dict)
+    """
+    price_data = None
+    info = {}
+
+    # 台股優先 FinMind
+    if market in ("TW", "TWO"):
+        try:
+            from backend.data.sources.finmind import get_price_data as fm_price, get_fundamentals
+            price_data = fm_price(symbol, days=180)
+            if price_data.get("error") or not price_data.get("closes"):
+                price_data = None
+            else:
+                # 基本面也從 FinMind 取
+                info = get_fundamentals(symbol)
+        except Exception as e:
+            logger.debug(f"[Scanner] FinMind {symbol} 失敗: {e}")
+            price_data = None
+
+    # Fallback Yahoo
+    if price_data is None:
+        try:
+            from backend.data.sources.yahoo import get_price_data, get_info
+            price_data = get_price_data(symbol, market, period=period)
+            if price_data.get("error") or not price_data.get("closes"):
+                return [], {}
+            info = get_info(symbol, market)
+        except Exception:
+            return [], {}
+
+    history = _price_to_history(price_data)
     return history, info
 
 

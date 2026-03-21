@@ -1180,7 +1180,7 @@ class CEOAgent:
         """
         取得股票價格資料（OHLCV + 技術指標）。
 
-        嘗試從 yahoo 資料來源取得。模組可能尚未實作。
+        台股用 FinMind 為主，Yahoo 為備；美股用 FinMind 嘗試後 fallback Yahoo。
 
         Args:
             symbol: 股票代號
@@ -1189,15 +1189,22 @@ class CEOAgent:
         Returns:
             價格資料 dict，取得失敗時回傳空 dict
         """
+        # 台股優先 FinMind
+        if market in ("TW", "TWO"):
+            try:
+                from backend.data.sources.finmind import get_price_data as fm_price
+                data = fm_price(symbol, days=120)
+                if data and data.get("closes") and not data.get("error"):
+                    return data
+            except Exception as e:
+                logger.debug(f"[{_AGENT_DISPLAY}] FinMind 價格失敗: {e}")
+
+        # Fallback Yahoo
         try:
             from backend.data.sources.yahoo import get_price_data
             data = get_price_data(symbol, market)
             if data:
                 return data
-        except ImportError:
-            logger.debug(
-                f"[{_AGENT_DISPLAY}] yahoo.get_price_data 尚未實作"
-            )
         except Exception as e:
             logger.warning(
                 f"[{_AGENT_DISPLAY}] 取得 {symbol} 價格資料失敗: {e}"
@@ -1208,7 +1215,7 @@ class CEOAgent:
         """
         取得股票基本面資料（EPS / 營收 / 比率等）。
 
-        嘗試從 yahoo 資料來源取得。模組可能尚未實作。
+        台股用 FinMind 為主（PER/PBR/營收），Yahoo 為備。
 
         Args:
             symbol: 股票代號
@@ -1217,15 +1224,22 @@ class CEOAgent:
         Returns:
             基本面資料 dict，取得失敗時回傳空 dict
         """
+        # 台股優先 FinMind
+        if market in ("TW", "TWO"):
+            try:
+                from backend.data.sources.finmind import get_fundamentals
+                data = get_fundamentals(symbol)
+                if data and (data.get("per") or data.get("name") != symbol):
+                    return data
+            except Exception as e:
+                logger.debug(f"[{_AGENT_DISPLAY}] FinMind 基本面失敗: {e}")
+
+        # Fallback Yahoo
         try:
             from backend.data.sources.yahoo import get_info
             data = get_info(symbol, market)
             if data:
                 return data
-        except ImportError:
-            logger.debug(
-                f"[{_AGENT_DISPLAY}] yahoo.get_info 尚未實作"
-            )
         except Exception as e:
             logger.warning(
                 f"[{_AGENT_DISPLAY}] 取得 {symbol} 基本面資料失敗: {e}"

@@ -98,10 +98,19 @@ async def health_check():
     """系統健康檢查（無需認證）。"""
     from backend.data.storage.supabase_client import get_client
     db_ok = get_client() is not None
+
+    # FinMind token 狀態
+    try:
+        from backend.data.sources.finmind import get_token_status
+        fm = get_token_status()
+    except Exception:
+        fm = {"token_count": 0, "total_remaining": 0}
+
     return {
         "status":  "ok",
         "version": "2.0.0",
         "db":      "connected" if db_ok else "unavailable",
+        "finmind": fm,
     }
 
 

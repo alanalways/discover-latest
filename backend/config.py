@@ -88,6 +88,56 @@ TIER_LIMITS: dict[str, dict[str, int]] = {
 SPACE_URL: str = os.getenv("SPACE_URL", "https://alanalways-discover-latest-v2.hf.space")
 
 # ─────────────────────────────────────────────────────────
+# FinMind（台股+美股 主要資料來源）
+# ─────────────────────────────────────────────────────────
+# 雙 Token 系統：各 600 req/hr，合計 1200 req/hr
+_finmind_raw: str = os.getenv("FINMIND_TOKENS", "")  # 逗號分隔多把
+FINMIND_TOKENS_LIST: list[str] = [
+    k.strip() for k in _finmind_raw.split(",") if k.strip()
+] if _finmind_raw else []
+
+# 向下相容：個別環境變數
+if not FINMIND_TOKENS_LIST:
+    _fm_singles = []
+    for _fk in ["FINMIND_TOKEN", "FINMIND_TOKEN_2", "FINMIND_TOKEN_3", "FINMIND_TOKEN_4"]:
+        _v = os.getenv(_fk, "")
+        if _v:
+            _fm_singles.append(_v)
+    FINMIND_TOKENS_LIST = _fm_singles
+
+if FINMIND_TOKENS_LIST:
+    _cfg_logger.warning(
+        f"[Config] FinMind token pool: count={len(FINMIND_TOKENS_LIST)}, "
+        f"prefixes={[k[:8]+'...' for k in FINMIND_TOKENS_LIST]}"
+    )
+else:
+    _cfg_logger.warning("[Config] FinMind token NOT found — will use 300 req/hr anonymous")
+
+# FinMind Rate Limit（per token，留 buffer）
+FINMIND_RATE_LIMITS: dict[str, int] = {
+    "rpm_per_token": 10,     # 每分鐘安全上限
+    "rph_per_token": 550,    # 每小時安全上限（600 扣 buffer）
+}
+
+# FinMind 快取 TTL（秒）
+FINMIND_CACHE_TTL: dict[str, int] = {
+    "TaiwanStockInfo": 3600,
+    "TaiwanStockPrice": 900,
+    "TaiwanStockPER": 7200,
+    "TaiwanStockMonthRevenue": 86400,
+    "TaiwanStockFinancialStatements": 86400,
+    "TaiwanStockBalanceSheet": 86400,
+    "TaiwanStockCashFlowsStatement": 86400,
+    "TaiwanStockDividend": 86400,
+    "TaiwanStockMarketValue": 7200,
+    "TaiwanStockInstitutionalInvestorsBuySell": 900,
+    "TaiwanStockMarginPurchaseShortSale": 900,
+    "USStockPrice": 900,
+    "USStockInfo": 3600,
+    "_default": 600,
+}
+
+# ─────────────────────────────────────────────────────────
 # Pinecone（RAG 知識庫）
 # ─────────────────────────────────────────────────────────
 PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")

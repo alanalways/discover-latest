@@ -174,20 +174,49 @@ class Backtester:
     ) -> Optional[float]:
         """
         取得指定日期的收盤價。
-        優先嘗試 Yahoo Finance，台股失敗則 fallback 到 TWSE。
+        台股：FinMind → Yahoo → TWSE
+        美股：Yahoo
         """
-        # 嘗試 Yahoo Finance
+        # 台股優先 FinMind
+        if market in ("TW", "TWO"):
+            price = self._fetch_finmind(symbol, date_str)
+            if price is not None:
+                return price
+
+        # Yahoo
         price = self._fetch_yahoo(symbol, market, date_str)
         if price is not None:
             return price
 
-        # 台股 fallback：TWSE
-        if market == "TW":
+        # 台股最後 fallback：TWSE
+        if market in ("TW", "TWO"):
             price = self._fetch_twse(symbol, date_str)
             if price is not None:
                 return price
 
         return None
+
+    def _fetch_finmind(
+        self, symbol: str, date_str: str
+    ) -> Optional[float]:
+        """透過 FinMind 取得台股指定日期收盤價。"""
+        try:
+            from backend.data.sources.finmind import get_price_data
+            data = get_price_data(symbol, days=10)
+            if not data.get("dates") or not data.get("closes"):
+                return None
+            # 找到最接近 target_date 的收盤價
+            target = date_str
+            dates = data["dates"]
+            closes = data["closes"]
+            for i, d in enumerate(dates):
+                if d >= target:
+                    return closes[i]
+            # 如果都比 target 早，回傳最後一天
+            return closes[-1] if closes else None
+        except Exception as e:
+            logger.debug(f"[{_AGENT_DISPLAY}] FinMind fetch 失敗 {symbol}: {e}")
+            return None
 
     def _fetch_yahoo(
         self, symbol: str, market: str, date_str: str

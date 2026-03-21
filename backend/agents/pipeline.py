@@ -7,6 +7,10 @@ backend/agents/pipeline.py
   Stage 2: 6 Agent 全部並行（ThreadPoolExecutor） → 10-15s
   Stage 3: Arbitrator → Chief Analyst (streaming)  → 15-25s
 
+資料來源策略：
+  - FinMind 為主要來源（台股+美股價格、台股法人/融資/基本面）
+  - Yahoo Finance 為備援（FinMind 失敗時 fallback）
+
 Fast Path 回傳報告給使用者後，Background Path 異步處理：
   - DB 寫入 (reports, predictions)
   - audit_log
@@ -27,13 +31,6 @@ from backend.agents.departments.sentiment import SentimentAgent
 from backend.agents.arbitrator import ArbitratorAgent
 from backend.agents.chief_analyst import ChiefAnalystAgent
 from backend.gemini.cache import get_cached_grounding, set_grounding_cache
-from backend.data.sources.yahoo import (
-    get_price_data as fetch_price_data,
-    get_info as fetch_fundamentals,
-)
-from backend.data.sources.finmind import (
-    get_institutional_investors as fetch_institutional_data,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +45,64 @@ _arbitrator = ArbitratorAgent()
 _chief = ChiefAnalystAgent()
 
 
+# ─────────────────────────────────────────────────────────
+# 資料收集：FinMind 為主，Yahoo 為備
+# ─────────────────────────────────────────────────────────
+
+def _fetch_price_data(symbol: str, market: str) -> dict:
+    """價格資料：FinMind 優先，Yahoo fallback"""
+    if market in ("TW", "TWO"):
+        # 台股：FinMind 主力
+        from backend.data.sources.finmind import get_price_data as fm_price
+        data = fm_price(symbol, days=120)
+        if data.get("closes") and not data.get("error"):
+            return data
+        logger.warning(f"[Pipeline] FinMind 價格失敗，fallback Yahoo: {symbol}")
+
+    # 美股或 FinMind 失敗 → Yahoo
+    try:
+        from backend.data.sources.yahoo import get_price_data as yf_price
+        return yf_price(symbol, market)
+    except Exception as e:
+        logger.error(f"[Pipeline] Yahoo 價格也失敗: {symbol} {e}")
+        return {"symbol": symbol, "market": market, "error": str(e),
+                "dates": [], "opens": [], "highs": [], "lows": [],
+                "closes": [], "volumes": []}
+
+
+def _fetch_chips_data(symbol: str, market: str) -> dict:
+    """籌碼資料：FinMind（台股專屬）"""
+    if market not in ("TW", "TWO"):
+        return {"symbol": symbol, "error": "非台股無籌碼資料",
+                "foreign_net": [], "trust_net": [], "dealer_net": [],
+                "margin_balance": [], "short_balance": [], "dates": []}
+
+    from backend.data.sources.finmind import get_chips_data
+    data = get_chips_data(symbol, days=30)
+    return data
+
+
+def _fetch_fundamentals(symbol: str, market: str) -> dict:
+    """基本面：台股用 FinMind，美股用 Yahoo"""
+    if market in ("TW", "TWO"):
+        from backend.data.sources.finmind import get_fundamentals as fm_fund
+        data = fm_fund(symbol)
+        if not data.get("error") or data.get("per") or data.get("name") != symbol:
+            return data
+        logger.warning(f"[Pipeline] FinMind 基本面不完整，fallback Yahoo: {symbol}")
+
+    # 美股或 fallback
+    try:
+        from backend.data.sources.yahoo import get_info as yf_info
+        return yf_info(symbol, market)
+    except Exception as e:
+        logger.error(f"[Pipeline] Yahoo 基本面也失敗: {symbol} {e}")
+        return {"symbol": symbol, "market": market, "error": str(e)}
+
+
+# ─────────────────────────────────────────────────────────
+# 主 Pipeline
+# ─────────────────────────────────────────────────────────
 
 async def fast_analysis(
     symbol: str,
@@ -72,10 +127,10 @@ async def fast_analysis(
 
     stage1_start = time.time()
     try:
-        price_data, institutional, fundamentals = await asyncio.gather(
-            asyncio.to_thread(fetch_price_data, symbol, market),
-            asyncio.to_thread(fetch_institutional_data, symbol),
-            asyncio.to_thread(fetch_fundamentals, symbol, market),
+        price_data, chips_data, fundamentals = await asyncio.gather(
+            asyncio.to_thread(_fetch_price_data, symbol, market),
+            asyncio.to_thread(_fetch_chips_data, symbol, market),
+            asyncio.to_thread(_fetch_fundamentals, symbol, market),
         )
     except Exception as e:
         logger.error(f"[Pipeline] 資料收集失敗: {e}")
@@ -98,7 +153,7 @@ async def fast_analysis(
         market=market,
         report_id=report_id,
         price_data=price_data,
-        institutional=institutional,
+        chips_data=chips_data,
         fundamentals=fundamentals,
     )
     stage2_ms = int((time.time() - stage2_start) * 1000)
@@ -166,7 +221,6 @@ async def fast_analysis(
     yield {
         "type": "done",
         "report_id": report_id,
-        # 前端直接讀取的扁平欄位
         "final_report": full_report,
         "rating": arbitration.get("final_stance"),
         "confidence": arbitration.get("stance_confidence"),
@@ -199,11 +253,11 @@ async def _run_agents_parallel(
     market: str,
     report_id: str,
     price_data: dict,
-    institutional: dict,
+    chips_data: dict,
     fundamentals: dict,
 ) -> dict:
     """
-    6 個 Agent 全部並行執行（asyncio.to_thread 支援 kwargs）。
+    6 個 Agent 全部並行執行。
 
     無 grounding 的 Agent（technical, fundamental, chips）使用傳入的資料。
     有 grounding 的 Agent（event, macro, sentiment）先查快取，未命中才呼叫 Gemini。
@@ -236,17 +290,19 @@ async def _run_agents_parallel(
             logger.error(f"[Pipeline] {agent_name} 執行失敗: {e}")
             return (agent_name, {"status": "failed", "error": str(e)})
 
-    # asyncio.to_thread 支援 **kwargs（Python 3.9+），
-    # 比 run_in_executor 更適合傳遞關鍵字參數
+    # 取得產業資訊（供 MacroAgent 使用）
+    industry = fundamentals.get("industry") or fundamentals.get("sector") or "科技"
+
     results = await asyncio.gather(
         asyncio.to_thread(_run_agent, _technical, "technical",
                           price_data=price_data),
         asyncio.to_thread(_run_agent, _fundamental, "fundamental",
                           financial_data=fundamentals),
         asyncio.to_thread(_run_agent, _chips, "chips",
-                          chips_data=institutional),
+                          chips_data=chips_data),
         asyncio.to_thread(_run_agent, _event, "event"),
-        asyncio.to_thread(_run_agent, _macro, "macro"),
+        asyncio.to_thread(_run_agent, _macro, "macro",
+                          industry=industry),
         asyncio.to_thread(_run_agent, _sentiment, "sentiment"),
     )
 
