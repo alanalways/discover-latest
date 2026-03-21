@@ -155,7 +155,7 @@ export default function Accuracy() {
             </div>
 
             {/* Stat cards */}
-            <div className="lg:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="lg:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-3 stagger-children">
               <StatCard
                 title="整體準確率"
                 value={`${overallPct.toFixed(1)}%`}
@@ -190,7 +190,7 @@ export default function Accuracy() {
           </div>
 
           {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 stagger-children">
 
             {/* Weekly Trend */}
             <div className="glass-card overflow-hidden">

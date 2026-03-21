@@ -1,0 +1,1535 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiscoverLatest 2.0 — 系統架構流程圖</title>
+<style>
+  :root {
+    --bg: #0B0F19;
+    --bg2: #131829;
+    --bg3: #1A2036;
+    --bdr: #2A2F45;
+    --accent: #7C3AED;
+    --gold: #EAB308;
+    --bull: #22C55E;
+    --bear: #EF4444;
+    --sky: #38BDF8;
+    --t1: #E6EDF3;
+    --t2: #B0B8C4;
+    --t3: #8B949E;
+    --t4: #525C68;
+    --flow: #A78BFA;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--t1);
+    font-family: 'Inter', 'Noto Sans TC', -apple-system, sans-serif;
+    padding: 40px 20px;
+    min-height: 100vh;
+  }
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    margin-bottom: 8px;
+    background: linear-gradient(135deg, var(--gold), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--t3);
+    font-size: 13px;
+    margin-bottom: 48px;
+  }
+  .section {
+    max-width: 1400px;
+    margin: 0 auto 60px;
+  }
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 24px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--bdr);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title .num {
+    background: var(--accent);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Flow Diagram Shared ── */
+  .flow-container {
+    background: var(--bg2);
+    border: 1px solid var(--bdr);
+    border-radius: 16px;
+    padding: 32px;
+    overflow-x: auto;
+  }
+
+  /* ── Architecture Overview ── */
+  .arch-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .arch-layer {
+    background: var(--bg3);
+    border: 1px solid var(--bdr);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+  }
+  .arch-layer::before {
+    content: attr(data-label);
+    position: absolute;
+    top: -10px;
+    left: 20px;
+    background: var(--bg2);
+    padding: 0 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .arch-layer[data-type="frontend"]::before { color: var(--sky); }
+  .arch-layer[data-type="api"]::before { color: var(--bull); }
+  .arch-layer[data-type="pipeline"]::before { color: var(--gold); }
+  .arch-layer[data-type="agent"]::before { color: var(--accent); }
+  .arch-layer[data-type="infra"]::before { color: var(--bear); }
+  .arch-layer[data-type="data"]::before { color: var(--t3); }
+
+  .arch-boxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .arch-box {
+    background: var(--bg);
+    border: 1px solid var(--bdr);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    transition: border-color 0.2s;
+    cursor: default;
+    min-width: 130px;
+  }
+  .arch-box:hover { border-color: var(--accent); }
+  .arch-box .name {
+    font-weight: 700;
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+  }
+  .arch-box .desc {
+    color: var(--t4);
+    font-size: 10px;
+  }
+
+  /* ── Pipeline Flow ── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+  }
+  .stage {
+    width: 100%;
+    max-width: 1000px;
+    position: relative;
+  }
+  .stage-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+  .stage-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .stage-info {
+    flex: 1;
+  }
+  .stage-name {
+    font-weight: 700;
+    font-size: 15px;
+  }
+  .stage-time {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    color: var(--t4);
+  }
+  .stage-body {
+    background: var(--bg3);
+    border: 1px solid var(--bdr);
+    border-radius: 12px;
+    padding: 20px;
+    margin-left: 18px;
+    border-left: 3px solid;
+  }
+  .stage[data-stage="1"] .stage-num { background: rgba(56,189,248,0.15); color: var(--sky); border: 2px solid rgba(56,189,248,0.3); }
+  .stage[data-stage="1"] .stage-body { border-left-color: var(--sky); }
+  .stage[data-stage="2"] .stage-num { background: rgba(124,58,237,0.15); color: var(--accent); border: 2px solid rgba(124,58,237,0.3); }
+  .stage[data-stage="2"] .stage-body { border-left-color: var(--accent); }
+  .stage[data-stage="3"] .stage-num { background: rgba(234,179,8,0.15); color: var(--gold); border: 2px solid rgba(234,179,8,0.3); }
+  .stage[data-stage="3"] .stage-body { border-left-color: var(--gold); }
+  .stage[data-stage="4"] .stage-num { background: rgba(239,68,68,0.15); color: var(--bear); border: 2px solid rgba(239,68,68,0.3); }
+  .stage[data-stage="4"] .stage-body { border-left-color: var(--bear); }
+  .stage[data-stage="5"] .stage-num { background: rgba(34,197,94,0.15); color: var(--bull); border: 2px solid rgba(34,197,94,0.3); }
+  .stage[data-stage="5"] .stage-body { border-left-color: var(--bull); }
+
+  .parallel-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .agent-card {
+    background: var(--bg);
+    border: 1px solid var(--bdr);
+    border-radius: 8px;
+    padding: 12px 16px;
+    flex: 1;
+    min-width: 140px;
+    max-width: 200px;
+  }
+  .agent-card .agent-name {
+    font-weight: 700;
+    font-size: 12px;
+    margin-bottom: 4px;
+  }
+  .agent-card .agent-model {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    color: var(--t4);
+    margin-bottom: 4px;
+  }
+  .agent-card .agent-desc {
+    font-size: 10px;
+    color: var(--t3);
+    line-height: 1.4;
+  }
+  .agent-card.grounding {
+    border-color: rgba(234,179,8,0.3);
+  }
+  .agent-card.grounding .agent-name::after {
+    content: ' 🔍';
+    font-size: 10px;
+  }
+
+  /* ── Arrow ── */
+  .arrow-down {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+    color: var(--t4);
+  }
+  .arrow-down .line {
+    width: 2px;
+    height: 20px;
+    background: var(--bdr);
+  }
+  .arrow-down .head {
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid var(--bdr);
+  }
+  .arrow-down .label {
+    font-size: 10px;
+    font-family: 'Fira Code', monospace;
+    margin-top: 4px;
+    color: var(--t4);
+  }
+  .arrow-down.highlight .line { background: var(--accent); }
+  .arrow-down.highlight .head { border-top-color: var(--accent); }
+
+  /* ── Schedule Table ── */
+  .schedule-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .schedule-table th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--t3);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--bdr);
+    background: var(--bg3);
+  }
+  .schedule-table td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--bdr);
+    vertical-align: top;
+  }
+  .schedule-table tr:hover { background: rgba(124,58,237,0.04); }
+  .time-badge {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 6px;
+    display: inline-block;
+  }
+  .time-badge.tw { background: rgba(234,179,8,0.1); color: var(--gold); border: 1px solid rgba(234,179,8,0.2); }
+  .time-badge.us { background: rgba(56,189,248,0.1); color: var(--sky); border: 1px solid rgba(56,189,248,0.2); }
+  .time-badge.sys { background: rgba(124,58,237,0.1); color: var(--accent); border: 1px solid rgba(124,58,237,0.2); }
+
+  /* ── Fallback Chain ── */
+  .chain {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chain-node {
+    background: var(--bg);
+    border: 1px solid var(--bdr);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    text-align: center;
+  }
+  .chain-node.primary { border-color: var(--accent); color: var(--accent); }
+  .chain-arrow { color: var(--t4); font-size: 18px; }
+
+  /* ── Data Flow ── */
+  .data-flow {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+  }
+  .data-card {
+    background: var(--bg3);
+    border: 1px solid var(--bdr);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+  }
+  .data-card .icon {
+    font-size: 24px;
+    margin-bottom: 10px;
+    display: block;
+  }
+  .data-card h4 {
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .data-card p {
+    color: var(--t3);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .data-card .tech {
+    font-family: 'Fira Code', monospace;
+    font-size: 10px;
+    color: var(--t4);
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--bdr);
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding: 16px 20px;
+    background: var(--bg3);
+    border: 1px solid var(--bdr);
+    border-radius: 10px;
+    margin-bottom: 32px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--t3);
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  /* ── Background Tasks ── */
+  .bg-tasks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .bg-task {
+    background: var(--bg);
+    border: 1px dashed var(--bdr);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    flex: 1;
+    min-width: 180px;
+  }
+  .bg-task .task-name { font-weight: 700; margin-bottom: 3px; }
+  .bg-task .task-detail { color: var(--t4); font-size: 10px; }
+
+  /* ── File Map ── */
+  .file-tree {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 2;
+    color: var(--t3);
+    column-count: 2;
+    column-gap: 40px;
+  }
+  .file-tree .dir { color: var(--sky); font-weight: 700; }
+  .file-tree .file { color: var(--t2); padding-left: 16px; }
+  .file-tree .highlight { color: var(--gold); }
+
+  @media (max-width: 768px) {
+    .file-tree { column-count: 1; }
+    .parallel-row { flex-direction: column; }
+    .agent-card { max-width: none; }
+  }
+
+  /* ── Info Note ── */
+  .note {
+    background: rgba(234,179,8,0.06);
+    border: 1px solid rgba(234,179,8,0.15);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 12px;
+    color: var(--gold);
+    margin: 16px 0;
+    line-height: 1.6;
+  }
+  .note strong { color: var(--gold); }
+</style>
+</head>
+<body>
+
+<h1>DiscoverLatest 2.0 — 系統架構流程圖</h1>
+<p class="subtitle">AI 智慧投資分析平台 · 完整技術架構文件 · 2026-03-21</p>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- LEGEND -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--sky)"></div>前端 / 使用者介面</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--bull)"></div>API 路由層</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--gold)"></div>分析 Pipeline</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>AI Agent 層</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--bear)"></div>基礎設施</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--t3)"></div>外部資料來源</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 1. ARCHITECTURE OVERVIEW -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">1</span>
+    系統架構總覽
+  </div>
+  <div class="flow-container">
+    <div class="arch-grid">
+
+      <!-- Frontend -->
+      <div class="arch-layer" data-label="Frontend — Vite + React + TypeScript" data-type="frontend">
+        <div class="arch-boxes">
+          <div class="arch-box">
+            <span class="name">App.tsx</span>
+            <span class="desc">路由 · OAuth · NavBar</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Dashboard.tsx</span>
+            <span class="desc">首頁 · 推薦 · 自選股</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Analysis.tsx</span>
+            <span class="desc">SSE 即時分析</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Scanner.tsx</span>
+            <span class="desc">全市場掃描</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Accuracy.tsx</span>
+            <span class="desc">準確率（公開）</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Watchlist.tsx</span>
+            <span class="desc">自選股管理</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">api.ts</span>
+            <span class="desc">REST + SSE 客戶端</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div><div class="label">HTTP / SSE (EventSource)</div></div>
+
+      <!-- API Layer -->
+      <div class="arch-layer" data-label="API Routes — FastAPI" data-type="api">
+        <div class="arch-boxes">
+          <div class="arch-box">
+            <span class="name">/api/analysis</span>
+            <span class="desc">SSE streaming · 同步分析</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/api/scanner</span>
+            <span class="desc">掃描結果 · top-bullish</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/api/accuracy</span>
+            <span class="desc">準確率查詢（公開）</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/api/watchlist</span>
+            <span class="desc">自選股 CRUD</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/api/auth</span>
+            <span class="desc">Google OAuth · /me</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/api/market</span>
+            <span class="desc">指數 · 宏觀 · 交易時段</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">/health</span>
+            <span class="desc">健康檢查</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Pipeline Layer -->
+      <div class="arch-layer" data-label="Analysis Pipeline — 並行執行核心" data-type="pipeline">
+        <div class="arch-boxes">
+          <div class="arch-box">
+            <span class="name">pipeline.py</span>
+            <span class="desc">3 階段並行調度器</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">ceo_agent.py</span>
+            <span class="desc">CEO 調度 · 排程入口</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">heartbeat.py</span>
+            <span class="desc">APScheduler 排程</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">task_queue.py</span>
+            <span class="desc">工作佇列管理</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">background_tasks.py</span>
+            <span class="desc">Fire-and-forget</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Agent Layer -->
+      <div class="arch-layer" data-label="AI Agent 層 — 6 部門 + 仲裁 + 報告" data-type="agent">
+        <div class="arch-boxes">
+          <div class="arch-box" style="border-color:rgba(56,189,248,0.3)">
+            <span class="name">🔬 技術面</span>
+            <span class="desc">SMC · RSI · MACD · KDJ · EMA</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(56,189,248,0.3)">
+            <span class="name">📊 基本面</span>
+            <span class="desc">EPS · PE · PB · ROE · DCF</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(56,189,248,0.3)">
+            <span class="name">💰 籌碼面</span>
+            <span class="desc">法人買賣超 · 融資融券</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(234,179,8,0.3)">
+            <span class="name">⚡ 事件驅動 🔍</span>
+            <span class="desc">財報 · 法說 · 重大訊息</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(234,179,8,0.3)">
+            <span class="name">🌐 宏觀策略 🔍</span>
+            <span class="desc">美股 · VIX · Fed · 匯率</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(234,179,8,0.3)">
+            <span class="name">📡 情緒雷達 🔍</span>
+            <span class="desc">社群情緒 · 恐慌指數</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(239,68,68,0.3)">
+            <span class="name">⚖️ 仲裁官</span>
+            <span class="desc">矛盾識別 · 加權決策</span>
+          </div>
+          <div class="arch-box" style="border-color:rgba(34,197,94,0.3)">
+            <span class="name">📝 首席分析師</span>
+            <span class="desc">11 章投行研報 · Streaming</span>
+          </div>
+        </div>
+        <div class="note">
+          🔍 = 使用 Google Search Grounding（即時網路搜尋）<br>
+          藍框 = 無 Grounding，使用傳入數據分析 &nbsp;|&nbsp; 金框 = 有 Grounding，即時搜尋
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Infrastructure Layer -->
+      <div class="arch-layer" data-label="基礎設施 — Gemini · Rate Limit · 審計" data-type="infra">
+        <div class="arch-boxes">
+          <div class="arch-box">
+            <span class="name">gemini/client.py</span>
+            <span class="desc">統一 Gemini 呼叫 · 7 Key 輪替</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">rate_limiter.py</span>
+            <span class="desc">RPM/RPD 追蹤 · 滑動窗口</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">budget_guard.py</span>
+            <span class="desc">日預算 5000 RPD</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">audit_log.py</span>
+            <span class="desc">全呼叫留痕</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">gemini/cache.py</span>
+            <span class="desc">Grounding 快取 4h</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">prompts/registry.py</span>
+            <span class="desc">Prompt 版本控制</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Data Layer -->
+      <div class="arch-layer" data-label="外部資料來源 + 儲存" data-type="data">
+        <div class="arch-boxes">
+          <div class="arch-box">
+            <span class="name">FinMind API</span>
+            <span class="desc">台股主力 · 2 Token 輪替</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Yahoo Finance</span>
+            <span class="desc">美股 + 台股備援</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Gemini API</span>
+            <span class="desc">AI 大腦 · 7 Key × 900 RPD</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Google Search</span>
+            <span class="desc">Grounding（即時搜尋）</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Supabase</span>
+            <span class="desc">PostgreSQL + Auth</span>
+          </div>
+          <div class="arch-box">
+            <span class="name">Pinecone</span>
+            <span class="desc">向量知識庫 (RAG)</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 2. USER ANALYSIS PIPELINE -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">2</span>
+    使用者主動分析 Pipeline（30–60 秒）
+  </div>
+  <div class="flow-container">
+    <div class="pipeline">
+
+      <!-- Stage 0: User Input -->
+      <div class="stage" data-stage="1">
+        <div class="stage-header">
+          <div class="stage-num">0</div>
+          <div class="stage-info">
+            <div class="stage-name">使用者輸入</div>
+            <div class="stage-time">前端 → EventSource SSE 連接</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2)">
+            使用者在 Analysis 頁面輸入股票代號（如 2330）和市場（TW/US）<br>
+            前端呼叫 <code style="color:var(--sky)">streamAnalysis()</code> → 建立 EventSource SSE 連接<br>
+            後端 <code style="color:var(--bull)">GET /api/analysis/stream/{symbol}?market=TW</code>
+          </p>
+          <div class="note">預算檢查：BudgetGuard.can_proceed() → 剩餘預算 ≥ 10 calls 才放行</div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div></div>
+
+      <!-- Stage 1: Data Collection -->
+      <div class="stage" data-stage="1">
+        <div class="stage-header">
+          <div class="stage-num">1</div>
+          <div class="stage-info">
+            <div class="stage-name">資料收集（並行）</div>
+            <div class="stage-time">⏱ 3–5 秒 · asyncio.gather()</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <div class="parallel-row">
+            <div class="agent-card">
+              <div class="agent-name">📈 價格數據</div>
+              <div class="agent-model">FinMind → Yahoo fallback</div>
+              <div class="agent-desc">60 天 OHLCV · K 線 · 即時價</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">💰 籌碼數據</div>
+              <div class="agent-model">FinMind（台股專屬）</div>
+              <div class="agent-desc">三大法人 · 融資融券 · 30 天</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">📊 基本面數據</div>
+              <div class="agent-model">FinMind → Yahoo fallback</div>
+              <div class="agent-desc">PER · PBR · 月營收 · EPS</div>
+            </div>
+          </div>
+          <p style="font-size:11px;color:var(--t4);margin-top:12px">
+            三個資料來源完全並行 → 取決於最慢的那個 → 約 3–5 秒
+          </p>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div><div class="label">yield SSE: {"type":"status","stage":"data","message":"資料收集完成"}</div></div>
+
+      <!-- Stage 2: 6 Agents Parallel -->
+      <div class="stage" data-stage="2">
+        <div class="stage-header">
+          <div class="stage-num">2</div>
+          <div class="stage-info">
+            <div class="stage-name">6 部門 Agent 並行分析</div>
+            <div class="stage-time">⏱ 10–15 秒 · ThreadPoolExecutor(6)</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:11px;color:var(--t3);margin-bottom:12px;font-weight:700">
+            ── 無 Grounding 組（使用傳入數據，較快）──
+          </p>
+          <div class="parallel-row">
+            <div class="agent-card">
+              <div class="agent-name">🔬 技術面分析官</div>
+              <div class="agent-model">gemini-2.5-flash</div>
+              <div class="agent-desc">SMC · BOS/CHoCH · RSI · MACD · KDJ · EMA20/50/200 · Bollinger · 多週期對齊</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">📊 基本面研究官</div>
+              <div class="agent-model">gemini-2.5-flash</div>
+              <div class="agent-desc">EPS 年增率 · PE/PB · ROE/ROA · 毛利率 · 負債比 · 護城河 · DCF</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">💰 籌碼分析官</div>
+              <div class="agent-model">gemini-2.5-flash</div>
+              <div class="agent-desc">外資/投信/自營 · 買賣超天數 · 融資融券餘額 · 籌碼集中度</div>
+            </div>
+          </div>
+
+          <p style="font-size:11px;color:var(--gold);margin:16px 0 12px;font-weight:700">
+            ── 有 Grounding 組（Google Search 即時搜尋，較慢）──
+          </p>
+          <div class="parallel-row">
+            <div class="agent-card grounding">
+              <div class="agent-name">⚡ 事件驅動官</div>
+              <div class="agent-model">gemini-2.5-flash + Google Search</div>
+              <div class="agent-desc">財報 · 法說會 · 重大訊息 · 分析師評級 · 政策衝擊</div>
+            </div>
+            <div class="agent-card grounding">
+              <div class="agent-name">🌐 宏觀策略官</div>
+              <div class="agent-model">gemini-2.5-flash + Google Search</div>
+              <div class="agent-desc">美股三指數 · VIX · Fed 利率 · 美元/台幣 · 板塊輪動</div>
+            </div>
+            <div class="agent-card grounding">
+              <div class="agent-name">📡 情緒雷達官</div>
+              <div class="agent-model">gemini-2.5-flash + Google Search</div>
+              <div class="agent-desc">社群情緒 · Google Trends · 散戶信心 · 恐慌貪婪指數</div>
+            </div>
+          </div>
+          <div class="note">
+            <strong>Grounding 快取</strong>：同一檔股票同一天的搜尋結果快取 4 小時，命中率 30-50%（盤中自選股重複查詢）<br>
+            <strong>Agent 並行</strong>：6 個 Agent 完全獨立，耗時 = max(最慢那個) ≈ 10-15 秒
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div><div class="label">yield SSE: {"type":"status","stage":"agents","message":"6 部門分析完成"}</div></div>
+
+      <!-- Stage 3: Arbitrator -->
+      <div class="stage" data-stage="3">
+        <div class="stage-header">
+          <div class="stage-num">3</div>
+          <div class="stage-info">
+            <div class="stage-name">矛盾仲裁官</div>
+            <div class="stage-time">⏱ 8–10 秒 · gemini-3-flash-preview</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2);margin-bottom:12px">
+            接收 6 部門 JSON → 識別矛盾信號 → 對每個矛盾寫書面仲裁理由 → 輸出最終立場
+          </p>
+          <div class="parallel-row">
+            <div class="agent-card">
+              <div class="agent-name">前處理</div>
+              <div class="agent-desc">標記有效/失敗部門 → 需至少 3 個有效</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">信號提取</div>
+              <div class="agent-desc">各部門 → bullish/bearish/neutral 信號</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">Gemini 仲裁</div>
+              <div class="agent-desc">複雜推理 → 矛盾判決 + 最終立場</div>
+            </div>
+            <div class="agent-card">
+              <div class="agent-name">降級方案</div>
+              <div class="agent-desc">Gemini 失敗 → 規則引擎加權仲裁</div>
+            </div>
+          </div>
+          <div class="note">
+            <strong>加權順序</strong>：籌碼面 &gt; 基本面 &gt; 事件面 &gt; 技術面 &gt; 宏觀面 &gt; 情緒面<br>
+            <strong>輸出</strong>：final_stance (bullish/bearish/neutral/cautious_*) · confidence 0~1 · 矛盾清單 · 風險
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div><div class="label">yield SSE: {"type":"status","stage":"arbitration","message":"仲裁完成"}</div></div>
+
+      <!-- Stage 4: Chief Analyst Streaming -->
+      <div class="stage" data-stage="4">
+        <div class="stage-header">
+          <div class="stage-num">4</div>
+          <div class="stage-info">
+            <div class="stage-name">首席分析師 · Streaming 報告生成</div>
+            <div class="stage-time">⏱ 10–15 秒 · gemini-3-flash-preview · TTFT ~0.4s</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2);margin-bottom:12px">
+            輸入：6 部門摘要 + 仲裁結果 → 透過 <code style="color:var(--accent)">call_gemini_streaming()</code> 逐段生成 11 章報告
+          </p>
+          <div style="background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:14px;font-size:11px;font-family:'Fira Code',monospace;color:var(--t3);line-height:2">
+            <span style="color:var(--gold)">Ch.01</span> 市場快報<br>
+            <span style="color:var(--gold)">Ch.02</span> 技術面分析<br>
+            <span style="color:var(--gold)">Ch.03</span> 基本面解讀<br>
+            <span style="color:var(--gold)">Ch.04</span> 籌碼動向<br>
+            <span style="color:var(--gold)">Ch.05</span> 事件催化<br>
+            <span style="color:var(--gold)">Ch.06</span> 宏觀環境<br>
+            <span style="color:var(--gold)">Ch.07</span> 進出場計畫 <span style="color:var(--t4)">（短/中/長期各含 SL/TP/R:R）</span><br>
+            <span style="color:var(--gold)">Ch.08</span> 風險提示<br>
+            <span style="color:var(--gold)">Ch.09</span> 結論<br>
+            <span style="color:var(--gold)">Ch.10</span> 情境地圖 <span style="color:var(--t4)">（偏多/偏空/震盪三情境）</span><br>
+            <span style="color:var(--gold)">Ch.11</span> 可解釋 AI <span style="color:var(--t4)">（採信了哪些部門 · 仲裁理由）</span>
+          </div>
+          <div class="note">
+            <strong>SSE Streaming</strong>：每段文字即時推送到前端 → 使用者不用等完整報告 → TTFT ~0.4s 後即開始看到文字<br>
+            <strong>前端渲染</strong>：Analysis.tsx 用 EventSource 接收 → 即時 append 到畫面
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down highlight"><div class="line"></div><div class="head"></div><div class="label">yield SSE: {"type":"done","report_id":"..."}</div></div>
+
+      <!-- Stage 5: Background -->
+      <div class="stage" data-stage="5">
+        <div class="stage-header">
+          <div class="stage-num">5</div>
+          <div class="stage-info">
+            <div class="stage-name">背景任務（使用者不等待）</div>
+            <div class="stage-time">🔄 Fire-and-forget · asyncio.create_task()</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2);margin-bottom:12px">
+            報告 SSE 已完成 → 使用者已看到完整結果 → 後台異步執行以下任務
+          </p>
+          <div class="bg-tasks">
+            <div class="bg-task">
+              <div class="task-name">💾 儲存報告</div>
+              <div class="task-detail">save_report_to_db() → reports 表<br>⚠️ 必須先執行（FK 主鍵）</div>
+            </div>
+            <div class="bg-task">
+              <div class="task-name">🎯 建立預測</div>
+              <div class="task-detail">create_predictions() → predictions 表<br>3 個時間維度（5天/30天/90天）</div>
+            </div>
+            <div class="bg-task">
+              <div class="task-name">📋 審計日誌</div>
+              <div class="task-detail">log_pipeline_result() → agent_logs 表<br>模型 · 耗時 · Token 數</div>
+            </div>
+          </div>
+          <div class="note">
+            <strong>執行順序</strong>：先儲存報告（Step 1）→ 再並行執行預測 + 日誌（Step 2）<br>
+            <strong>原因</strong>：predictions 表有 FK 參照 reports.id，必須確保報告已存在
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 3. SCHEDULE FLOW -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">3</span>
+    自動排程掃描系統
+  </div>
+  <div class="flow-container">
+    <table class="schedule-table">
+      <thead>
+        <tr>
+          <th>時間</th>
+          <th>任務名稱</th>
+          <th>掃描範圍</th>
+          <th>說明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="time-badge tw">08:00</span></td>
+          <td style="font-weight:700">盤前掃描</td>
+          <td>TOP 500 + 自選股 + 美股 10</td>
+          <td style="color:var(--t3);font-size:12px">台股開盤前完整掃描，過濾 2h 內已有報告的股票</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge tw">12:00</span></td>
+          <td style="font-weight:700">盤中掃描</td>
+          <td>TOP 500 + 自選股</td>
+          <td style="color:var(--t3);font-size:12px">盤中更新，捕捉上午行情變化</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge tw">13:40</span></td>
+          <td style="font-weight:700">盤後掃描</td>
+          <td>TOP 500 + 自選股</td>
+          <td style="color:var(--t3);font-size:12px">收盤後最終掃描 + 盤後摘要（CEO postmarket_summary）</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge us">21:00</span></td>
+          <td style="font-weight:700">美股盤前掃描</td>
+          <td>美股 10 藍籌</td>
+          <td style="color:var(--t3);font-size:12px">AAPL · NVDA · MSFT · GOOG · AMZN · META · TSLA · TSM · AVGO · AMD</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge sys">每 5 分鐘</span></td>
+          <td style="font-weight:700">佇列處理</td>
+          <td>—</td>
+          <td style="color:var(--t3);font-size:12px">從 job_queue 取待執行工作 → CEO.run_pending_jobs(max=20)</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge sys">每 6 小時</span></td>
+          <td style="font-weight:700">儲存檢查</td>
+          <td>—</td>
+          <td style="color:var(--t3);font-size:12px">Supabase 容量檢查 → 70% 自動封存 → HuggingFace 冷層</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge sys">週一 07:00</span></td>
+          <td style="font-weight:700">週度回測</td>
+          <td>—</td>
+          <td style="color:var(--t3);font-size:12px">比對 predictions 到期的實際結果 → outcomes 表 → 準確率更新</td>
+        </tr>
+        <tr>
+          <td><span class="time-badge sys">每日 00:01</span></td>
+          <td style="font-weight:700">預算重置</td>
+          <td>—</td>
+          <td style="color:var(--t3);font-size:12px">BudgetGuard 日用量歸零 → 5000 RPD 重新開始</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note" style="margin-top:20px">
+      <strong>TOP 500 動態清單</strong>：從 FinMind TaiwanStockInfo 抓取 → 篩選 4 位數代號 → 升序排列 → 取前 500<br>
+      <strong>快取</strong>：TOP 500 清單快取 24 小時 · FinMind 失敗時 fallback 48 檔精選股<br>
+      <strong>去重</strong>：自選股 ∪ TOP 500 ∪ 美股 → 去除重複後逐一入隊
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 4. GEMINI MODEL ALLOCATION -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">4</span>
+    Gemini 模型分配 & 降級鏈
+  </div>
+  <div class="flow-container">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px">
+      <div class="data-card">
+        <span class="icon">⚡</span>
+        <h4 style="color:var(--sky)">gemini-2.5-flash</h4>
+        <p>主力模型 · 6 部門 Agent + 回測 + 記憶<br>RPM: 12 · RPD: 900 × 7 keys = 6300</p>
+        <div class="tech">速度：224-270 tok/s · TTFT 0.4s</div>
+      </div>
+      <div class="data-card">
+        <span class="icon">🧠</span>
+        <h4 style="color:var(--accent)">gemini-3-flash-preview</h4>
+        <p>最強推理 · 仲裁官 + 首席分析師<br>RPM: 8 · RPD: 400 × 7 keys = 2800</p>
+        <div class="tech">推理最強 · Rate limit 較嚴</div>
+      </div>
+      <div class="data-card">
+        <span class="icon">🔬</span>
+        <h4 style="color:var(--bull)">gemini-2.5-pro</h4>
+        <p>深度分析 · Prompt 演進引擎<br>RPM: 4 · RPD: 90 × 7 keys = 630</p>
+        <div class="tech">深度推理 · RPM 最低</div>
+      </div>
+      <div class="data-card">
+        <span class="icon">💨</span>
+        <h4 style="color:var(--t3)">gemini-2.5-flash-lite</h4>
+        <p>最便宜 · 批次掃描器<br>RPM: 14 · RPD: 900 × 7 keys = 6300</p>
+        <div class="tech">速度：400-500 tok/s · 最終降級目標</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin-bottom:16px;color:var(--t2)">自動降級鏈（Rate Limit 觸發時）</h3>
+    <div class="chain">
+      <div class="chain-node primary">gemini-3-flash-preview</div>
+      <span class="chain-arrow">→</span>
+      <div class="chain-node">gemini-2.5-pro</div>
+      <span class="chain-arrow">→</span>
+      <div class="chain-node">gemini-2.5-flash</div>
+      <span class="chain-arrow">→</span>
+      <div class="chain-node">gemini-2.5-flash-lite</div>
+    </div>
+    <p style="font-size:11px;color:var(--t4);margin-top:12px">
+      每次 API 呼叫前，RateLimiter 檢查 RPM/RPD → 超限自動沿鏈降級 → 7 把 Key Round-Robin 輪替分散壓力
+    </p>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 5. DATA FLOW -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">5</span>
+    資料來源與儲存流向
+  </div>
+  <div class="flow-container">
+    <div class="data-flow">
+      <div class="data-card" style="border-color:rgba(234,179,8,0.3)">
+        <span class="icon">🏦</span>
+        <h4>FinMind API</h4>
+        <p>
+          <strong>台股主力資料源</strong><br>
+          價格 · 法人買賣超 · 融資融券<br>
+          PER · PBR · 月營收 · 股利<br>
+          股票清單（TOP 500 來源）
+        </p>
+        <div class="tech">
+          2 Token 輪替 · 各 550 req/hr<br>
+          快取 TTL：價格 15min · 基本面 24h<br>
+          Token 耗盡 → 冷卻 60s → 自動切換
+        </div>
+      </div>
+      <div class="data-card" style="border-color:rgba(56,189,248,0.3)">
+        <span class="icon">📊</span>
+        <h4>Yahoo Finance</h4>
+        <p>
+          <strong>美股主力 + 台股備援</strong><br>
+          OHLCV · 即時價 · 公司資訊<br>
+          PE · PB · Market Cap
+        </p>
+        <div class="tech">
+          yfinance 0.2.0~0.2.59（鎖版本）<br>
+          台股：FinMind 失敗時 fallback<br>
+          美股：Yahoo 為主力
+        </div>
+      </div>
+      <div class="data-card" style="border-color:rgba(124,58,237,0.3)">
+        <span class="icon">🧠</span>
+        <h4>Gemini API</h4>
+        <p>
+          <strong>AI 分析大腦</strong><br>
+          6 部門 · 仲裁 · 報告 · 演進<br>
+          Google Search Grounding
+        </p>
+        <div class="tech">
+          7 把 API Key round-robin<br>
+          日預算：5000 RPD<br>
+          SDK：google-genai (新版)
+        </div>
+      </div>
+      <div class="data-card" style="border-color:rgba(34,197,94,0.3)">
+        <span class="icon">🗄️</span>
+        <h4>Supabase</h4>
+        <p>
+          <strong>PostgreSQL + Auth</strong><br>
+          reports · predictions · outcomes<br>
+          user_prefs · job_queue · agent_logs<br>
+          prompt_versions · archive_index
+        </p>
+        <div class="tech">
+          Google OAuth Provider<br>
+          容量閾值：350MB 警告 · 425MB 緊急<br>
+          失敗 → 記憶體佇列 fallback
+        </div>
+      </div>
+      <div class="data-card">
+        <span class="icon">🔍</span>
+        <h4>Pinecone</h4>
+        <p>
+          <strong>向量知識庫 RAG</strong><br>
+          歷史報告向量化<br>
+          相似分析結果檢索
+        </p>
+        <div class="tech">
+          memory_agent 負責<br>
+          用於 prompt 進化參考
+        </div>
+      </div>
+      <div class="data-card">
+        <span class="icon">❄️</span>
+        <h4>HuggingFace Dataset</h4>
+        <p>
+          <strong>冷層封存</strong><br>
+          30天+ 舊報告 → Parquet<br>
+          上傳 HuggingFace 後刪 DB
+        </p>
+        <div class="tech">
+          storage_curator 負責<br>
+          上傳後驗證 → 才刪除
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 6. SUPABASE SCHEMA -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">6</span>
+    資料庫 Schema 關聯圖
+  </div>
+  <div class="flow-container">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+
+      <div class="agent-card" style="max-width:none;border-color:rgba(34,197,94,0.3)">
+        <div class="agent-name" style="color:var(--bull)">📄 reports</div>
+        <div class="agent-desc" style="line-height:1.8">
+          <code>id</code> (PK) · symbol · market<br>
+          technical_output (JSONB)<br>
+          fundamental_output (JSONB)<br>
+          chips_output · event_output<br>
+          macro_output · sentiment_output<br>
+          arbitration_log (JSONB)<br>
+          <strong>final_report</strong> (TEXT)<br>
+          rating · confidence_score<br>
+          target_price_low/high<br>
+          total_gemini_calls · total_tokens<br>
+          generation_time_ms
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none;border-color:rgba(234,179,8,0.3)">
+        <div class="agent-name" style="color:var(--gold)">🎯 predictions</div>
+        <div class="agent-desc" style="line-height:1.8">
+          <code>id</code> (PK)<br>
+          <code>report_id</code> → reports.id (FK)<br>
+          symbol · market<br>
+          predicted_direction<br>
+          predicted_target_low/high<br>
+          timeframe (5d/30d/90d)<br>
+          prediction_date · verify_date<br>
+          <strong>is_verified</strong> (回測後 = true)
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none;border-color:rgba(239,68,68,0.3)">
+        <div class="agent-name" style="color:var(--bear)">✅ outcomes</div>
+        <div class="agent-desc" style="line-height:1.8">
+          <code>id</code> (PK)<br>
+          <code>prediction_id</code> → predictions.id (FK)<br>
+          actual_price_at_prediction<br>
+          actual_price_at_verify<br>
+          actual_direction<br>
+          actual_change_pct<br>
+          <strong>direction_correct</strong> (BOOL)<br>
+          target_hit · score
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none;border-color:rgba(124,58,237,0.3)">
+        <div class="agent-name" style="color:var(--accent)">👤 user_prefs</div>
+        <div class="agent-desc" style="line-height:1.8">
+          user_id (UNIQUE)<br>
+          risk_tolerance<br>
+          preferred_timeframe<br>
+          <strong>watchlist</strong> (JSONB array)<br>
+          notification_line
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none;border-color:rgba(56,189,248,0.3)">
+        <div class="agent-name" style="color:var(--sky)">📋 job_queue</div>
+        <div class="agent-desc" style="line-height:1.8">
+          job_type · priority<br>
+          status (pending/running/done/failed)<br>
+          payload (JSONB)<br>
+          assigned_agent<br>
+          retry_count / max_retries<br>
+          scheduled_for
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none">
+        <div class="agent-name" style="color:var(--t3)">📝 agent_logs</div>
+        <div class="agent-desc" style="line-height:1.8">
+          agent_name · action<br>
+          gemini_model_used<br>
+          tokens_used · duration_ms<br>
+          status · error_detail<br>
+          metadata (JSONB)
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none">
+        <div class="agent-name" style="color:var(--t3)">🔄 prompt_versions</div>
+        <div class="agent-desc" style="line-height:1.8">
+          agent_name · version<br>
+          prompt_content (TEXT)<br>
+          model_assigned<br>
+          accuracy_score<br>
+          is_active · evolved_from
+        </div>
+      </div>
+
+      <div class="agent-card" style="max-width:none">
+        <div class="agent-name" style="color:var(--t3)">🗂️ archive_index</div>
+        <div class="agent-desc" style="line-height:1.8">
+          source_table · source_ids<br>
+          archive_path (HF Dataset)<br>
+          archive_tier<br>
+          file_size_bytes · checksum
+        </div>
+      </div>
+    </div>
+
+    <div class="note" style="margin-top:20px">
+      <strong>FK 關聯鏈</strong>：reports → predictions → outcomes<br>
+      <strong>公開視圖</strong>：public_accuracy_stats（predictions JOIN outcomes，無需登入）<br>
+      <strong>防呆</strong>：背景任務先存 reports → 再存 predictions（避免 FK violation）
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 7. FRONTEND ROUTING -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">7</span>
+    前端頁面路由 & 權限
+  </div>
+  <div class="flow-container">
+    <table class="schedule-table">
+      <thead>
+        <tr>
+          <th>路徑</th>
+          <th>頁面</th>
+          <th>權限</th>
+          <th>主要 API 呼叫</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code style="color:var(--sky)">/</code></td>
+          <td style="font-weight:700">Dashboard</td>
+          <td><span style="color:var(--bull)">公開</span> / 登入雙模式</td>
+          <td style="font-size:11px;color:var(--t3)">getSystemStats · getTopBullish · getScannerResults · getMyReports(auth)</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/analysis</code></td>
+          <td style="font-weight:700">深度分析</td>
+          <td><span style="color:var(--gold)">需登入</span> RequireAuth</td>
+          <td style="font-size:11px;color:var(--t3)">streamAnalysis (SSE) · getReport</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/scanner</code></td>
+          <td style="font-weight:700">智慧掃描</td>
+          <td><span style="color:var(--gold)">需登入</span> RequireAuth</td>
+          <td style="font-size:11px;color:var(--t3)">getScannerResults · getTopBullish</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/accuracy</code></td>
+          <td style="font-weight:700">準確率</td>
+          <td><span style="color:var(--bull)">完全公開</span></td>
+          <td style="font-size:11px;color:var(--t3)">getAccuracyStats · getWeeklyTrend · getPredictions</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/watchlist</code></td>
+          <td style="font-weight:700">自選股</td>
+          <td><span style="color:var(--gold)">需登入</span> RequireAuth</td>
+          <td style="font-size:11px;color:var(--t3)">getWatchlist · addToWatchlist · removeFromWatchlist</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/backtest</code></td>
+          <td style="font-weight:700">回測</td>
+          <td><span style="color:var(--gold)">需登入</span> RequireAuth</td>
+          <td style="font-size:11px;color:var(--t3)">—</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/profile</code></td>
+          <td style="font-weight:700">會員</td>
+          <td><span style="color:var(--gold)">需登入</span> RequireAuth</td>
+          <td style="font-size:11px;color:var(--t3)">/api/auth/me · /api/user/profile</td>
+        </tr>
+        <tr>
+          <td><code style="color:var(--sky)">/admin</code></td>
+          <td style="font-weight:700">後台</td>
+          <td><span style="color:var(--bear)">需登入 + Admin</span></td>
+          <td style="font-size:11px;color:var(--t3)">/api/admin/*</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 8. EVOLUTION ENGINE -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">8</span>
+    自我演進引擎
+  </div>
+  <div class="flow-container">
+    <div class="pipeline">
+      <div class="stage" data-stage="1">
+        <div class="stage-header">
+          <div class="stage-num">A</div>
+          <div class="stage-info">
+            <div class="stage-name">準確率回測官</div>
+            <div class="stage-time">backtester.py · 週一 07:00 自動執行</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <div class="parallel-row">
+            <div class="agent-card" style="max-width:none;flex:1">
+              <div class="agent-name">查詢到期預測</div>
+              <div class="agent-desc">predictions 表 → is_verified=FALSE 且 verify_date ≤ TODAY</div>
+            </div>
+            <div class="agent-card" style="max-width:none;flex:1">
+              <div class="agent-name">比對實際價格</div>
+              <div class="agent-desc">Yahoo/FinMind 取 verify_date 收盤價 → 計算漲跌幅</div>
+            </div>
+            <div class="agent-card" style="max-width:none;flex:1">
+              <div class="agent-name">寫入結果</div>
+              <div class="agent-desc">outcomes 表 → direction_correct · target_hit · score<br>score = 方向正確 0.6 + 目標命中 0.4</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="arrow-down"><div class="line"></div><div class="head"></div></div>
+
+      <div class="stage" data-stage="3">
+        <div class="stage-header">
+          <div class="stage-num">B</div>
+          <div class="stage-info">
+            <div class="stage-name">Prompt 演進引擎</div>
+            <div class="stage-time">prompt_evolver.py · gemini-2.5-pro</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2)">
+            讀取各 Agent 的準確率 → 找出最弱部門 → 用 gemini-2.5-pro 分析失敗案例<br>
+            → 生成改良版 Prompt → 測試 → 如果更好就啟用新版本（prompt_versions 表）
+          </p>
+        </div>
+      </div>
+
+      <div class="arrow-down"><div class="line"></div><div class="head"></div></div>
+
+      <div class="stage" data-stage="2">
+        <div class="stage-header">
+          <div class="stage-num">C</div>
+          <div class="stage-info">
+            <div class="stage-name">記憶代理</div>
+            <div class="stage-time">memory_agent.py · Pinecone RAG</div>
+          </div>
+        </div>
+        <div class="stage-body">
+          <p style="font-size:12px;color:var(--t2)">
+            歷史報告向量化 → 存入 Pinecone → 未來分析時可檢索相似案例<br>
+            讓 AI 記住「上次這檔股票分析對了/錯了什麼」
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 9. DEPLOYMENT -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">9</span>
+    部署架構
+  </div>
+  <div class="flow-container">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+      <div class="data-card" style="border-color:rgba(234,179,8,0.3)">
+        <span class="icon">🐋</span>
+        <h4>HuggingFace Spaces</h4>
+        <p>
+          Docker SDK · Port 7860<br>
+          alanalways/discover-latest-v2<br>
+          git push hf main:main
+        </p>
+        <div class="tech">
+          app.py → uvicorn backend.main:app<br>
+          frontend build → /app/frontend/dist/<br>
+          FastAPI mount static SPA
+        </div>
+      </div>
+      <div class="data-card">
+        <span class="icon">📦</span>
+        <h4>Docker 流程</h4>
+        <p>
+          python:3.11-slim base<br>
+          pip install → npm install → npm build<br>
+          前後端一體化部署
+        </p>
+        <div class="tech">
+          單一 worker（HF 免費限制）<br>
+          APScheduler 背景排程<br>
+          StaticFiles + SPA fallback
+        </div>
+      </div>
+      <div class="data-card">
+        <span class="icon">🔐</span>
+        <h4>環境變數</h4>
+        <p>
+          GEMINI_API_KEYS (7把)<br>
+          SUPABASE_URL + SERVICE_KEY<br>
+          FINMIND_TOKENS (2把)<br>
+          GOOGLE_CLIENT_ID (OAuth)
+        </p>
+        <div class="tech">
+          HF Spaces Secrets 管理<br>
+          .env 本地開發<br>
+          永遠不 commit .env
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<!-- 10. TIMING SUMMARY -->
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-title">
+    <span class="num">10</span>
+    Pipeline 時序預估
+  </div>
+  <div class="flow-container">
+    <div style="font-family:'Fira Code',monospace;font-size:12px;line-height:2.2;color:var(--t2)">
+      <div style="margin-bottom:16px">
+        <strong style="color:var(--bull)">最佳情況（Grounding 快取命中）：~25 秒</strong><br>
+        <span style="color:var(--t4)">秒  0</span>
+        <span style="display:inline-block;width:30px;text-align:center">│</span>
+        <span style="color:var(--t4)">5</span>
+        <span style="display:inline-block;width:40px;text-align:center">│</span>
+        <span style="color:var(--t4)">13</span>
+        <span style="display:inline-block;width:40px;text-align:center">│</span>
+        <span style="color:var(--t4)">19</span>
+        <span style="display:inline-block;width:40px;text-align:center">│</span>
+        <span style="color:var(--t4)">25</span><br>
+        <span style="color:var(--sky)">████</span> 資料 3s
+        <span style="color:var(--accent)">████████</span> Agent 8s
+        <span style="color:var(--gold)">██████</span> 仲裁 6s
+        <span style="color:var(--bear)">████████</span> 報告 8s ✅
+      </div>
+      <div style="margin-bottom:16px">
+        <strong style="color:var(--gold)">一般情況（無快取）：~36 秒</strong><br>
+        <span style="color:var(--t4)">秒  0</span>
+        <span style="display:inline-block;width:40px;text-align:center">│</span>
+        <span style="color:var(--t4)">4</span>
+        <span style="display:inline-block;width:60px;text-align:center">│</span>
+        <span style="color:var(--t4)">16</span>
+        <span style="display:inline-block;width:50px;text-align:center">│</span>
+        <span style="color:var(--t4)">24</span>
+        <span style="display:inline-block;width:60px;text-align:center">│</span>
+        <span style="color:var(--t4)">36</span><br>
+        <span style="color:var(--sky)">████</span> 資料 4s
+        <span style="color:var(--accent)">████████████</span> Agent 12s
+        <span style="color:var(--gold)">████████</span> 仲裁 8s
+        <span style="color:var(--bear)">████████████</span> 報告 12s ✅
+      </div>
+      <div>
+        <strong style="color:var(--bear)">最差情況（降級 + 重試）：~55 秒</strong><br>
+        <span style="color:var(--t4)">秒  0</span>
+        <span style="display:inline-block;width:45px;text-align:center">│</span>
+        <span style="color:var(--t4)">5</span>
+        <span style="display:inline-block;width:80px;text-align:center">│</span>
+        <span style="color:var(--t4)">20</span>
+        <span style="display:inline-block;width:60px;text-align:center">│</span>
+        <span style="color:var(--t4)">30</span>
+        <span style="display:inline-block;width:100px;text-align:center">│</span>
+        <span style="color:var(--t4)">55</span><br>
+        <span style="color:var(--sky)">█████</span> 資料 5s
+        <span style="color:var(--accent)">███████████████</span> Agent 15s
+        <span style="color:var(--gold)">██████████</span> 仲裁 10s
+        <span style="color:var(--bear)">█████████████████████████</span> 報告+重試 25s ⚠️
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer style="text-align:center;padding:40px 20px 60px;color:var(--t4);font-size:11px">
+  DiscoverLatest 2.0 系統架構流程圖 · 2026-03-21 · Auto-generated
+</footer>
+
+</body>
+</html>

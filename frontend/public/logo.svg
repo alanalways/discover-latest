@@ -1,31 +1,35 @@
 <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Background: OLED dark rounded square -->
-  <rect width="32" height="32" rx="7" fill="#0B0F19"/>
-
-  <!-- Brand gradient: Gold → Purple -->
   <defs>
-    <linearGradient id="barGrad" x1="5" y1="26" x2="26" y2="5" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F59E0B"/>
-      <stop offset="1" stop-color="#8B5CF6"/>
+    <linearGradient id="barGrad" x1="4" y1="28" x2="28" y2="4" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EAB308"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <linearGradient id="lineGrad" x1="4" y1="16" x2="28" y2="4" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EAB308"/>
+      <stop offset="1" stop-color="#A78BFA"/>
     </linearGradient>
   </defs>
 
-  <!-- 3 ascending bars (left=short, right=tall) -->
-  <rect x="4"  y="18" width="5" height="9" rx="1.2" fill="#F59E0B" fill-opacity="0.45"/>
-  <rect x="12" y="12" width="5" height="15" rx="1.2" fill="#F59E0B" fill-opacity="0.72"/>
-  <rect x="20" y="6"  width="6" height="21" rx="1.2" fill="url(#barGrad)"/>
+  <!-- Background: rounded square with subtle border -->
+  <rect width="32" height="32" rx="8" fill="#0B0F19"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7.5" fill="none" stroke="url(#barGrad)" stroke-opacity="0.35"/>
 
-  <!-- Trend line connecting tops -->
+  <!-- 3 ascending bars -->
+  <rect x="5"  y="19" width="5" height="8" rx="1.5" fill="#EAB308" fill-opacity="0.5"/>
+  <rect x="13" y="13" width="5" height="14" rx="1.5" fill="#EAB308" fill-opacity="0.75"/>
+  <rect x="21" y="7"  width="5" height="20" rx="1.5" fill="url(#barGrad)"/>
+
+  <!-- Trend line -->
   <polyline
-    points="6.5,17  14.5,11  23,5"
+    points="7.5,18  15.5,12  23.5,6"
     fill="none"
-    stroke="white"
-    stroke-width="1.6"
+    stroke="url(#lineGrad)"
+    stroke-width="2"
     stroke-linecap="round"
     stroke-linejoin="round"
-    opacity="0.85"
   />
 
-  <!-- Peak glow dot -->
-  <circle cx="23" cy="5" r="2" fill="white" opacity="0.9"/>
+  <!-- Peak dot with glow -->
+  <circle cx="23.5" cy="6" r="2.5" fill="#A78BFA" opacity="0.35"/>
+  <circle cx="23.5" cy="6" r="1.5" fill="white" opacity="0.95"/>
 </svg>

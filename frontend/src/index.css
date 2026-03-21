@@ -5,6 +5,7 @@
 /* ═══════════════════════════════════════════════════════════
    DiscoverLatest 2.0 — Bloomberg Terminal Design System
    Style: OLED Dark + Glassmorphism | Fira Code data layer
+   Enhanced by UI/UX Pro Max — 2026-03-21
    ═══════════════════════════════════════════════════════════ */
 
 /* ── Design Tokens ────────────────────────────────────────── */
@@ -18,8 +19,8 @@
   --bg-4:        #162240;
 
   /* Glassmorphism */
-  --glass-bg:    rgba(10, 22, 40, 0.75);
-  --glass-bg-2:  rgba(15, 31, 53, 0.85);
+  --glass-bg:    rgba(10, 22, 40, 0.72);
+  --glass-bg-2:  rgba(15, 31, 53, 0.82);
   --glass-blur:  20px;
 
   /* Accents */
@@ -61,8 +62,18 @@
   /* Layout */
   --nav-h:  56px;
 
-  /* Transitions */
+  /* Transitions — UI/UX Pro Max: 150-300ms for micro-interactions */
   --ease:   cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 300ms;
+
+  /* Elevation shadows (4-level system — UI/UX Pro Max) */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.35), 0 2px 4px rgba(0,0,0,0.2);
+  --shadow-3: 0 8px 24px rgba(0,0,0,0.4), 0 4px 8px rgba(0,0,0,0.25);
+  --shadow-4: 0 16px 48px rgba(0,0,0,0.5), 0 8px 16px rgba(0,0,0,0.3);
 }
 
 /* ── Base Reset ───────────────────────────────────────────── */
@@ -78,16 +89,33 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Subtle grid background */
+  /* Subtle grid background — enhanced depth */
   background-image:
+    radial-gradient(ellipse 120% 80% at 50% -10%, rgba(124,58,237,0.06) 0%, transparent 60%),
     linear-gradient(rgba(124, 58, 237, 0.02) 1px, transparent 1px),
     linear-gradient(90deg, rgba(124, 58, 237, 0.02) 1px, transparent 1px);
-  background-size: 40px 40px;
+  background-size: 100% 100%, 40px 40px, 40px 40px;
 }
 
+/* UI/UX Pro Max: font-display: swap for web fonts */
 .font-mono, code, kbd, pre {
   font-family: 'Fira Code', 'JetBrains Mono', monospace;
   font-feature-settings: 'liga' 1, 'calt' 1;
+}
+
+/* ── Focus-visible (keyboard-only focus ring) ──────────── */
+/* UI/UX Pro Max: Visible focus rings on interactive elements */
+:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) { outline: none; }
+
+/* ── Selection ─────────────────────────────────────────── */
+::selection {
+  background: rgba(124, 58, 237, 0.35);
+  color: #fff;
 }
 
 /* ── Scrollbar ────────────────────────────────────────────── */
@@ -118,57 +146,113 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 10px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
   font-size: 0.8125rem;
   font-weight: 500;
   color: var(--t3);
   text-decoration: none;
-  transition: color 0.15s, background 0.15s;
+  transition:
+    color var(--duration-fast),
+    background var(--duration-fast),
+    box-shadow var(--duration-base);
   cursor: pointer;
   white-space: nowrap;
+  position: relative;
 }
-.nav-link:hover { color: var(--t2); background: rgba(148,163,184,0.06); }
-.nav-link.active { color: var(--accent-2); background: var(--accent-glow); }
+.nav-link:hover {
+  color: var(--t1);
+  background: rgba(148,163,184,0.08);
+}
+.nav-link.active {
+  color: var(--accent-2);
+  background: var(--accent-glow);
+  box-shadow: 0 0 12px rgba(124,58,237,0.15);
+}
+/* Active indicator dot */
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent-2);
+}
 
 /* ═══════════════════════════════════════════════════════════
    CARDS & SURFACES
    ═══════════════════════════════════════════════════════════ */
 
-/* ── Glass Card ───────────────────────────────────────────── */
+/* ── Glass Card — enhanced with light refraction ─────────── */
 .glass-card {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
   border: 1px solid var(--bdr-1);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 16px rgba(0,0,0,0.3);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+  transition:
+    border-color var(--duration-base) var(--ease),
+    box-shadow var(--duration-slow) var(--ease),
+    transform var(--duration-slow) var(--ease);
+  position: relative;
+  overflow: hidden;
+}
+/* Subtle top-edge light refraction */
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+  pointer-events: none;
 }
 .glass-card:hover {
   border-color: var(--bdr-2);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px var(--bdr-2);
+  box-shadow: var(--shadow-3);
+  transform: translateY(-1px);
 }
 
-/* ── Stat Card ────────────────────────────────────────────── */
+/* ── Stat Card — dimensional layering ─────────────────────── */
 .stat-card {
   background: var(--glass-bg-2);
   border: 1px solid var(--bdr-1);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 18px 20px;
-  transition: border-color 0.2s, transform 0.2s;
+  transition:
+    border-color var(--duration-base) var(--ease),
+    transform var(--duration-slow) var(--ease-spring),
+    box-shadow var(--duration-slow) var(--ease);
   cursor: default;
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  pointer-events: none;
 }
 .stat-card:hover {
   border-color: var(--bdr-2);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
 }
 
 /* ── Inner panel ──────────────────────────────────────────── */
 .panel {
   background: rgba(15, 31, 53, 0.6);
   border: 1px solid var(--bdr-1);
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -210,15 +294,17 @@ body {
   letter-spacing: -0.01em;
 }
 
-/* ── Gradient border ─────────────────────────────────────── */
+/* ── Gradient border — animated ──────────────────────────── */
 .gradient-border {
   position: relative;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 1px;
-  background: linear-gradient(135deg, var(--accent-bdr), rgba(14,165,233,0.2), rgba(234,179,8,0.15));
+  background: linear-gradient(135deg, var(--accent-bdr), rgba(14,165,233,0.25), rgba(234,179,8,0.2));
+  background-size: 200% 200%;
+  animation: gradientShift 6s ease infinite;
 }
 .gradient-border > * {
-  border-radius: 11px;
+  border-radius: 13px;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -252,42 +338,70 @@ body {
   width: 100%;
   background: rgba(10, 22, 40, 0.8);
   border: 1px solid var(--bdr-2);
-  border-radius: 8px;
+  border-radius: 10px;
   padding: 10px 14px;
   color: var(--t1);
   font-size: 0.875rem;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color var(--duration-fast),
+    box-shadow var(--duration-base) var(--ease),
+    background var(--duration-fast);
 }
 .input-field::placeholder { color: var(--t4); }
+.input-field:hover:not(:focus) {
+  border-color: var(--bdr-3);
+  background: rgba(10, 22, 40, 0.9);
+}
 .input-field:focus {
-  border-color: var(--accent-bdr);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow), 0 0 16px rgba(124,58,237,0.1);
+  background: rgba(10, 22, 40, 0.95);
 }
 
-/* ─── Buttons ─────────────────────────────────────────────── */
+/* ─── Buttons — enhanced with glow + spring ──────────────── */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   padding: 10px 20px;
-  border-radius: 8px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--accent), #6D28D9);
   color: #fff;
   font-size: 0.875rem;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.15s, box-shadow 0.15s;
+  transition:
+    opacity var(--duration-fast),
+    transform var(--duration-base) var(--ease-spring),
+    box-shadow var(--duration-slow) var(--ease);
   white-space: nowrap;
+  position: relative;
+  overflow: hidden;
 }
+/* Shimmer overlay on hover */
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; right: 0; bottom: 0;
+  width: 200%;
+  background: linear-gradient(90deg, transparent 40%, rgba(255,255,255,0.12) 50%, transparent 60%);
+  transition: transform 0.6s var(--ease);
+  pointer-events: none;
+}
+.btn-primary:hover:not(:disabled)::after { transform: translateX(50%); }
 .btn-primary:hover:not(:disabled) {
-  opacity: 0.92;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35);
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 25px rgba(124, 58, 237, 0.4),
+    0 0 0 1px rgba(139, 92, 246, 0.3);
 }
-.btn-primary:active:not(:disabled) { transform: translateY(0); }
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+}
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .btn-ghost {
@@ -296,21 +410,29 @@ body {
   justify-content: center;
   gap: 6px;
   padding: 7px 14px;
-  border-radius: 7px;
+  border-radius: 8px;
   background: transparent;
   color: var(--t3);
   font-size: 0.8125rem;
   font-weight: 500;
   border: 1px solid var(--bdr-2);
   cursor: pointer;
-  transition: color 0.15s, background 0.15s, border-color 0.15s;
+  transition:
+    color var(--duration-fast),
+    background var(--duration-fast),
+    border-color var(--duration-base),
+    transform var(--duration-base) var(--ease-spring),
+    box-shadow var(--duration-base);
   white-space: nowrap;
 }
 .btn-ghost:hover:not(:disabled) {
-  color: var(--t2);
-  background: rgba(148,163,184,0.07);
+  color: var(--t1);
+  background: rgba(148,163,184,0.08);
   border-color: var(--bdr-3);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-1);
 }
+.btn-ghost:active:not(:disabled) { transform: translateY(0); }
 .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ═══════════════════════════════════════════════════════════
@@ -329,18 +451,33 @@ body {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--t4);
-  border-bottom: 1px solid var(--bdr-1);
+  border-bottom: 1px solid var(--bdr-2);
   white-space: nowrap;
-  background: rgba(2, 6, 23, 0.4);
+  background: rgba(2, 6, 23, 0.5);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .data-table tbody td {
-  padding: 11px 16px;
+  padding: 12px 16px;
   font-size: 0.8125rem;
   border-bottom: 1px solid var(--bdr-1);
-  transition: background 0.1s;
+  transition: background var(--duration-fast), padding-left var(--duration-fast);
 }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover td { background: rgba(148,163,184,0.04); }
+.data-table tbody tr {
+  transition: background var(--duration-fast);
+  cursor: pointer;
+}
+.data-table tbody tr:hover td {
+  background: rgba(124,58,237,0.04);
+}
+/* Active row accent bar */
+.data-table tbody tr:hover td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent-2);
+}
 
 /* ═══════════════════════════════════════════════════════════
    SECTION HEADER
@@ -405,15 +542,49 @@ body {
 }
 .ticker-inner:hover { animation-play-state: paused; }
 
-/* ── Animate fade-in ─────────────────────────────────────── */
-.animate-fade-in { animation: fadeIn 200ms ease-out; }
-.animate-slide-up { animation: slideUp 300ms cubic-bezier(0.16,1,0.3,1); }
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS & ENTRANCE EFFECTS
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Basic animations ────────────────────────────────────── */
+.animate-fade-in { animation: fadeIn var(--duration-base) ease-out; }
+.animate-slide-up { animation: slideUp var(--duration-slow) var(--ease); }
 .animate-float {
-  animation: float 4s ease-in-out infinite;
+  animation: float 5s ease-in-out infinite;
 }
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50%       { transform: translateY(-6px); }
+
+/* ── Staggered entrance — add to child cards ─────────────── */
+/* Usage: parent adds "stagger-children" class, children get auto-delayed entrance */
+.stagger-children > * {
+  animation: slideUpFade 0.4s var(--ease) both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 360ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 420ms; }
+
+/* ── Table row entrance ──────────────────────────────────── */
+.data-table tbody tr {
+  animation: tableRowIn 0.3s var(--ease) both;
+}
+.data-table tbody tr:nth-child(1)  { animation-delay: 0ms; }
+.data-table tbody tr:nth-child(2)  { animation-delay: 30ms; }
+.data-table tbody tr:nth-child(3)  { animation-delay: 60ms; }
+.data-table tbody tr:nth-child(4)  { animation-delay: 90ms; }
+.data-table tbody tr:nth-child(5)  { animation-delay: 120ms; }
+.data-table tbody tr:nth-child(6)  { animation-delay: 150ms; }
+.data-table tbody tr:nth-child(7)  { animation-delay: 180ms; }
+.data-table tbody tr:nth-child(8)  { animation-delay: 210ms; }
+.data-table tbody tr:nth-child(9)  { animation-delay: 240ms; }
+.data-table tbody tr:nth-child(10) { animation-delay: 270ms; }
+
+/* ── Pulse glow — for key values ─────────────────────────── */
+.animate-glow-pulse {
+  animation: glowPulse 3s ease-in-out infinite;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -445,16 +616,55 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes slideUpFade {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes tableRowIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
+}
+
 @keyframes glowPulse {
   0%, 100% { opacity: 0.7; }
   50%      { opacity: 1; }
 }
 
-/* ── Responsive ──────────────────────────────────────────── */
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════ */
+
+/* Mobile */
 @media (max-width: 768px) {
   .hide-mobile { display: none !important; }
   .glass-card  { border-radius: 10px; }
-  .stat-card   { padding: 14px 16px; }
+  .stat-card   { padding: 14px 16px; border-radius: 10px; }
+  .data-table thead th { font-size: 0.5625rem; padding: 8px 10px; }
+  .data-table tbody td { padding: 10px 10px; font-size: 0.75rem; }
+  .btn-primary { padding: 9px 16px; font-size: 0.8125rem; }
+  .section-header { padding: 10px 16px; }
+}
+
+/* Tablet */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .glass-card { border-radius: 12px; }
+}
+
+/* Large Desktop */
+@media (min-width: 1440px) {
+  body { font-size: 15px; }
 }
 
 /* ── Report Markdown Styles ──────────────────────────────── */
@@ -539,10 +749,19 @@ body {
   color: var(--t2);
 }
 
-/* ── Accessibility: reduce motion ────────────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   ACCESSIBILITY: REDUCED MOTION
+   UI/UX Pro Max: prefers-reduced-motion MUST be respected
+   ═══════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
+  .ticker-inner { animation: none !important; }
+  .animate-float { animation: none !important; }
+  .stagger-children > * { animation: none !important; opacity: 1 !important; }
+  .data-table tbody tr { animation: none !important; opacity: 1 !important; }
 }

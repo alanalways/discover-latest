@@ -7,6 +7,12 @@
       "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5173"],
       "port": 5173,
       "cwd": "frontend"
+    },
+    {
+      "name": "docs",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8899", "--directory", "docs"],
+      "port": 8899
     }
   ]
 }

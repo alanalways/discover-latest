@@ -8,12 +8,13 @@ import {
 } from 'lucide-react'
 import {
   getMyReports, getSystemStats, getAccuracyStats,
-  getMarketOverview, ReportWithContent, SystemStats,
+  getMarketOverview, getTopBullish, getScannerResults,
+  ReportWithContent, ReportSummary, SystemStats,
   MarketQuote, MarketHours, WatchlistItem, rateReport
 } from '../lib/api'
 import {
   RatingBadge, DirectionIcon, ConfidenceGauge,
-  LoadingSkeleton, StatCard, SectionHeader, ChangePct, SignalDot
+  LoadingSkeleton, EmptyState, StatCard, SectionHeader, ChangePct, SignalDot
 } from '../components/ui'
 
 // ── Auth Helpers ─────────────────────────────────────────────────────────────
@@ -213,6 +214,185 @@ function ReportRow({
   )
 }
 
+// ── Market Recommendations (shared between public & private) ─────────────────
+
+function MarketRecommendations({
+  bullish,
+  latest,
+  loading,
+}: {
+  bullish: ReportSummary[]
+  latest: ReportSummary[]
+  loading: boolean
+}) {
+  const navigate = useNavigate()
+
+  return (
+    <div className="space-y-6">
+      {/* 偏多精選 Top 10 */}
+      <div className="glass-card overflow-hidden">
+        <SectionHeader
+          title="偏多精選 Top 10"
+          action={
+            <a
+              href="/scanner"
+              className="flex items-center gap-1 text-xs no-underline"
+              style={{ color: 'var(--accent-2)' }}
+            >
+              查看全部 <ChevronRight size={12} />
+            </a>
+          }
+        />
+        {loading ? (
+          <LoadingSkeleton rows={5} />
+        ) : bullish.length === 0 ? (
+          <EmptyState
+            icon={TrendingUp}
+            title="尚無偏多股票推薦"
+            subtitle="系統掃描完成後將在此顯示推薦"
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th className="w-8">#</th>
+                  <th className="text-left">股票</th>
+                  <th className="text-left">AI 評級</th>
+                  <th className="text-right">信心度</th>
+                  <th className="text-right">目標價區間</th>
+                  <th className="text-right">日期</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bullish.map((item, i) => (
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer transition-colors"
+                    onClick={() => navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td>
+                      <span
+                        className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
+                        style={{
+                          background: i < 3 ? 'rgba(234,179,8,0.15)' : 'rgba(148,163,184,0.06)',
+                          color: i < 3 ? 'var(--gold)' : 'var(--t4)',
+                          border: i < 3 ? '1px solid rgba(234,179,8,0.25)' : '1px solid transparent',
+                        }}
+                      >
+                        {i + 1}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <DirectionIcon rating={item.rating} />
+                        <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
+                          {item.symbol}
+                        </span>
+                        <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
+                      </div>
+                    </td>
+                    <td><RatingBadge rating={item.rating} /></td>
+                    <td className="text-right">
+                      {item.confidence_score != null
+                        ? <ConfidenceGauge value={item.confidence_score} size={38} />
+                        : <span style={{ color: 'var(--t4)' }}>—</span>
+                      }
+                    </td>
+                    <td className="text-right">
+                      <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
+                    </td>
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <span className="text-xs" style={{ color: 'var(--t4)' }}>
+                          {item.created_at?.slice(0, 10)}
+                        </span>
+                        <ChevronRight size={12} style={{ color: 'var(--t4)' }} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* 最新全市場分析 */}
+      <div className="glass-card overflow-hidden">
+        <SectionHeader
+          title="最新全市場分析"
+          action={
+            <div className="flex items-center gap-1.5" style={{ color: 'var(--t4)' }}>
+              <Globe size={10} aria-hidden />
+              <span className="text-xs">共 {latest.length} 檔</span>
+            </div>
+          }
+        />
+        {loading ? (
+          <LoadingSkeleton rows={8} />
+        ) : latest.length === 0 ? (
+          <EmptyState
+            icon={BarChart3}
+            title="尚無全市場分析報告"
+            subtitle="系統排程掃描中，稍後自動更新"
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th className="text-left">股票</th>
+                  <th className="text-left">AI 評級</th>
+                  <th className="text-right">信心度</th>
+                  <th className="text-right">目標價</th>
+                  <th className="text-right">分析時間</th>
+                </tr>
+              </thead>
+              <tbody>
+                {latest.map(item => (
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer transition-colors"
+                    onClick={() => navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <DirectionIcon rating={item.rating} size={12} />
+                        <span className="font-mono font-semibold text-xs" style={{ color: 'var(--t1)' }}>
+                          {item.symbol}
+                        </span>
+                        <span className="text-[11px]" style={{ color: 'var(--t4)' }}>{item.market}</span>
+                      </div>
+                    </td>
+                    <td><RatingBadge rating={item.rating} /></td>
+                    <td className="text-right">
+                      {item.confidence_score != null
+                        ? <ConfidenceGauge value={item.confidence_score} size={34} />
+                        : <span style={{ color: 'var(--t4)' }}>—</span>
+                      }
+                    </td>
+                    <td className="text-right">
+                      <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
+                    </td>
+                    <td className="text-right text-xs" style={{ color: 'var(--t4)' }}>
+                      {item.created_at?.slice(0, 16).replace('T', ' ')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // PUBLIC VIEW — 未登入
 // ══════════════════════════════════════════════════════════════════════════════
@@ -223,12 +403,18 @@ function PublicDashboard({
   onLogin,
   indices,
   hours,
+  bullish,
+  latest,
+  marketLoading,
 }: {
   stats: SystemStats | null
   loading: boolean
   onLogin: () => void
   indices: { tw: MarketQuote[]; us: MarketQuote[] }
   hours: MarketHours | null
+  bullish: ReportSummary[]
+  latest: ReportSummary[]
+  marketLoading: boolean
 }) {
   return (
     <div>
@@ -258,7 +444,7 @@ function PublicDashboard({
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 stagger-children">
           <div className="glass-card p-6 text-center">
             <div className="flex justify-center mb-3">
               <div
@@ -321,7 +507,7 @@ function PublicDashboard({
             登入後可查看您的自選股分析報告、目標價預測、進出場計畫，
             並對分析結果評分，幫助 AI 持續進步
           </p>
-          <div className="flex flex-wrap justify-center gap-3 mb-6">
+          <div className="flex flex-wrap justify-center gap-3 mb-6 stagger-children">
             {[
               { icon: Eye,   text: '查看自選股分析' },
               { icon: Target, text: '目標價追蹤' },
@@ -347,6 +533,13 @@ function PublicDashboard({
             Google 帳號登入
           </button>
         </div>
+
+        {/* 全市場分析推薦 */}
+        <MarketRecommendations
+          bullish={bullish}
+          latest={latest}
+          loading={marketLoading}
+        />
 
         {/* Accuracy link */}
         <div className="text-center">
@@ -379,6 +572,9 @@ function PrivateDashboard({
   indices,
   hours,
   onRefresh,
+  bullish,
+  latest,
+  marketLoading,
 }: {
   reports: ReportWithContent[]
   watchlist: WatchlistItem[]
@@ -389,6 +585,9 @@ function PrivateDashboard({
   indices: { tw: MarketQuote[]; us: MarketQuote[] }
   hours: MarketHours | null
   onRefresh: () => void
+  bullish: ReportSummary[]
+  latest: ReportSummary[]
+  marketLoading: boolean
 }) {
   const navigate = useNavigate()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -455,7 +654,7 @@ function PrivateDashboard({
         </div>
 
         {/* Progress + Stat Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger-children">
           <StatCard
             title="自選股"
             value={watchlist.length || '0'}
@@ -654,7 +853,7 @@ function PrivateDashboard({
         )}
 
         {/* CTA: 深度分析 */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
           <div className="gradient-border">
             <div className="glass-card p-5">
               <div className="flex items-center gap-2 mb-2">
@@ -695,6 +894,13 @@ function PrivateDashboard({
             </a>
           </div>
         </div>
+
+        {/* 全市場分析推薦 */}
+        <MarketRecommendations
+          bullish={bullish}
+          latest={latest}
+          loading={marketLoading}
+        />
 
         {/* Recent History (all reports, not just latest per symbol) */}
         {reports.length > uniqueReports.length && (
@@ -775,6 +981,11 @@ export default function Dashboard() {
   const [indices, setIndices] = useState<{ tw: MarketQuote[]; us: MarketQuote[] }>({ tw: [], us: [] })
   const [hours, setHours] = useState<MarketHours | null>(null)
 
+  // Market-wide recommendations (shared between public & private)
+  const [bullish, setBullish] = useState<ReportSummary[]>([])
+  const [latest, setLatest] = useState<ReportSummary[]>([])
+  const [marketLoading, setMarketLoading] = useState(true)
+
   // 監聽登入狀態
   useEffect(() => {
     const check = () => setLoggedIn(isLoggedIn())
@@ -783,12 +994,26 @@ export default function Dashboard() {
   }, [])
 
   const loadMarket = useCallback(() => {
+    // 市場行情
     getMarketOverview()
       .then(d => {
         if (d.indices)      setIndices(d.indices)
         if (d.market_hours) setHours(d.market_hours)
       })
       .catch(console.error)
+
+    // 全市場推薦（偏多精選 + 最新分析）
+    setMarketLoading(true)
+    Promise.all([
+      getTopBullish(undefined, 10),
+      getScannerResults(undefined, 20),
+    ])
+      .then(([b, s]) => {
+        setBullish(b.items || [])
+        setLatest(s.items || [])
+      })
+      .catch(console.error)
+      .finally(() => setMarketLoading(false))
   }, [])
 
   const loadData = useCallback(() => {
@@ -851,6 +1076,9 @@ export default function Dashboard() {
         onLogin={handleLogin}
         indices={indices}
         hours={hours}
+        bullish={bullish}
+        latest={latest}
+        marketLoading={marketLoading}
       />
     )
   }
@@ -866,6 +1094,9 @@ export default function Dashboard() {
       indices={indices}
       hours={hours}
       onRefresh={() => { loadData(); loadMarket() }}
+      bullish={bullish}
+      latest={latest}
+      marketLoading={marketLoading}
     />
   )
 }
