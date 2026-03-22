@@ -8,9 +8,10 @@ backend/agents/pipeline.py
   Stage 3: 6 Agent 全部並行（ThreadPoolExecutor）  → 10-15s（全 NVIDIA）
   Stage 4: Arbitrator → Chief Analyst (streaming)  → 15-25s（全 NVIDIA）
 
-資料來源策略：
+資料來源策略（三層 fallback）：
   - FinMind 為主要來源（台股+美股價格、台股法人/融資/基本面）
-  - Yahoo Finance 為備援（FinMind 失敗時 fallback）
+  - Yahoo Finance 為第二備援（FinMind 失敗時）
+  - TWSE 公開 API 為第三備援（Yahoo 也失敗時，僅台股）
 
 Gemini 消耗：每次分析 1 次 RPD（只在 Stage 2 Batch Grounding 使用）
 NVIDIA 消耗：8 次 RPM（6 Agent + Arbitrator + Chief Analyst）
@@ -49,26 +50,221 @@ _chief       = ChiefAnalystAgent()
 
 
 # ─────────────────────────────────────────────────────────
-# 資料收集：FinMind 為主，Yahoo 為備
+# 資料收集：FinMind 為主，Yahoo / TWSE 為備
 # ─────────────────────────────────────────────────────────
 
-def _fetch_price_data(symbol: str, market: str) -> dict:
-    """價格資料：FinMind 優先，Yahoo fallback"""
-    if market in ("TW", "TWO"):
-        from backend.data.sources.finmind import get_price_data as fm_price
-        data = fm_price(symbol, days=120)
-        if data.get("closes") and not data.get("error"):
-            return data
-        logger.warning(f"[Pipeline] FinMind 價格失敗，fallback Yahoo: {symbol}")
+def _compute_indicators(price_data: dict) -> dict:
+    """
+    用 numpy 預計算技術指標，注入到 price_data["indicators"]。
+
+    計算項目：RSI(14)、EMA20/50/200、MACD(12,26,9)、Bollinger(20,2)
+    優點：即使 LLM 無法從 OHLCV 自行計算，也能收到準確數值。
+    最少需要 20 根 K 棒才計算；不足時回傳空 indicators。
+    """
+    closes = price_data.get("closes", [])
+    if len(closes) < 20:
+        price_data["indicators"] = {}
+        return price_data
 
     try:
-        from backend.data.sources.yahoo import get_price_data as yf_price
-        return yf_price(symbol, market)
+        import numpy as np
+        arr = np.array(closes, dtype=float)
+
+        # ── EMA ───────────────────────────────────────────
+        def _ema(series: np.ndarray, period: int) -> np.ndarray:
+            k = 2.0 / (period + 1)
+            result = np.empty(len(series))
+            result[0] = series[0]
+            for i in range(1, len(series)):
+                result[i] = series[i] * k + result[i - 1] * (1 - k)
+            return result
+
+        ema20  = _ema(arr, 20)
+        ema50  = _ema(arr, 50)  if len(arr) >= 50  else None
+        ema200 = _ema(arr, 200) if len(arr) >= 200 else None
+
+        # ── RSI(14) ───────────────────────────────────────
+        deltas = np.diff(arr)
+        gains  = np.where(deltas > 0, deltas, 0.0)
+        losses = np.where(deltas < 0, -deltas, 0.0)
+        if len(gains) >= 14:
+            avg_gain = np.mean(gains[-14:])
+            avg_loss = np.mean(losses[-14:])
+            rsi = 100.0 - 100.0 / (1.0 + avg_gain / (avg_loss + 1e-10))
+        else:
+            rsi = 50.0
+
+        # ── MACD(12,26,9) ─────────────────────────────────
+        if len(arr) >= 26:
+            ema12 = _ema(arr, 12)
+            ema26 = _ema(arr, 26)
+            macd_line   = ema12 - ema26
+            signal_line = _ema(macd_line, 9) if len(macd_line) >= 9 else macd_line
+            macd_hist   = macd_line - signal_line
+            macd_val    = round(float(macd_line[-1]),   4)
+            signal_val  = round(float(signal_line[-1]), 4)
+            hist_val    = round(float(macd_hist[-1]),   4)
+            # 判斷訊號
+            if len(macd_line) >= 2:
+                if macd_line[-1] > signal_line[-1] and macd_line[-2] <= signal_line[-2]:
+                    macd_signal_str = "golden_cross"
+                elif macd_line[-1] < signal_line[-1] and macd_line[-2] >= signal_line[-2]:
+                    macd_signal_str = "death_cross"
+                elif macd_line[-1] > signal_line[-1]:
+                    macd_signal_str = "bullish"
+                else:
+                    macd_signal_str = "bearish"
+            else:
+                macd_signal_str = "neutral"
+        else:
+            macd_val = signal_val = hist_val = None
+            macd_signal_str = "neutral"
+
+        # ── Bollinger Bands(20,2) ─────────────────────────
+        window = arr[-20:]
+        bb_mid   = float(np.mean(window))
+        bb_std   = float(np.std(window))
+        bb_upper = round(bb_mid + 2 * bb_std, 4)
+        bb_lower = round(bb_mid - 2 * bb_std, 4)
+        bb_mid   = round(bb_mid, 4)
+
+        cur = float(arr[-1])
+        if cur > bb_upper:
+            bb_pos = "above_upper"
+        elif cur > bb_mid + bb_std * 0.5:
+            bb_pos = "near_upper"
+        elif cur < bb_lower:
+            bb_pos = "below_lower"
+        elif cur < bb_mid - bb_std * 0.5:
+            bb_pos = "near_lower"
+        else:
+            bb_pos = "middle"
+
+        # ── EMA 排列 ──────────────────────────────────────
+        e20 = float(ema20[-1])
+        e50 = float(ema50[-1]) if ema50 is not None else None
+        e200 = float(ema200[-1]) if ema200 is not None else None
+
+        if e50 and e200:
+            if cur > e20 > e50 > e200:
+                ma_align = "bullish_stack"
+            elif cur < e20 < e50 < e200:
+                ma_align = "bearish_stack"
+            else:
+                ma_align = "mixed"
+        elif e50:
+            ma_align = "bullish_stack" if cur > e20 > e50 else "bearish_stack" if cur < e20 < e50 else "mixed"
+        else:
+            ma_align = "bullish_stack" if cur > e20 else "bearish_stack"
+
+        # ── RSI 訊號 ──────────────────────────────────────
+        if rsi > 70:
+            rsi_signal = "overbought"
+        elif rsi < 30:
+            rsi_signal = "oversold"
+        else:
+            rsi_signal = "neutral"
+
+        price_data["indicators"] = {
+            "rsi_14":         round(float(rsi), 2),
+            "rsi_signal":     rsi_signal,
+            "ema_20":         round(e20, 4),
+            "ema_50":         round(e50, 4) if e50 is not None else None,
+            "ema_200":        round(e200, 4) if e200 is not None else None,
+            "ma_alignment":   ma_align,
+            "macd":           macd_val,
+            "macd_signal_line": signal_val,
+            "macd_histogram": hist_val,
+            "macd_signal":    macd_signal_str,
+            "bb_upper":       bb_upper,
+            "bb_mid":         bb_mid,
+            "bb_lower":       bb_lower,
+            "bb_position":    bb_pos,
+            "current_close":  round(cur, 4),
+            "prev_close":     round(float(arr[-2]), 4) if len(arr) >= 2 else None,
+            "change_pct":     round((cur / float(arr[-2]) - 1) * 100, 2) if len(arr) >= 2 else None,
+            "data_points":    len(closes),
+        }
+        logger.debug(
+            f"[Pipeline] 指標預計算完成: RSI={price_data['indicators']['rsi_14']:.1f} "
+            f"MACD={macd_val} EMA20={round(e20,1)} MA排列={ma_align}"
+        )
+
     except Exception as e:
-        logger.error(f"[Pipeline] Yahoo 價格也失敗: {symbol} {e}")
-        return {"symbol": symbol, "market": market, "error": str(e),
-                "dates": [], "opens": [], "highs": [], "lows": [],
-                "closes": [], "volumes": []}
+        logger.warning(f"[Pipeline] 指標預計算失敗（不影響分析）: {e}")
+        price_data["indicators"] = {}
+
+    return price_data
+
+
+def _fetch_price_data(symbol: str, market: str) -> dict:
+    """
+    價格資料：三層 fallback
+      1. FinMind（authenticated / anonymous）
+      2. Yahoo Finance（yfinance）
+      3. TWSE 公開 API（僅台股）
+
+    成功取得資料後自動預計算技術指標。
+    """
+    # ── Fallback 1：FinMind ───────────────────────────────
+    if market in ("TW", "TWO"):
+        try:
+            from backend.data.sources.finmind import get_price_data as fm_price
+            data = fm_price(symbol, days=120)
+            closes_n = len(data.get("closes", []))
+            fm_err   = data.get("error")
+            logger.info(
+                f"[Pipeline] FinMind 價格: {symbol} "
+                f"closes={closes_n}, error={fm_err!r}"
+            )
+            if data.get("closes") and not data.get("error"):
+                return _compute_indicators(data)
+        except Exception as e:
+            logger.warning(f"[Pipeline] FinMind 異常: {symbol} {e}")
+
+        logger.warning(f"[Pipeline] FinMind 無資料，嘗試 Yahoo: {symbol}")
+
+    # ── Fallback 2：Yahoo Finance ─────────────────────────
+    try:
+        from backend.data.sources.yahoo import get_price_data as yf_price
+        data = yf_price(symbol, market)
+        closes_n = len(data.get("closes", []))
+        yf_err   = data.get("error")
+        logger.info(
+            f"[Pipeline] Yahoo 價格: {symbol} "
+            f"closes={closes_n}, error={yf_err!r}"
+        )
+        if data.get("closes") and not data.get("error"):
+            return _compute_indicators(data)
+        logger.warning(f"[Pipeline] Yahoo 無資料，嘗試 TWSE: {symbol}")
+    except Exception as e:
+        logger.warning(f"[Pipeline] Yahoo 異常: {symbol} {e}")
+
+    # ── Fallback 3：TWSE 公開 API（僅台股）───────────────
+    if market in ("TW", "TWO"):
+        try:
+            from backend.data.sources.twse import get_price_data_twse
+            data = get_price_data_twse(symbol, months=5)
+            closes_n = len(data.get("closes", []))
+            twse_err = data.get("error")
+            logger.info(
+                f"[Pipeline] TWSE 價格: {symbol} "
+                f"closes={closes_n}, error={twse_err!r}"
+            )
+            if data.get("closes") and not data.get("error"):
+                return _compute_indicators(data)
+        except Exception as e:
+            logger.error(f"[Pipeline] TWSE 異常: {symbol} {e}")
+
+    # ── 三層均失敗 ────────────────────────────────────────
+    logger.error(f"[Pipeline] 三層價格來源均失敗: {symbol} {market}")
+    return {
+        "symbol": symbol, "market": market,
+        "error":  "FinMind / Yahoo / TWSE 均無法取得資料",
+        "dates":   [], "opens":  [], "highs":  [],
+        "lows":    [], "closes": [], "volumes": [],
+        "indicators": {},
+    }
 
 
 def _fetch_chips_data(symbol: str, market: str) -> dict:
