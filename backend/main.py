@@ -14,14 +14,21 @@ import warnings
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-# 抑制 yfinance 內部 Pandas 棄用警告（yfinance 鎖定 <0.2.59，無法修改其原始碼）
-warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
-warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
+# ── 抑制 yfinance / pandas 棄用警告 ─────────────────────────────────
+# 根本原因：pandas 在首次 import 時會呼叫
+#   warnings.filterwarnings("always", category=Pandas4Warning)
+# 並插入到 filter list 的最前面，蓋過之後設定的 ignore filter。
+#
+# 解法：先強制觸發 yfinance + pandas 的 import（讓它們先把 filter 加進去），
+#       再加入我們的 ignore filter（插入位置 0，蓋過所有 library filter）。
+#       此設定只影響 warnings.warn()，不影響 logger.warning()。
 try:
-    from pandas.errors import Pandas4Warning
-    warnings.filterwarnings("ignore", category=Pandas4Warning)
+    import yfinance   # noqa: F401 — 觸發 pandas warning filter 初始化
+    import pandas     # noqa: F401
 except ImportError:
     pass
+
+warnings.filterwarnings("ignore")   # 覆蓋所有 library 設定的 filter
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
