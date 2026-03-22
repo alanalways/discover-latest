@@ -205,15 +205,20 @@ def _fetch(params: dict, use_cache: bool = True) -> Optional[list[dict]]:
             logger.debug(f"[FinMind] 快取命中: {dataset} {data_id}")
             return cached
 
-    # 嘗試所有 token
+    # 嘗試所有 token（最多嘗試 token 數 + 1 次 anonymous）
     attempted: set[int] = set()
-    for _ in range(_token_mgr.token_count or 1):  # 至少嘗試一次（anonymous）
-        token, idx = _token_mgr.pick_token() if _token_mgr.token_count > 0 else ("", -1)
-
-        if idx >= 0 and idx in attempted:
-            break  # 所有 token 都試過了
-        if idx >= 0:
-            attempted.add(idx)
+    max_attempts = (_token_mgr.token_count + 1) if _token_mgr.token_count > 0 else 1
+    for attempt_no in range(max_attempts):
+        if _token_mgr.token_count > 0:
+            token, idx = _token_mgr.pick_token()
+            if idx >= 0 and idx in attempted:
+                # 這個 token 已試過，跳過
+                continue
+            if idx >= 0:
+                attempted.add(idx)
+            # idx == -1：所有 token 都在 cooldown，改用 anonymous
+        else:
+            token, idx = ("", -1)
 
         req_params = dict(params)
         if token:
@@ -250,15 +255,30 @@ def _fetch(params: dict, use_cache: bool = True) -> Optional[list[dict]]:
         except requests.exceptions.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             logger.warning(f"[FinMind] HTTP {status}: {dataset} {data_id}")
-            if status == 429 and idx >= 0:
-                _token_mgr.mark_cooldown(idx, 120, f"HTTP {status}")
+            if status == 429:
+                # Rate limited：冷卻此 token，換下一個
+                if idx >= 0:
+                    _token_mgr.mark_cooldown(idx, 120, "HTTP 429")
                 continue
+            if status in (401, 403):
+                # Token 無效 / 無權限：冷卻此 token，換下一個試
+                if idx >= 0:
+                    _token_mgr.mark_cooldown(idx, 3600, f"HTTP {status} token 無效")
+                continue
+            if status and status >= 500:
+                # 伺服器錯誤：短暫冷卻，換 token
+                if idx >= 0:
+                    _token_mgr.mark_cooldown(idx, 30, f"HTTP {status} server error")
+                continue
+            # 其他 HTTP 錯誤（402 等）：直接放棄
+            logger.warning(f"[FinMind] HTTP {status} 無法重試，放棄: {dataset} {data_id}")
             return None
         except Exception as e:
-            logger.error(f"[FinMind] {dataset} {data_id} 失敗: {e}")
-            return None
+            logger.error(f"[FinMind] {dataset} {data_id} 請求異常: {e}")
+            # 網路或解析錯誤：換下一個 token 試試
+            continue
 
-    logger.warning(f"[FinMind] 所有 token 嘗試完畢: {dataset} {data_id}")
+    logger.warning(f"[FinMind] 所有 token 嘗試完畢（{_token_mgr.token_count} 個）: {dataset} {data_id}")
     return None
 
 

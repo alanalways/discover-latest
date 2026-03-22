@@ -79,7 +79,7 @@ def call_nvidia(
     """
     limiter = get_nvidia_rate_limiter()
 
-    # Rate limit：超限時 blocking wait（確保不超過 40 RPM）
+    # Rate limit：超限時 blocking wait（預佔位，防止 TOCTOU race）
     limiter.wait_if_needed()
 
     client = _get_client()
@@ -97,6 +97,7 @@ def call_nvidia(
             duration_ms = int((time.time() - start) * 1000)
             output_text = response.choices[0].message.content or ""
 
+            # record_call() 已是 no-op（wait_if_needed 預佔位）
             limiter.record_call()
 
             log_agent_action(
@@ -125,9 +126,20 @@ def call_nvidia(
         except Exception as e:
             last_error = str(e)
             duration_ms = int((time.time() - start) * 1000)
+            err_str = str(e)
             logger.warning(
                 f"[NvidiaClient] {agent_name} 第 {attempt + 1} 次失敗: {e}"
             )
+
+            # ── NVIDIA 429：等 rate limiter 清空再預佔位重試 ──
+            if "429" in err_str or "Too Many Requests" in err_str:
+                logger.warning(
+                    f"[NvidiaClient] {agent_name} NVIDIA 429，"
+                    f"等待 rate limit 清空後重試..."
+                )
+                time.sleep(2.0)      # 先等 2s 讓視窗滑動
+                limiter.wait_if_needed()   # 重新預佔位
+                continue  # 不計入一般重試次數（only _MAX_RETRIES limits total）
 
             if attempt < _MAX_RETRIES - 1:
                 sleep_time = _BACKOFF_SECONDS[attempt]

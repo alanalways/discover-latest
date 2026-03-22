@@ -1,8 +1,16 @@
 """
 backend/gemini/rate_limiter.py
-Gemini API Rate Limit 管理器
+Gemini API Rate Limit 管理器（整個 Key Pool 視角）
+
 - 追蹤每分鐘(RPM)和每日(RPD)使用量
-- 超出限制時回傳 False，由 client.py 觸發自動降級
+- RPD 上限 = 每把 key 的 RPD × key 數量（每把 key 有獨立配額）
+- 超出限制時回傳 False，由 client.py 換下一把 key 重試
+
+配額計算範例（7 把 key，gemini-2.5-flash）：
+  per_key_rpd = 20
+  pool_rpd = 20 × 7 = 140 RPD/day
+  per_key_rpm = 5
+  pool_rpm = 5 × 7 = 35 RPM（輪換使用，不是同時）
 """
 import threading
 import time
@@ -10,7 +18,7 @@ import logging
 from collections import defaultdict, deque
 from datetime import date
 
-from backend.config import GEMINI_RATE_LIMITS
+from backend.config import GEMINI_RATE_LIMITS, GEMINI_API_KEYS_LIST
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +67,15 @@ class RateLimiter:
                 return False
 
             # ── 檢查 RPD ────────────────────────────────────────
+            # 每把 key 各有獨立 RPD 配額 → pool 總配額 = per_key_rpd × num_keys
             rpd_key = (model_name, today)
             current_rpd = self._rpd_count[rpd_key]
-            max_rpd = limits["rpd"]
+            num_keys = max(1, len(GEMINI_API_KEYS_LIST))
+            max_rpd = limits["rpd"] * num_keys  # e.g., 20 × 7 = 140
             if current_rpd >= max_rpd:
                 logger.warning(
                     f"[RateLimiter] {model_name} RPD 已達上限 "
-                    f"({current_rpd}/{max_rpd})"
+                    f"({current_rpd}/{max_rpd}，{num_keys} keys × {limits['rpd']} RPD)"
                 )
                 return False
 
