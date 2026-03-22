@@ -42,6 +42,7 @@ class EventAgent(BaseAgent):
             market=market,
             event_data=json.dumps(event_data, ensure_ascii=False),
             analysis_date=date.today().isoformat(),
+            current_year=date.today().year,
         )
 
         if result["status"] == "success":

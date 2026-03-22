@@ -80,9 +80,9 @@ async def stream_analysis(
                 error_stream(), media_type="text/event-stream"
             )
 
-    # ── 預算檢查（1 Gemini grounding + 8 NVIDIA calls）
+    # ── 預算檢查（每次分析只耗 1 Gemini grounding RPD，NVIDIA 無日限制）
     guard = get_budget_guard()
-    can_proceed, reason = guard.can_proceed(estimated_calls=8)
+    can_proceed, reason = guard.can_proceed(estimated_calls=1)
     if not can_proceed:
         async def budget_error():
             yield f"data: {json.dumps({'type': 'error', 'message': f'API 配額接近上限: {reason}'})}\n\n"
@@ -144,7 +144,7 @@ async def trigger_analysis(
             return AnalysisResponse(status="rate_limited", message=reason)
 
     guard = get_budget_guard()
-    can_proceed, reason = guard.can_proceed(estimated_calls=8)
+    can_proceed, reason = guard.can_proceed(estimated_calls=1)
     if not can_proceed:
         return AnalysisResponse(
             status="budget_exceeded",
