@@ -244,7 +244,7 @@ def _job_full_scan(scan_label: str, priority: int = 5, max_jobs: int = 20) -> No
         enqueued = 0
         for stock in top_stocks:
             from backend.core.budget_guard import get_budget_guard
-            can_proceed, _ = get_budget_guard().can_proceed(estimated_calls=8)
+            can_proceed, _ = get_budget_guard().can_proceed(estimated_calls=1)
             if not can_proceed:
                 logger.warning(f"[Heartbeat] {scan_label} 預算不足，停止入隊")
                 break

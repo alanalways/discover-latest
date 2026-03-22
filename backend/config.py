@@ -163,6 +163,14 @@ NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
 # 分析用模型：kimi-k2.5
 NVIDIA_MODEL: str = "moonshotai/kimi-k2.5"
 
+# Startup log — 確認 NVIDIA key 是否有載入
+if NVIDIA_API_KEY:
+    _cfg_logger.warning(
+        f"[Config] NVIDIA key loaded, prefix={NVIDIA_API_KEY[:12]}..."
+    )
+else:
+    _cfg_logger.warning("[Config] NVIDIA_API_KEY NOT found — 分析功能無法運作")
+
 # ─────────────────────────────────────────────────────────
 # Gemini（僅保留 Batch Search Grounding 用途）
 # ─────────────────────────────────────────────────────────
