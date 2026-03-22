@@ -247,8 +247,15 @@ NVIDIA_RATE_LIMITS: dict[str, dict] = {
 # 預算守門設定
 # ─────────────────────────────────────────────────────────
 # Gemini grounding 每日預算
-# 實際瓶頸：text RPD=20（grounding 呼叫也消耗），Grounding 池=500（Flash+Flash-Lite 共用）
-# → 每天最多 20 次 batch grounding = 20 次完整分析（批次 grounding 後交 NVIDIA 分析）
-DAILY_GROUNDING_RPD_BUDGET: int = int(os.getenv("DAILY_GROUNDING_RPD_BUDGET", "18"))
+# 配額計算（以 7 把 key 為例）：
+#   每把 key text RPD = 20
+#   Pool 合計 = 20 × 7 = 140 RPD/day
+#   保留 10 buffer（供使用者手動觸發的分析）
+#   → 預設預算 = 130
+#
+# Search Grounding 池（500 RPD，Flash+Flash-Lite 共用）並不是瓶頸；
+# 真正的瓶頸是每把 key 20 RPD 的文字配額。
+# 若 key 數量不足 7，可在 HuggingFace Space env 設定 DAILY_GROUNDING_RPD_BUDGET 覆蓋。
+DAILY_GROUNDING_RPD_BUDGET: int = int(os.getenv("DAILY_GROUNDING_RPD_BUDGET", "130"))
 SUPABASE_WARN_MB: int = int(os.getenv("SUPABASE_WARN_MB", "350"))
 SUPABASE_CRITICAL_MB: int = int(os.getenv("SUPABASE_CRITICAL_MB", "425"))

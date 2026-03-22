@@ -3,13 +3,21 @@ backend/core/heartbeat.py
 APScheduler 排程心跳
 
 排程表（交易日 = 週一至週五，時區 Asia/Taipei）：
-  08:00          → 盤前掃描 — TOP 500 + 全體使用者自選股
+  08:00          → 盤前掃描 — TOP 500 + 全體使用者自選股（最高優先級）
   12:00          → 盤中掃描 — TOP 500 + 全體使用者自選股
   13:40          → 盤後掃描 — TOP 500 + 全體使用者自選股 + 盤後總結
   21:00          → 美股盤前 — 美股藍籌 + 使用者自選股中的美股
+
+持續補充（24/7，不限交易日）：
+  每 10 分鐘     → 持續補充 — round-robin 循環 TOP 500，補充沒有近期報告的股票
+
+週期維護：
   週一 07:00      → ceo.weekly_backtest
   每6小時         → ceo.storage_check
   每日 00:01      → 重置 BudgetGuard 計數器
+
+持續處理：
+  每 5 分鐘      → 處理排隊工作（max 5 jobs/run）
 
 特殊：
   伺服器啟動      → 啟動掃描（TOP 500 中沒有近期報告的股票）
@@ -20,6 +28,7 @@ APScheduler 排程心跳
 - 所有 job 失敗時只 log，不讓 scheduler 崩潰
 - start_heartbeat() 回傳 scheduler 實例，供 main.py lifespan 管理
 - TOP 500 動態取得：從 FinMind 抓取台股完整清單，取前 500 檔
+- 24/7 持續補充：靠 BudgetGuard 控制每日 Gemini RPD（預設 130/天）
 """
 import logging
 import time
@@ -38,6 +47,9 @@ _TZ = "Asia/Taipei"
 _top500_cache: list[tuple[str, str]] = []
 _top500_cache_ts: float = 0
 _TOP500_CACHE_TTL = 86400  # 24 小時
+
+# 持續補充 round-robin cursor（跨次呼叫保持位置）
+_fill_cursor: int = 0
 
 # 美股藍籌（固定清單）
 _US_BLUE_CHIPS = [
@@ -424,6 +436,81 @@ def _job_process_queue() -> None:
         logger.error(f"[Heartbeat] 佇列處理失敗: {e}", exc_info=True)
 
 
+def _job_continuous_fill() -> None:
+    """
+    持續補充分析隊列（每 10 分鐘，24/7，不限交易日）。
+
+    策略：
+    - Round-robin 循環 TOP 500 + 自選股清單
+    - 挑選最近 6 小時內沒有報告的股票
+    - 每次最多入隊 2 支（由 BudgetGuard 控制總量）
+    - 優先級設為 8（低於交易時段掃描，不搶佔資源）
+
+    預算計算：
+      130 RPD/天 ÷ 24 小時 ≈ 5.4 支/小時
+      每 10 分鐘 × 2 支 = 12 支/小時（BudgetGuard 超限時自動停止）
+    """
+    global _fill_cursor
+    try:
+        from backend.core.budget_guard import get_budget_guard
+        guard = get_budget_guard()
+
+        # 先確認今日預算還有餘額
+        can_proceed, reason = guard.can_proceed(estimated_calls=1)
+        if not can_proceed:
+            logger.debug(f"[Heartbeat] 持續補充: 預算不足，跳過（{reason}）")
+            return
+
+        from backend.agents.ceo_agent import get_ceo_agent
+        ceo = get_ceo_agent()
+
+        stock_list = _get_full_scan_list()
+        if not stock_list:
+            logger.warning("[Heartbeat] 持續補充: 股票清單為空，跳過")
+            return
+
+        total = len(stock_list)
+        enqueued = 0
+        checked = 0
+
+        # 從 cursor 位置開始，最多掃描完整一輪（找到 2 個或掃完全部為止）
+        while enqueued < 2 and checked < total:
+            idx = _fill_cursor % total
+            symbol, market = stock_list[idx]
+            _fill_cursor = (idx + 1) % total
+            checked += 1
+
+            # 跳過最近 6 小時內已有報告的
+            if ceo._has_recent_report(symbol, market, hours=6):
+                continue
+
+            # 每支入隊前再確認預算（多 agent 並行時避免超額）
+            can_proceed, _ = guard.can_proceed(estimated_calls=1)
+            if not can_proceed:
+                break
+
+            job_id = ceo._task_queue.enqueue(
+                job_type="analyze_stock",
+                payload={
+                    "symbol":       symbol,
+                    "market":       market,
+                    "triggered_by": "持續補充",
+                },
+                priority=8,  # 低優先級，讓交易時段掃描優先
+            )
+            if job_id:
+                enqueued += 1
+
+        if enqueued > 0:
+            logger.info(
+                "[Heartbeat] 持續補充: 入隊 %d 支（cursor=%d/%d）",
+                enqueued, _fill_cursor, total,
+            )
+
+    except Exception as e:
+        logger.error(f"[Heartbeat] 持續補充失敗: {e}", exc_info=True)
+
+
 # ─── 啟動函式 ─────────────────────────────────────────────────────
 
 def start_heartbeat() -> BackgroundScheduler:
@@ -431,13 +518,22 @@ def start_heartbeat() -> BackgroundScheduler:
     建立並啟動 APScheduler 排程器。
 
     排程表：
-    - 08:00  盤前掃描（TOP 500 + 自選股，最高優先級）
-    - 12:00  盤中掃描（TOP 500 + 自選股）
-    - 13:40  盤後掃描 + 盤後總結
-    - 21:00  美股盤前掃描
-    - 每5分鐘 持續處理排隊工作
+    ── 交易時段（週一至週五）────────────────────────────────
+    - 08:00  盤前掃描（TOP 500 + 自選股，最高優先級 1）
+    - 12:00  盤中掃描（TOP 500 + 自選股，優先級 5）
+    - 13:40  盤後掃描 + 盤後總結（優先級 5）
+    - 21:00  美股盤前掃描（優先級 3）
+
+    ── 持續補充（24/7）────────────────────────────────────
+    - 每 10 分鐘  持續補充（round-robin TOP 500，每次 2 支，優先級 8）
+                 靠 BudgetGuard 控制 Gemini RPD（預設 130/天）
+
+    ── 佇列處理（24/7）────────────────────────────────────
+    - 每 5 分鐘  處理排隊工作（max 5 jobs/run）
+
+    ── 週期維護 ───────────────────────────────────────────
     - 週一 07:00  準確率回測
-    - 每6小時  儲存管理
+    - 每 6 小時   儲存管理
     - 每日 00:01  預算重置
 
     Returns:
@@ -481,6 +577,18 @@ def start_heartbeat() -> BackgroundScheduler:
         id="us_premarket_scan",
         replace_existing=True,
         misfire_grace_time=1800,
+    )
+
+    # ── 持續補充（每 10 分鐘，24/7）────────────────────
+    # Round-robin 循環 TOP 500，補充沒有近期報告的股票
+    # 靠 BudgetGuard 自動限制 Gemini RPD（預設 130/天）
+
+    scheduler.add_job(
+        _job_continuous_fill,
+        CronTrigger(minute="*/10", timezone=_TZ),
+        id="continuous_fill",
+        replace_existing=True,
+        misfire_grace_time=600,
     )
 
     # ── 持續處理排隊工作（每 5 分鐘）────────────────────
@@ -538,7 +646,8 @@ def start_heartbeat() -> BackgroundScheduler:
     scheduler.start()
     logger.info(
         "[Heartbeat] 排程器啟動完成，共 %d 個 job（含啟動掃描）\n"
-        "  盤前 08:00 | 盤中 12:00 | 盤後 13:40 | 美股 21:00\n"
+        "  交易日掃描: 08:00 盤前 | 12:00 盤中 | 13:40 盤後 | 21:00 美股\n"
+        "  持續補充(24/7): 每 10 分鐘 round-robin TOP 500（BudgetGuard 控制）\n"
         "  佇列處理: 每 5 分鐘 | 掃描範圍: TOP 500 + 自選股",
         len(scheduler.get_jobs()),
     )
