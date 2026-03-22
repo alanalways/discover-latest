@@ -10,7 +10,7 @@ import logging
 from collections import defaultdict, deque
 from datetime import date
 
-from backend.config import RATE_LIMITS
+from backend.config import GEMINI_RATE_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class RateLimiter:
         檢查指定模型是否可以發出新請求。
         同時檢查 RPM 和 RPD 限制。
         """
-        limits = RATE_LIMITS.get(model_name)
+        limits = GEMINI_RATE_LIMITS.get(model_name)
         if not limits:
             # 未知模型，允許通過（保守策略）
             logger.warning(f"[RateLimiter] 未知模型 {model_name}，允許通過")
@@ -91,7 +91,7 @@ class RateLimiter:
             today = date.today()
             status = {}
 
-            for model_name, limits in RATE_LIMITS.items():
+            for model_name, limits in GEMINI_RATE_LIMITS.items():
                 # 清理 RPM 視窗
                 window = self._rpm_window[model_name]
                 while window and now - window[0] > 60:

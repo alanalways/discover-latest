@@ -68,11 +68,11 @@ async def stream_analysis(
       data: {"type": "done",    "report_id": "...", "meta": {...}}
       data: {"type": "error",   "message": "..."}
     """
-    # ── 權限檢查 ───────────────────────────────────────
+    # ── 權限檢查（原子：acquire_request 同時檢查+記錄，避免 race condition）
     if user:
         from backend.core.user_rate_limiter import get_user_rate_limiter
         limiter = get_user_rate_limiter()
-        allowed, reason = limiter.can_make_request(user.user_id)
+        allowed, reason = limiter.acquire_request(user.user_id)
         if not allowed:
             async def error_stream():
                 yield f"data: {json.dumps({'type': 'error', 'message': reason})}\n\n"
@@ -80,7 +80,7 @@ async def stream_analysis(
                 error_stream(), media_type="text/event-stream"
             )
 
-    # ── 預算檢查（3 calls: 6 Agent 並行算 1 批 + arbitrator + chief）
+    # ── 預算檢查（1 Gemini grounding + 8 NVIDIA calls）
     guard = get_budget_guard()
     can_proceed, reason = guard.can_proceed(estimated_calls=8)
     if not can_proceed:
@@ -110,14 +110,10 @@ async def stream_analysis(
 
             yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
-        # ── 報告完成後，啟動背景任務 ──────────────────
+        # ── 報告完成後，啟動背景任務 + 記錄 Grounding 用量 ──
         if report_data:
             asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
-
-        # 記錄使用者用量
-        if user:
-            from backend.core.user_rate_limiter import get_user_rate_limiter
-            get_user_rate_limiter().record_request(user.user_id)
+        guard.record_usage(calls=1)  # 記錄 1 次 Gemini grounding
 
     return StreamingResponse(
         event_stream(),
@@ -143,7 +139,7 @@ async def trigger_analysis(
     if user:
         from backend.core.user_rate_limiter import get_user_rate_limiter
         limiter = get_user_rate_limiter()
-        allowed, reason = limiter.can_make_request(user.user_id)
+        allowed, reason = limiter.acquire_request(user.user_id)
         if not allowed:
             return AnalysisResponse(status="rate_limited", message=reason)
 
@@ -180,9 +176,8 @@ async def trigger_analysis(
         if report_data:
             asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
 
-        if user:
-            from backend.core.user_rate_limiter import get_user_rate_limiter
-            get_user_rate_limiter().record_request(user.user_id)
+        # acquire_request() 已在入口處原子性記錄用量，這裡只記錄 grounding 消耗
+        guard.record_usage(calls=1)
 
         return AnalysisResponse(
             report_id=report_data.get("report_id") if report_data else None,

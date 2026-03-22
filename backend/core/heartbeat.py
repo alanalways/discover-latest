@@ -155,49 +155,108 @@ def _get_full_scan_list() -> list[tuple[str, str]]:
 
 def _job_full_scan(scan_label: str, priority: int = 5, max_jobs: int = 20) -> None:
     """
-    全市場掃描：TOP 500 + 使用者自選股。
+    全市場兩階段掃描：TOP 500 → 本地過濾 → NVIDIA 評分 → 入隊 Top 20。
 
-    每次掃描會：
-    1. 取得完整掃描清單（~510+ 檔）
-    2. 跳過有近期報告的股票（2 小時內）
-    3. 跳過預算不足的
-    4. 入隊分析工作
-    5. 立即處理 max_jobs 個工作
+    階段 A（0 API）：本地規則過濾（RSI/量/漲跌幅/均線/籌碼）
+                    ~500 支 → 50-150 支候選
+    階段 B（NVIDIA）：每支候選用 1 次 NVIDIA 快速評分（score 1-10）
+                    取評分最高的 20 支
+    階段 C：將 Top 20 入隊進行完整分析（1 Gemini + 8 NVIDIA per 支）
+
+    注意：不再直接對所有 500 支執行完整分析管線。
     """
     try:
         from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
+        from backend.core.market_filter import filter_candidates, score_candidates_with_nvidia
 
+        ceo = get_ceo_agent()
         scan_list = _get_full_scan_list()
-        enqueued = 0
-        skipped_fresh = 0
-        skipped_budget = 0
 
         logger.info(
-            "[Heartbeat] %s: 開始掃描 %d 檔股票...",
+            "[Heartbeat] %s（兩階段）: 開始掃描 %d 檔股票...",
             scan_label, len(scan_list),
         )
 
-        for symbol, market in scan_list:
-            # 檢查近期報告
-            if ceo._has_recent_report(symbol, market, hours=2):
-                skipped_fresh += 1
-                continue
+        # ── 階段 A: 批次取得價格資料 ──────────────────────
+        price_map: dict[str, dict] = {}
+        chips_map: dict[str, dict] = {}
 
-            # 檢查預算
+        try:
+            from backend.data.sources.finmind import (
+                get_price_data as fm_price,
+                get_chips_data as fm_chips,
+            )
+            tw_symbols = [s for s, m in scan_list if m in ("TW", "TWO")]
+
+            for symbol in tw_symbols[:200]:  # 分批取，避免過載
+                try:
+                    price_map[symbol] = fm_price(symbol, days=65)
+                    chips_map[symbol] = fm_chips(symbol, days=10)
+                except Exception:
+                    pass  # 單支失敗不影響整體
+
+        except Exception as e:
+            logger.warning(f"[Heartbeat] {scan_label} 批次取價格資料失敗: {e}")
+
+        # ── 階段 A: 本地規則過濾（0 API）─────────────────
+        if price_map:
+            candidates = filter_candidates(
+                stocks=scan_list,
+                price_map=price_map,
+                chips_map=chips_map if chips_map else None,
+                max_candidates=150,
+            )
+        else:
+            # 無價格資料時降級：直接用全部清單（舊邏輯）
+            logger.warning(
+                f"[Heartbeat] {scan_label} 無價格資料，降級為直接掃描前 {max_jobs} 支"
+            )
+            candidates = [
+                {"symbol": s, "market": m, "signals": [], "signal_count": 0}
+                for s, m in scan_list[:50]
+            ]
+
+        logger.info(
+            "[Heartbeat] %s 階段A完成: %d 支候選",
+            scan_label, len(candidates),
+        )
+
+        # ── 階段 B: NVIDIA 快速評分 ───────────────────────
+        # 過濾掉已有近期報告的
+        fresh_filtered = [
+            c for c in candidates
+            if not ceo._has_recent_report(c["symbol"], c["market"], hours=4)
+        ]
+
+        if fresh_filtered:
+            top_stocks = score_candidates_with_nvidia(
+                fresh_filtered, max_top=max_jobs
+            )
+            logger.info(
+                "[Heartbeat] %s 階段B完成: NVIDIA 評分 %d 支，取 Top %d",
+                scan_label, len(fresh_filtered), len(top_stocks),
+            )
+        else:
+            top_stocks = []
+            logger.info(f"[Heartbeat] {scan_label} 所有候選都有近期報告，跳過")
+
+        # ── 階段 C: 入隊完整分析 ──────────────────────────
+        enqueued = 0
+        for stock in top_stocks:
             from backend.core.budget_guard import get_budget_guard
             can_proceed, _ = get_budget_guard().can_proceed(estimated_calls=8)
             if not can_proceed:
-                skipped_budget += 1
-                continue
+                logger.warning(f"[Heartbeat] {scan_label} 預算不足，停止入隊")
+                break
 
-            # 入隊
             job_id = ceo._task_queue.enqueue(
                 job_type="analyze_stock",
                 payload={
-                    "symbol": symbol,
-                    "market": market,
+                    "symbol":       stock["symbol"],
+                    "market":       stock["market"],
                     "triggered_by": scan_label,
+                    "scanner_score": stock.get("score"),
+                    "scanner_signals": stock.get("signals", []),
                 },
                 priority=priority,
             )
@@ -205,13 +264,12 @@ def _job_full_scan(scan_label: str, priority: int = 5, max_jobs: int = 20) -> No
                 enqueued += 1
 
         logger.info(
-            "[Heartbeat] %s 入隊完成: 入隊 %d，跳過(已有報告) %d，跳過(預算) %d",
-            scan_label, enqueued, skipped_fresh, skipped_budget,
+            "[Heartbeat] %s 入隊完成: 入隊 %d 支進行完整分析",
+            scan_label, enqueued,
         )
 
-        # 立即處理一批工作
         if enqueued > 0:
-            result = ceo.run_pending_jobs(max_jobs=max_jobs)
+            result = ceo.run_pending_jobs(max_jobs=enqueued)
             logger.info(
                 "[Heartbeat] %s 處理完成: 成功 %d / 失敗 %d",
                 scan_label,

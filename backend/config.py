@@ -1,7 +1,12 @@
 """
 backend/config.py
 DiscoverLatest 2.0 — 全域設定
-包含 AGENT_MODEL_MAP、FALLBACK_MODEL、RATE_LIMITS 及所有環境變數讀取
+
+架構說明：
+  Gemini 2.5 Flash  → 唯一保留，僅用於 Batch Search Grounding（Search Grounding 1.5K RPD 獨立配額）
+  NVIDIA NIM        → 所有分析工作（kimi-k2-instruct，40 RPM，無日限制）
+
+Rate Limits 來源：Google AI Studio > Rate Limit 頁面實測（2026-03-22）
 """
 import os
 from dotenv import load_dotenv
@@ -150,59 +155,92 @@ HF_TOKEN: str = os.getenv("HF_TOKEN", "")
 HF_DATASET_REPO: str = os.getenv("HF_DATASET_REPO", "")
 
 # ─────────────────────────────────────────────────────────
+# NVIDIA NIM（所有分析工作的主力）
+# ─────────────────────────────────────────────────────────
+NVIDIA_API_KEY: str = os.getenv("NVIDIA_API_KEY", "")
+NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
+
+# 分析用模型：kimi-k2.5
+NVIDIA_MODEL: str = "moonshotai/kimi-k2.5"
+
+# ─────────────────────────────────────────────────────────
+# Gemini（僅保留 Batch Search Grounding 用途）
+# ─────────────────────────────────────────────────────────
+# 使用模型：gemini-2.5-flash（唯一有免費 Search Grounding 的主力模型）
+GEMINI_GROUNDING_MODEL: str = "gemini-2.5-flash"
+
+# ─────────────────────────────────────────────────────────
+# 各 Agent 的 Provider 分配
+# ─────────────────────────────────────────────────────────
+# "gemini" → 只做 Batch Search Grounding，呼叫 backend/gemini/grounding.py
+# "nvidia" → 所有分析推理，呼叫 backend/nvidia/client.py
+AGENT_PROVIDER_MAP: dict[str, str] = {
+    # Grounding（唯一留在 Gemini 的）
+    "batch_grounding":   "gemini",
+
+    # 六大研究部門（全部 NVIDIA）
+    "technical_agent":   "nvidia",
+    "fundamental_agent": "nvidia",
+    "chips_agent":       "nvidia",
+    "event_agent":       "nvidia",   # 分析 grounding 回來的資料，不自己 grounding
+    "macro_agent":       "nvidia",
+    "sentiment_agent":   "nvidia",
+
+    # 仲裁 + 首席分析（NVIDIA，kimi-k2-instruct 推理足夠）
+    "arbitrator":        "nvidia",
+    "chief_analyst":     "nvidia",
+
+    # 批次掃描 + 演進引擎（全部 NVIDIA）
+    "scanner":           "nvidia",
+    "prompt_evolver":    "nvidia",
+    "backtester":        "nvidia",
+    "memory_agent":      "nvidia",
+}
+
+# ─────────────────────────────────────────────────────────
+# Rate Limits（實測值，來自 Google AI Studio Rate Limit 頁面，2026-03-22）
+# ─────────────────────────────────────────────────────────
+
+# Gemini Free Tier 實際限制（來源：Google AI Studio Rate Limit 頁面，2026-03-22）
+# ⚠️ Search Grounding 500 RPD 是 Flash + Flash-Lite 共用的總上限，不是獨立配額
+#    → 每次 grounding 呼叫同時消耗：1 text RPD + 1 shared grounding RPD
+#    → 實際瓶頸 = min(text RPD, grounding RPD) = min(20, 500) = 20 次/天
+GEMINI_RATE_LIMITS: dict[str, dict] = {
+    "gemini-2.5-flash": {
+        "rpm": 5,
+        "rpd": 20,          # 文字呼叫上限（grounding 呼叫也消耗這個）
+        "tpm": 250000,
+    },
+    "gemini-2.5-flash-lite": {
+        "rpm": 10,
+        "rpd": 20,
+        "tpm": 250000,
+    },
+    "gemini-3.1-flash-lite": {
+        "rpm": 15,
+        "rpd": 500,         # 最高 RPD，但不支援免費 grounding
+        "tpm": 250000,
+    },
+}
+
+# Search Grounding 共用池（Flash + Flash-Lite 合計上限）
+GEMINI_SEARCH_GROUNDING_SHARED_RPD: int = 500
+
+# NVIDIA NIM 限制（所有模型統一 40 RPM，無日限制）
+NVIDIA_RATE_LIMITS: dict[str, dict] = {
+    "moonshotai/kimi-k2.5": {
+        "rpm": 40,
+        "rpd": None,   # 無日限制
+        "tpm": None,   # 無 token 日限制
+    },
+}
+
+# ─────────────────────────────────────────────────────────
 # 預算守門設定
 # ─────────────────────────────────────────────────────────
-DAILY_GEMINI_RPD_BUDGET: int = int(os.getenv("DAILY_GEMINI_RPD_BUDGET", "5000"))
+# Gemini grounding 每日預算
+# 實際瓶頸：text RPD=20（grounding 呼叫也消耗），Grounding 池=500（Flash+Flash-Lite 共用）
+# → 每天最多 20 次 batch grounding = 20 次完整分析（批次 grounding 後交 NVIDIA 分析）
+DAILY_GROUNDING_RPD_BUDGET: int = int(os.getenv("DAILY_GROUNDING_RPD_BUDGET", "18"))
 SUPABASE_WARN_MB: int = int(os.getenv("SUPABASE_WARN_MB", "350"))
 SUPABASE_CRITICAL_MB: int = int(os.getenv("SUPABASE_CRITICAL_MB", "425"))
-
-# ─────────────────────────────────────────────────────────
-# 各 Agent 的 Gemini 模型分配
-# ─────────────────────────────────────────────────────────
-AGENT_MODEL_MAP: dict[str, str] = {
-    # Stage 1：新聞 grounding（需要 Google Search 工具）
-    "news_grounding":     "gemini-2.5-flash",
-
-    # 五大研究部門（結構化分析，Flash 足夠）
-    "technical_agent":    "gemini-2.5-flash",
-    "fundamental_agent":  "gemini-2.5-flash",
-    "chips_agent":        "gemini-2.5-flash",
-    "event_agent":        "gemini-2.5-flash",
-    "macro_agent":        "gemini-2.5-flash",
-    "sentiment_agent":    "gemini-2.5-flash",
-
-    # 矛盾仲裁（複雜推理，用最強免費模型）
-    "arbitrator":         "gemini-3-flash-preview",
-
-    # Chief Analyst 最終報告（最重要，用最強免費模型）
-    "chief_analyst":      "gemini-3-flash-preview",
-
-    # 批次掃描（大量呼叫，用最便宜的）
-    "scanner":            "gemini-2.5-flash-lite",
-
-    # 演進引擎
-    "prompt_evolver":     "gemini-2.5-pro",
-    "backtester":         "gemini-2.5-flash",
-    "memory_agent":       "gemini-2.5-flash",
-}
-
-# ─────────────────────────────────────────────────────────
-# Rate limit 超出時的自動降級鏈
-# ─────────────────────────────────────────────────────────
-FALLBACK_MODEL: dict[str, str] = {
-    "gemini-3-flash-preview":  "gemini-2.5-pro",
-    "gemini-2.5-pro":          "gemini-2.5-flash",
-    "gemini-2.5-flash":        "gemini-2.5-flash-lite",
-}
-
-# ─────────────────────────────────────────────────────────
-# Free tier 安全 rate limit（2026-03 更新，留 buffer）
-# Google 於 2025-12 大幅下調免費額度
-# 官方文件：https://ai.google.dev/gemini-api/docs/rate-limits
-# ─────────────────────────────────────────────────────────
-RATE_LIMITS: dict[str, dict[str, int]] = {
-    "gemini-2.5-flash":        {"rpm": 8,   "rpd": 220},   # 實際: 10 RPM, 250 RPD
-    "gemini-2.5-pro":          {"rpm": 4,   "rpd": 85},    # 實際: 5 RPM, 100 RPD
-    "gemini-2.5-flash-lite":   {"rpm": 12,  "rpd": 900},   # 實際: 15 RPM, 1000 RPD
-    "gemini-3-flash-preview":  {"rpm": 8,   "rpd": 200},   # 實際: ~10 RPM, ~250 RPD（預覽版）
-}

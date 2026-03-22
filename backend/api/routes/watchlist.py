@@ -19,6 +19,13 @@ from backend.data.storage.supabase_client import get_client
 
 logger = logging.getLogger(__name__)
 
+# ── 自選股數量分級上限 ──────────────────────────────────────
+WATCHLIST_LIMITS: dict[str, int] = {
+    "free":    10,
+    "pro":     50,
+    "premium": 200,
+}
+
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 
@@ -120,11 +127,23 @@ async def add_to_watchlist(
     watchlist: list = prefs.get("watchlist") or []
 
     new_entry = item.model_dump()
-    # 避免重複
-    if not any(
+
+    # ── 分級上限檢查 ─────────────────────────────────────
+    # 先判斷是否已存在（已存在不計入上限）
+    already_exists = any(
         w.get("symbol") == new_entry["symbol"] and w.get("market") == new_entry["market"]
         for w in watchlist
-    ):
+    )
+    if not already_exists:
+        from backend.core.user_rate_limiter import get_user_rate_limiter
+        tier = get_user_rate_limiter().check_and_downgrade(user.user_id)
+        max_items = WATCHLIST_LIMITS.get(tier, WATCHLIST_LIMITS["free"])
+        if len(watchlist) >= max_items:
+            raise HTTPException(
+                status_code=403,
+                detail=f"自選股已達上限 {max_items} 支（{tier} 方案），請升級方案或移除舊股票",
+            )
+
         watchlist.append(new_entry)
         try:
             client.table("user_prefs").upsert(

@@ -1,7 +1,10 @@
 """
 backend/agents/departments/sentiment.py
 情緒雷達官（Sonnet 撰寫）
-use_grounding=True（需要 Google Search 搜尋社群/情緒數據）
+
+v2.0：不再自行呼叫 Gemini grounding。
+      接收 pipeline 傳入的 grounding_data（由 BatchGroundingAgent 預取）。
+      分析工作交由 NVIDIA kimi-k2.5 執行。
 """
 import json
 from datetime import date
@@ -14,28 +17,30 @@ class SentimentAgent(BaseAgent):
     def agent_name(self) -> str:
         return "sentiment_agent"
 
-    @property
-    def use_grounding(self) -> bool:
-        return True  # 需要 Google Search 取得社群媒體/恐慌貪婪指數
+    # use_grounding 廢棄，不覆寫（BaseAgent 預設回傳 False）
 
     def analyze(
         self,
         symbol: str,
         market: str,
+        grounding_data: dict = None,
         report_id: str = None,
     ) -> dict:
         """
-        執行市場情緒分析（透過 grounding 搜尋最新情緒數據）。
+        執行市場情緒分析。
 
         Args:
-            symbol:    股票代號
-            market:    市場
-            report_id: 關聯報告 UUID
+            symbol:         股票代號
+            market:         市場
+            grounding_data: BatchGroundingAgent.fetch_all() 回傳的 sentiment_data 部分
+            report_id:      關聯報告 UUID
         """
+        sentiment_data = (grounding_data or {})
         result = self.run(
             report_id=report_id,
             symbol=symbol,
             market=market,
+            sentiment_data=json.dumps(sentiment_data, ensure_ascii=False),
             analysis_date=date.today().isoformat(),
         )
 
@@ -49,7 +54,9 @@ def _parse_json_output(text: str, original_result: dict) -> dict:
     cleaned = text.strip()
     if cleaned.startswith("```"):
         lines = cleaned.split("\n")
-        cleaned = "\n".join(lines[1:-1]) if lines[-1] == "```" else "\n".join(lines[1:])
+        cleaned = "\n".join(
+            l for l in lines if not l.startswith("```")
+        ).strip()
     try:
         parsed = json.loads(cleaned)
         parsed["_model_used"] = original_result.get("model_used")

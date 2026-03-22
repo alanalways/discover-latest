@@ -200,7 +200,10 @@ async def get_weekly_trend(weeks: int = Query(default=12, le=52)):
 
         weekly: dict = defaultdict(lambda: {"total": 0, "correct": 0})
         for r in rows:
-            dt   = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+            try:
+                dt = datetime.fromisoformat(r["created_at"].replace("Z", "+00:00"))
+            except (ValueError, TypeError, AttributeError):
+                continue  # 跳過格式異常的時間戳
             # 週開始日（週一）
             week_start = (dt - timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
             weekly[week_start]["total"]   += 1

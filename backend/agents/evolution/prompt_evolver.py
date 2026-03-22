@@ -184,7 +184,7 @@ class PromptEvolver:
             f"準確率 {accuracy:.1%}（{correct}/{total}）低於閾值 {_ACCURACY_THRESHOLD:.0%}，"
             f"自動觸發 Prompt 演進。"
         )
-        from backend.config import AGENT_MODEL_MAP
+        from backend.config import NVIDIA_MODEL
         new_version = current_version + 1
         try:
             client.table("prompt_versions").insert(
@@ -192,7 +192,7 @@ class PromptEvolver:
                     "agent_name":            agent_name,
                     "version":               new_version,
                     "prompt_content":        new_prompt,
-                    "model_assigned":        AGENT_MODEL_MAP.get(agent_name, "gemini-2.5-flash"),
+                    "model_assigned":        NVIDIA_MODEL,
                     "is_active":             False,  # 需人工審核後啟用
                     "evolved_from_version":  current_version,
                     "evolution_reason":      evolution_reason,

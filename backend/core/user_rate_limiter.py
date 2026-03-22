@@ -105,8 +105,12 @@ class UserRateLimiter:
         if not text:
             return None
         try:
+            import pytz
+            _TZ_TAIPEI = pytz.timezone("Asia/Taipei")
             if len(text) == 10:
-                return datetime.fromisoformat(f"{text}T23:59:59+00:00")
+                # 日期字串：解析為台北時間 23:59:59
+                naive = datetime.fromisoformat(f"{text}T23:59:59")
+                return _TZ_TAIPEI.localize(naive)
             return datetime.fromisoformat(text.replace("Z", "+00:00"))
         except Exception:
             return None

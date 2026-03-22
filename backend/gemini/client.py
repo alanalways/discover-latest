@@ -4,10 +4,10 @@ backend/gemini/client.py
 
 規則：
 - 禁止在其他地方直接 import genai
-- 所有 Gemini 呼叫必須經過此模組
-- 超出 rate limit 自動降級（見 FALLBACK_MODEL）
+- 所有 Gemini 呼叫必須經過此模組（僅限 Batch Search Grounding 用途）
+- 無降級機制：Gemini 只做一件事（batch_grounding），超限就回傳 rate_limited
 - 失敗最多重試 3 次（2s / 4s / 8s backoff）
-- 多把 API Key 輪流使用（round-robin），遵守 Free Tier 限制
+- 多把 API Key 輪流使用（round-robin），每把 key 各自有獨立配額
 
 ⚠️ 使用新版 SDK（google-genai），不是舊版 google-generativeai
 """
@@ -20,7 +20,7 @@ from google import genai
 from google.genai import types
 
 from backend.config import (
-    AGENT_MODEL_MAP, FALLBACK_MODEL,
+    GEMINI_GROUNDING_MODEL,
     GEMINI_API_KEYS_LIST,
 )
 from backend.gemini.rate_limiter import RateLimiter
@@ -97,13 +97,13 @@ def call_gemini(
         }
 
     # ── 決定使用模型 ─────────────────────────────────────
-    model_name = _resolve_model(agent_name)
+    model_name = _resolve_model()
     if model_name is None:
-        logger.warning(f"[GeminiClient] {agent_name} 所有模型均達 rate limit")
+        logger.warning(f"[GeminiClient] {agent_name} Gemini RPD 已達上限")
         return {
             "status": "rate_limited",
             "output": None,
-            "model_used": AGENT_MODEL_MAP.get(agent_name, "unknown"),
+            "model_used": GEMINI_GROUNDING_MODEL,
             "duration_ms": 0,
         }
 
@@ -155,18 +155,12 @@ def call_gemini(
                 f"[GeminiClient] {agent_name} 第 {attempt + 1} 次失敗: {e}"
             )
 
-            # 429 Rate Limit 錯誤：不重試，直接降級
+            # 429 Rate Limit 錯誤：不重試，無降級，直接中止
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 logger.warning(
-                    f"[GeminiClient] {model_name} 收到 429，嘗試降級"
+                    f"[GeminiClient] {model_name} 收到 429，Gemini 配額耗盡"
                 )
-                fallback = FALLBACK_MODEL.get(model_name)
-                if fallback and _rate_limiter.can_call(fallback):
-                    model_name = fallback
-                    logger.info(f"[GeminiClient] 降級至 {model_name}")
-                    continue
-                else:
-                    break
+                break
 
             # API_KEY_INVALID：換下一把 key 重試（不 sleep）
             if "API_KEY_INVALID" in str(e):
@@ -199,27 +193,13 @@ def call_gemini(
     }
 
 
-def _resolve_model(agent_name: str) -> Optional[str]:
+def _resolve_model() -> Optional[str]:
     """
-    決定使用哪個模型。
-    若主要模型達到 rate limit，沿 FALLBACK_MODEL 鏈往下找。
+    決定使用 Gemini 模型（固定為 GEMINI_GROUNDING_MODEL）。
+    若 RPD 已耗盡則回傳 None（不降級，Gemini 只做 batch grounding）。
     """
-    model_name = AGENT_MODEL_MAP.get(agent_name, "gemini-2.5-flash")
-
-    if _rate_limiter.can_call(model_name):
-        return model_name
-
-    current = model_name
-    while current in FALLBACK_MODEL:
-        fallback = FALLBACK_MODEL[current]
-        if _rate_limiter.can_call(fallback):
-            logger.info(
-                f"[GeminiClient] {agent_name} 主模型 {model_name} 達限，"
-                f"降級至 {fallback}"
-            )
-            return fallback
-        current = fallback
-
+    if _rate_limiter.can_call(GEMINI_GROUNDING_MODEL):
+        return GEMINI_GROUNDING_MODEL
     return None
 
 
@@ -265,9 +245,9 @@ def call_gemini_streaming(
     if not _key_pool:
         return
 
-    model_name = _resolve_model(agent_name)
+    model_name = _resolve_model()
     if model_name is None:
-        logger.warning(f"[GeminiClient] {agent_name} streaming: 所有模型達 rate limit")
+        logger.warning(f"[GeminiClient] {agent_name} streaming: Gemini RPD 已耗盡")
         return
 
     start = time.time()
