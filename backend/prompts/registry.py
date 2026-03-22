@@ -96,7 +96,7 @@ def seed_initial_prompts() -> None:
     """
     try:
         from backend.data.storage.supabase_client import get_client
-        from backend.config import AGENT_MODEL_MAP
+        from backend.config import NVIDIA_MODEL
 
         client = get_client()
         if not client:
@@ -120,7 +120,7 @@ def seed_initial_prompts() -> None:
                 "agent_name": agent_name,
                 "version": 1,
                 "prompt_content": prompt_content,
-                "model_assigned": AGENT_MODEL_MAP.get(agent_name, "gemini-2.5-flash"),
+                "model_assigned": NVIDIA_MODEL,
                 "is_active": True,
             }).execute()
             seeded += 1

@@ -3,16 +3,18 @@ backend/core/budget_guard.py
 API 預算守門員（Sonnet 撰寫）
 
 職責：
-1. 追蹤每日 Gemini RPD 總用量
+1. 追蹤每日 Gemini Grounding RPD 總用量（上限 18/天，留 buffer）
 2. 超出預算時拒絕新工作入隊
 3. 提供預算使用狀況查詢
 4. 每日零時自動重置計數器
+
+注意：NVIDIA NIM 無日限制，不需要守門。
 """
 import logging
 import threading
-from datetime import date, datetime, timezone
+from datetime import date
 
-from backend.config import DAILY_GEMINI_RPD_BUDGET, RATE_LIMITS
+from backend.config import DAILY_GROUNDING_RPD_BUDGET, GEMINI_RATE_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ _BLOCK_THRESHOLD = 0.95   # 95% 時拒絕新工作
 
 class BudgetGuard:
     """
-    Gemini API 每日預算守門員。
+    Gemini Grounding 每日預算守門員。
     Thread-safe，支援多 agent 並發更新。
     """
 
@@ -31,7 +33,7 @@ class BudgetGuard:
         self._lock = threading.Lock()
         self._today = date.today()
         # 每個模型的已用 RPD
-        self._used: dict[str, int] = {m: 0 for m in RATE_LIMITS}
+        self._used: dict[str, int] = {m: 0 for m in GEMINI_RATE_LIMITS}
         self._total_used: int = 0
 
     # ─── 公開介面 ────────────────────────────────────────────
@@ -41,7 +43,7 @@ class BudgetGuard:
         判斷是否可以繼續使用 Gemini（不超出日預算）。
 
         Args:
-            estimated_calls: 預計呼叫次數
+            estimated_calls: 預計消耗的 grounding RPD 數（通常為 1）
 
         Returns:
             (allowed: bool, reason: str)
@@ -50,11 +52,11 @@ class BudgetGuard:
 
         with self._lock:
             projected = self._total_used + estimated_calls
-            usage_pct = projected / DAILY_GEMINI_RPD_BUDGET
+            usage_pct = projected / DAILY_GROUNDING_RPD_BUDGET
 
             if usage_pct >= _BLOCK_THRESHOLD:
                 msg = (
-                    f"Gemini 日預算已達 {self._total_used}/{DAILY_GEMINI_RPD_BUDGET}，"
+                    f"Gemini grounding 日預算已達 {self._total_used}/{DAILY_GROUNDING_RPD_BUDGET}，"
                     f"拒絕新工作（{usage_pct:.0%}）"
                 )
                 logger.error(f"[BudgetGuard] {msg}")
@@ -62,14 +64,20 @@ class BudgetGuard:
 
             if usage_pct >= _WARN_THRESHOLD:
                 logger.warning(
-                    f"[BudgetGuard] Gemini 日預算使用 {self._total_used}/"
-                    f"{DAILY_GEMINI_RPD_BUDGET}（{usage_pct:.0%}），接近上限"
+                    f"[BudgetGuard] Gemini grounding 日預算使用 {self._total_used}/"
+                    f"{DAILY_GROUNDING_RPD_BUDGET}（{usage_pct:.0%}），接近上限"
                 )
 
             return True, "OK"
 
-    def record_usage(self, model_name: str, calls: int = 1) -> None:
-        """記錄一次 Gemini 呼叫消耗。"""
+    def record_usage(self, model_name: str = "gemini-2.5-flash", calls: int = 1) -> None:
+        """
+        記錄一次 Gemini grounding 呼叫消耗。
+
+        Args:
+            model_name: 使用的模型名稱（預設 gemini-2.5-flash）
+            calls:      消耗的 RPD 數（通常為 1）
+        """
         self._maybe_reset()
         with self._lock:
             if model_name in self._used:
@@ -80,13 +88,13 @@ class BudgetGuard:
         """回傳目前預算使用狀況。"""
         self._maybe_reset()
         with self._lock:
-            pct = self._total_used / DAILY_GEMINI_RPD_BUDGET
+            pct = self._total_used / DAILY_GROUNDING_RPD_BUDGET
             return {
-                "date": self._today.isoformat(),
-                "total_used": self._total_used,
-                "total_budget": DAILY_GEMINI_RPD_BUDGET,
-                "usage_pct": round(pct * 100, 1),
-                "remaining": DAILY_GEMINI_RPD_BUDGET - self._total_used,
+                "date":         self._today.isoformat(),
+                "total_used":   self._total_used,
+                "total_budget": DAILY_GROUNDING_RPD_BUDGET,
+                "usage_pct":    round(pct * 100, 1),
+                "remaining":    DAILY_GROUNDING_RPD_BUDGET - self._total_used,
                 "status": (
                     "critical" if pct >= _BLOCK_THRESHOLD
                     else "warning" if pct >= _WARN_THRESHOLD
@@ -99,7 +107,7 @@ class BudgetGuard:
         """手動重置計數器（每日凌晨由 heartbeat 呼叫）。"""
         with self._lock:
             self._today = date.today()
-            self._used = {m: 0 for m in RATE_LIMITS}
+            self._used = {m: 0 for m in GEMINI_RATE_LIMITS}
             self._total_used = 0
         logger.info("[BudgetGuard] 每日預算計數器已重置")
 
