@@ -923,6 +923,13 @@ function PrivateDashboard({
           </div>
         )}
 
+        {/* 全市場分析推薦（置於個人報告之前，讓登入後也能立即看到市場資料）*/}
+        <MarketRecommendations
+          bullish={bullish}
+          latest={latest}
+          loading={marketLoading}
+        />
+
         {/* CTA: 深度分析 */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 stagger-children">
           <div className="gradient-border">
@@ -965,13 +972,6 @@ function PrivateDashboard({
             </a>
           </div>
         </div>
-
-        {/* 全市場分析推薦 */}
-        <MarketRecommendations
-          bullish={bullish}
-          latest={latest}
-          loading={marketLoading}
-        />
 
         {/* Recent History (all reports, not just latest per symbol) */}
         {reports.length > uniqueReports.length && (
