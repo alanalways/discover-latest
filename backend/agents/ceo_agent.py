@@ -597,6 +597,48 @@ class CEOAgent:
 
         duration_ms = int((time.time() - start) * 1000)
 
+        # ── 6b. 規則式品質審查（零 API 成本）────────────────
+        try:
+            from backend.agents.infra.report_qa import check_report
+            qa_passed, qa_reasons = check_report(chief_result, dept_results)
+        except Exception as _qa_err:
+            logger.warning(f"[{_AGENT_DISPLAY}] QA 模組例外，跳過審查: {_qa_err}")
+            qa_passed, qa_reasons = True, []
+
+        if not qa_passed:
+            logger.warning(
+                f"[{_AGENT_DISPLAY}] {symbol} 報告品質不合格，放棄 DB 寫入並重試: "
+                f"{qa_reasons} [{report_id[:8]}]"
+            )
+            self._task_queue.fail(
+                job_id,
+                f"QA 不合格: {'; '.join(qa_reasons)}",
+                retry=True,
+            )
+            log_agent_action(
+                agent_name="ceo_agent",
+                report_id=report_id,
+                status="qa_failed",
+                action="run_analysis",
+                duration_ms=duration_ms,
+                metadata={
+                    "symbol": symbol,
+                    "market": market,
+                    "qa_reasons": qa_reasons,
+                    "successful_depts": successful_depts,
+                },
+            )
+            return {
+                "status": "qa_failed",
+                "report_id": report_id,
+                "symbol": symbol,
+                "market": market,
+                "qa_reasons": qa_reasons,
+                "successful_depts": successful_depts,
+                "duration_ms": duration_ms,
+                "db_saved": False,
+            }
+
         # ── 7. 儲存到 reports 表 ─────────────────────────
         db_saved = self._save_report_to_db(
             report_id=report_id,
