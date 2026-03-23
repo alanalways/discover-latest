@@ -81,8 +81,8 @@ function OAuthCallbackHandler() {
           })
           .catch(() => {})
         // 清除 hash，導航到 profile
-        window.history.replaceState(null, '', '/profile')
-        navigate('/profile', { replace: true })
+        window.history.replaceState(null, '', '/')
+        navigate('/', { replace: true })
       }
     }
   }, [navigate])
