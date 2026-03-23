@@ -1,12 +1,15 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Search, Loader2, AlertCircle, FileText,
   Shield, Brain, TrendingUp, Activity,
-  ChevronDown, ChevronUp, Sparkles, CheckCircle2
+  ChevronDown, ChevronUp, Sparkles, CheckCircle2, X
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { triggerAnalysis, streamAnalysis, AnalysisResponse } from '../lib/api'
 import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../components/ui'
+
+const ANALYSIS_TIMEOUT_MS = 90_000
 
 // ── Collapsible Section ───────────────────────────────────────────────────────
 
@@ -159,6 +162,7 @@ const QUICK = [
 // ── Main Analysis Page ────────────────────────────────────────────────────────
 
 export default function Analysis() {
+  const [searchParams] = useSearchParams()
   const [symbol, setSymbol]   = useState('')
   const [market, setMarket]   = useState('TW')
   const [loading, setLoading] = useState(false)
@@ -167,24 +171,37 @@ export default function Analysis() {
   const [streamText, setStreamText] = useState('')
   const [activeStep, setActiveStep] = useState(0)
 
-  const closeRef = useRef<(() => void) | null>(null)
+  const closeRef   = useRef<(() => void) | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    const sym = symbol.trim().toUpperCase()
+  // ── 核心分析函式（可從表單或 URL params 呼叫）────────────
+  const startAnalysis = useCallback((sym: string, mkt: string) => {
     if (!sym) return
 
-    // Cleanup previous stream
+    // 清除上一次
     closeRef.current?.()
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+
     setLoading(true)
     setError(null)
     setResult(null)
     setStreamText('')
     setActiveStep(0)
 
+    // 90 秒超時守衛
+    timeoutRef.current = setTimeout(() => {
+      closeRef.current?.()
+      setLoading(false)
+      setError('分析逾時（90 秒），伺服器可能繁忙，請稍後重試')
+    }, ANALYSIS_TIMEOUT_MS)
+
+    const clearGuard = () => {
+      if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
+    }
+
     try {
       closeRef.current = streamAnalysis(
-        sym, market,
+        sym, mkt,
         (chunk) => {
           setStreamText(prev => prev + chunk)
           if (chunk.includes('仲裁') || chunk.includes('arbitrat')) setActiveStep(3)
@@ -192,6 +209,7 @@ export default function Analysis() {
           else setActiveStep(s => Math.max(s, 2))
         },
         (data) => {
+          clearGuard()
           setResult({
             status: 'completed',
             final_report: data.final_report,
@@ -202,12 +220,13 @@ export default function Analysis() {
           setLoading(false)
         },
         async () => {
-          // SSE failed → fallback to POST
+          // SSE 斷線 → fallback POST
+          clearGuard()
           try {
-            const res = await triggerAnalysis(sym, market)
+            const res = await triggerAnalysis(sym, mkt)
             setResult(res)
           } catch (err) {
-            setError(String(err))
+            setError(err instanceof Error ? err.message : String(err))
           } finally {
             setLoading(false)
           }
@@ -220,16 +239,37 @@ export default function Analysis() {
         },
       )
     } catch {
-      try {
-        const res = await triggerAnalysis(sym, market)
-        setResult(res)
-      } catch (err) {
-        setError(String(err))
-      } finally {
-        setLoading(false)
-      }
+      clearGuard()
+      triggerAnalysis(sym, mkt)
+        .then(res => setResult(res))
+        .catch(err => setError(err instanceof Error ? err.message : String(err)))
+        .finally(() => setLoading(false))
     }
-  }, [symbol, market])
+  }, [])
+
+  // ── 從 URL params 自動填入並觸發 ─────────────────────────
+  useEffect(() => {
+    const sym = searchParams.get('symbol')?.toUpperCase() ?? ''
+    const mkt = searchParams.get('market')?.toUpperCase() ?? 'TW'
+    if (sym) {
+      setSymbol(sym)
+      setMarket(mkt)
+      startAnalysis(sym, mkt)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])   // 只在首次掛載時執行
+
+  const handleSubmit = useCallback((e: React.FormEvent) => {
+    e.preventDefault()
+    startAnalysis(symbol.trim().toUpperCase(), market)
+  }, [symbol, market, startAnalysis])
+
+  const handleCancel = useCallback(() => {
+    closeRef.current?.()
+    if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
+    setLoading(false)
+    setError(null)
+  }, [])
 
   const displayReport = result?.final_report || (streamText && !loading ? streamText : null)
 
@@ -279,16 +319,24 @@ export default function Analysis() {
             <option value="TWO">上櫃</option>
             <option value="US">美股</option>
           </select>
-          <button
-            type="submit"
-            disabled={loading || !symbol.trim()}
-            className="btn-primary sm:w-32 flex items-center justify-center gap-2"
-          >
-            {loading
-              ? <><Loader2 size={14} className="animate-spin" aria-hidden /> 分析中…</>
-              : <><Sparkles size={14} aria-hidden /> AI 分析</>
-            }
-          </button>
+          {loading ? (
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="sm:w-32 flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer"
+              style={{ background: 'rgba(248,81,73,0.12)', color: 'var(--bear)', border: '1px solid rgba(248,81,73,0.25)' }}
+            >
+              <X size={14} aria-hidden /> 取消分析
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!symbol.trim()}
+              className="btn-primary sm:w-32 flex items-center justify-center gap-2"
+            >
+              <Sparkles size={14} aria-hidden /> AI 分析
+            </button>
+          )}
         </div>
 
         {/* Quick picks */}

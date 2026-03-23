@@ -33,7 +33,7 @@ export default function Watchlist() {
       const res = await getWatchlist(token)
       setItems(res.watchlist || [])
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setLoading(false)
     }
@@ -54,7 +54,7 @@ export default function Watchlist() {
       setItems(res.watchlist || [])
       setSymbol('')
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setAdding(false)
     }
@@ -69,7 +69,7 @@ export default function Watchlist() {
       const res = await removeFromWatchlist(sym, mkt, token)
       setItems(res.watchlist || [])
     } catch (err) {
-      setError(String(err))
+      setError(err instanceof Error ? err.message : String(err))
     } finally {
       setRemoving(null)
     }

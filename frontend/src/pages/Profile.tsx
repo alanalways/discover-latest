@@ -21,9 +21,9 @@ interface UserInfo {
 interface LimitsInfo {
   tier: string
   daily_limit: number
-  used_today: number
-  remaining: number
-  reset_at: string
+  daily_used: number      // 後端欄位名稱
+  daily_remaining: number // 後端欄位名稱
+  per_minute: number
 }
 
 interface Alert {
@@ -192,7 +192,7 @@ export default function Profile() {
   }
 
   const tierCfg = TIER_CONFIG[user.tier] || TIER_CONFIG.free
-  const usagePct = limits ? Math.min(100, (limits.used_today / limits.daily_limit) * 100) : 0
+  const usagePct = limits ? Math.min(100, (limits.daily_used / limits.daily_limit) * 100) : 0
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 space-y-5">
@@ -272,7 +272,7 @@ export default function Profile() {
             <>
               <div className="flex items-end justify-between">
                 <span className="font-mono text-2xl font-bold" style={{ color: 'var(--t1)' }}>
-                  {limits.used_today}
+                  {limits.daily_used}
                 </span>
                 <span className="text-xs" style={{ color: 'var(--t4)' }}>
                   / {limits.daily_limit} 次
@@ -288,7 +288,7 @@ export default function Profile() {
                 />
               </div>
               <p className="text-[11px]" style={{ color: 'var(--t4)' }}>
-                剩餘 {limits.remaining} 次 · 重設時間 {limits.reset_at}
+                剩餘 {limits.daily_remaining} 次 · 每日 0 時重設 · 每分鐘上限 {limits.per_minute} 次
               </p>
             </>
           ) : (

@@ -150,6 +150,7 @@ function NavBar() {
             width={28}
             height={28}
             className="transition-shadow group-hover:shadow-lg rounded-lg"
+            onError={(e) => { e.currentTarget.style.display = 'none' }}
           />
           <div className="flex items-baseline gap-1.5">
             <span className="font-semibold text-sm tracking-tight" style={{ color: 'var(--t1)' }}>

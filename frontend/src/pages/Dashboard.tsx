@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import Markdown from 'react-markdown'
 import {
   LayoutDashboard, TrendingUp, TrendingDown, RefreshCw,
   Activity, Target, Zap, ArrowRight, Globe, Clock,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react'
 import {
   getMyReports, getSystemStats, getAccuracyStats,
-  getMarketOverview, getTopBullish, getScannerResults,
+  getMarketOverview, getTopBullish, getScannerResults, getWatchlist,
   ReportWithContent, ReportSummary, SystemStats,
   MarketQuote, MarketHours, WatchlistItem, rateReport
 } from '../lib/api'
@@ -902,19 +903,29 @@ function PrivateDashboard({
                           重新分析 <ArrowRight size={10} />
                         </button>
                       </div>
-                      <div
-                        className="prose-dark text-sm leading-relaxed max-h-96 overflow-y-auto pr-2"
-                        style={{
-                          color: 'var(--t2)',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word',
-                        }}
+                      <article
+                        className="report-content text-sm leading-relaxed max-h-96 overflow-y-auto pr-2"
                       >
-                        {report.final_report.length > 2000
-                          ? report.final_report.slice(0, 2000) + '\n\n...(點擊「重新分析」查看完整報告)'
-                          : report.final_report
-                        }
-                      </div>
+                        <Markdown
+                          components={{
+                            h1: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                            h2: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                            h3: ({ children }) => <h3 className="report-h3">{children}</h3>,
+                            h4: ({ children }) => <h4 className="report-h4">{children}</h4>,
+                            p:  ({ children }) => <p className="report-p">{children}</p>,
+                            ul: ({ children }) => <ul className="report-ul">{children}</ul>,
+                            ol: ({ children }) => <ol className="report-ol">{children}</ol>,
+                            li: ({ children }) => <li className="report-li">{children}</li>,
+                            strong: ({ children }) => <strong className="report-strong">{children}</strong>,
+                            hr: () => <div className="report-divider" />,
+                          }}
+                        >
+                          {report.final_report.length > 2000
+                            ? report.final_report.slice(0, 2000) + '\n\n...(點擊「重新分析」查看完整報告)'
+                            : report.final_report
+                          }
+                        </Markdown>
+                      </article>
                     </div>
                   )
                 })()}
@@ -1092,14 +1103,19 @@ export default function Dashboard() {
     const token = getToken()
 
     if (token) {
-      // Logged in: load personal reports
+      // Logged in: load personal reports + watchlist (兩個來源確保準確)
       Promise.all([
         getMyReports(token),
         getSystemStats(),
+        getWatchlist(token),
       ])
-        .then(([myData, statsData]) => {
+        .then(([myData, statsData, wlData]) => {
           setReports(myData.reports)
-          setWatchlist(myData.watchlist)
+          // 優先用 getWatchlist（直接讀取，最準確），fallback 到 my-reports 附帶的
+          const wl = (wlData?.watchlist?.length > 0)
+            ? wlData.watchlist
+            : (myData.watchlist || [])
+          setWatchlist(wl)
           setTotalAnalyzed(myData.total_analyzed)
           setRemaining(myData.remaining)
           setStats(statsData)

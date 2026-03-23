@@ -178,7 +178,7 @@ function PendingPredictions({ predictions }: { predictions: PredictionRecord[] }
                   </td>
                   <td className="px-3 py-2.5 font-mono" style={{ color: 'var(--t2)' }}>
                     {p.predicted_target_low && p.predicted_target_high
-                      ? `${p.predicted_target_low}–${p.predicted_target_high}`
+                      ? `${+p.predicted_target_low.toFixed(3)}–${+p.predicted_target_high.toFixed(3)}`
                       : '—'
                     }
                   </td>

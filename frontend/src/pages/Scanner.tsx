@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ScanLine, Filter, ArrowUpDown, Search } from 'lucide-react'
 import { getScannerResults, ReportSummary } from '../lib/api'
 import {
@@ -10,6 +11,7 @@ type SortField = 'confidence' | 'date' | 'symbol'
 type SortDir   = 'asc' | 'desc'
 
 export default function Scanner() {
+  const navigate = useNavigate()
   const [items, setItems]     = useState<ReportSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [market, setMarket]   = useState('')
@@ -173,7 +175,15 @@ export default function Scanner() {
                 {filtered.map((item, i) => {
                   const isTop = i < 3
                   return (
-                    <tr key={item.id} role="row">
+                    <tr
+                      key={item.id}
+                      role="row"
+                      className="cursor-pointer transition-colors"
+                      onClick={() => navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                      title={`點擊查看 ${item.symbol} 完整分析`}
+                    >
                       <td className="text-center">
                         <span
                           className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
