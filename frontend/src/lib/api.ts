@@ -13,8 +13,14 @@ async function request<T>(
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || `HTTP ${res.status}`)
+    let message: string
+    try {
+      const errData = await res.json()
+      message = errData.detail || errData.message || `HTTP ${res.status}`
+    } catch {
+      message = (await res.text()) || `HTTP ${res.status}`
+    }
+    throw new Error(message)
   }
   return res.json() as Promise<T>
 }

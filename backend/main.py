@@ -147,7 +147,12 @@ if _FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):
-        """SPA catch-all：所有非 API 路徑都回傳 index.html。"""
+        """SPA catch-all：靜態資源直接提供，其餘回傳 index.html。"""
+        # 先嘗試直接提供靜態資源（logo.svg、favicon.ico 等）
+        static_file = _FRONTEND_DIST / full_path
+        if static_file.exists() and static_file.is_file():
+            return FileResponse(str(static_file))
+        # 否則回傳 SPA index.html（React Router 接管）
         index = _FRONTEND_DIST / "index.html"
         if index.exists():
             return FileResponse(str(index))

@@ -145,7 +145,7 @@ function TargetPriceBadge({
       }}
     >
       <Target size={10} aria-hidden />
-      {low?.toLocaleString() ?? '?'}–{high?.toLocaleString() ?? '?'}
+      {low != null ? +low.toFixed(3) : '?'}–{high != null ? +high.toFixed(3) : '?'}
     </span>
   )
 }

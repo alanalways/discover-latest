@@ -205,7 +205,7 @@ export default function Scanner() {
                       </td>
                       <td className="text-right font-mono text-xs" style={{ color: 'var(--t3)' }}>
                         {item.target_price_low && item.target_price_high
-                          ? `${item.target_price_low}–${item.target_price_high}`
+                          ? `${+item.target_price_low.toFixed(3)}–${+item.target_price_high.toFixed(3)}`
                           : '—'
                         }
                       </td>
