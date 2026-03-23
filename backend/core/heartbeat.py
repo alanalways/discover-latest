@@ -31,6 +31,7 @@ APScheduler 排程心跳
 - 24/7 持續補充：靠 BudgetGuard 控制每日 Gemini RPD（預設 130/天）
 """
 import logging
+import threading
 import time
 import re
 from typing import Optional
@@ -50,6 +51,9 @@ _TOP500_CACHE_TTL = 86400  # 24 小時
 
 # 持續補充 round-robin cursor（跨次呼叫保持位置）
 _fill_cursor: int = 0
+
+# 佇列處理器鎖（確保同時只有一個處理執行緒在跑）
+_queue_processor_lock = threading.Lock()
 
 # 美股藍籌（固定清單）
 _US_BLUE_CHIPS = [
@@ -276,18 +280,9 @@ def _job_full_scan(scan_label: str, priority: int = 5, max_jobs: int = 20) -> No
                 enqueued += 1
 
         logger.info(
-            "[Heartbeat] %s 入隊完成: 入隊 %d 支進行完整分析",
+            "[Heartbeat] %s 入隊完成: %d 支已入隊，由佇列處理器執行",
             scan_label, enqueued,
         )
-
-        if enqueued > 0:
-            result = ceo.run_pending_jobs(max_jobs=enqueued)
-            logger.info(
-                "[Heartbeat] %s 處理完成: 成功 %d / 失敗 %d",
-                scan_label,
-                result.get("succeeded", 0),
-                result.get("failed", 0),
-            )
 
     except Exception as e:
         logger.error(f"[Heartbeat] {scan_label} 失敗: {e}", exc_info=True)
@@ -343,9 +338,6 @@ def _job_us_premarket() -> None:
                     )
                     if job_id:
                         enqueued += 1
-
-        if enqueued > 0:
-            ceo.run_pending_jobs(max_jobs=15)
 
         logger.info("[Heartbeat] 美股盤前掃描: 入隊 %d 檔", enqueued)
 
@@ -410,8 +402,7 @@ def _job_startup_scan() -> None:
                     enqueued += 1
 
         if enqueued > 0:
-            logger.info("[Heartbeat] 啟動掃描: 入隊 %d 檔（TOP 500 + 自選股）", enqueued)
-            ceo.run_pending_jobs(max_jobs=15)
+            logger.info("[Heartbeat] 啟動掃描: 入隊 %d 檔（TOP 500 + 自選股），由佇列處理器執行", enqueued)
         else:
             logger.info("[Heartbeat] 所有股票都有近期報告，跳過啟動掃描")
 
@@ -421,19 +412,35 @@ def _job_startup_scan() -> None:
 
 # 持續處理排隊工作（每 5 分鐘檢查一次）
 def _job_process_queue() -> None:
-    """持續處理排隊中的分析工作。"""
-    try:
-        from backend.agents.ceo_agent import get_ceo_agent
-        ceo = get_ceo_agent()
-        result = ceo.run_pending_jobs(max_jobs=5)
-        processed = result.get("processed", 0)
-        if processed > 0:
-            logger.info(
-                "[Heartbeat] 佇列處理: 成功 %d / 失敗 %d",
-                result.get("succeeded", 0), result.get("failed", 0),
-            )
-    except Exception as e:
-        logger.error(f"[Heartbeat] 佇列處理失敗: {e}", exc_info=True)
+    """
+    持續處理排隊中的分析工作（非阻塞）。
+
+    立即返回，在 daemon thread 裡執行實際工作。
+    _queue_processor_lock 確保同時只有一個處理執行緒在跑，
+    避免 APScheduler max_instances=1 造成後續排程被 skip。
+    """
+    if not _queue_processor_lock.acquire(blocking=False):
+        logger.debug("[Heartbeat] 佇列處理器已在執行中，跳過本次排程")
+        return
+
+    def _process() -> None:
+        try:
+            from backend.agents.ceo_agent import get_ceo_agent
+            ceo = get_ceo_agent()
+            result = ceo.run_pending_jobs(max_jobs=2)
+            processed = result.get("processed", 0)
+            if processed > 0:
+                logger.info(
+                    "[Heartbeat] 佇列處理: 成功 %d / 失敗 %d",
+                    result.get("succeeded", 0), result.get("failed", 0),
+                )
+        except Exception as e:
+            logger.error(f"[Heartbeat] 佇列處理失敗: {e}", exc_info=True)
+        finally:
+            _queue_processor_lock.release()
+
+    t = threading.Thread(target=_process, daemon=True, name="queue-processor")
+    t.start()
 
 
 def _job_continuous_fill() -> None:

@@ -1371,6 +1371,15 @@ class CEOAgent:
         try:
             from backend.data.storage.supabase_client import insert_row
 
+            # final_report 是 NOT NULL 欄位，若為空則跳過 DB 寫入
+            final_report_text = chief_result.get("final_report")
+            if not final_report_text:
+                logger.warning(
+                    f"[{_AGENT_DISPLAY}] final_report 為空，跳過 DB 寫入: "
+                    f"{symbol} [{report_id[:8]}]"
+                )
+                return False
+
             row_data = {
                 "id": report_id,
                 "symbol": symbol,
@@ -1396,7 +1405,7 @@ class CEOAgent:
                     dept_outputs.get("sentiment", {})
                 ),
                 "arbitration_log": _clean_dept_output(arb_result),
-                "final_report": chief_result.get("final_report"),
+                "final_report": final_report_text,
                 "rating": chief_result.get("rating"),
                 "target_price_low": chief_result.get("target_price_low"),
                 "target_price_high": chief_result.get("target_price_high"),
