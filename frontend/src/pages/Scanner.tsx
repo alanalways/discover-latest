@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ScanLine, Filter, ArrowUpDown, Search } from 'lucide-react'
+import { ScanLine, ArrowUpDown, Search } from 'lucide-react'
 import { getScannerResults, ReportSummary } from '../lib/api'
 import {
   RatingBadge, DirectionIcon, ConfidenceGauge,
-  LoadingSkeleton, EmptyState, SectionHeader, ChangePct
+  LoadingSkeleton, EmptyState, SectionHeader, ChangePct, TargetPriceBadge
 } from '../components/ui'
 
 type SortField = 'confidence' | 'date' | 'symbol'
@@ -125,10 +125,9 @@ export default function Scanner() {
           </div>
 
           {/* Result count */}
-          <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--t4)' }}>
-            <Filter size={11} aria-hidden />
-            <span>{filtered.length} 筆</span>
-          </div>
+          <span className="text-xs px-2 py-1 rounded" style={{ color: 'var(--t4)', background: 'rgba(148,163,184,0.06)' }}>
+            共 {filtered.length} 筆
+          </span>
         </div>
       </div>
 
@@ -147,11 +146,30 @@ export default function Scanner() {
         {loading ? (
           <LoadingSkeleton rows={10} />
         ) : filtered.length === 0 ? (
-          <EmptyState
-            icon={ScanLine}
-            title="無符合條件的結果"
-            subtitle="試試調整篩選條件"
-          />
+          search ? (
+            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+              <ScanLine size={36} className="mb-3" style={{ opacity: 0.4, color: 'var(--t4)' }} />
+              <p className="text-sm font-medium mb-1" style={{ color: 'var(--t3)' }}>
+                找不到「{search.toUpperCase()}」的掃描結果
+              </p>
+              <p className="text-xs mb-4" style={{ color: 'var(--t4)' }}>
+                智慧掃描只顯示 AI 已自動分析的股票。若要分析此股票，請至深度分析頁。
+              </p>
+              <a
+                href={`/analysis?symbol=${search.toUpperCase()}&market=${market || 'TW'}`}
+                className="btn-primary text-xs px-4 py-2 flex items-center gap-1.5 no-underline"
+              >
+                <Search size={12} aria-hidden />
+                深度分析 {search.toUpperCase()}
+              </a>
+            </div>
+          ) : (
+            <EmptyState
+              icon={ScanLine}
+              title="無符合條件的結果"
+              subtitle="試試調整篩選條件"
+            />
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="data-table" role="grid">
@@ -213,11 +231,8 @@ export default function Scanner() {
                           : <span style={{ color: 'var(--t4)' }}>—</span>
                         }
                       </td>
-                      <td className="text-right font-mono text-xs" style={{ color: 'var(--t3)' }}>
-                        {item.target_price_low && item.target_price_high
-                          ? `${+item.target_price_low.toFixed(3)}–${+item.target_price_high.toFixed(3)}`
-                          : '—'
-                        }
+                      <td className="text-right">
+                        <TargetPriceBadge low={item.target_price_low} high={item.target_price_high} />
                       </td>
                       <td className="text-right text-xs" style={{ color: 'var(--t4)' }}>
                         {item.created_at?.slice(0, 10)}

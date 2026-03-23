@@ -3,7 +3,7 @@
  * Bloomberg Terminal Dark Theme | Fira Code data layer
  */
 
-import { TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, Loader2, Target } from 'lucide-react'
 
 // ── Rating Config ──────────────────────────────────────────────────────────────
 
@@ -243,6 +243,31 @@ export function ChangePct({
         : <TrendingDown size={11} aria-hidden />
       )}
       {isUp ? '+' : ''}{value.toFixed(2)}%
+    </span>
+  )
+}
+
+// ── Target Price Badge ────────────────────────────────────────────────────────
+
+export function TargetPriceBadge({
+  low,
+  high,
+}: {
+  low?: number | null
+  high?: number | null
+}) {
+  if (!low && !high) return <span style={{ color: 'var(--t4)' }}>—</span>
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded font-mono text-xs font-bold"
+      style={{
+        background: 'rgba(234,179,8,0.12)',
+        border: '1px solid rgba(234,179,8,0.25)',
+        color: 'var(--gold)',
+      }}
+    >
+      <Target size={10} aria-hidden />
+      {low != null ? +low.toFixed(2) : '?'}–{high != null ? +high.toFixed(2) : '?'}
     </span>
   )
 }

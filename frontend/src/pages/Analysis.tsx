@@ -9,7 +9,7 @@ import Markdown from 'react-markdown'
 import { triggerAnalysis, streamAnalysis, AnalysisResponse } from '../lib/api'
 import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../components/ui'
 
-const ANALYSIS_TIMEOUT_MS = 90_000
+const ANALYSIS_TIMEOUT_MS = 180_000
 
 // ── Collapsible Section ───────────────────────────────────────────────────────
 
@@ -192,17 +192,28 @@ export default function Analysis() {
     timeoutRef.current = setTimeout(() => {
       closeRef.current?.()
       setLoading(false)
-      setError('分析逾時（90 秒），伺服器可能繁忙，請稍後重試')
+      setError('分析逾時（3 分鐘），伺服器可能繁忙，請稍後重試')
     }, ANALYSIS_TIMEOUT_MS)
 
     const clearGuard = () => {
       if (timeoutRef.current) { clearTimeout(timeoutRef.current); timeoutRef.current = null }
     }
 
+    // 每次收到 SSE 事件就重置超時計時器（後端有在處理就不超時）
+    const resetGuard = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+      timeoutRef.current = setTimeout(() => {
+        closeRef.current?.()
+        setLoading(false)
+        setError('分析逾時（3 分鐘），伺服器可能繁忙，請稍後重試')
+      }, ANALYSIS_TIMEOUT_MS)
+    }
+
     try {
       closeRef.current = streamAnalysis(
         sym, mkt,
         (chunk) => {
+          resetGuard() // 有活動就重置超時
           setStreamText(prev => prev + chunk)
           if (chunk.includes('仲裁') || chunk.includes('arbitrat')) setActiveStep(3)
           else if (chunk.includes('報告') || chunk.includes('結論')) setActiveStep(4)
@@ -232,6 +243,7 @@ export default function Analysis() {
           }
         },
         (stage) => {
+          resetGuard() // 有狀態更新就重置超時
           const stageMap: Record<string, number> = {
             data: 0, agents: 1, arbitration: 3, report: 4,
           }

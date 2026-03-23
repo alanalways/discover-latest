@@ -13,6 +13,12 @@ async function request<T>(
 
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers })
   if (!res.ok) {
+    // 401 自動登出：清除 token 並通知所有監聽者
+    if (res.status === 401) {
+      localStorage.removeItem('dl_token')
+      localStorage.removeItem('dl_user')
+      window.dispatchEvent(new StorageEvent('storage', { key: 'dl_token', newValue: null }))
+    }
     let message: string
     try {
       const errData = await res.json()

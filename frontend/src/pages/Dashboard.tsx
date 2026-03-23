@@ -265,19 +265,28 @@ function MarketRecommendations({
                 重新分析 <ArrowRight size={10} />
               </button>
             </div>
-            <div
-              className="text-sm leading-relaxed max-h-96 overflow-y-auto pr-2"
-              style={{
-                color: 'var(--t2)',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
+            <article
+              className="report-content text-sm leading-relaxed max-h-96 overflow-y-auto pr-2"
+              aria-label="AI 分析摘要"
             >
-              {item.final_report.length > 2000
-                ? item.final_report.slice(0, 2000) + '\n\n...(點擊「重新分析」查看完整報告)'
-                : item.final_report
-              }
-            </div>
+              <Markdown
+                components={{
+                  h1: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                  h2: ({ children }) => <h2 className="report-h2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="report-h3">{children}</h3>,
+                  p: ({ children }) => <p className="report-p">{children}</p>,
+                  ul: ({ children }) => <ul className="report-ul">{children}</ul>,
+                  li: ({ children }) => <li className="report-li">{children}</li>,
+                  strong: ({ children }) => <strong className="report-strong">{children}</strong>,
+                  hr: () => <div className="report-divider" />,
+                }}
+              >
+                {item.final_report.length > 2000
+                  ? item.final_report.slice(0, 2000) + '\n\n*...(點擊「重新分析」查看完整報告)*'
+                  : item.final_report
+                }
+              </Markdown>
+            </article>
           </div>
         </td>
       </tr>
@@ -556,10 +565,10 @@ function PublicDashboard({
                 <Award size={22} style={{ color: 'var(--bull)' }} />
               </div>
             </div>
-            <div className="font-mono text-3xl font-bold mb-1" style={{ color: 'var(--bull)' }}>
-              {loading ? '…' : (stats?.accuracy_pct ?? 0)}%
+            <div className="font-mono text-3xl font-bold mb-1" style={{ color: stats?.accuracy_pct ? 'var(--bull)' : 'var(--t3)' }}>
+              {loading ? '…' : (stats?.accuracy_pct ? `${stats.accuracy_pct}%` : '累積中')}
             </div>
-            <div className="text-xs" style={{ color: 'var(--t4)' }}>整體準確率</div>
+            <div className="text-xs" style={{ color: 'var(--t4)' }}>AI 預測準確率</div>
           </div>
         </div>
 

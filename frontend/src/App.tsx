@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { to: '/scanner',   label: '智慧掃描', icon: ScanLine },
   { to: '/backtest',  label: '回測',     icon: Target },
   { to: '/watchlist', label: '自選股',   icon: Star },
+  { to: '/accuracy',  label: '準確率',   icon: BarChart2 },
 ]
 
 const SECONDARY_NAV = [
@@ -302,22 +303,14 @@ function NavBar() {
 // ── Require Auth ─────────────────────────────────────────────────────────────
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const [checking, setChecking] = useState(true)
-  const [authed, setAuthed] = useState(false)
+  const [authed, setAuthed] = useState(!!getToken())
 
+  // 監聽 localStorage 變化（401 自動登出、手動登出等）
   useEffect(() => {
-    const token = getToken()
-    setAuthed(!!token)
-    setChecking(false)
+    const check = () => setAuthed(!!getToken())
+    window.addEventListener('storage', check)
+    return () => window.removeEventListener('storage', check)
   }, [])
-
-  if (checking) {
-    return (
-      <div className="flex items-center justify-center py-32">
-        <div className="animate-spin w-6 h-6 rounded-full" style={{ border: '2px solid var(--bdr-2)', borderTopColor: 'var(--accent-2)' }} />
-      </div>
-    )
-  }
 
   if (!authed) {
     return <LoginGate />
@@ -353,7 +346,7 @@ function LoginGate() {
         需要登入
       </h1>
       <p className="text-sm mb-6" style={{ color: 'var(--t3)' }}>
-        此功能需要登入後才能使用。登入後可查看您的自選股分析、目標價追蹤、評分系統等完整功能。
+        此功能需要登入後才能使用。請以 Google 帳號登入以繼續。
       </p>
       <button
         onClick={handleLogin}
