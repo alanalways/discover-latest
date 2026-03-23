@@ -216,6 +216,46 @@ class TaskQueue:
 
         return len(self._mem_queue)
 
+    def peek_pending_jobs(self, max_jobs: int = 8) -> list[dict]:
+        """
+        查看（不認領）即將執行的待處理工作。
+
+        用於批次 grounding 預熱：讓 run_pending_jobs 在正式執行前
+        先知道哪些股票即將被分析，一次 Gemini 呼叫取回所有 grounding。
+
+        Args:
+            max_jobs: 最多回傳幾筆
+
+        Returns:
+            list of job dict（含 id / job_type / payload）
+        """
+        if self._db_available():
+            try:
+                from backend.data.storage.supabase_client import get_client
+                client = get_client()
+                if client:
+                    now_iso = datetime.now(timezone.utc).isoformat()
+                    result = (
+                        client.table("job_queue")
+                        .select("id, job_type, payload")
+                        .eq("status", _STATUS_PENDING)
+                        .lte("scheduled_for", now_iso)
+                        .order("priority", desc=True)
+                        .order("scheduled_for")
+                        .limit(max_jobs)
+                        .execute()
+                    )
+                    return result.data or []
+            except Exception as e:
+                logger.debug(f"[TaskQueue] peek_pending_jobs DB error: {e}")
+
+        # 記憶體佇列 fallback
+        pending = [
+            j for j in self._mem_queue
+            if j.get("status") == _STATUS_PENDING
+        ]
+        return pending[:max_jobs]
+
     def get_recent_jobs(self, limit: int = 20) -> list[dict]:
         """取得最近的工作記錄（供 cost_monitor 使用）。"""
         if self._db_available():

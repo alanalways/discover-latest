@@ -346,6 +346,33 @@ class CEOAgent:
         from backend.core.audit_log import log_agent_action
         start = time.time()
 
+        # ── 批次 Grounding 預熱（一次 Gemini 取回多支股票資料）──────────
+        # 先 peek 即將執行的 analyze_stock jobs，一次 Gemini 呼叫暖快取，
+        # 後續各 _run_analysis 呼叫 BatchGroundingAgent.fetch_all() 時直接命中。
+        try:
+            upcoming = self._task_queue.peek_pending_jobs(max_jobs)
+            analyze_symbols: list[tuple[str, str]] = [
+                (
+                    j["payload"]["symbol"],
+                    j["payload"].get("market", "TW"),
+                )
+                for j in upcoming
+                if j.get("job_type") == "analyze_stock"
+                   and isinstance(j.get("payload"), dict)
+                   and j["payload"].get("symbol")
+            ]
+            if len(analyze_symbols) >= 2:
+                from backend.gemini.grounding import BatchGroundingAgent
+                BatchGroundingAgent().fetch_batch(analyze_symbols)
+                logger.info(
+                    f"[{_AGENT_DISPLAY}] 批次 grounding 預熱完成: "
+                    f"{[s for s, _ in analyze_symbols]}"
+                )
+        except Exception as _pre_e:
+            logger.debug(
+                f"[{_AGENT_DISPLAY}] 批次 grounding 預熱失敗（不影響執行）: {_pre_e}"
+            )
+
         processed = 0
         succeeded = 0
         failed = 0
@@ -534,24 +561,47 @@ class CEOAgent:
         )
         gemini_calls += 1
 
-        # 3d. 事件驅動（grounding，不需傳入資料）
+        # 3d-f. Batch Grounding（一次 Gemini 取三份資料）──────────────
+        # 先取 industry（後面 macro 需要，fundamental_data 此時已有）
+        _industry_pre = self._get_industry(symbol, market, fundamental_data)
+
+        _event_gr: dict = {}
+        _macro_gr: dict = {}
+        _sentiment_gr: dict = {}
+        try:
+            from backend.gemini.grounding import BatchGroundingAgent
+            _gr = BatchGroundingAgent().fetch_all(
+                symbol=symbol, market=market, report_id=report_id
+            )
+            _event_gr     = _gr.get("event_data", {}) or {}
+            _macro_gr     = _gr.get("macro_data", {}) or {}
+            _sentiment_gr = _gr.get("sentiment_data", {}) or {}
+            if not _gr.get("_error") and not _gr.get("_from_cache"):
+                gemini_calls += 1  # 消耗 1 次 Gemini grounding RPD
+        except Exception as _gr_err:
+            logger.warning(
+                f"[{_AGENT_DISPLAY}] Batch grounding 失敗，使用空資料繼續: {_gr_err}"
+            )
+
+        # 3d. 事件驅動（NVIDIA + grounding 資料）
         dept_results["event"] = self._run_dept_safe(
             "event", symbol=symbol, market=market,
-            report_id=report_id,
+            grounding_data=_event_gr, report_id=report_id,
         )
         gemini_calls += 1
 
-        # 3e. 宏觀策略（grounding，不需傳入資料）
+        # 3e. 宏觀策略（NVIDIA + grounding 資料）
         dept_results["macro"] = self._run_dept_safe(
             "macro", symbol=symbol, market=market,
+            grounding_data=_macro_gr, industry=_industry_pre,
             report_id=report_id,
         )
         gemini_calls += 1
 
-        # 3f. 情緒雷達（grounding，不需傳入資料）
+        # 3f. 情緒雷達（NVIDIA + grounding 資料）
         dept_results["sentiment"] = self._run_dept_safe(
             "sentiment", symbol=symbol, market=market,
-            report_id=report_id,
+            grounding_data=_sentiment_gr, report_id=report_id,
         )
         gemini_calls += 1
 
