@@ -294,7 +294,7 @@ function MarketRecommendations({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* 偏多精選 Top 10 */}
       <div className="glass-card overflow-hidden">
         <SectionHeader
@@ -415,15 +415,16 @@ function MarketRecommendations({
             <table className="data-table">
               <thead>
                 <tr>
+                  <th className="w-8 text-center">#</th>
                   <th className="text-left">股票</th>
                   <th className="text-left">AI 評級</th>
                   <th className="text-right">信心度</th>
-                  <th className="text-right">目標價</th>
-                  <th className="text-right">分析時間</th>
+                  <th className="text-right">目標價區間</th>
+                  <th className="text-right">日期</th>
                 </tr>
               </thead>
               <tbody>
-                {latest.map(item => (
+                {latest.map((item, i) => (
                   <React.Fragment key={item.id}>
                     <tr
                       className="cursor-pointer transition-colors"
@@ -431,6 +432,17 @@ function MarketRecommendations({
                       onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-3)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
+                      <td className="text-center">
+                        <span
+                          className="w-5 h-5 rounded inline-flex items-center justify-center font-mono text-[10px] font-bold"
+                          style={{
+                            background: 'rgba(148,163,184,0.06)',
+                            color: 'var(--t4)',
+                          }}
+                        >
+                          {i + 1}
+                        </span>
+                      </td>
                       <td>
                         <div className="flex items-center gap-2">
                           <DirectionIcon rating={item.rating} size={12} />
