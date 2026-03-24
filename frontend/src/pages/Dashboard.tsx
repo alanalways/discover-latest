@@ -146,7 +146,7 @@ function TargetPriceBadge({
       }}
     >
       <Target size={10} aria-hidden />
-      {low != null ? +low.toFixed(3) : '?'}–{high != null ? +high.toFixed(3) : '?'}
+      {low != null ? low.toFixed(2) : '?'}–{high != null ? high.toFixed(2) : '?'}
     </span>
   )
 }
@@ -565,10 +565,12 @@ function PublicDashboard({
                 <Award size={22} style={{ color: 'var(--bull)' }} />
               </div>
             </div>
-            <div className="font-mono text-3xl font-bold mb-1" style={{ color: stats?.accuracy_pct ? 'var(--bull)' : 'var(--t3)' }}>
-              {loading ? '…' : (stats?.accuracy_pct ? `${stats.accuracy_pct}%` : '累積中')}
+            <div className="font-mono text-3xl font-bold mb-1" style={{ color: stats?.accuracy_pct != null && stats.accuracy_pct > 0 ? 'var(--bull)' : 'var(--t3)' }}>
+              {loading ? '…' : (stats?.accuracy_pct != null && stats.accuracy_pct > 0 ? `${stats.accuracy_pct}%` : '累積中')}
             </div>
-            <div className="text-xs" style={{ color: 'var(--t4)' }}>AI 預測準確率</div>
+            <div className="text-xs" style={{ color: 'var(--t4)' }}>
+              {stats?.accuracy_pct != null && stats.accuracy_pct > 0 ? 'AI 預測準確率' : '驗證中，尚未有足夠數據'}
+            </div>
           </div>
         </div>
 

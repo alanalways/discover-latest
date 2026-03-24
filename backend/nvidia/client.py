@@ -85,6 +85,9 @@ def call_nvidia(
     client = _get_client()
     last_error: Optional[str] = None
 
+    _MAX_429_RETRIES = 5  # 429 最多重試 5 次，避免無限迴圈
+    retries_429 = 0
+
     for attempt in range(_MAX_RETRIES):
         start = time.time()
         try:
@@ -131,15 +134,23 @@ def call_nvidia(
                 f"[NvidiaClient] {agent_name} 第 {attempt + 1} 次失敗: {e}"
             )
 
-            # ── NVIDIA 429：等 rate limiter 清空再預佔位重試 ──
+            # ── NVIDIA 429：有限次重試，避免無限迴圈 ──
             if "429" in err_str or "Too Many Requests" in err_str:
+                retries_429 += 1
+                if retries_429 >= _MAX_429_RETRIES:
+                    logger.error(
+                        f"[NvidiaClient] {agent_name} 429 重試已達上限 "
+                        f"({_MAX_429_RETRIES} 次)，放棄"
+                    )
+                    break
                 logger.warning(
-                    f"[NvidiaClient] {agent_name} NVIDIA 429，"
+                    f"[NvidiaClient] {agent_name} NVIDIA 429 "
+                    f"({retries_429}/{_MAX_429_RETRIES})，"
                     f"等待 rate limit 清空後重試..."
                 )
-                time.sleep(2.0)      # 先等 2s 讓視窗滑動
-                limiter.wait_if_needed()   # 重新預佔位
-                continue  # 不計入一般重試次數（only _MAX_RETRIES limits total）
+                time.sleep(2.0)
+                limiter.wait_if_needed()
+                continue
 
             if attempt < _MAX_RETRIES - 1:
                 sleep_time = _BACKOFF_SECONDS[attempt]
@@ -147,19 +158,22 @@ def call_nvidia(
                 time.sleep(sleep_time)
 
     # ── 所有重試均失敗 ───────────────────────────────────
+    final_status = "rate_limited" if retries_429 >= _MAX_429_RETRIES else "failed"
+
     log_agent_action(
         agent_name=agent_name,
         report_id=report_id,
-        status="failed",
+        status=final_status,
         metadata={
             "model": NVIDIA_MODEL,
             "error": last_error,
             "provider": "nvidia",
+            "retries_429": retries_429,
         },
     )
 
     return {
-        "status": "failed",
+        "status": final_status,
         "output": None,
         "model_used": NVIDIA_MODEL,
         "duration_ms": 0,

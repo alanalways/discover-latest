@@ -376,6 +376,8 @@ class CEOAgent:
         processed = 0
         succeeded = 0
         failed = 0
+        consecutive_failures = 0
+        _CIRCUIT_BREAKER_LIMIT = 3  # 連續失敗 3 次即停止，避免 429 風暴
         details: list[dict] = []
 
         for _ in range(max_jobs):
@@ -397,8 +399,10 @@ class CEOAgent:
                 job_success = job_result.get("status") == "success"
                 if job_success:
                     succeeded += 1
+                    consecutive_failures = 0
                 else:
                     failed += 1
+                    consecutive_failures += 1
                 details.append({
                     "job_id": job_id,
                     "job_type": job_type,
@@ -407,6 +411,7 @@ class CEOAgent:
                 })
             except Exception as e:
                 failed += 1
+                consecutive_failures += 1
                 logger.error(
                     f"[{_AGENT_DISPLAY}] 工作 [{job_id[:8]}] 未預期例外: {e}",
                     exc_info=True,
@@ -418,6 +423,14 @@ class CEOAgent:
                     "success": False,
                     "error": str(e)[:200],
                 })
+
+            # Circuit breaker：連續失敗超過限制就停止
+            if consecutive_failures >= _CIRCUIT_BREAKER_LIMIT:
+                logger.warning(
+                    f"[{_AGENT_DISPLAY}] 連續 {_CIRCUIT_BREAKER_LIMIT} 個工作失敗，"
+                    f"啟動斷路器，暫停處理剩餘工作"
+                )
+                break
 
         duration_ms = int((time.time() - start) * 1000)
 

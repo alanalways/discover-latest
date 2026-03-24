@@ -346,7 +346,7 @@ function LoginGate() {
         需要登入
       </h1>
       <p className="text-sm mb-6" style={{ color: 'var(--t3)' }}>
-        此功能需要登入後才能使用。請以 Google 帳號登入以繼續。
+        此功能需要登入後才能使用。登入後可管理自選股、查看使用量、設定提醒。
       </p>
       <button
         onClick={handleLogin}
@@ -384,10 +384,12 @@ export default function App() {
             <Route path="/"          element={<Dashboard />} />
             <Route path="/accuracy"  element={<Accuracy />}  />
 
+            {/* 公開頁面（可選登入） */}
+            <Route path="/analysis"  element={<Analysis />}  />
+            <Route path="/scanner"   element={<Scanner />}   />
+            <Route path="/backtest"  element={<Backtest />}   />
+
             {/* 需要登入的頁面 */}
-            <Route path="/analysis"  element={<RequireAuth><Analysis /></RequireAuth>}  />
-            <Route path="/scanner"   element={<RequireAuth><Scanner /></RequireAuth>}   />
-            <Route path="/backtest"  element={<RequireAuth><Backtest /></RequireAuth>}   />
             <Route path="/watchlist" element={<RequireAuth><Watchlist /></RequireAuth>} />
             <Route path="/profile"   element={<RequireAuth><Profile /></RequireAuth>}   />
             <Route path="/admin"     element={<RequireAuth><Admin /></RequireAuth>}     />

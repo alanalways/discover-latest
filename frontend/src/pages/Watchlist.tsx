@@ -258,20 +258,7 @@ export default function Watchlist() {
         )}
       </div>
 
-      {/* Login hint if no auth */}
-      {!loading && error?.includes('登入') && (
-        <div
-          className="glass-card p-5 text-center"
-          style={{ borderColor: 'var(--accent-bdr)' }}
-        >
-          <p className="text-sm font-medium mb-2" style={{ color: 'var(--t2)' }}>
-            需要登入才能使用自選股功能
-          </p>
-          <p className="text-xs" style={{ color: 'var(--t4)' }}>
-            登入後即可追蹤股票，接收 AI 訊號通知
-          </p>
-        </div>
-      )}
+      {/* 此頁已在 RequireAuth 內，不需要額外登入提示 */}
     </div>
   )
 }

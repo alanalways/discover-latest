@@ -21,10 +21,15 @@ async function request<T>(
     }
     let message: string
     try {
-      const errData = await res.json()
-      message = errData.detail || errData.message || `HTTP ${res.status}`
+      const text = await res.text()
+      try {
+        const errData = JSON.parse(text)
+        message = errData.detail || errData.message || `HTTP ${res.status}`
+      } catch {
+        message = text || `HTTP ${res.status}`
+      }
     } catch {
-      message = (await res.text()) || `HTTP ${res.status}`
+      message = `HTTP ${res.status}`
     }
     throw new Error(message)
   }

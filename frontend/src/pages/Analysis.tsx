@@ -132,16 +132,25 @@ function AnalysisProgress({ step, text }: { step: number; text: string }) {
       {/* Live stream preview */}
       {text && (
         <div
-          className="p-3.5 rounded-lg text-xs font-mono leading-relaxed max-h-36 overflow-y-auto"
+          className="report-content p-3.5 rounded-lg text-xs leading-relaxed max-h-36 overflow-y-auto"
           style={{
             background: 'rgba(2,6,23,0.7)',
-            color: 'var(--t3)',
             border: '1px solid var(--bdr-1)',
           }}
           aria-live="polite"
           aria-label="即時分析輸出"
         >
-          {text.slice(-600)}
+          <Markdown
+            components={{
+              h1: ({ children }) => <h2 className="report-h2" style={{ fontSize: '0.85rem', margin: '0.3rem 0' }}>{children}</h2>,
+              h2: ({ children }) => <h2 className="report-h2" style={{ fontSize: '0.85rem', margin: '0.3rem 0' }}>{children}</h2>,
+              h3: ({ children }) => <h3 className="report-h3" style={{ fontSize: '0.8rem', margin: '0.2rem 0' }}>{children}</h3>,
+              p: ({ children }) => <p className="report-p" style={{ margin: '0.2rem 0' }}>{children}</p>,
+              strong: ({ children }) => <strong className="report-strong">{children}</strong>,
+            }}
+          >
+            {text.slice(-600)}
+          </Markdown>
           <span className="animate-pulse" style={{ color: 'var(--accent-2)' }}>█</span>
         </div>
       )}
@@ -283,7 +292,7 @@ export default function Analysis() {
     setError(null)
   }, [])
 
-  const displayReport = result?.final_report || (streamText && !loading ? streamText : null)
+  const displayReport = result?.final_report || streamText || null
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 space-y-6">
