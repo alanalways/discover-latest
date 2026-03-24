@@ -391,7 +391,8 @@ async def get_latest_reports(
             client.table("reports")
             .select(
                 "id, symbol, market, report_type, tier, rating, "
-                "confidence_score, target_price_low, target_price_high, created_at"
+                "confidence_score, target_price_low, target_price_high, "
+                "created_at, final_report"
             )
             .eq("is_archived", False)
             .order("created_at", desc=True)

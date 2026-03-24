@@ -92,7 +92,7 @@ def _get_next_key() -> tuple[str, int]:
 
 
 def _resolve_model(agent_name: str, use_grounding: bool) -> Optional[str]:
-    preferred = AGENT_MODEL_MAP.get(agent_name, GEMINI_GROUNDING_MODEL if use_grounding else GEMINI_GROUNDING_MODEL)
+    preferred = AGENT_MODEL_MAP.get(agent_name, GEMINI_GROUNDING_MODEL if use_grounding else GEMINI_FLASH)
 
     if use_grounding and preferred not in GEMINI_GROUNDING_ENABLED_MODELS:
         preferred = GEMINI_GROUNDING_MODEL
@@ -222,45 +222,63 @@ def call_gemini_streaming(
         return
 
     config = _build_config(use_grounding)
-    api_key, key_idx = _get_next_key()
-    if not api_key:
-        return
 
-    start = time.time()
-    try:
-        response_stream = _get_client(api_key).models.generate_content_stream(
-            model=model_name,
-            contents=prompt,
-            config=config,
-        )
+    # Streaming 也支援多 key 重試（最多嘗試所有 key 數次）
+    for attempt in range(len(_key_pool) + len(_BACKOFF_SECONDS)):
+        api_key, key_idx = _get_next_key()
+        if not api_key:
+            break
 
-        for chunk in response_stream:
-            text = getattr(chunk, "text", None)
-            if text:
-                yield text
+        start = time.time()
+        try:
+            response_stream = _get_client(api_key).models.generate_content_stream(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
 
-        duration_ms = int((time.time() - start) * 1000)
-        _rate_limiter.record_call(model_name)
-        log_gemini_call(
-            agent_name=agent_name,
-            model_name=model_name,
-            report_id=report_id,
-            status="success",
-            duration_ms=duration_ms,
-            use_grounding=use_grounding,
-        )
-    except Exception as exc:
-        error = str(exc)
-        if "429" in error or "RESOURCE_EXHAUSTED" in error:
-            _mark_key_exhausted(key_idx)
-        log_gemini_call(
-            agent_name=agent_name,
-            model_name=model_name,
-            report_id=report_id,
-            status="failed",
-            error=error,
-            use_grounding=use_grounding,
-        )
+            for chunk in response_stream:
+                text = getattr(chunk, "text", None)
+                if text:
+                    yield text
+
+            duration_ms = int((time.time() - start) * 1000)
+            _rate_limiter.record_call(model_name)
+            log_gemini_call(
+                agent_name=agent_name,
+                model_name=model_name,
+                report_id=report_id,
+                status="success",
+                duration_ms=duration_ms,
+                use_grounding=use_grounding,
+            )
+            return  # 成功，結束 generator
+
+        except Exception as exc:
+            error = str(exc)
+            if "429" in error or "RESOURCE_EXHAUSTED" in error:
+                _mark_key_exhausted(key_idx)
+                logger.warning(
+                    "[GeminiClient] %s streaming key #%d exhausted, trying next",
+                    agent_name, key_idx,
+                )
+                continue  # 立即換下一把 key
+
+            retry_index = min(attempt, len(_BACKOFF_SECONDS) - 1)
+            logger.warning(
+                "[GeminiClient] %s streaming error (attempt %d): %s",
+                agent_name, attempt + 1, error,
+            )
+            time.sleep(_BACKOFF_SECONDS[retry_index])
+
+    log_gemini_call(
+        agent_name=agent_name,
+        model_name=model_name,
+        report_id=report_id,
+        status="failed",
+        error="streaming failed after all retries",
+        use_grounding=use_grounding,
+    )
 
 
 def get_rate_limiter_status() -> dict:
