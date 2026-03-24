@@ -3,8 +3,8 @@ backend/agents/base_agent.py
 所有 Agent 的抽象基底類別（Sonnet 撰寫）
 
 Provider 路由規則（來自 config.AGENT_PROVIDER_MAP）：
-- "gemini"  → call_gemini()（僅 batch_grounding Agent 使用）
-- "nvidia"  → call_nvidia()（所有分析 Agent 使用，12 個）
+- "gemini"  → call_gemini()（Batch Grounding / Arbitrator / Chief Analyst）
+- "nvidia"  → call_nvidia()（六大研究部門主分析）
 """
 import time
 from abc import ABC, abstractmethod
@@ -22,7 +22,7 @@ class BaseAgent(ABC):
     - agent_name (property)
 
     子類別可選覆寫：
-    - use_grounding (property)：現已廢棄，保留相容性，一律回傳 False
+    - use_grounding (property)：是否啟用 Google Search grounding
     """
 
     @property
@@ -33,7 +33,7 @@ class BaseAgent(ABC):
 
     @property
     def use_grounding(self) -> bool:
-        """廢棄：grounding 現由 BatchGroundingAgent 統一處理。"""
+        """是否啟用 Google Search grounding。預設 False。"""
         return False
 
     def get_prompt(self, **kwargs) -> str:
@@ -55,8 +55,8 @@ class BaseAgent(ABC):
         執行 Agent 分析。
 
         根據 AGENT_PROVIDER_MAP 自動路由至：
-        - NVIDIA NIM（call_nvidia）：所有分析 Agent（12 個）
-        - Gemini（call_gemini）：僅 batch_grounding
+        - NVIDIA NIM（call_nvidia）：六大研究部門與其他非 Gemini 節點
+        - Gemini（call_gemini）：grounding、仲裁、首席分析
 
         流程：
         1. 取得 prompt template 並填入變數
@@ -98,7 +98,7 @@ class BaseAgent(ABC):
             result = call_gemini(
                 agent_name=self.agent_name,
                 prompt=prompt,
-                use_grounding=True,  # Gemini 呼叫永遠帶 grounding
+                use_grounding=self.use_grounding,
                 report_id=report_id,
             )
         else:

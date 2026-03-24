@@ -140,8 +140,13 @@ export function streamAnalysis(
   onDone: (data: AnalysisResponse) => void,
   onError: (err: string) => void,
   onStatus?: (stage: string, message: string) => void,
+  token?: string,
 ): () => void {
-  const url = `${BASE_URL}/api/analysis/stream/${encodeURIComponent(symbol)}?market=${encodeURIComponent(market)}`
+  const params = new URLSearchParams({
+    market,
+    ...(token ? { token } : {}),
+  })
+  const url = `${BASE_URL}/api/analysis/stream/${encodeURIComponent(symbol)}?${params.toString()}`
   const evtSource = new EventSource(url)
 
   evtSource.onmessage = (event) => {

@@ -240,7 +240,7 @@ class TaskQueue:
                         .select("id, job_type, payload")
                         .eq("status", _STATUS_PENDING)
                         .lte("scheduled_for", now_iso)
-                        .order("priority", desc=True)
+                        .order("priority", desc=False)
                         .order("scheduled_for")
                         .limit(max_jobs)
                         .execute()
@@ -254,6 +254,12 @@ class TaskQueue:
             j for j in self._mem_queue
             if j.get("status") == _STATUS_PENDING
         ]
+        pending.sort(
+            key=lambda job: (
+                job.get("priority", 5),
+                job.get("scheduled_for", ""),
+            )
+        )
         return pending[:max_jobs]
 
     def get_recent_jobs(self, limit: int = 20) -> list[dict]:

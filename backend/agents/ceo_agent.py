@@ -100,7 +100,7 @@ class CEOAgent:
     # 排程入口方法（供 heartbeat.py 呼叫）
     # ═════════════════════════════════════════════════════════
 
-    def hourly_watchlist_scan(self) -> dict:
+    def hourly_watchlist_scan(self, market_filter: Optional[str] = None) -> dict:
         """
         每小時自選股掃描。
 
@@ -121,9 +121,10 @@ class CEOAgent:
         return self._scan_watchlist(
             priority=_NORMAL_PRIORITY,
             scan_label="每小時掃描",
+            market_filter=market_filter,
         )
 
-    def premarket_scan(self) -> dict:
+    def premarket_scan(self, market_filter: Optional[str] = None) -> dict:
         """
         盤前掃描（台股盤前 08:25 執行）。
 
@@ -136,6 +137,7 @@ class CEOAgent:
         return self._scan_watchlist(
             priority=_PREMARKET_PRIORITY,
             scan_label="盤前掃描",
+            market_filter=market_filter or "TW",
         )
 
     def postmarket_summary(self) -> dict:
@@ -853,7 +855,12 @@ class CEOAgent:
     # 內部掃描邏輯
     # ═════════════════════════════════════════════════════════
 
-    def _scan_watchlist(self, priority: int, scan_label: str) -> dict:
+    def _scan_watchlist(
+        self,
+        priority: int,
+        scan_label: str,
+        market_filter: Optional[str] = None,
+    ) -> dict:
         """
         掃描自選股清單的共用邏輯（hourly 和 premarket 共用）。
 
@@ -867,7 +874,13 @@ class CEOAgent:
         from backend.core.audit_log import log_agent_action
 
         start = time.time()
+        normalized_market = str(market_filter or "").strip().upper()
         symbols = self._get_watchlist_symbols()
+        if normalized_market:
+            symbols = [
+                item for item in symbols
+                if str(item.get("market", "TW")).strip().upper() == normalized_market
+            ]
 
         scanned = len(symbols)
         enqueued = 0
@@ -921,6 +934,7 @@ class CEOAgent:
             "enqueued": enqueued,
             "skipped_fresh": skipped_fresh,
             "skipped_budget": skipped_budget,
+            "market_filter": normalized_market or None,
         }
 
         logger.info(

@@ -340,6 +340,8 @@ def update_user_tier(user_id: str, tier: str, expires_at: Optional[str] = None) 
     except Exception:
         pass
 
+    ok = True
+
     # 更新 public.users
     try:
         rest_request(
@@ -348,9 +350,25 @@ def update_user_tier(user_id: str, tier: str, expires_at: Optional[str] = None) 
             json=data,
             use_service_key=True,
         )
-        return True
     except Exception:
-        return False
+        ok = False
+
+    # 同步 auth metadata，避免顯示 tier 與實際限流 tier 脫節
+    try:
+        auth_user = auth_admin_get_user_by_id(user_id) or {}
+        metadata = auth_user.get("user_metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata = {**metadata, "tier": tier}
+        auth_admin_request(
+            "PUT",
+            f"admin/users/{user_id}",
+            json={"user_metadata": metadata},
+        )
+    except Exception:
+        ok = False
+
+    return ok
 
 
 def ensure_public_user_record(user_id: str) -> bool:
@@ -563,7 +581,15 @@ def get_user_alerts(user_id: str) -> list[dict]:
         },
         use_service_key=True,
     )
-    return result if isinstance(result, list) else []
+    if not isinstance(result, list):
+        return []
+
+    alerts: list[dict] = []
+    for row in result:
+        condition = str(row.get("condition") or "").lower()
+        direction = "above" if condition in {"gte", "gt", "above"} else "below"
+        alerts.append({**row, "direction": direction})
+    return alerts
 
 
 def create_user_alert(

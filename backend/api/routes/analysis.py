@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from backend.api.routes.auth import get_current_user, UserInfo
+from backend.api.routes.auth import get_current_user, resolve_user_from_token, UserInfo
 from backend.core.budget_guard import get_budget_guard
 from backend.data.storage.supabase_client import get_client
 
@@ -53,6 +53,7 @@ class AnalysisResponse(BaseModel):
 async def stream_analysis(
     symbol: str,
     market: str = Query(default="TW"),
+    token: Optional[str] = Query(default=None),
     user: Optional[UserInfo] = Depends(get_current_user),
 ):
     """
@@ -68,6 +69,9 @@ async def stream_analysis(
       data: {"type": "done",    "report_id": "...", "meta": {...}}
       data: {"type": "error",   "message": "..."}
     """
+    if not user and token:
+        user = resolve_user_from_token(token.strip())
+
     # ── 權限檢查（原子：acquire_request 同時檢查+記錄，避免 race condition）
     if user:
         from backend.core.user_rate_limiter import get_user_rate_limiter

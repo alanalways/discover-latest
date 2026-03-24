@@ -11,6 +11,10 @@ import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../compone
 
 const ANALYSIS_TIMEOUT_MS = 180_000
 
+function getToken(): string | null {
+  return localStorage.getItem('dl_token')
+}
+
 // ── Collapsible Section ───────────────────────────────────────────────────────
 
 function Section({
@@ -186,6 +190,7 @@ export default function Analysis() {
   // ── 核心分析函式（可從表單或 URL params 呼叫）────────────
   const startAnalysis = useCallback((sym: string, mkt: string) => {
     if (!sym) return
+    const token = getToken() || undefined
 
     // 清除上一次
     closeRef.current?.()
@@ -243,7 +248,7 @@ export default function Analysis() {
           // SSE 斷線 → fallback POST
           clearGuard()
           try {
-            const res = await triggerAnalysis(sym, mkt)
+            const res = await triggerAnalysis(sym, mkt, token)
             setResult(res)
           } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
@@ -258,10 +263,11 @@ export default function Analysis() {
           }
           if (stage in stageMap) setActiveStep(stageMap[stage])
         },
+        token,
       )
     } catch {
       clearGuard()
-      triggerAnalysis(sym, mkt)
+      triggerAnalysis(sym, mkt, token)
         .then(res => setResult(res))
         .catch(err => setError(err instanceof Error ? err.message : String(err)))
         .finally(() => setLoading(false))

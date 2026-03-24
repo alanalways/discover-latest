@@ -1,12 +1,19 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  User, Mail, Shield, Clock, CreditCard, Bell,
-  TrendingUp, LogIn, Loader2, ChevronRight,
-  Briefcase, AlertCircle, CheckCircle2, X, Plus
+  AlertCircle,
+  Bell,
+  Briefcase,
+  CheckCircle2,
+  CreditCard,
+  Loader2,
+  LogIn,
+  Mail,
+  Shield,
+  TrendingUp,
+  User,
+  X,
 } from 'lucide-react'
 import { Spinner } from '../components/ui'
-
-// ── Types ──────────────────────────────────────────────
 
 interface UserInfo {
   user_id: string
@@ -21,12 +28,12 @@ interface UserInfo {
 interface LimitsInfo {
   tier: string
   daily_limit: number
-  daily_used: number      // 後端欄位名稱
-  daily_remaining: number // 後端欄位名稱
+  daily_used: number
+  daily_remaining: number
   per_minute: number
 }
 
-interface Alert {
+interface AlertItem {
   id: string
   symbol: string
   target_price: number
@@ -39,9 +46,21 @@ interface PortfolioItem {
   avg_cost: number
 }
 
+interface PendingUpgrade {
+  id: string
+  plan: string
+  billing_cycle: string
+  status: string
+  created_at: string
+}
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
-// ── Helpers ────────────────────────────────────────────
+const TIER_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  free: { label: 'Free', color: 'var(--t3)', bg: 'rgba(148,163,184,0.08)' },
+  pro: { label: 'Pro', color: 'var(--accent-2)', bg: 'var(--accent-glow)' },
+  premium: { label: 'Premium', color: 'var(--gold)', bg: 'var(--gold-glow)' },
+}
 
 function getToken(): string | null {
   return localStorage.getItem('dl_token')
@@ -57,27 +76,44 @@ function clearToken() {
 
 async function authedGet<T>(path: string): Promise<T> {
   const token = getToken()
-  if (!token) throw new Error('未登入')
-  const res = await fetch(`${BASE_URL}${path}`, {
+  if (!token) {
+    throw new Error('尚未登入')
+  }
+  const response = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
-  if (res.status === 401) {
+  if (response.status === 401) {
     clearToken()
-    throw new Error('請重新登入')
+    throw new Error('登入已失效')
   }
-  if (!res.ok) throw new Error(await res.text())
-  return res.json()
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json()
 }
 
-// ── Tier Config ────────────────────────────────────────
-
-const TIER_CONFIG: Record<string, { label: string; color: string; bg: string; limit: string }> = {
-  free:    { label: '免費方案',    color: 'var(--t3)',     bg: 'rgba(148,163,184,0.08)', limit: '5 次/日' },
-  pro:     { label: 'Pro 方案',    color: 'var(--accent-2)', bg: 'var(--accent-glow)',    limit: '50 次/日' },
-  premium: { label: 'Premium 方案', color: 'var(--gold)',   bg: 'var(--gold-glow)',       limit: '無限制' },
+async function authedPost<T>(path: string, body: unknown): Promise<T> {
+  const token = getToken()
+  if (!token) {
+    throw new Error('尚未登入')
+  }
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (response.status === 401) {
+    clearToken()
+    throw new Error('登入已失效')
+  }
+  if (!response.ok) {
+    throw new Error(await response.text())
+  }
+  return response.json()
 }
-
-// ── Login Prompt Component ─────────────────────────────
 
 function LoginPrompt() {
   const [loading, setLoading] = useState(false)
@@ -85,14 +121,16 @@ function LoginPrompt() {
   const handleLogin = async () => {
     setLoading(true)
     try {
-      const res = await fetch(`${BASE_URL}/api/auth/login-url`)
-      const data = await res.json()
+      const response = await fetch(`${BASE_URL}/api/auth/login-url`)
+      const data = await response.json()
       if (data.url) {
         window.location.href = data.url
+        return
       }
+      throw new Error('找不到登入連結')
     } catch {
-      // fallback
-      window.location.href = `${BASE_URL}/api/auth/google/login`
+      alert('無法取得登入連結，請稍後再試')
+      setLoading(false)
     }
   }
 
@@ -110,10 +148,10 @@ function LoginPrompt() {
         </div>
         <div>
           <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>
-            登入以管理帳戶
+            登入後查看會員資訊
           </h2>
           <p className="text-xs mt-1.5" style={{ color: 'var(--t4)' }}>
-            登入後可管理自選股、查看使用量、設定價格提醒
+            這裡會顯示方案、用量、提醒、持股與升級申請狀態。
           </p>
         </div>
         <button
@@ -129,17 +167,17 @@ function LoginPrompt() {
   )
 }
 
-// ── Main Profile Page ──────────────────────────────────
-
 export default function Profile() {
-  const [user, setUser]       = useState<UserInfo | null>(null)
-  const [limits, setLimits]   = useState<LimitsInfo | null>(null)
-  const [alerts, setAlerts]   = useState<Alert[]>([])
+  const [user, setUser] = useState<UserInfo | null>(null)
+  const [limits, setLimits] = useState<LimitsInfo | null>(null)
+  const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([])
+  const [pendingUpgrade, setPendingUpgrade] = useState<PendingUpgrade | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError]     = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null)
+  const [submittingPlan, setSubmittingPlan] = useState<string | null>(null)
 
-  // Check for OAuth callback token in URL
   useEffect(() => {
     const hash = window.location.hash
     if (hash.includes('access_token=')) {
@@ -158,26 +196,99 @@ export default function Profile() {
       setLoading(false)
       return
     }
+
+    setError(null)
     try {
-      const [me, lim, al, pf] = await Promise.allSettled([
+      const [me, lim, al, pf, upgrade] = await Promise.allSettled([
         authedGet<UserInfo>('/api/auth/me'),
         authedGet<LimitsInfo>('/api/user/limits'),
-        authedGet<{ alerts: Alert[] }>('/api/user/alerts'),
+        authedGet<{ alerts: AlertItem[] }>('/api/user/alerts'),
         authedGet<{ holdings: PortfolioItem[] }>('/api/user/portfolio'),
+        authedGet<{ status: string; request?: PendingUpgrade }>('/api/user/upgrade'),
       ])
-      if (me.status === 'fulfilled') setUser(me.value)
-      else { clearToken(); setLoading(false); return }
-      if (lim.status === 'fulfilled') setLimits(lim.value)
-      if (al.status === 'fulfilled') setAlerts(al.value.alerts || [])
-      if (pf.status === 'fulfilled') setPortfolio(pf.value.holdings || [])
-    } catch (e) {
-      setError(String(e))
+
+      if (me.status !== 'fulfilled') {
+        clearToken()
+        setLoading(false)
+        return
+      }
+
+      setUser(me.value)
+      localStorage.setItem(
+        'dl_user',
+        JSON.stringify({
+          name: me.value.name || me.value.email,
+          email: me.value.email,
+          is_admin: me.value.is_admin,
+          tier: me.value.tier,
+          role: me.value.role,
+        }),
+      )
+
+      if (lim.status === 'fulfilled') {
+        setLimits(lim.value)
+      }
+      if (al.status === 'fulfilled') {
+        setAlerts(al.value.alerts || [])
+      }
+      if (pf.status === 'fulfilled') {
+        setPortfolio(pf.value.holdings || [])
+      }
+      if (upgrade.status === 'fulfilled') {
+        setPendingUpgrade(upgrade.value.request ?? null)
+      }
+    } catch (err) {
+      setError(String(err))
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { loadProfile() }, [loadProfile])
+  useEffect(() => {
+    loadProfile()
+  }, [loadProfile])
+
+  const usagePct = useMemo(() => {
+    if (!limits || !limits.daily_limit) {
+      return 0
+    }
+    return Math.min(100, (limits.daily_used / limits.daily_limit) * 100)
+  }, [limits])
+
+  const currentTier = limits?.tier || user?.tier || 'free'
+  const tierCfg = TIER_CONFIG[currentTier] || TIER_CONFIG.free
+  const canSubmitUpgrade = !pendingUpgrade && !submittingPlan
+
+  const handleUpgrade = async (plan: 'pro' | 'premium') => {
+    setSubmittingPlan(plan)
+    setUpgradeMessage(null)
+    try {
+      const result = await authedPost<{ status: string; message?: string }>(
+        '/api/user/upgrade',
+        { plan, billing_cycle: 'monthly' },
+      )
+      setUpgradeMessage(result.message || '升級申請已送出')
+      await loadProfile()
+    } catch (err) {
+      setUpgradeMessage(String(err))
+    } finally {
+      setSubmittingPlan(null)
+    }
+  }
+
+  const handleDeleteAlert = async (alertId: string) => {
+    const token = getToken()
+    if (!token) {
+      return
+    }
+    const response = await fetch(`${BASE_URL}/api/user/alerts/${alertId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.ok) {
+      setAlerts((current) => current.filter((item) => item.id !== alertId))
+    }
+  }
 
   if (loading) {
     return (
@@ -191,19 +302,15 @@ export default function Profile() {
     return <LoginPrompt />
   }
 
-  const tierCfg = TIER_CONFIG[user.tier] || TIER_CONFIG.free
-  const usagePct = limits ? Math.min(100, (limits.daily_used / limits.daily_limit) * 100) : 0
-
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 space-y-5">
-      {/* Header */}
       <div>
         <h1 className="text-xl font-bold flex items-center gap-2.5">
           <User size={20} style={{ color: 'var(--accent-2)' }} />
           <span className="text-gradient">會員中心</span>
         </h1>
         <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-          管理帳戶、查看 AI 用量、設定提醒
+          查看方案、用量、提醒、持股與升級申請進度。
         </p>
       </div>
 
@@ -214,7 +321,13 @@ export default function Profile() {
         </div>
       )}
 
-      {/* Profile Card */}
+      {upgradeMessage && (
+        <div className="glass-card p-3 flex items-center gap-2" style={{ borderColor: 'var(--accent-bdr)' }}>
+          <CheckCircle2 size={14} style={{ color: 'var(--accent-2)' }} />
+          <span className="text-xs" style={{ color: 'var(--t2)' }}>{upgradeMessage}</span>
+        </div>
+      )}
+
       <div className="glass-card p-5">
         <div className="flex items-center gap-4">
           {user.avatar_url ? (
@@ -260,9 +373,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Usage + Tier */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* AI Usage */}
         <div className="glass-card p-5 space-y-3">
           <div className="flex items-center gap-2">
             <TrendingUp size={12} style={{ color: 'var(--accent-2)' }} />
@@ -288,72 +399,89 @@ export default function Profile() {
                 />
               </div>
               <p className="text-[11px]" style={{ color: 'var(--t4)' }}>
-                剩餘 {limits.daily_remaining} 次 · 每日 0 時重設 · 每分鐘上限 {limits.per_minute} 次
+                剩餘 {limits.daily_remaining} 次，單分鐘上限 {limits.per_minute} 次
               </p>
             </>
           ) : (
-            <p className="text-xs" style={{ color: 'var(--t4)' }}>載入中...</p>
+            <p className="text-xs" style={{ color: 'var(--t4)' }}>尚未取得用量資訊</p>
           )}
         </div>
 
-        {/* Plan Info */}
         <div className="glass-card p-5 space-y-3">
           <div className="flex items-center gap-2">
             <CreditCard size={12} style={{ color: 'var(--gold)' }} />
-            <span className="label">方案資訊</span>
+            <span className="label">方案與升級</span>
           </div>
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <span className="text-xs" style={{ color: 'var(--t3)' }}>方案</span>
-              <span className="text-xs font-semibold" style={{ color: tierCfg.color }}>
-                {tierCfg.label}
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span style={{ color: 'var(--t4)' }}>目前方案</span>
+              <span style={{ color: tierCfg.color, fontWeight: 600 }}>{tierCfg.label}</span>
+            </div>
+            <div className="flex justify-between">
+              <span style={{ color: 'var(--t4)' }}>每日上限</span>
+              <span className="font-mono" style={{ color: 'var(--t1)' }}>
+                {limits ? `${limits.daily_limit} 次` : '尚未取得'}
               </span>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs" style={{ color: 'var(--t3)' }}>每日限額</span>
-              <span className="text-xs font-mono" style={{ color: 'var(--t1)' }}>
-                {tierCfg.limit}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-xs" style={{ color: 'var(--t3)' }}>身份</span>
-              <span className="text-xs" style={{ color: 'var(--t1)' }}>
-                {user.is_admin ? '管理員' : '一般使用者'}
-              </span>
-            </div>
+            {pendingUpgrade && (
+              <div
+                className="rounded-md px-3 py-2"
+                style={{ background: 'rgba(210,153,34,0.08)', border: '1px solid rgba(210,153,34,0.2)' }}
+              >
+                <div className="flex items-center gap-2">
+                  <Shield size={12} style={{ color: 'var(--warning)' }} />
+                  <span style={{ color: 'var(--warning)' }}>
+                    待審申請：{pendingUpgrade.plan} / {pendingUpgrade.billing_cycle}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
-          {user.tier === 'free' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <button
-              className="w-full flex items-center justify-center gap-1.5 py-2 rounded-md text-xs font-medium cursor-pointer transition-all"
+              onClick={() => handleUpgrade('pro')}
+              disabled={!canSubmitUpgrade}
+              className="px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-all"
               style={{
-                background: 'linear-gradient(135deg, var(--accent-glow), var(--gold-glow))',
-                color: 'var(--t1)',
+                background: 'var(--accent-glow)',
+                color: 'var(--accent-2)',
                 border: '1px solid var(--accent-bdr)',
+                opacity: canSubmitUpgrade ? 1 : 0.6,
               }}
             >
-              <Shield size={12} />
-              <span>升級方案</span>
-              <ChevronRight size={12} />
+              {submittingPlan === 'pro' ? <Loader2 size={12} className="animate-spin inline" /> : '申請 Pro'}
             </button>
-          )}
+            <button
+              onClick={() => handleUpgrade('premium')}
+              disabled={!canSubmitUpgrade}
+              className="px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-all"
+              style={{
+                background: 'var(--gold-glow)',
+                color: 'var(--gold)',
+                border: '1px solid rgba(210,153,34,0.25)',
+                opacity: canSubmitUpgrade ? 1 : 0.6,
+              }}
+            >
+              {submittingPlan === 'premium' ? <Loader2 size={12} className="animate-spin inline" /> : '申請 Premium'}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Portfolio */}
       <div className="glass-card overflow-hidden">
         <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
           <div className="flex items-center gap-2">
             <Briefcase size={12} style={{ color: 'var(--accent-2)' }} />
-            <span className="label">持股</span>
+            <span className="label">持股清單</span>
           </div>
           <span className="text-[11px] font-mono" style={{ color: 'var(--t4)' }}>
-            {portfolio.length} 檔
+            {portfolio.length} 筆
           </span>
         </div>
         {portfolio.length > 0 ? (
           <div className="divide-y" style={{ borderColor: 'var(--bdr-1)' }}>
-            {portfolio.map((item, i) => (
-              <div key={i} className="px-5 py-3 flex items-center justify-between">
+            {portfolio.map((item) => (
+              <div key={item.symbol} className="px-5 py-3 flex items-center justify-between">
                 <div>
                   <span className="font-mono text-sm font-semibold" style={{ color: 'var(--t1)' }}>
                     {item.symbol}
@@ -370,12 +498,11 @@ export default function Profile() {
           </div>
         ) : (
           <div className="py-10 text-center">
-            <p className="text-xs" style={{ color: 'var(--t4)' }}>尚未加入持股</p>
+            <p className="text-xs" style={{ color: 'var(--t4)' }}>目前沒有持股資料</p>
           </div>
         )}
       </div>
 
-      {/* Alerts */}
       <div className="glass-card overflow-hidden">
         <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
           <div className="flex items-center gap-2">
@@ -383,39 +510,31 @@ export default function Profile() {
             <span className="label">價格提醒</span>
           </div>
           <span className="text-[11px] font-mono" style={{ color: 'var(--t4)' }}>
-            {alerts.length} 個
+            {alerts.length} 筆
           </span>
         </div>
         {alerts.length > 0 ? (
           <div className="divide-y" style={{ borderColor: 'var(--bdr-1)' }}>
-            {alerts.map((a) => (
-              <div key={a.id} className="px-5 py-3 flex items-center justify-between">
+            {alerts.map((alertItem) => (
+              <div key={alertItem.id} className="px-5 py-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-sm font-semibold" style={{ color: 'var(--t1)' }}>
-                    {a.symbol}
+                    {alertItem.symbol}
                   </span>
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded font-mono"
                     style={{
-                      background: a.direction === 'above' ? 'var(--bull-glow)' : 'var(--bear-glow)',
-                      color: a.direction === 'above' ? 'var(--bull)' : 'var(--bear)',
+                      background: alertItem.direction === 'above' ? 'var(--bull-glow)' : 'var(--bear-glow)',
+                      color: alertItem.direction === 'above' ? 'var(--bull)' : 'var(--bear)',
                     }}
                   >
-                    {a.direction === 'above' ? '突破' : '跌破'} {a.target_price}
+                    {alertItem.direction === 'above' ? '上破' : '跌破'} {alertItem.target_price}
                   </span>
                 </div>
                 <button
                   className="p-1 rounded hover:bg-[rgba(148,163,184,0.08)] cursor-pointer"
                   style={{ color: 'var(--t4)', background: 'none', border: 'none' }}
-                  onClick={async () => {
-                    const token = getToken()
-                    if (!token) return
-                    await fetch(`${BASE_URL}/api/user/alerts/${a.id}`, {
-                      method: 'DELETE',
-                      headers: { Authorization: `Bearer ${token}` },
-                    })
-                    setAlerts(prev => prev.filter(x => x.id !== a.id))
-                  }}
+                  onClick={() => handleDeleteAlert(alertItem.id)}
                 >
                   <X size={13} />
                 </button>
@@ -424,15 +543,17 @@ export default function Profile() {
           </div>
         ) : (
           <div className="py-10 text-center">
-            <p className="text-xs" style={{ color: 'var(--t4)' }}>尚未設定價格提醒</p>
+            <p className="text-xs" style={{ color: 'var(--t4)' }}>目前沒有價格提醒</p>
           </div>
         )}
       </div>
 
-      {/* Logout */}
       <div className="text-center pt-2">
         <button
-          onClick={() => { clearToken(); setUser(null) }}
+          onClick={() => {
+            clearToken()
+            setUser(null)
+          }}
           className="text-xs cursor-pointer transition-colors px-4 py-2 rounded-md"
           style={{ color: 'var(--t4)', background: 'rgba(148,163,184,0.06)', border: '1px solid var(--bdr-1)' }}
         >

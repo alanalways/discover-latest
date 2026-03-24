@@ -124,6 +124,13 @@ async def request_upgrade(
     from backend.data.storage.supabase_client import create_pending_upgrade, get_pending_upgrade
     from backend.core.email_service import email_service
 
+    plan = str(body.plan or "").strip().lower()
+    billing_cycle = str(body.billing_cycle or "").strip().lower()
+    if plan not in {"pro", "premium"}:
+        raise HTTPException(status_code=400, detail="plan must be pro or premium")
+    if billing_cycle not in {"monthly", "yearly"}:
+        raise HTTPException(status_code=400, detail="billing_cycle must be monthly or yearly")
+
     # 檢查是否已有待審申請
     existing = get_pending_upgrade(user.user_id)
     if existing:
@@ -136,22 +143,22 @@ async def request_upgrade(
         user_id=user.user_id,
         user_email=user.email or "",
         user_name=user.name or user.email or "",
-        plan=body.plan,
-        billing_cycle=body.billing_cycle,
+        plan=plan,
+        billing_cycle=billing_cycle,
     )
 
     # 發送通知
     email_service.notify_admin_new_upgrade(
         user_name=user.name or user.email or "",
         user_email=user.email or "",
-        plan=body.plan,
-        billing_cycle=body.billing_cycle,
+        plan=plan,
+        billing_cycle=billing_cycle,
     )
     email_service.notify_user_upgrade_submitted(
         user_email=user.email or "",
         user_name=user.name or user.email or "",
-        plan=body.plan,
-        billing_cycle=body.billing_cycle,
+        plan=plan,
+        billing_cycle=billing_cycle,
     )
 
     return {"status": "submitted", "message": "升級申請已送出，管理員將盡快審核"}

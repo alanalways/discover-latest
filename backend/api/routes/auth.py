@@ -151,6 +151,33 @@ def _verify_session(access_token: str) -> Optional[dict]:
     return None
 
 
+def _resolve_effective_tier(user_id: str, fallback_tier: str = "free") -> str:
+    """以資料庫 subscription 為主，回退到 public.users 與 token metadata。"""
+    user_id = str(user_id or "").strip()
+    if not user_id:
+        return fallback_tier
+
+    try:
+        from backend.data.storage.supabase_client import (
+            get_user_subscription,
+            get_user_by_id,
+        )
+
+        sub = get_user_subscription(user_id) or {}
+        tier = str(sub.get("tier") or "").strip().lower()
+        if tier:
+            return tier
+
+        user = get_user_by_id(user_id) or {}
+        tier = str(user.get("tier") or "").strip().lower()
+        if tier:
+            return tier
+    except Exception as e:
+        logger.debug("[Auth] resolve tier fallback: %s", e)
+
+    return fallback_tier
+
+
 def _user_dict_to_info(user: dict, access_token: str = "") -> UserInfo:
     """將 Supabase user dict 轉換為 UserInfo。"""
     metadata = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
@@ -159,7 +186,8 @@ def _user_dict_to_info(user: dict, access_token: str = "") -> UserInfo:
     email = user.get("email") or ""
     name = metadata.get("full_name") or metadata.get("name") or ""
     avatar = metadata.get("avatar_url") or metadata.get("picture") or ""
-    tier = metadata.get("tier") or app_metadata.get("tier") or "free"
+    fallback_tier = str(metadata.get("tier") or app_metadata.get("tier") or "free").strip().lower() or "free"
+    tier = _resolve_effective_tier(user.get("id", ""), fallback_tier)
     is_admin = _is_admin_user(user)
     role = "admin" if is_admin else app_metadata.get("role", "user")
 
@@ -172,6 +200,14 @@ def _user_dict_to_info(user: dict, access_token: str = "") -> UserInfo:
         is_admin=is_admin,
         avatar_url=avatar,
     )
+
+
+def resolve_user_from_token(access_token: str) -> Optional[UserInfo]:
+    """由 access token 解析目前使用者資訊。"""
+    user = _verify_session(access_token)
+    if not user:
+        return None
+    return _user_dict_to_info(user, access_token)
 
 
 # ─────────────────────────────────────────────────────────
@@ -274,10 +310,10 @@ async def pkce_exchange(body: PKCERequest):
 @router.post("/verify", response_model=UserInfo)
 async def verify_token(body: VerifyRequest):
     """驗證 Supabase access token，回傳使用者資訊。"""
-    user = _verify_session(body.token)
-    if not user:
+    info = resolve_user_from_token(body.token)
+    if not info:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
-    return _user_dict_to_info(user, body.token)
+    return info
 
 
 @router.get("/google-client-id")
@@ -322,10 +358,10 @@ async def get_me_actual(
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         raise HTTPException(status_code=401, detail="請先登入")
-    user = _verify_session(token)
-    if not user:
+    info = resolve_user_from_token(token)
+    if not info:
         raise HTTPException(status_code=401, detail="Session 已失效")
-    return _user_dict_to_info(user, token)
+    return info
 
 
 # ─────────────────────────────────────────────────────────
@@ -344,10 +380,7 @@ async def get_current_user(
     token = authorization.removeprefix("Bearer ").strip()
     if not token:
         return None
-    user = _verify_session(token)
-    if not user:
-        return None
-    return _user_dict_to_info(user, token)
+    return resolve_user_from_token(token)
 
 
 async def require_user(

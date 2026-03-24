@@ -108,11 +108,12 @@ class RateLimiter:
                     window.popleft()
 
                 rpd_key = (model_name, today)
+                num_keys = max(1, len(GEMINI_API_KEYS_LIST))
                 status[model_name] = {
                     "rpm_used": len(window),
-                    "rpm_limit": limits["rpm"],
+                    "rpm_limit": limits["rpm"] * num_keys,
                     "rpd_used": self._rpd_count[rpd_key],
-                    "rpd_limit": limits["rpd"],
+                    "rpd_limit": limits["rpd"] * num_keys,
                 }
 
             return status

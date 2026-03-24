@@ -113,6 +113,9 @@ class ChiefAnalystAgent(BaseAgent):
         arbitration: dict,
         symbol: str,
         market: str,
+        company_name: str,
+        industry: str,
+        current_price: float,
         report_id: str = None,
     ):
         """
@@ -126,7 +129,10 @@ class ChiefAnalystAgent(BaseAgent):
             arbitration:  仲裁結果 dict
             symbol:       股票代號
             market:       市場 (TW/US)
-            report_id:    報告 ID
+            company_name: 公司名稱
+            industry:     產業
+            current_price: 目前股價
+            report_id:     報告 ID
 
         Yields:
             str: 報告文字片段
@@ -135,35 +141,16 @@ class ChiefAnalystAgent(BaseAgent):
 
         report_id = report_id or str(uuid.uuid4())
 
-        # 提取部門摘要
-        summaries = {}
-        for dept_key in ["technical", "fundamental", "chips", "event", "macro", "sentiment"]:
-            dept_output = dept_results.get(dept_key, {})
-            display_name = _DEPT_DISPLAY_NAMES.get(dept_key, dept_key)
-            summaries[dept_key] = self._extract_summary(dept_output, display_name)
-
-        # 安全解析仲裁結果
-        arb = self._safe_parse_arbitration(arbitration)
-
-        # 建立 prompt
         prompt = self.get_prompt(
-            symbol=symbol,
-            market=market,
-            company_name=symbol,  # 如無公司名稱用代號
-            industry="",
-            current_price="N/A",
-            report_date=date.today().isoformat(),
-            technical_summary=summaries["technical"],
-            fundamental_summary=summaries["fundamental"],
-            chips_summary=summaries["chips"],
-            event_summary=summaries["event"],
-            macro_summary=summaries["macro"],
-            sentiment_summary=summaries["sentiment"],
-            final_stance=arb["final_stance"],
-            stance_confidence=str(arb["stance_confidence"]),
-            arbitration_summary=arb["arbitration_summary"],
-            key_risks=arb["key_risks"],
-            key_catalysts=arb["key_catalysts"],
+            **self._build_prompt_kwargs(
+                symbol=symbol,
+                market=market,
+                company_name=company_name,
+                industry=industry,
+                current_price=current_price,
+                dept_results=dept_results,
+                arbitration=arbitration,
+            )
         )
 
         # Streaming 呼叫 Gemini
@@ -221,46 +208,28 @@ class ChiefAnalystAgent(BaseAgent):
         start_time = time.time()
         report_id = report_id or str(uuid.uuid4())
 
-        # ── 1. 提取各部門摘要 ─────────────────────────────
-        summaries = {}
-        for dept_key, dept_output in [
-            ("technical",   technical),
-            ("fundamental", fundamental),
-            ("chips",       chips),
-            ("event",       event),
-            ("macro",       macro),
-            ("sentiment",   sentiment),
-        ]:
-            display_name = _DEPT_DISPLAY_NAMES.get(dept_key, dept_key)
-            summaries[dept_key] = self._extract_summary(dept_output, display_name)
-
-        # ── 2. 安全解析仲裁結果 ──────────────────────────
-        arb = self._safe_parse_arbitration(arbitration)
-
-        # ── 3. 呼叫 Gemini 生成報告 ─────────────────────
-        #    使用 BaseAgent.run()，自動處理 prompt 填入 + audit log
         gemini_result = self.run(
             report_id=report_id,
-            symbol=symbol,
-            market=market,
-            company_name=company_name,
-            industry=industry,
-            current_price=str(current_price),
-            report_date=date.today().isoformat(),
-            technical_summary=summaries["technical"],
-            fundamental_summary=summaries["fundamental"],
-            chips_summary=summaries["chips"],
-            event_summary=summaries["event"],
-            macro_summary=summaries["macro"],
-            sentiment_summary=summaries["sentiment"],
-            final_stance=arb["final_stance"],
-            stance_confidence=str(arb["stance_confidence"]),
-            arbitration_summary=arb["arbitration_summary"],
-            key_risks=arb["key_risks"],
-            key_catalysts=arb["key_catalysts"],
+            **self._build_prompt_kwargs(
+                symbol=symbol,
+                market=market,
+                company_name=company_name,
+                industry=industry,
+                current_price=current_price,
+                dept_results={
+                    "technical": technical,
+                    "fundamental": fundamental,
+                    "chips": chips,
+                    "event": event,
+                    "macro": macro,
+                    "sentiment": sentiment,
+                },
+                arbitration=arbitration,
+            ),
         )
 
         total_duration = int((time.time() - start_time) * 1000)
+        arb = self._safe_parse_arbitration(arbitration)
 
         # ── 4. 處理 Gemini 失敗 ──────────────────────────
         if gemini_result["status"] != "success":
@@ -282,28 +251,25 @@ class ChiefAnalystAgent(BaseAgent):
 
         final_report = gemini_result["output"]
 
-        # ── 5. 提取結構化資料 ────────────────────────────
-        structured = self._extract_structured_data(final_report, current_price)
-
-        # ── 6. 準備預測資料（不寫入 DB，等報告先存入後再寫）──
-        pending_predictions = self._prepare_predictions(
+        artifacts = self.build_report_artifacts(
             report_id=report_id,
             symbol=symbol,
             market=market,
-            structured_data=structured,
+            report_text=final_report,
+            current_price=current_price,
             arbitration=arb,
         )
 
         # ── 7. 記錄成功 & 回傳 ──────────────────────────
         log_agent_action(
-            self.agent_name, report_id, "success",
+                self.agent_name, report_id, "success",
             action="generate_report",
             duration_ms=total_duration,
             metadata={
-                "rating": structured["rating"],
-                "target_low": structured["target_price_low"],
-                "target_high": structured["target_price_high"],
-                "prediction_count": len(pending_predictions),
+                "rating": artifacts["structured_data"]["rating"],
+                "target_low": artifacts["structured_data"]["target_price_low"],
+                "target_high": artifacts["structured_data"]["target_price_high"],
+                "prediction_count": len(artifacts["pending_predictions"]),
                 "model_used": gemini_result.get("model_used"),
             },
         )
@@ -312,15 +278,84 @@ class ChiefAnalystAgent(BaseAgent):
             status="success",
             report_id=report_id,
             final_report=final_report,
-            rating=structured["rating"],
-            target_price_low=structured["target_price_low"],
-            target_price_high=structured["target_price_high"],
+            rating=artifacts["structured_data"]["rating"],
+            target_price_low=artifacts["structured_data"]["target_price_low"],
+            target_price_high=artifacts["structured_data"]["target_price_high"],
             confidence_score=arb["stance_confidence"],
-            pending_predictions=pending_predictions,
+            pending_predictions=artifacts["pending_predictions"],
             model_used=gemini_result.get("model_used", "unknown"),
             duration_ms=total_duration,
             total_gemini_calls=1,
+            structured_data=artifacts["structured_data"],
         )
+
+    def build_report_artifacts(
+        self,
+        report_id: str,
+        symbol: str,
+        market: str,
+        report_text: str,
+        current_price: float,
+        arbitration: dict,
+    ) -> dict:
+        """
+        從最終報告提取結構化資料與 prediction 契約。
+
+        這個方法讓 streaming 路徑與 generate_report 路徑共用同一套
+        目標價 / 評級 / prediction 建立邏輯，避免格式漂移。
+        """
+        arb = self._safe_parse_arbitration(arbitration)
+        structured = self._extract_structured_data(report_text, current_price)
+        pending_predictions = self._prepare_predictions(
+            report_id=report_id,
+            symbol=symbol,
+            market=market,
+            structured_data=structured,
+            arbitration=arb,
+        )
+        return {
+            "structured_data": structured,
+            "pending_predictions": pending_predictions,
+        }
+
+    def _build_prompt_kwargs(
+        self,
+        symbol: str,
+        market: str,
+        company_name: str,
+        industry: str,
+        current_price: float,
+        dept_results: dict,
+        arbitration: dict,
+    ) -> dict:
+        summaries = {}
+        for dept_key in ["technical", "fundamental", "chips", "event", "macro", "sentiment"]:
+            dept_output = dept_results.get(dept_key, {})
+            display_name = _DEPT_DISPLAY_NAMES.get(dept_key, dept_key)
+            summaries[dept_key] = self._extract_summary(dept_output, display_name)
+
+        arb = self._safe_parse_arbitration(arbitration)
+        price_text = f"{current_price:.2f}" if isinstance(current_price, (int, float)) and current_price > 0 else "N/A"
+
+        return {
+            "symbol": symbol,
+            "market": market,
+            "company_name": company_name or symbol,
+            "industry": industry or "未分類",
+            "current_price": price_text,
+            "report_date": date.today().isoformat(),
+            "technical_summary": summaries["technical"],
+            "fundamental_summary": summaries["fundamental"],
+            "chips_summary": summaries["chips"],
+            "event_summary": summaries["event"],
+            "macro_summary": summaries["macro"],
+            "sentiment_summary": summaries["sentiment"],
+            "final_stance": arb["final_stance"],
+            "stance_confidence": str(arb["stance_confidence"]),
+            "arbitration_summary": arb["arbitration_summary"],
+            "key_risks": arb["key_risks"],
+            "key_catalysts": arb["key_catalysts"],
+        }
 
     # ═════════════════════════════════════════════════════
     # 部門摘要提取
@@ -475,12 +510,28 @@ class ChiefAnalystAgent(BaseAgent):
         if not report_text:
             return result
 
-        result["rating"] = self._extract_rating(report_text)
-        low, high = self._extract_target_prices(report_text, current_price)
-        result["target_price_low"] = low
-        result["target_price_high"] = high
+        structured_match = re.search(
+            r"<!--structured-->\s*(\{[\s\S]*?\})\s*$",
+            report_text,
+        )
+        if structured_match:
+            try:
+                structured = json.loads(structured_match.group(1))
+                result["rating"] = structured.get("rating") or result["rating"]
+                result["target_price_low"] = structured.get("target_price_low")
+                result["target_price_high"] = structured.get("target_price_high")
+                result["scenarios"] = structured.get("scenarios") or {}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        result["rating"] = result["rating"] or self._extract_rating(report_text)
+        if result["target_price_low"] is None or result["target_price_high"] is None:
+            low, high = self._extract_target_prices(report_text, current_price)
+            result["target_price_low"] = result["target_price_low"] if result["target_price_low"] is not None else low
+            result["target_price_high"] = result["target_price_high"] if result["target_price_high"] is not None else high
         result["entry_plans"] = self._extract_entry_plans(report_text)
-        result["scenarios"] = self._extract_scenarios(report_text)
+        if not result["scenarios"]:
+            result["scenarios"] = self._extract_scenarios(report_text)
 
         return result
 
@@ -869,6 +920,7 @@ class ChiefAnalystAgent(BaseAgent):
         target_price_high: Optional[float] = None,
         confidence_score: float = 0.5,
         pending_predictions: Optional[list] = None,
+        structured_data: Optional[dict] = None,
         model_used: str = "",
         duration_ms: int = 0,
         total_gemini_calls: int = 0,
@@ -884,6 +936,7 @@ class ChiefAnalystAgent(BaseAgent):
             "target_price_high":   target_price_high,
             "confidence_score":    confidence_score,
             "pending_predictions": pending_predictions or [],
+            "structured_data":     structured_data or {},
             "model_used":          model_used,
             "duration_ms":         duration_ms,
             "total_gemini_calls":  total_gemini_calls,

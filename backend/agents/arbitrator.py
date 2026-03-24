@@ -574,39 +574,22 @@ class ArbitratorAgent(BaseAgent):
             else:
                 dept_texts[dept_name] = "[此部門分析失敗，無可用資料]"
 
-        # 組裝 prompt kwargs
-        prompt_kwargs = {
-            "technical_output":   dept_texts["technical"],
-            "fundamental_output": dept_texts["fundamental"],
-            "chips_output":       dept_texts["chips"],
-            "event_output":       dept_texts["event"],
-            "macro_output":       dept_texts["macro"],
-            "sentiment_output":   dept_texts["sentiment"],
-        }
-
-        # 取得 prompt template 並填入
-        try:
-            prompt = self.get_prompt(**prompt_kwargs)
-        except ValueError as e:
-            logger.error(f"[Arbitrator] Prompt 建構失敗: {e}")
-            return None
-
-        # 在 prompt 末尾附加預掃描結果和缺失部門資訊
-        extra_parts = [alignment_summary]
-        if missing_depts:
-            extra_parts.append(
-                f"\n## 注意：以下部門分析缺失\n{', '.join(missing_depts)}\n"
-                "仲裁時請降低對缺失部門的依賴，並在 key_risks 中標注資料不完整。"
-            )
-        prompt = prompt + "\n\n" + "\n\n".join(extra_parts)
-
-        # 呼叫 Gemini
-        from backend.gemini.client import call_gemini
-        result = call_gemini(
-            agent_name=self.agent_name,
-            prompt=prompt,
-            use_grounding=False,
+        # 透過 BaseAgent.run() 走統一 provider / budget / model routing
+        result = self.run(
             report_id=report_id,
+            technical_output=dept_texts["technical"],
+            fundamental_output=dept_texts["fundamental"],
+            chips_output=dept_texts["chips"],
+            event_output=dept_texts["event"],
+            macro_output=dept_texts["macro"],
+            sentiment_output=dept_texts["sentiment"],
+            alignment_summary=alignment_summary,
+            missing_departments=", ".join(missing_depts) if missing_depts else "無",
+            extra_instructions=(
+                "有部門缺失時，必須明確降低信心並把缺失列入 key_risks。"
+                if missing_depts else
+                "請以證據權重做裁決，不要採用多數決。"
+            ),
         )
 
         if result["status"] != "success" or not result.get("output"):

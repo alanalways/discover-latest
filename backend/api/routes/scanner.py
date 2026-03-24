@@ -9,8 +9,9 @@ backend/api/routes/scanner.py
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from backend.api.routes.auth import UserInfo, require_admin
 from backend.data.storage.supabase_client import get_client
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ async def score_symbols(
 @router.post("/run")
 async def run_scanner(
     market: str = Query(default="TW", description="TW / US"),
+    admin: UserInfo = Depends(require_admin),
 ):
     """
     手動觸發 CEO Agent 的 hourly_watchlist_scan。
@@ -150,8 +152,17 @@ async def run_scanner(
     try:
         from backend.agents.ceo_agent import get_ceo_agent
         ceo = get_ceo_agent()
-        ceo.hourly_watchlist_scan()
-        return {"status": "ok", "message": f"掃描已觸發（market={market}）"}
+        market = market.strip().upper()
+        if market not in {"TW", "TWO", "US"}:
+            return {"status": "error", "message": "market must be TW, TWO, or US"}
+
+        result = ceo.hourly_watchlist_scan(market_filter=market)
+        return {
+            "status": "ok",
+            "message": f"掃描已觸發（market={market}）",
+            "result": result,
+            "requested_by": admin.user_id,
+        }
     except Exception as e:
         logger.error(f"[Scanner] run 失敗: {e}")
         return {"status": "error", "message": str(e)}

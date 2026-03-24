@@ -1,34 +1,33 @@
 """
 backend/core/background_tasks.py
-背景任務管理
 
-報告產出後，使用者不需等待的任務：
-- 寫入 reports 表
-- 寫入 predictions 表
-- 寫入 agent_logs 審計日誌
-- LINE 通知（如果有重大訊號）
-- 更新使用者用量計數
+分析完成後的背景任務：
+- 寫入 reports
+- 寫入 predictions
+- 留痕 pipeline 結果
 """
-import logging
-import asyncio
-from typing import Optional
-from datetime import date, timedelta
 
-from backend.data.storage.supabase_client import get_client
+import asyncio
+import logging
+from typing import Optional
+
 from backend.core.audit_log import log_agent_action
+from backend.data.storage.supabase_client import get_client
 
 logger = logging.getLogger(__name__)
 
 
 async def save_report_to_db(report_data: dict) -> Optional[str]:
-    """
-    將完整報告寫入 reports 表。
-
-    Returns:
-        report_id 或 None（失敗時）
-    """
+    """將完整報告寫入 reports。"""
     try:
         client = get_client()
+        if not client:
+            logger.error("[Background] Supabase client unavailable")
+            return None
+
+        structured = report_data.get("structured_data") or {}
+        arbitration = report_data.get("arbitration") or {}
+
         row = {
             "id": report_data["report_id"],
             "symbol": report_data["symbol"],
@@ -41,124 +40,89 @@ async def save_report_to_db(report_data: dict) -> Optional[str]:
             "event_output": report_data["dept_results"].get("event"),
             "macro_output": report_data["dept_results"].get("macro"),
             "sentiment_output": report_data["dept_results"].get("sentiment"),
-            "arbitration_log": report_data.get("arbitration"),
+            "arbitration_log": arbitration,
             "final_report": report_data["full_report"],
-            "rating": report_data.get("arbitration", {}).get("final_stance"),
-            "confidence_score": report_data.get("arbitration", {}).get(
-                "stance_confidence"
-            ),
+            "rating": structured.get("rating") or arbitration.get("final_stance"),
+            "target_price_low": structured.get("target_price_low"),
+            "target_price_high": structured.get("target_price_high"),
+            "confidence_score": arbitration.get("stance_confidence"),
             "triggered_by": "user",
             "user_id": report_data.get("user_id"),
         }
 
-        result = await asyncio.to_thread(
-            lambda: client.table("reports").insert(row).execute()
-        )
-        logger.info(f"[Background] 報告已儲存: {report_data['report_id']}")
+        await asyncio.to_thread(lambda: client.table("reports").insert(row).execute())
+        logger.info("[Background] report saved: %s", report_data["report_id"])
         return report_data["report_id"]
-
-    except Exception as e:
-        logger.error(f"[Background] 報告儲存失敗: {e}")
+    except Exception as exc:
+        logger.error("[Background] failed to save report: %s", exc)
         return None
 
 
 async def create_predictions(report_data: dict) -> int:
-    """
-    從報告中提取預測，寫入 predictions 表。
-
-    Returns:
-        寫入的 prediction 數量
-    """
+    """將 Chief Analyst 已整理好的 prediction 契約直接寫入 DB。"""
     try:
-        arbitration = report_data.get("arbitration", {})
-        stance = arbitration.get("final_stance", "neutral")
-        confidence = arbitration.get("stance_confidence", 0.5)
-
-        # 方向映射
-        direction_map = {
-            "bullish": "up",
-            "cautious_bullish": "up",
-            "bearish": "down",
-            "cautious_bearish": "down",
-            "neutral": "neutral",
-        }
-        direction = direction_map.get(stance, "neutral")
-
-        if direction == "neutral":
-            logger.info("[Background] 中性立場，不建立預測")
+        predictions = report_data.get("pending_predictions") or []
+        if not predictions:
+            logger.info(
+                "[Background] no pending predictions for %s",
+                report_data.get("symbol"),
+            )
             return 0
 
-        # 短期（5 天）和中期（30 天）各建一筆
-        predictions = []
-        today = date.today()
-
-        for timeframe, days in [("short", 5), ("medium", 30)]:
-            predictions.append({
-                "report_id": report_data["report_id"],
-                "symbol": report_data["symbol"],
-                "market": report_data["market"],
-                "predicted_direction": direction,
-                "timeframe": timeframe,
-                "prediction_date": today.isoformat(),
-                "verify_date": (today + timedelta(days=days)).isoformat(),
-            })
-
         client = get_client()
-        result = await asyncio.to_thread(
+        if not client:
+            logger.error("[Background] Supabase client unavailable for predictions")
+            return 0
+
+        await asyncio.to_thread(
             lambda: client.table("predictions").insert(predictions).execute()
         )
         logger.info(
-            f"[Background] 建立 {len(predictions)} 筆預測: "
-            f"{report_data['symbol']} {direction}"
+            "[Background] inserted %s predictions for %s",
+            len(predictions),
+            report_data.get("symbol"),
         )
         return len(predictions)
-
-    except Exception as e:
-        logger.error(f"[Background] 預測建立失敗: {e}")
+    except Exception as exc:
+        logger.error("[Background] failed to create predictions: %s", exc)
         return 0
 
 
 async def log_pipeline_result(report_data: dict, meta: dict) -> None:
-    """記錄 pipeline 執行結果到 agent_logs。"""
+    """將 pipeline 執行摘要寫入 agent_logs。"""
     try:
         log_agent_action(
             agent_name="pipeline",
             report_id=report_data.get("report_id"),
             status="success",
             metadata={
-                "symbol": report_data["symbol"],
+                "symbol": report_data.get("symbol"),
                 "total_ms": meta.get("total_ms"),
                 "agents_success": meta.get("agents_success"),
                 "final_stance": meta.get("final_stance"),
+                "target_price_low": meta.get("target_price_low"),
+                "target_price_high": meta.get("target_price_high"),
             },
         )
-    except Exception as e:
-        logger.error(f"[Background] 日誌記錄失敗: {e}")
+    except Exception as exc:
+        logger.error("[Background] failed to log pipeline result: %s", exc)
 
 
 async def run_all_background_tasks(report_data: dict, meta: dict) -> None:
     """
-    啟動所有背景任務（fire-and-forget）。
+    先寫 reports，再平行處理其餘背景工作。
 
-    在 analysis route 中，報告 streaming 完成後呼叫此函式。
-    ⚠️ 順序很重要：report 必須先寫入 DB，predictions 才能用 FK 引用它
+    predictions.report_id 有 FK，因此必須先確保 reports 落地成功。
     """
-    # Step 1: 先儲存報告（predictions FK 依賴 reports.id）
-    try:
-        report_id = await save_report_to_db(report_data)
-        if not report_id:
-            logger.error("[Background] 報告儲存失敗，跳過 predictions 建立")
-    except Exception as e:
-        logger.error(f"[Background] 報告儲存異常: {e}")
-        report_id = None
+    report_id = await save_report_to_db(report_data)
+    if not report_id:
+        logger.error("[Background] report save failed, skip predictions")
 
-    # Step 2: 報告儲存成功後，並行執行其他任務
-    parallel_tasks = [log_pipeline_result(report_data, meta)]
+    tasks = [log_pipeline_result(report_data, meta)]
     if report_id:
-        parallel_tasks.append(create_predictions(report_data))
+        tasks.append(create_predictions(report_data))
 
-    results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-
-    for i, result in enumerate(results):
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for index, result in enumerate(results):
         if isinstance(result, Exception):
-            logger.error(f"[Background] 並行任務 {i} 失敗: {result}")
+            logger.error("[Background] task %s failed: %s", index, result)

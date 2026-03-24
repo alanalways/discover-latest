@@ -95,12 +95,11 @@ async def update_tier(
 
 @router.get("/upgrades")
 async def list_upgrades(admin: UserInfo = Depends(require_admin)):
-    """列出待審升級申請。"""
+    """列出所有升級申請，前端再區分 pending / resolved。"""
     from backend.data.storage.supabase_client import rest_request
     result = rest_request(
         "GET", "pending_upgrades",
         params={
-            "status": "eq.pending",
             "select": "*",
             "order": "created_at.desc",
         },

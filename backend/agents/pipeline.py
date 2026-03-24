@@ -6,15 +6,15 @@ backend/agents/pipeline.py
   Stage 1: 資料收集（asyncio.gather 並行）        → 3-5s
   Stage 2: Batch Grounding（1 次 Gemini 呼叫）    → 5-10s（有快取時 <1s）
   Stage 3: 6 Agent 全部並行（ThreadPoolExecutor）  → 10-15s（全 NVIDIA）
-  Stage 4: Arbitrator → Chief Analyst (streaming)  → 15-25s（全 NVIDIA）
+  Stage 4: Arbitrator → Chief Analyst (streaming)  → 15-25s（Gemini 3 Flash）
 
 資料來源策略（三層 fallback）：
   - FinMind 為主要來源（台股+美股價格、台股法人/融資/基本面）
   - Yahoo Finance 為第二備援（FinMind 失敗時）
   - TWSE 公開 API 為第三備援（Yahoo 也失敗時，僅台股）
 
-Gemini 消耗：每次分析 1 次 RPD（只在 Stage 2 Batch Grounding 使用）
-NVIDIA 消耗：8 次 RPM（6 Agent + Arbitrator + Chief Analyst）
+Gemini 消耗：每次分析 3 次高價值呼叫（1 grounding + 1 arbitrator + 1 chief）
+NVIDIA 消耗：6 次 RPM（六大研究部門）
 
 Fast Path 回傳報告給使用者後，Background Path 異步處理：
   - DB 寫入 (reports, predictions)
@@ -394,7 +394,22 @@ async def fast_analysis(
         f"[Pipeline] Stage 3 完成: {success_count}/6 成功, {stage3_ms}ms"
     )
 
-    # ── Stage 4a: Arbitrator（NVIDIA）────────────────────
+    company_name = (
+        fundamentals.get("name")
+        or fundamentals.get("company_name")
+        or symbol
+    )
+    industry = (
+        fundamentals.get("industry")
+        or fundamentals.get("sector")
+        or "未分類"
+    )
+    current_price = (
+        ((price_data.get("indicators") or {}).get("current_close"))
+        or (price_data.get("closes")[-1] if price_data.get("closes") else 0.0)
+    )
+
+    # ── Stage 4a: Arbitrator（Gemini）────────────────────
     yield {
         "type": "status",
         "stage": "arbitration",
@@ -415,11 +430,11 @@ async def fast_analysis(
     stage4a_ms = int((time.time() - stage4a_start) * 1000)
     logger.info(f"[Pipeline] Stage 4a 仲裁完成: {stage4a_ms}ms")
 
-    # ── Stage 4b: Chief Analyst（streaming，NVIDIA）──────
+    # ── Stage 4b: Chief Analyst（streaming，Gemini）──────
     yield {
         "type": "status",
         "stage": "report",
-        "message": "首席分析師正在撰寫報告...",
+        "message": "首席分析師正在整合證據並撰寫報告...",
     }
 
     stage4b_start = time.time()
@@ -430,6 +445,9 @@ async def fast_analysis(
         arbitration=arbitration,
         symbol=symbol,
         market=market,
+        company_name=company_name,
+        industry=industry,
+        current_price=float(current_price or 0.0),
         report_id=report_id,
     ):
         report_chunks.append(chunk)
@@ -438,6 +456,14 @@ async def fast_analysis(
     stage4b_ms  = int((time.time() - stage4b_start) * 1000)
     total_ms    = int((time.time() - pipeline_start) * 1000)
     full_report = "".join(report_chunks)
+    artifacts = _chief.build_report_artifacts(
+        report_id=report_id,
+        symbol=symbol,
+        market=market,
+        report_text=full_report,
+        current_price=float(current_price or 0.0),
+        arbitration=arbitration,
+    )
 
     logger.info(
         f"[Pipeline] 完成! 總計 {total_ms}ms "
@@ -450,11 +476,14 @@ async def fast_analysis(
         "type": "done",
         "report_id": report_id,
         "final_report": full_report,
-        "rating": arbitration.get("final_stance"),
+        "rating": artifacts["structured_data"].get("rating") or arbitration.get("final_stance"),
         "confidence": arbitration.get("stance_confidence"),
         "meta": {
             "symbol":                   symbol,
             "market":                   market,
+            "company_name":             company_name,
+            "industry":                 industry,
+            "current_price":            current_price,
             "total_ms":                 total_ms,
             "stage1_data_ms":           stage1_ms,
             "stage2_grounding_ms":      stage2_ms,
@@ -465,14 +494,21 @@ async def fast_analysis(
             "agents_success":           success_count,
             "final_stance":             arbitration.get("final_stance"),
             "stance_confidence":        arbitration.get("stance_confidence"),
+            "target_price_low":         artifacts["structured_data"].get("target_price_low"),
+            "target_price_high":        artifacts["structured_data"].get("target_price_high"),
         },
         "report_data": {
             "report_id":   report_id,
             "symbol":      symbol,
             "market":      market,
+            "company_name": company_name,
+            "industry":    industry,
+            "current_price": current_price,
             "full_report": full_report,
             "dept_results": dept_results,
             "arbitration": arbitration,
+            "structured_data": artifacts["structured_data"],
+            "pending_predictions": artifacts["pending_predictions"],
             "user_id":     user_id,
         },
     }
