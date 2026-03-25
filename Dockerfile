@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ── Stage 1：前端 build（使用官方 Node.js image，不需要額外安裝）──
 FROM node:20-slim AS frontend-builder
 
@@ -5,7 +6,8 @@ WORKDIR /app/frontend
 
 # 先只複製 package 定義，讓 layer cache 可重用
 COPY frontend/package*.json ./
-RUN npm ci --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund --cache /root/.npm
 
 # 複製源碼並 build
 COPY frontend/ ./
@@ -26,7 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends tzdata && \
 
 # 安裝 Python 依賴
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --prefer-binary -r requirements.txt
 
 # 從 Stage 1 複製前端 build 產物
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
