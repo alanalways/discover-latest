@@ -1,12 +1,11 @@
 """
 backend/gemini/client.py
-統一 Gemini API 呼叫入口。
 
-設計重點：
-- 支援多把 API key（使用者目前為多個獨立 project）
-- round-robin 輪替 key，避免單一 project 先耗盡
-- 依 agent 路由模型，支援 fallback
-- 支援一般呼叫與 streaming 呼叫
+統一 Gemini 呼叫入口。
+
+- 支援多把 key / 多個 project 的 round-robin 分流
+- provider routing 與 fallback 皆透過這裡收斂
+- streaming 與非 streaming 共用同一套限流與 audit
 """
 
 from __future__ import annotations
@@ -24,6 +23,7 @@ from backend.config import (
     AGENT_MODEL_MAP,
     FALLBACK_MODEL,
     GEMINI_API_KEYS_LIST,
+    GEMINI_FLASH,
     GEMINI_GROUNDING_ENABLED_MODELS,
     GEMINI_GROUNDING_MODEL,
 )
@@ -84,15 +84,21 @@ def _get_next_key() -> tuple[str, int]:
             idx = (start_index + offset) % total
             if _is_key_exhausted(idx):
                 continue
+
             api_key = _key_pool[idx]
             _key_index = (idx + 1) % total
-            _key_usage_counts[_masked_key(api_key)] = _key_usage_counts.get(_masked_key(api_key), 0) + 1
+            masked = _masked_key(api_key)
+            _key_usage_counts[masked] = _key_usage_counts.get(masked, 0) + 1
             return api_key, idx
+
     return "", -1
 
 
 def _resolve_model(agent_name: str, use_grounding: bool) -> Optional[str]:
-    preferred = AGENT_MODEL_MAP.get(agent_name, GEMINI_GROUNDING_MODEL if use_grounding else GEMINI_FLASH)
+    preferred = AGENT_MODEL_MAP.get(
+        agent_name,
+        GEMINI_GROUNDING_MODEL if use_grounding else GEMINI_FLASH,
+    )
 
     if use_grounding and preferred not in GEMINI_GROUNDING_ENABLED_MODELS:
         preferred = GEMINI_GROUNDING_MODEL
@@ -104,18 +110,23 @@ def _resolve_model(agent_name: str, use_grounding: bool) -> Optional[str]:
         if _rate_limiter.can_call(model_name):
             return model_name
         model_name = FALLBACK_MODEL.get(model_name)
-        if use_grounding and model_name not in GEMINI_GROUNDING_ENABLED_MODELS:
-            model_name = GEMINI_GROUNDING_MODEL if model_name else None
+        if use_grounding and model_name and model_name not in GEMINI_GROUNDING_ENABLED_MODELS:
+            model_name = GEMINI_GROUNDING_MODEL
+
     return None
 
 
-def _build_config(use_grounding: bool) -> types.GenerateContentConfig:
+def _build_config(agent_name: str, use_grounding: bool) -> types.GenerateContentConfig:
+    kwargs: dict = {"temperature": 0.4}
+
     if use_grounding:
-        return types.GenerateContentConfig(
-            temperature=0.4,
-            tools=[types.Tool(google_search=types.GoogleSearch())],
-        )
-    return types.GenerateContentConfig(temperature=0.4)
+        kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
+
+    # Batch grounding 需要穩定輸出 JSON，否則很容易浪費免費額度在重試。
+    if agent_name == "batch_grounding":
+        kwargs["response_mime_type"] = "application/json"
+
+    return types.GenerateContentConfig(**kwargs)
 
 
 def call_gemini(
@@ -138,12 +149,15 @@ def call_gemini(
         return {
             "status": "rate_limited",
             "output": None,
-            "model_used": AGENT_MODEL_MAP.get(agent_name, GEMINI_GROUNDING_MODEL),
+            "model_used": AGENT_MODEL_MAP.get(
+                agent_name,
+                GEMINI_GROUNDING_MODEL if use_grounding else GEMINI_FLASH,
+            ),
             "duration_ms": 0,
-            "error": "所有 Gemini 模型已達當前安全上限",
+            "error": "所有可用 Gemini 模型都已達今日限制",
         }
 
-    config = _build_config(use_grounding)
+    config = _build_config(agent_name, use_grounding)
     last_error: Optional[str] = None
 
     for attempt in range(len(_key_pool) + len(_BACKOFF_SECONDS)):
@@ -172,7 +186,7 @@ def call_gemini(
 
             return {
                 "status": "success",
-                "output": response.text,
+                "output": getattr(response, "text", None),
                 "model_used": model_name,
                 "duration_ms": duration_ms,
             }
@@ -199,7 +213,9 @@ def call_gemini(
         use_grounding=use_grounding,
     )
     return {
-        "status": "rate_limited" if all(_is_key_exhausted(i) for i in range(len(_key_pool))) else "failed",
+        "status": "rate_limited"
+        if all(_is_key_exhausted(i) for i in range(len(_key_pool)))
+        else "failed",
         "output": None,
         "model_used": model_name,
         "duration_ms": 0,
@@ -221,9 +237,8 @@ def call_gemini_streaming(
         logger.warning("[GeminiClient] %s streaming blocked by rate limit", agent_name)
         return
 
-    config = _build_config(use_grounding)
+    config = _build_config(agent_name, use_grounding)
 
-    # Streaming 也支援多 key 重試（最多嘗試所有 key 數次）
     for attempt in range(len(_key_pool) + len(_BACKOFF_SECONDS)):
         api_key, key_idx = _get_next_key()
         if not api_key:
@@ -252,7 +267,7 @@ def call_gemini_streaming(
                 duration_ms=duration_ms,
                 use_grounding=use_grounding,
             )
-            return  # 成功，結束 generator
+            return
 
         except Exception as exc:
             error = str(exc)
@@ -260,14 +275,17 @@ def call_gemini_streaming(
                 _mark_key_exhausted(key_idx)
                 logger.warning(
                     "[GeminiClient] %s streaming key #%d exhausted, trying next",
-                    agent_name, key_idx,
+                    agent_name,
+                    key_idx,
                 )
-                continue  # 立即換下一把 key
+                continue
 
             retry_index = min(attempt, len(_BACKOFF_SECONDS) - 1)
             logger.warning(
                 "[GeminiClient] %s streaming error (attempt %d): %s",
-                agent_name, attempt + 1, error,
+                agent_name,
+                attempt + 1,
+                error,
             )
             time.sleep(_BACKOFF_SECONDS[retry_index])
 

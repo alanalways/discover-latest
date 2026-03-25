@@ -19,6 +19,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
+from backend.config import HEARTBEAT_QUEUE_MAX_JOBS
+
 logger = logging.getLogger(__name__)
 
 _TZ = "Asia/Taipei"
@@ -70,7 +72,7 @@ def _job_process_queue() -> None:
         try:
             from backend.agents.ceo_agent import get_ceo_agent
 
-            result = get_ceo_agent().run_pending_jobs(max_jobs=3)
+            result = get_ceo_agent().run_pending_jobs(max_jobs=HEARTBEAT_QUEUE_MAX_JOBS)
             if result.get("processed", 0) > 0:
                 logger.info("[Heartbeat] queue processed: %s", result)
         except Exception as exc:

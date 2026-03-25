@@ -82,6 +82,13 @@ FALLBACK_MODEL: dict[str, str] = {
     GEMINI_3_1_FLASH_LITE: GEMINI_FLASH_LITE,
 }
 
+ANALYSIS_GEMINI_MODELS: set[str] = {
+    GEMINI_FLASH,
+    GEMINI_FLASH_LITE,
+    GEMINI_PRO,
+    GEMINI_3_FLASH,
+}
+
 # Search grounding 為 per-project 配額；使用多個獨立 project 時可近似線性放大
 GEMINI_SEARCH_GROUNDING_SHARED_RPD: int = 500 * max(1, len(GEMINI_API_KEYS_LIST))
 
@@ -218,9 +225,24 @@ AGENT_PROVIDER_MAP: dict[str, str] = {
 # ─────────────────────────────────────────────────────────
 # 預算守門
 # ─────────────────────────────────────────────────────────
-_default_grounding_budget = max(18, len(GEMINI_API_KEYS_LIST) * 18)
-DAILY_GROUNDING_RPD_BUDGET: int = int(
-    os.getenv("DAILY_GROUNDING_RPD_BUDGET", str(_default_grounding_budget))
+_analysis_rpd_per_project = sum(
+    int(GEMINI_RATE_LIMITS[model]["rpd"])
+    for model in ANALYSIS_GEMINI_MODELS
 )
+_default_grounding_budget = max(
+    60,
+    int(_analysis_rpd_per_project * max(1, len(GEMINI_API_KEYS_LIST)) * 0.75),
+)
+_budget_env_value = (
+    os.getenv("DAILY_GEMINI_RPD_BUDGET")
+    or os.getenv("DAILY_GROUNDING_RPD_BUDGET")
+    or str(_default_grounding_budget)
+)
+DAILY_GROUNDING_RPD_BUDGET: int = int(_budget_env_value)
 SUPABASE_WARN_MB: int = int(os.getenv("SUPABASE_WARN_MB", "350"))
 SUPABASE_CRITICAL_MB: int = int(os.getenv("SUPABASE_CRITICAL_MB", "425"))
+DEFAULT_SCHEDULED_ANALYSIS_GROUNDING_MODE: str = os.getenv(
+    "DEFAULT_SCHEDULED_ANALYSIS_GROUNDING_MODE",
+    "cache_only",
+).strip().lower()
+HEARTBEAT_QUEUE_MAX_JOBS: int = int(os.getenv("HEARTBEAT_QUEUE_MAX_JOBS", "8"))

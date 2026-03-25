@@ -456,6 +456,7 @@ async def fast_analysis(
     stage4b_ms  = int((time.time() - stage4b_start) * 1000)
     total_ms    = int((time.time() - pipeline_start) * 1000)
     full_report = "".join(report_chunks)
+    actual_gemini_calls = 2 + (0 if cache_hit else 1)
     artifacts = _chief.build_report_artifacts(
         report_id=report_id,
         symbol=symbol,
@@ -492,6 +493,7 @@ async def fast_analysis(
             "stage4a_arbitration_ms":   stage4a_ms,
             "stage4b_report_ms":        stage4b_ms,
             "agents_success":           success_count,
+            "gemini_calls":             actual_gemini_calls,
             "final_stance":             arbitration.get("final_stance"),
             "stance_confidence":        arbitration.get("stance_confidence"),
             "target_price_low":         artifacts["structured_data"].get("target_price_low"),
@@ -509,6 +511,7 @@ async def fast_analysis(
             "arbitration": arbitration,
             "structured_data": artifacts["structured_data"],
             "pending_predictions": artifacts["pending_predictions"],
+            "gemini_calls":  actual_gemini_calls,
             "user_id":     user_id,
         },
     }

@@ -32,8 +32,13 @@ logger = logging.getLogger(__name__)
 # 常量
 # ═════════════════════════════════════════════════════════════
 
-# 每次完整分析預估的 Gemini 呼叫數（6 部門 + 仲裁 + 首席分析師）
-_ESTIMATED_CALLS_PER_STOCK = 8
+# 目前正式架構下，六部門主分析走 NVIDIA。
+# Gemini 主要只用在：
+# 1. batch grounding（可選）
+# 2. arbitrator
+# 3. chief analyst
+_ESTIMATED_GEMINI_CALLS_WITH_GROUNDING = 3
+_ESTIMATED_GEMINI_CALLS_CACHE_ONLY = 2
 
 # 相同 symbol 不重複分析的最小間隔（小時）
 _REPORT_FRESHNESS_HOURS = 2
@@ -362,6 +367,7 @@ class CEOAgent:
                 if j.get("job_type") == "analyze_stock"
                    and isinstance(j.get("payload"), dict)
                    and j["payload"].get("symbol")
+                   and str(j["payload"].get("grounding_mode", "full")).lower() == "full"
             ]
             if len(analyze_symbols) >= 2:
                 from backend.gemini.grounding import BatchGroundingAgent
@@ -521,6 +527,16 @@ class CEOAgent:
         symbol = payload.get("symbol", "")
         market = payload.get("market", "TW")
         user_id = payload.get("user_id")
+        grounding_mode = str(payload.get("grounding_mode", "") or "").lower()
+        if not grounding_mode:
+            triggered_by = str(payload.get("triggered_by", "") or "").lower()
+            grounding_mode = "cache_only" if "掃描" in triggered_by or "scan" in triggered_by else "full"
+        use_grounding = grounding_mode == "full"
+        estimated_gemini_calls = (
+            _ESTIMATED_GEMINI_CALLS_WITH_GROUNDING
+            if use_grounding
+            else _ESTIMATED_GEMINI_CALLS_CACHE_ONLY
+        )
 
         if not symbol:
             error_msg = "payload 缺少 symbol"
@@ -537,7 +553,7 @@ class CEOAgent:
 
         # ── 1. 預算檢查 ──────────────────────────────────
         can_proceed, reason = self._budget_guard.can_proceed(
-            estimated_calls=_ESTIMATED_CALLS_PER_STOCK
+            estimated_calls=estimated_gemini_calls
         )
         if not can_proceed:
             logger.warning(
@@ -560,21 +576,18 @@ class CEOAgent:
             "technical", symbol=symbol, market=market,
             price_data=price_data, report_id=report_id,
         )
-        gemini_calls += 1
 
         # 3b. 基本面分析（需要 financial_data）
         dept_results["fundamental"] = self._run_dept_safe(
             "fundamental", symbol=symbol, market=market,
             financial_data=fundamental_data, report_id=report_id,
         )
-        gemini_calls += 1
 
         # 3c. 籌碼分析（需要 chips_data）
         dept_results["chips"] = self._run_dept_safe(
             "chips", symbol=symbol, market=market,
             chips_data=chips_data, report_id=report_id,
         )
-        gemini_calls += 1
 
         # 3d-f. Batch Grounding（一次 Gemini 取三份資料）──────────────
         # 先取 industry（後面 macro 需要，fundamental_data 此時已有）
@@ -584,14 +597,18 @@ class CEOAgent:
         _macro_gr: dict = {}
         _sentiment_gr: dict = {}
         try:
-            from backend.gemini.grounding import BatchGroundingAgent
-            _gr = BatchGroundingAgent().fetch_all(
-                symbol=symbol, market=market, report_id=report_id
-            )
+            if use_grounding:
+                from backend.gemini.grounding import BatchGroundingAgent
+                _gr = BatchGroundingAgent().fetch_all(
+                    symbol=symbol, market=market, report_id=report_id
+                )
+            else:
+                from backend.gemini.cache import get_cached_grounding
+                _gr = get_cached_grounding(symbol, "batch_all") or {"_from_cache": True}
             _event_gr     = _gr.get("event_data", {}) or {}
             _macro_gr     = _gr.get("macro_data", {}) or {}
             _sentiment_gr = _gr.get("sentiment_data", {}) or {}
-            if not _gr.get("_error") and not _gr.get("_from_cache"):
+            if use_grounding and not _gr.get("_from_cache"):
                 gemini_calls += 1  # 消耗 1 次 Gemini grounding RPD
         except Exception as _gr_err:
             logger.warning(
@@ -603,7 +620,6 @@ class CEOAgent:
             "event", symbol=symbol, market=market,
             grounding_data=_event_gr, report_id=report_id,
         )
-        gemini_calls += 1
 
         # 3e. 宏觀策略（NVIDIA + grounding 資料）
         dept_results["macro"] = self._run_dept_safe(
@@ -611,14 +627,12 @@ class CEOAgent:
             grounding_data=_macro_gr, industry=_industry_pre,
             report_id=report_id,
         )
-        gemini_calls += 1
 
         # 3f. 情緒雷達（NVIDIA + grounding 資料）
         dept_results["sentiment"] = self._run_dept_safe(
             "sentiment", symbol=symbol, market=market,
             grounding_data=_sentiment_gr, report_id=report_id,
         )
-        gemini_calls += 1
 
         # 統計多少部門成功
         successful_depts = sum(
@@ -655,10 +669,16 @@ class CEOAgent:
 
         # ── 6. 記錄預算使用 ──────────────────────────────
         # 簡化：以主力模型 gemini-2.5-flash 記錄大部分使用量
-        self._budget_guard.record_usage("gemini-2.5-flash", calls=6)
+        if use_grounding and gemini_calls >= 1:
+            self._budget_guard.record_usage("gemini-2.5-flash", calls=1)
         # 仲裁 + 首席分析師使用較強模型
-        chief_model = chief_result.get("model_used", "gemini-3-flash-preview")
-        self._budget_guard.record_usage(chief_model, calls=2)
+        arb_model = arb_result.get("model_used")
+        if arb_model and arb_model not in {"none", "rule_engine", "unknown"}:
+            self._budget_guard.record_usage(arb_model, calls=1)
+
+        chief_model = chief_result.get("model_used")
+        if chief_model and chief_model not in {"none", "unknown"}:
+            self._budget_guard.record_usage(chief_model, calls=1)
 
         duration_ms = int((time.time() - start) * 1000)
 
@@ -886,6 +906,15 @@ class CEOAgent:
         enqueued = 0
         skipped_fresh = 0
         skipped_budget = 0
+        from backend.config import DEFAULT_SCHEDULED_ANALYSIS_GROUNDING_MODE
+        scheduled_grounding_mode = str(
+            DEFAULT_SCHEDULED_ANALYSIS_GROUNDING_MODE or "cache_only"
+        ).lower()
+        estimated_calls_per_symbol = (
+            _ESTIMATED_GEMINI_CALLS_WITH_GROUNDING
+            if scheduled_grounding_mode == "full"
+            else _ESTIMATED_GEMINI_CALLS_CACHE_ONLY
+        )
 
         logger.info(
             f"[{_AGENT_DISPLAY}] {scan_label}: 取得 {scanned} 個不重複標的"
@@ -905,7 +934,7 @@ class CEOAgent:
 
             # 檢查預算
             can_proceed, reason = self._budget_guard.can_proceed(
-                estimated_calls=_ESTIMATED_CALLS_PER_STOCK
+                estimated_calls=estimated_calls_per_symbol
             )
             if not can_proceed:
                 skipped_budget += 1
@@ -921,6 +950,7 @@ class CEOAgent:
                     "symbol": symbol,
                     "market": market,
                     "triggered_by": scan_label,
+                    "grounding_mode": scheduled_grounding_mode,
                 },
                 priority=priority,
             )

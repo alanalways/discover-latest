@@ -12,6 +12,7 @@ Batch Grounding Agent — 每次分析只消耗 1 次 Gemini text RPD
 """
 import json
 import logging
+import re
 from typing import Optional
 
 from backend.gemini.client import call_gemini
@@ -176,7 +177,7 @@ class BatchGroundingAgent:
             ).strip()
 
         try:
-            parsed = json.loads(raw_output)
+            parsed = _parse_json_output(raw_output)
         except json.JSONDecodeError as e:
             logger.error(
                 f"[BatchGrounding] {symbol} JSON 解析失敗: {e}\n"
@@ -284,7 +285,7 @@ class BatchGroundingAgent:
             ).strip()
 
         try:
-            parsed = json.loads(raw_output)
+            parsed = _parse_json_output(raw_output)
         except json.JSONDecodeError as e:
             logger.error(f"[BatchGrounding] 批次 JSON 解析失敗: {e}\n{raw_output[:300]}...")
             for sym, mkt in missing:
@@ -319,6 +320,33 @@ class BatchGroundingAgent:
             cached_results[key] = grounding_data
 
         return cached_results
+
+
+def _parse_json_output(raw_output: str) -> dict:
+    """盡量從模型輸出中抽出 JSON，降低 grounding 因格式漂移而失敗。"""
+    try:
+        return json.loads(raw_output)
+    except json.JSONDecodeError:
+        pass
+
+    code_match = re.search(r"```(?:json)?\s*(.*?)\s*```", raw_output, re.DOTALL)
+    if code_match:
+        return json.loads(code_match.group(1))
+
+    start = raw_output.find("{")
+    if start == -1:
+        raise json.JSONDecodeError("JSON object not found", raw_output, 0)
+
+    depth = 0
+    for idx in range(start, len(raw_output)):
+        if raw_output[idx] == "{":
+            depth += 1
+        elif raw_output[idx] == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(raw_output[start: idx + 1])
+
+    raise json.JSONDecodeError("Unterminated JSON object", raw_output, start)
 
 
 def _empty_grounding_data(

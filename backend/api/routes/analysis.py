@@ -86,7 +86,7 @@ async def stream_analysis(
 
     # ── 預算檢查（每次分析只耗 1 Gemini grounding RPD，NVIDIA 無日限制）
     guard = get_budget_guard()
-    can_proceed, reason = guard.can_proceed(estimated_calls=1)
+    can_proceed, reason = guard.can_proceed(estimated_calls=3)
     if not can_proceed:
         async def budget_error():
             yield f"data: {json.dumps({'type': 'error', 'message': f'API 配額接近上限: {reason}'})}\n\n"
@@ -117,7 +117,8 @@ async def stream_analysis(
         # ── 報告完成後，啟動背景任務 + 記錄 Grounding 用量 ──
         if report_data:
             asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
-        guard.record_usage(calls=1)  # 記錄 1 次 Gemini grounding
+        actual_gemini_calls = int((meta or {}).get("gemini_calls", 3))
+        guard.record_usage(calls=actual_gemini_calls)
 
     return StreamingResponse(
         event_stream(),
@@ -148,7 +149,7 @@ async def trigger_analysis(
             return AnalysisResponse(status="rate_limited", message=reason)
 
     guard = get_budget_guard()
-    can_proceed, reason = guard.can_proceed(estimated_calls=1)
+    can_proceed, reason = guard.can_proceed(estimated_calls=3)
     if not can_proceed:
         return AnalysisResponse(
             status="budget_exceeded",
@@ -180,8 +181,8 @@ async def trigger_analysis(
         if report_data:
             asyncio.create_task(run_all_background_tasks(report_data, meta or {}))
 
-        # acquire_request() 已在入口處原子性記錄用量，這裡只記錄 grounding 消耗
-        guard.record_usage(calls=1)
+        actual_gemini_calls = int((meta or {}).get("gemini_calls", 3))
+        guard.record_usage(calls=actual_gemini_calls)
 
         return AnalysisResponse(
             report_id=report_data.get("report_id") if report_data else None,
