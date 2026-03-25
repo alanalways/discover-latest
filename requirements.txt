@@ -18,7 +18,7 @@ APScheduler>=3.10.0
 supabase>=2.0.0
 
 # ── Pinecone（RAG 向量庫）────────────────────────────────
-pinecone-client>=3.0.0
+pinecone>=3.0.0
 
 # ── HuggingFace（冷層封存）──────────────────────────────
 huggingface_hub>=0.25.1
