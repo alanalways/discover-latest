@@ -137,7 +137,7 @@ BETA_MESSAGE: str = os.getenv(
     "BETA_MESSAGE",
     "目前先專心把免費版做穩、做順、做出使用習慣；完整分析功能先開放體驗，等真的有穩定使用者後再評估收費。",
 ).strip()
-BETA_TARGET_AUDIENCE: str = os.getenv("BETA_TARGET_AUDIENCE", "二技護理系學生").strip()
+BETA_TARGET_AUDIENCE: str = os.getenv("BETA_TARGET_AUDIENCE", "全年齡投資使用者").strip()
 BETA_NOTES: list[str] = [
     "現階段以免費 Beta 為主，先把體驗、穩定性與內容品質做好。",
     "主打省時間、看得懂、可直接拿來做投資功課。",
