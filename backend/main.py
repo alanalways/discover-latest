@@ -33,9 +33,25 @@ warnings.filterwarnings("ignore")   # 覆蓋所有 library 設定的 filter
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 logger = logging.getLogger(__name__)
+
+
+class FrontendAssetFiles(StaticFiles):
+    """為 hash 過的前端資源補上長快取，避免 HTML 和 JS/CSS 混用舊版。"""
+
+    def file_response(self, full_path, stat_result, scope, status_code=200) -> Response:  # type: ignore[override]
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
+INDEX_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 # ─────────────────────────────────────────────────────────
 # Lifespan：啟動 / 關機 鉤子
@@ -142,7 +158,7 @@ if _FRONTEND_DIST.exists():
     # 掛載靜態資源（JS/CSS/圖片）
     app.mount(
         "/assets",
-        StaticFiles(directory=str(_FRONTEND_DIST / "assets")),
+        FrontendAssetFiles(directory=str(_FRONTEND_DIST / "assets")),
         name="assets",
     )
 
@@ -152,11 +168,12 @@ if _FRONTEND_DIST.exists():
         # 先嘗試直接提供靜態資源（logo.svg、favicon.ico 等）
         static_file = _FRONTEND_DIST / full_path
         if static_file.exists() and static_file.is_file():
-            return FileResponse(str(static_file))
+            headers = INDEX_HEADERS if static_file.name == "index.html" else {"Cache-Control": "public, max-age=3600"}
+            return FileResponse(str(static_file), headers=headers)
         # 否則回傳 SPA index.html（React Router 接管）
         index = _FRONTEND_DIST / "index.html"
         if index.exists():
-            return FileResponse(str(index))
+            return FileResponse(str(index), headers=INDEX_HEADERS)
         return {"detail": "Frontend not built yet"}
 else:
     logger.warning("[Main] frontend/dist 不存在，跳過靜態檔案掛載")
