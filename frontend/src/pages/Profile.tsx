@@ -3,8 +3,6 @@ import {
   AlertCircle,
   Bell,
   Briefcase,
-  CheckCircle2,
-  CreditCard,
   Loader2,
   LogIn,
   Mail,
@@ -14,6 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { Spinner } from '../components/ui'
+import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 interface UserInfo {
   user_id: string
@@ -27,6 +26,9 @@ interface UserInfo {
 
 interface LimitsInfo {
   tier: string
+  actual_tier?: string
+  effective_tier?: string
+  beta_active?: boolean
   daily_limit: number
   daily_used: number
   daily_remaining: number
@@ -44,14 +46,6 @@ interface PortfolioItem {
   symbol: string
   shares: number
   avg_cost: number
-}
-
-interface PendingUpgrade {
-  id: string
-  plan: string
-  billing_cycle: string
-  status: string
-  created_at: string
 }
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
@@ -81,29 +75,6 @@ async function authedGet<T>(path: string): Promise<T> {
   }
   const response = await fetch(`${BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
-  })
-  if (response.status === 401) {
-    clearToken()
-    throw new Error('登入已失效')
-  }
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-  return response.json()
-}
-
-async function authedPost<T>(path: string, body: unknown): Promise<T> {
-  const token = getToken()
-  if (!token) {
-    throw new Error('尚未登入')
-  }
-  const response = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
   })
   if (response.status === 401) {
     clearToken()
@@ -151,7 +122,7 @@ function LoginPrompt() {
             登入後查看會員資訊
           </h2>
           <p className="text-xs mt-1.5" style={{ color: 'var(--t4)' }}>
-            這裡會顯示方案、用量、提醒、持股與升級申請狀態。
+            這裡會顯示你的 Beta 權限、用量、提醒與持股狀態。
           </p>
         </div>
         <button
@@ -172,11 +143,8 @@ export default function Profile() {
   const [limits, setLimits] = useState<LimitsInfo | null>(null)
   const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [portfolio, setPortfolio] = useState<PortfolioItem[]>([])
-  const [pendingUpgrade, setPendingUpgrade] = useState<PendingUpgrade | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null)
-  const [submittingPlan, setSubmittingPlan] = useState<string | null>(null)
 
   useEffect(() => {
     const hash = window.location.hash
@@ -199,12 +167,11 @@ export default function Profile() {
 
     setError(null)
     try {
-      const [me, lim, al, pf, upgrade] = await Promise.allSettled([
+      const [me, lim, al, pf] = await Promise.allSettled([
         authedGet<UserInfo>('/api/auth/me'),
         authedGet<LimitsInfo>('/api/user/limits'),
         authedGet<{ alerts: AlertItem[] }>('/api/user/alerts'),
         authedGet<{ holdings: PortfolioItem[] }>('/api/user/portfolio'),
-        authedGet<{ status: string; request?: PendingUpgrade }>('/api/user/upgrade'),
       ])
 
       if (me.status !== 'fulfilled') {
@@ -234,9 +201,6 @@ export default function Profile() {
       if (pf.status === 'fulfilled') {
         setPortfolio(pf.value.holdings || [])
       }
-      if (upgrade.status === 'fulfilled') {
-        setPendingUpgrade(upgrade.value.request ?? null)
-      }
     } catch (err) {
       setError(String(err))
     } finally {
@@ -255,26 +219,9 @@ export default function Profile() {
     return Math.min(100, (limits.daily_used / limits.daily_limit) * 100)
   }, [limits])
 
-  const currentTier = limits?.tier || user?.tier || 'free'
+  const currentTier = limits?.effective_tier || limits?.tier || user?.tier || 'free'
+  const actualTier = limits?.actual_tier || user?.tier || 'free'
   const tierCfg = TIER_CONFIG[currentTier] || TIER_CONFIG.free
-  const canSubmitUpgrade = !pendingUpgrade && !submittingPlan
-
-  const handleUpgrade = async (plan: 'pro' | 'premium') => {
-    setSubmittingPlan(plan)
-    setUpgradeMessage(null)
-    try {
-      const result = await authedPost<{ status: string; message?: string }>(
-        '/api/user/upgrade',
-        { plan, billing_cycle: 'monthly' },
-      )
-      setUpgradeMessage(result.message || '升級申請已送出')
-      await loadProfile()
-    } catch (err) {
-      setUpgradeMessage(String(err))
-    } finally {
-      setSubmittingPlan(null)
-    }
-  }
 
   const handleDeleteAlert = async (alertId: string) => {
     const token = getToken()
@@ -310,7 +257,7 @@ export default function Profile() {
           <span className="text-gradient">會員中心</span>
         </h1>
         <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-          查看方案、用量、提醒、持股與升級申請進度。
+          查看免費 Beta 權限、用量、提醒與持股狀態。
         </p>
       </div>
 
@@ -318,13 +265,6 @@ export default function Profile() {
         <div className="glass-card p-3 flex items-center gap-2" style={{ borderColor: 'var(--bear-bdr)' }}>
           <AlertCircle size={14} style={{ color: 'var(--bear)' }} />
           <span className="text-xs" style={{ color: 'var(--bear-bright)' }}>{error}</span>
-        </div>
-      )}
-
-      {upgradeMessage && (
-        <div className="glass-card p-3 flex items-center gap-2" style={{ borderColor: 'var(--accent-bdr)' }}>
-          <CheckCircle2 size={14} style={{ color: 'var(--accent-2)' }} />
-          <span className="text-xs" style={{ color: 'var(--t2)' }}>{upgradeMessage}</span>
         </div>
       )}
 
@@ -409,61 +349,34 @@ export default function Profile() {
 
         <div className="glass-card p-5 space-y-3">
           <div className="flex items-center gap-2">
-            <CreditCard size={12} style={{ color: 'var(--gold)' }} />
-            <span className="label">方案與升級</span>
+            <Shield size={12} style={{ color: 'var(--gold)' }} />
+            <span className="label">Beta 權限狀態</span>
           </div>
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
-              <span style={{ color: 'var(--t4)' }}>目前方案</span>
+              <span style={{ color: 'var(--t4)' }}>目前權限</span>
               <span style={{ color: tierCfg.color, fontWeight: 600 }}>{tierCfg.label}</span>
             </div>
+            {limits?.beta_active && (
+              <div className="rounded-md px-3 py-2" style={{ background: 'var(--accent-glow)', border: '1px solid var(--accent-bdr)' }}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span style={{ color: 'var(--accent-2)', fontWeight: 600 }}>免費 Beta 已開放完整體驗</span>
+                  <span className="font-mono" style={{ color: 'var(--t2)' }}>{actualTier} → {currentTier}</span>
+                </div>
+              </div>
+            )}
             <div className="flex justify-between">
               <span style={{ color: 'var(--t4)' }}>每日上限</span>
               <span className="font-mono" style={{ color: 'var(--t1)' }}>
                 {limits ? `${limits.daily_limit} 次` : '尚未取得'}
               </span>
             </div>
-            {pendingUpgrade && (
-              <div
-                className="rounded-md px-3 py-2"
-                style={{ background: 'rgba(210,153,34,0.08)', border: '1px solid rgba(210,153,34,0.2)' }}
-              >
-                <div className="flex items-center gap-2">
-                  <Shield size={12} style={{ color: 'var(--warning)' }} />
-                  <span style={{ color: 'var(--warning)' }}>
-                    待審申請：{pendingUpgrade.plan} / {pendingUpgrade.billing_cycle}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <button
-              onClick={() => handleUpgrade('pro')}
-              disabled={!canSubmitUpgrade}
-              className="px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-all"
-              style={{
-                background: 'var(--accent-glow)',
-                color: 'var(--accent-2)',
-                border: '1px solid var(--accent-bdr)',
-                opacity: canSubmitUpgrade ? 1 : 0.6,
-              }}
-            >
-              {submittingPlan === 'pro' ? <Loader2 size={12} className="animate-spin inline" /> : '申請 Pro'}
-            </button>
-            <button
-              onClick={() => handleUpgrade('premium')}
-              disabled={!canSubmitUpgrade}
-              className="px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-all"
-              style={{
-                background: 'var(--gold-glow)',
-                color: 'var(--gold)',
-                border: '1px solid rgba(210,153,34,0.25)',
-                opacity: canSubmitUpgrade ? 1 : 0.6,
-              }}
-            >
-              {submittingPlan === 'premium' ? <Loader2 size={12} className="animate-spin inline" /> : '申請 Premium'}
-            </button>
+            <div className="rounded-md px-3 py-2" style={{ background: 'rgba(148,163,184,0.08)', border: '1px solid var(--bdr-1)' }}>
+              <div style={{ color: 'var(--t2)', fontWeight: 600 }}>目前先不做收費</div>
+              <p className="mt-1" style={{ color: 'var(--t4)', lineHeight: 1.6 }}>
+                現在先把免費版做穩、把畫面做順、把資料整理清楚。之後如果真的有穩定使用者，再來決定要不要往收費版走。
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -547,6 +460,13 @@ export default function Profile() {
           </div>
         )}
       </div>
+
+      <BetaFeedbackCard
+        page="profile"
+        compact
+        title="會員中心用起來順嗎？"
+        subtitle="像是：權限說明看不看得懂、提醒跟持股資訊有沒有一眼看懂、還缺什麼。"
+      />
 
       <div className="text-center pt-2">
         <button

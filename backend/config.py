@@ -129,6 +129,26 @@ TIER_LIMITS: dict[str, dict[str, int]] = {
     "premium": {"daily_limit": 200, "per_minute": 15},
 }
 
+# 學生市場 / 免費 Beta 設定
+BETA_OPEN_ACCESS: bool = os.getenv("BETA_OPEN_ACCESS", "true").strip().lower() in {"1", "true", "yes", "on"}
+BETA_DEFAULT_EFFECTIVE_TIER: str = os.getenv("BETA_DEFAULT_EFFECTIVE_TIER", "premium").strip().lower()
+BETA_LABEL: str = os.getenv("BETA_LABEL", "免費 Beta 測試中")
+BETA_MESSAGE: str = os.getenv(
+    "BETA_MESSAGE",
+    "目前先專心把免費版做穩、做順、做出使用習慣；完整分析功能先開放體驗，等真的有穩定使用者後再評估收費。",
+).strip()
+BETA_TARGET_AUDIENCE: str = os.getenv("BETA_TARGET_AUDIENCE", "二技護理系學生").strip()
+BETA_NOTES: list[str] = [
+    "現階段以免費 Beta 為主，先把體驗、穩定性與內容品質做好。",
+    "主打省時間、看得懂、可直接拿來做投資功課。",
+    "分析內容為輔助判斷，不保證報酬，請自己做好風險控管。",
+]
+STUDENT_PRICING: dict[str, dict[str, int | str]] = {
+    "free": {"monthly": 0, "label": "免費 Beta"},
+    "pro": {"monthly": 149, "label": "未來學生方案"},
+    "premium": {"monthly": 249, "label": "未來進階方案"},
+}
+
 
 # ─────────────────────────────────────────────────────────
 # FinMind

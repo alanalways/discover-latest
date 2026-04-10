@@ -136,12 +136,17 @@ async def add_to_watchlist(
     )
     if not already_exists:
         from backend.core.user_rate_limiter import get_user_rate_limiter
-        tier = get_user_rate_limiter().check_and_downgrade(user.user_id)
-        max_items = WATCHLIST_LIMITS.get(tier, WATCHLIST_LIMITS["free"])
+        tier_info = get_user_rate_limiter().get_user_tier_info(user.user_id)
+        actual_tier = tier_info.get("actual_tier", "free")
+        effective_tier = tier_info.get("effective_tier", actual_tier)
+        max_items = WATCHLIST_LIMITS.get(effective_tier, WATCHLIST_LIMITS["free"])
         if len(watchlist) >= max_items:
+            tier_label = effective_tier
+            if effective_tier != actual_tier:
+                tier_label = f"{actual_tier}（Beta 體驗中依 {effective_tier} 上限計算）"
             raise HTTPException(
                 status_code=403,
-                detail=f"自選股已達上限 {max_items} 支（{tier} 方案），請升級方案或移除舊股票",
+                detail=f"自選股已達上限 {max_items} 支（{tier_label} 方案），請先移除舊股票後再加入",
             )
 
         watchlist.append(new_entry)

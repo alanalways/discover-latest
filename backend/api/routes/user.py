@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.api.routes.auth import require_user, UserInfo
+from backend.config import BETA_OPEN_ACCESS, BETA_LABEL, BETA_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,12 @@ async def request_upgrade(
         raise HTTPException(status_code=400, detail="plan must be pro or premium")
     if billing_cycle not in {"monthly", "yearly"}:
         raise HTTPException(status_code=400, detail="billing_cycle must be monthly or yearly")
+
+    if BETA_OPEN_ACCESS:
+        return {
+            "status": "beta_active",
+            "message": f"{BETA_LABEL} 進行中：{BETA_MESSAGE}",
+        }
 
     # 檢查是否已有待審申請
     existing = get_pending_upgrade(user.user_id)

@@ -12,6 +12,7 @@ backend/api/routes/admin.py
 """
 
 import logging
+from collections import Counter
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -33,6 +34,22 @@ class TierUpdate(BaseModel):
 
 class UpgradeReview(BaseModel):
     action: str  # approve | reject
+
+
+# ─── Helpers ─────────────────────────────────────────────
+
+
+def _safe_table_count(client, table: str, filters: Optional[dict] = None) -> int:
+    if not client:
+        return 0
+    try:
+        query = client.table(table).select("id", count="exact")
+        for key, value in (filters or {}).items():
+            query = query.eq(key, value)
+        result = query.execute()
+        return result.count or 0
+    except Exception:
+        return 0
 
 
 # ─── Routes ──────────────────────────────────────────────
@@ -163,18 +180,84 @@ async def system_status(admin: UserInfo = Depends(require_admin)):
     """系統狀態總覽。"""
     from backend.core.budget_guard import get_budget_guard
     from backend.gemini.client import get_rate_limiter_status, get_key_usage_stats
-    from backend.data.storage.supabase_client import get_client
+    from backend.data.storage.supabase_client import get_client, get_beta_feedback_summary
+    from backend.config import BETA_OPEN_ACCESS, BETA_LABEL, STUDENT_PRICING
 
     budget = get_budget_guard().get_status()
     rate_limiter = get_rate_limiter_status()
     key_usage = get_key_usage_stats()
-    db_ok = get_client() is not None
+    client = get_client()
+    db_ok = client is not None
+
+    users_total = _safe_table_count(client, "users")
+    reports_total = _safe_table_count(client, "reports", {"is_archived": False})
+    outcomes_total = _safe_table_count(client, "outcomes")
+    alerts_total = _safe_table_count(client, "alerts")
+    ratings_total = _safe_table_count(client, "report_ratings")
+
+    user_prefs_rows = []
+    if client:
+        try:
+            result = client.table("user_prefs").select("user_id,watchlist").execute()
+            user_prefs_rows = result.data or []
+        except Exception:
+            user_prefs_rows = []
+
+    user_tiers = Counter({
+        "free": _safe_table_count(client, "users", {"tier": "free"}),
+        "pro": _safe_table_count(client, "users", {"tier": "pro"}),
+        "premium": _safe_table_count(client, "users", {"tier": "premium"}),
+    })
+
+    upgrade_status = Counter({
+        "pending": _safe_table_count(client, "pending_upgrades", {"status": "pending"}),
+        "approved": _safe_table_count(client, "pending_upgrades", {"status": "approved"}),
+        "rejected": _safe_table_count(client, "pending_upgrades", {"status": "rejected"}),
+    })
+
+    watchlist_symbols_total = 0
+    watchlist_users_total = 0
+    for row in user_prefs_rows:
+        items = row.get("watchlist") if isinstance(row, dict) else []
+        if isinstance(items, list) and items:
+            watchlist_users_total += 1
+            watchlist_symbols_total += len(items)
+
+    avg_watchlist_size = round(watchlist_symbols_total / watchlist_users_total, 1) if watchlist_users_total else 0.0
+    beta_feedback = get_beta_feedback_summary()
 
     return {
         "database": "connected" if db_ok else "unavailable",
         "budget": budget,
         "gemini_rate_limits": rate_limiter,
         "gemini_key_usage": key_usage,
+        "overview": {
+            "users_total": users_total,
+            "reports_total": reports_total,
+            "outcomes_total": outcomes_total,
+            "alerts_total": alerts_total,
+            "ratings_total": ratings_total,
+            "watchlist_users_total": watchlist_users_total,
+            "watchlist_symbols_total": watchlist_symbols_total,
+            "avg_watchlist_size": avg_watchlist_size,
+            "tier_breakdown": {
+                "free": user_tiers.get("free", 0),
+                "pro": user_tiers.get("pro", 0),
+                "premium": user_tiers.get("premium", 0),
+            },
+            "upgrade_breakdown": {
+                "pending": upgrade_status.get("pending", 0),
+                "approved": upgrade_status.get("approved", 0),
+                "rejected": upgrade_status.get("rejected", 0),
+            },
+        },
+        "product": {
+            "beta_open": BETA_OPEN_ACCESS,
+            "beta_label": BETA_LABEL,
+            "current_mode": "free_beta",
+            "student_pricing": STUDENT_PRICING,
+        },
+        "beta_feedback": beta_feedback,
     }
 
 

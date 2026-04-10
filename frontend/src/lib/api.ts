@@ -131,6 +131,18 @@ export const getMarketMacro = () =>
 export const getMarketHours = () =>
   request<MarketHours>('/api/market/hours')
 
+export const getProductConfig = () =>
+  request<ProductConfig>('/api/market/product-config')
+
+export const getBetaOverview = () =>
+  request<BetaOverview>('/api/beta/overview')
+
+export const submitBetaFeedback = (body: BetaFeedbackInput, token?: string) =>
+  request<{ status: string; message: string; feedback_id?: string }>('/api/beta/feedback', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }, token)
+
 // ─── SSE Streaming Analysis ─────────────────────────────────────────────────
 
 export function streamAnalysis(
@@ -296,6 +308,43 @@ export interface SystemStats {
   accuracy_pct:   number
 }
 
+export interface AdminSystemStatus {
+  database: string
+  budget: {
+    used_today: number
+    daily_limit: number
+    remaining: number
+    pct_used: number
+  }
+  gemini_rate_limits: Record<string, Record<string, string | number | boolean | null>>
+  gemini_key_usage: Record<string, unknown>
+  overview: {
+    users_total: number
+    reports_total: number
+    outcomes_total: number
+    alerts_total: number
+    ratings_total: number
+    watchlist_users_total: number
+    watchlist_symbols_total: number
+    avg_watchlist_size: number
+    tier_breakdown: Record<string, number>
+    upgrade_breakdown: Record<string, number>
+  }
+  product: {
+    beta_open: boolean
+    beta_label: string
+    current_mode?: string
+    student_pricing: Record<string, ProductPricingTier>
+  }
+  beta_feedback: {
+    total_feedback: number
+    category_breakdown: Record<string, number>
+    average_rating: number | null
+    recommend_pct: number | null
+    recent_feedback: BetaFeedbackItem[]
+  }
+}
+
 // ─── Market Types ────────────────────────────────────────────────────────────
 
 export interface MarketQuote {
@@ -340,4 +389,61 @@ export interface MarketOverview {
   indices:      MarketIndices
   top20_tw:     MarketQuote[]
   top20_us:     MarketQuote[]
+}
+
+export interface ProductPricingTier {
+  monthly: number
+  label: string
+}
+
+export interface ProductConfig {
+  beta_open: boolean
+  current_mode?: 'free_beta' | string
+  beta_label: string
+  beta_message: string
+  beta_notes: string[]
+  target_audience: string
+  future_pricing_note?: string
+  student_pricing: Record<string, ProductPricingTier>
+}
+
+export interface BetaFeedbackInput {
+  category: 'ux' | 'bug' | 'idea' | 'content' | 'speed' | 'general'
+  message: string
+  page?: string
+  contact_email?: string
+  rating?: number
+  would_recommend?: boolean
+}
+
+export interface BetaFeedbackItem {
+  id: string
+  category: string
+  message: string
+  page?: string | null
+  contact_email?: string | null
+  rating?: number | null
+  would_recommend?: boolean | null
+  user_name?: string | null
+  user_email?: string | null
+  created_at: string
+}
+
+export interface BetaOverview {
+  label: string
+  message: string
+  notes: string[]
+  target_audience: string
+  stats: {
+    reports_total: number
+    ratings_total: number
+    feedback_total: number
+  }
+  feedback: {
+    total_feedback: number
+    category_breakdown: Record<string, number>
+    average_rating: number | null
+    recommend_pct: number | null
+    recent_feedback: BetaFeedbackItem[]
+  }
 }

@@ -14,9 +14,33 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
+from backend.config import (
+    BETA_LABEL,
+    BETA_MESSAGE,
+    BETA_NOTES,
+    BETA_OPEN_ACCESS,
+    BETA_TARGET_AUDIENCE,
+    STUDENT_PRICING,
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/market", tags=["market"])
+
+
+@router.get("/product-config")
+async def product_config():
+    """前台產品設定：免費 Beta 狀態、目標客群與未來方案參考。"""
+    return {
+        "beta_open": BETA_OPEN_ACCESS,
+        "current_mode": "free_beta",
+        "beta_label": BETA_LABEL,
+        "beta_message": BETA_MESSAGE,
+        "beta_notes": BETA_NOTES,
+        "target_audience": BETA_TARGET_AUDIENCE,
+        "future_pricing_note": "現階段不收費，先以免費版累積穩定使用者與回饋；student_pricing 只保留作為未來規劃參考。",
+        "student_pricing": STUDENT_PRICING,
+    }
 
 
 @router.get("/overview")

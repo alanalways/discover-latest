@@ -2,12 +2,13 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Search, Loader2, AlertCircle, FileText,
-  Shield, Brain, TrendingUp, Activity,
+  Shield, Brain, TrendingUp, Activity, Target,
   ChevronDown, ChevronUp, Sparkles, CheckCircle2, X
 } from 'lucide-react'
 import Markdown from 'react-markdown'
 import { triggerAnalysis, streamAnalysis, AnalysisResponse } from '../lib/api'
 import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../components/ui'
+import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 const ANALYSIS_TIMEOUT_MS = 180_000
 
@@ -304,15 +305,44 @@ export default function Analysis() {
     <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 space-y-6">
 
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-bold flex items-center gap-2.5">
-          <Search size={20} style={{ color: 'var(--accent-2)' }} aria-hidden />
-          <span className="text-gradient">股票深度分析</span>
-        </h1>
-        <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-          六大 AI 研究部門 × 矛盾仲裁 × 首席分析師報告 · 30–60 秒生成
-        </p>
+      <div className="glass-card p-5 space-y-4">
+        <div className="hero-badge-row">
+          <span className="hero-badge hero-badge--accent">最核心的賣點頁</span>
+          <span className="hero-badge">輸入代號後，直接給你白話投資建議摘要</span>
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2.5">
+            <Search size={22} style={{ color: 'var(--accent-2)' }} aria-hidden />
+            <span className="text-gradient">股票深度分析</span>
+          </h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
+            這頁負責把技術面、基本面、事件、風險與目標價整理成學生看得懂的結論。不是要你盲目下單，而是讓你更快做判斷。
+          </p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-3">
+          <div className="admin-metric"><span>輸出內容</span><strong>結論 / 理由 / 風險</strong></div>
+          <div className="admin-metric"><span>預計時間</span><strong>30–60 秒</strong></div>
+          <div className="admin-metric"><span>適合用法</span><strong>先看懂再決定</strong></div>
+        </div>
       </div>
+
+      <section className="analysis-quick-grid">
+        <div className="analysis-quick-card">
+          <div className="analysis-quick-card__icon"><Brain size={16} /></div>
+          <h3>你會先拿到什麼</h3>
+          <p>先給結論，再補理由、風險、目標價，不會一開頭就塞滿術語。</p>
+        </div>
+        <div className="analysis-quick-card">
+          <div className="analysis-quick-card__icon"><Shield size={16} /></div>
+          <h3>怎麼看比較對</h3>
+          <p>把它當研究助手，不是無腦跟單；先用來縮短做功課時間，再自己判斷。</p>
+        </div>
+        <div className="analysis-quick-card">
+          <div className="analysis-quick-card__icon"><Target size={16} /></div>
+          <h3>最適合的情境</h3>
+          <p>看到新標的、想複習持股、或下課只剩幾分鐘時，先快速抓重點。</p>
+        </div>
+      </section>
 
       {/* Search Form */}
       <form onSubmit={handleSubmit} className="glass-card p-4" role="search">
@@ -518,6 +548,13 @@ export default function Analysis() {
           </div>
         </div>
       )}
+
+      <BetaFeedbackCard
+        page="analysis"
+        compact
+        title="分析頁哪裡最需要修？"
+        subtitle="像是：重點不夠前面、字太多、等待過程太久、結果不夠白話，都可以直接講。"
+      />
     </div>
   )
 }

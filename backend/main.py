@@ -94,16 +94,17 @@ app.add_middleware(
 # API 路由掛載
 # ─────────────────────────────────────────────────────────
 
-from backend.api.routes import analysis, scanner, accuracy, watchlist, auth, user, admin, market
+from backend.api.routes import analysis, scanner, accuracy, watchlist, auth, user, admin, market, beta
 
 app.include_router(auth.router,      prefix="/api")
 app.include_router(analysis.router,  prefix="/api")
 app.include_router(scanner.router,   prefix="/api")
 app.include_router(accuracy.router,  prefix="/api")
-app.include_router(watchlist.router,  prefix="/api")
+app.include_router(watchlist.router, prefix="/api")
 app.include_router(user.router,      prefix="/api")
 app.include_router(admin.router,     prefix="/api")
 app.include_router(market.router,    prefix="/api")
+app.include_router(beta.router,      prefix="/api")
 
 
 # ─────────────────────────────────────────────────────────

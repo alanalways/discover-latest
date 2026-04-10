@@ -1,15 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
-  ShieldCheck, Users, CreditCard, Activity,
-  CheckCircle2, XCircle, Clock, Database,
-  Cpu, Zap, RefreshCw, ChevronDown, ChevronUp,
-  AlertCircle, Loader2
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  CreditCard,
+  Database,
+  Loader2,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Sparkles,
+  Users,
 } from 'lucide-react'
-import { Spinner, EmptyState } from '../components/ui'
+import { EmptyState, SectionHeader, Spinner, StatCard } from '../components/ui'
+import type { AdminSystemStatus as SystemStatus } from '../lib/api'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
-
-// ── Helpers ────────────────────────────────────────────
 
 function getToken(): string | null {
   return localStorage.getItem('dl_token')
@@ -56,8 +62,6 @@ async function adminPatch<T>(path: string, body: unknown): Promise<T> {
   return res.json()
 }
 
-// ── Types ──────────────────────────────────────────────
-
 interface AdminUser {
   id: string
   email: string
@@ -77,124 +81,190 @@ interface UpgradeReq {
   created_at: string
 }
 
-interface SystemStatus {
-  database: string
-  budget: {
-    used_today: number
-    daily_limit: number
-    remaining: number
-    pct_used: number
-  }
-  gemini_rate_limits: Record<string, unknown>
-  gemini_key_usage: Record<string, unknown>
-}
-
-// ── Tab Config ─────────────────────────────────────────
-
 type TabKey = 'overview' | 'users' | 'upgrades'
 
 const TABS: { key: TabKey; label: string; icon: typeof Activity }[] = [
-  { key: 'overview',  label: '系統總覽', icon: Activity },
-  { key: 'users',     label: '使用者管理', icon: Users },
-  { key: 'upgrades',  label: '升級審核', icon: CreditCard },
+  { key: 'overview', label: '營運總覽', icon: Activity },
+  { key: 'users', label: '用戶名單', icon: Users },
+  { key: 'upgrades', label: '升級審核', icon: CreditCard },
 ]
 
-// ── Overview Panel ─────────────────────────────────────
-
-function OverviewPanel({ status }: { status: SystemStatus | null }) {
+function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onRefresh: () => void }) {
   if (!status) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner size={20} />
-      </div>
-    )
+    return <div className="flex items-center justify-center py-20"><Spinner size={22} /></div>
   }
 
   const budgetPct = status.budget?.pct_used ?? 0
-  const budgetColor = budgetPct > 80 ? 'var(--bear)' : budgetPct > 50 ? 'var(--warn)' : 'var(--bull)'
+  const budgetTone = budgetPct >= 80 ? 'var(--bear)' : budgetPct >= 60 ? 'var(--warn)' : 'var(--bull)'
+  const tierData = status.overview?.tier_breakdown || {}
+  const upgradeData = status.overview?.upgrade_breakdown || {}
+  const studentPricing = status.product?.student_pricing || {}
+  const betaFeedback = status.beta_feedback || { total_feedback: 0, category_breakdown: {}, average_rating: null, recommend_pct: null, recent_feedback: [] }
 
   return (
-    <div className="space-y-4">
-      {/* Status Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="stat-card">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Database size={11} style={{ color: 'var(--accent-2)' }} />
-            <span className="label">資料庫</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ background: status.database === 'connected' ? 'var(--bull)' : 'var(--bear)' }}
-            />
-            <span className="font-mono text-sm" style={{ color: status.database === 'connected' ? 'var(--bull)' : 'var(--bear)' }}>
-              {status.database === 'connected' ? '已連線' : '離線'}
+    <div className="space-y-5">
+      <div className="admin-hero-card">
+        <div>
+          <div className="hero-badge-row">
+            <span className="hero-badge hero-badge--accent">
+              <Sparkles size={12} />
+              {status.product?.beta_label || 'Beta 測試中'}
+            </span>
+            <span className="hero-badge">
+              <Database size={12} />
+              DB {status.database === 'connected' ? '正常' : '異常'}
             </span>
           </div>
+          <h2 className="text-xl font-bold mt-3" style={{ color: 'var(--t1)' }}>這裡就是老闆要看的總控台</h2>
+          <p className="text-sm mt-2" style={{ color: 'var(--t3)' }}>
+            一眼看清楚用戶、報告、升級申請、AI 預算與學生定價，不用再拆三四個頁面找資料。
+          </p>
+        </div>
+        <button className="btn-secondary" onClick={onRefresh}>
+          <RefreshCw size={14} />
+          重新整理
+        </button>
+      </div>
+
+      <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard title="總用戶數" value={status.overview.users_total} icon={Users} color="var(--accent-2)" subtitle="公測累積名單" />
+        <StatCard title="總報告數" value={status.overview.reports_total} icon={BarChart3} color="var(--sky)" subtitle="可拿來做首頁與社群素材" />
+        <StatCard title="Beta 回饋" value={betaFeedback.total_feedback} icon={Sparkles} color="var(--gold)" subtitle="直接反映現在卡在哪" />
+        <StatCard title="AI 預算" value={`${budgetPct.toFixed(0)}%`} icon={Activity} color={budgetTone} subtitle={`${status.budget.used_today}/${status.budget.daily_limit}`} />
+      </div>
+
+      <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-4">
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="營運核心數字" />
+          <div className="admin-metric-grid">
+            <div className="admin-metric"><span>已驗證預測</span><strong>{status.overview.outcomes_total}</strong></div>
+            <div className="admin-metric"><span>提醒總數</span><strong>{status.overview.alerts_total}</strong></div>
+            <div className="admin-metric"><span>評分總數</span><strong>{status.overview.ratings_total}</strong></div>
+            <div className="admin-metric"><span>有自選股的人數</span><strong>{status.overview.watchlist_users_total}</strong></div>
+            <div className="admin-metric"><span>自選股總檔數</span><strong>{status.overview.watchlist_symbols_total}</strong></div>
+            <div className="admin-metric"><span>平均自選股</span><strong>{status.overview.avg_watchlist_size}</strong></div>
+          </div>
         </div>
 
-        <div className="stat-card">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Zap size={11} style={{ color: 'var(--gold)' }} />
-            <span className="label">AI 預算</span>
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="學生方案定價" />
+          <div className="space-y-3">
+            {['free', 'pro', 'premium'].map((key) => (
+              <div key={key} className="pricing-summary-row">
+                <div>
+                  <div className="font-semibold" style={{ color: 'var(--t1)' }}>{studentPricing[key]?.label || key}</div>
+                  <div className="text-xs" style={{ color: 'var(--t4)' }}>{key.toUpperCase()}</div>
+                </div>
+                <div className="font-mono font-bold" style={{ color: 'var(--gold)' }}>
+                  {studentPricing[key]?.monthly ? `NT$${studentPricing[key]?.monthly}/月` : '免費'}
+                </div>
+              </div>
+            ))}
           </div>
-          <span className="font-mono text-lg font-bold" style={{ color: budgetColor }}>
-            {budgetPct.toFixed(0)}%
-          </span>
-          <div className="h-1 rounded-full mt-1" style={{ background: 'var(--bdr-1)' }}>
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${budgetPct}%`, background: budgetColor }}
-            />
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Cpu size={11} style={{ color: 'var(--sky)' }} />
-            <span className="label">今日用量</span>
-          </div>
-          <span className="font-mono text-lg font-bold" style={{ color: 'var(--t1)' }}>
-            {status.budget?.used_today ?? 0}
-          </span>
-          <span className="text-[11px]" style={{ color: 'var(--t4)' }}>
-            / {status.budget?.daily_limit ?? 0} RPD
-          </span>
-        </div>
-
-        <div className="stat-card">
-          <div className="flex items-center gap-1.5 mb-2">
-            <Activity size={11} style={{ color: 'var(--accent-2)' }} />
-            <span className="label">剩餘額度</span>
-          </div>
-          <span className="font-mono text-lg font-bold" style={{ color: 'var(--bull)' }}>
-            {status.budget?.remaining ?? 0}
-          </span>
         </div>
       </div>
 
-      {/* Rate Limiter Details */}
-      <div className="glass-card p-5 space-y-3">
-        <span className="label">AI Rate Limits</span>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid xl:grid-cols-2 gap-4">
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="方案分布" />
+          <div className="space-y-3">
+            {[
+              { key: 'free', label: 'Free / Beta' },
+              { key: 'pro', label: 'Pro' },
+              { key: 'premium', label: 'Premium' },
+            ].map(({ key, label }) => {
+              const total = status.overview.users_total || 1
+              const value = tierData[key] ?? 0
+              const pct = Math.round((value / total) * 100)
+              return (
+                <div key={key} className="space-y-1">
+                  <div className="flex items-center justify-between text-sm">
+                    <span style={{ color: 'var(--t2)' }}>{label}</span>
+                    <span className="font-mono" style={{ color: 'var(--t1)' }}>{value} 人 / {pct}%</span>
+                  </div>
+                  <div className="admin-progress-track">
+                    <div className="admin-progress-bar" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="升級申請狀態" />
+          <div className="admin-metric-grid admin-metric-grid--compact">
+            <div className="admin-metric"><span>待處理</span><strong>{upgradeData.pending ?? 0}</strong></div>
+            <div className="admin-metric"><span>已核准</span><strong>{upgradeData.approved ?? 0}</strong></div>
+            <div className="admin-metric"><span>已拒絕</span><strong>{upgradeData.rejected ?? 0}</strong></div>
+          </div>
+          <div className="admin-warning-card">
+            <AlertTriangle size={16} />
+            <div>
+              <div className="font-semibold text-sm">目前還是人工升級流程</div>
+              <div className="text-xs" style={{ color: 'var(--t3)' }}>Beta 先這樣可以，但開始收費後就要接自動金流與訂閱狀態機。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid xl:grid-cols-[0.95fr_1.05fr] gap-4">
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="Beta 回饋摘要" />
+          <div className="admin-metric-grid admin-metric-grid--compact">
+            <div className="admin-metric"><span>回饋總數</span><strong>{betaFeedback.total_feedback}</strong></div>
+            <div className="admin-metric"><span>平均評分</span><strong>{betaFeedback.average_rating != null ? betaFeedback.average_rating.toFixed(1) : '—'}</strong></div>
+            <div className="admin-metric"><span>願意推薦</span><strong>{betaFeedback.recommend_pct != null ? `${betaFeedback.recommend_pct}%` : '—'}</strong></div>
+          </div>
+          <div className="space-y-3">
+            {Object.entries(betaFeedback.category_breakdown || {}).length > 0 ? Object.entries(betaFeedback.category_breakdown || {}).map(([key, value]) => (
+              <div key={key} className="space-y-1">
+                <div className="flex items-center justify-between text-sm">
+                  <span style={{ color: 'var(--t2)' }}>{key}</span>
+                  <span className="font-mono" style={{ color: 'var(--t1)' }}>{value}</span>
+                </div>
+                <div className="admin-progress-track">
+                  <div className="admin-progress-bar" style={{ width: `${Math.min(100, value * 10)}%` }} />
+                </div>
+              </div>
+            )) : <div className="soft-status-note">目前還沒有收到回饋，推 Beta 後這裡就會開始長資料。</div>}
+          </div>
+        </div>
+
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="最新 Beta 回饋" />
+          <div className="space-y-3">
+            {(betaFeedback.recent_feedback || []).length > 0 ? betaFeedback.recent_feedback.map((item) => (
+              <div key={item.id} className="admin-feedback-card">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="hero-badge-row">
+                    <span className="hero-badge hero-badge--accent">{item.category}</span>
+                    {item.page && <span className="hero-badge">{item.page}</span>}
+                  </div>
+                  <span className="text-xs" style={{ color: 'var(--t4)' }}>{item.created_at?.slice(0, 10)}</span>
+                </div>
+                <div className="text-sm" style={{ color: 'var(--t2)', lineHeight: 1.7 }}>{item.message}</div>
+                <div className="text-xs flex items-center gap-3 flex-wrap" style={{ color: 'var(--t4)' }}>
+                  <span>評分：{item.rating ?? '—'}</span>
+                  <span>推薦：{item.would_recommend == null ? '—' : item.would_recommend ? '會' : '不會'}</span>
+                  <span>{item.user_name || item.user_email || '匿名 / 未登入'}</span>
+                </div>
+              </div>
+            )) : <EmptyState icon={Sparkles} title="還沒有 Beta 回饋" subtitle="等學生開始用之後，這裡會出現真實意見。" />}
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-card p-5 space-y-4">
+        <SectionHeader title="AI 模型額度監控" />
+        <div className="grid md:grid-cols-2 gap-3">
           {Object.entries(status.gemini_rate_limits || {}).map(([model, info]) => (
-            <div
-              key={model}
-              className="p-3 rounded-lg"
-              style={{ background: 'rgba(148,163,184,0.04)', border: '1px solid var(--bdr-1)' }}
-            >
-              <span className="font-mono text-[11px] font-semibold" style={{ color: 'var(--t2)' }}>
-                {model}
-              </span>
-              <div className="mt-1.5 text-[11px]" style={{ color: 'var(--t4)' }}>
-                {typeof info === 'object' && info !== null
-                  ? Object.entries(info).map(([k, v]) => (
-                      <span key={k} className="mr-3">
-                        {k}: <span className="font-mono" style={{ color: 'var(--t2)' }}>{String(v)}</span>
-                      </span>
-                    ))
-                  : String(info)
-                }
+            <div key={model} className="admin-model-card">
+              <div className="font-mono text-xs font-semibold" style={{ color: 'var(--t1)' }}>{model}</div>
+              <div className="text-xs mt-2" style={{ color: 'var(--t4)' }}>
+                {Object.entries(info || {}).map(([k, v]) => (
+                  <span key={k} className="inline-flex mr-3 mb-1">{k}: <strong style={{ color: 'var(--t2)', marginLeft: 4 }}>{String(v)}</strong></span>
+                ))}
               </div>
             </div>
           ))}
@@ -204,12 +274,19 @@ function OverviewPanel({ status }: { status: SystemStatus | null }) {
   )
 }
 
-// ── Users Panel ────────────────────────────────────────
-
 function UsersPanel({ users, onRefresh }: { users: AdminUser[]; onRefresh: () => void }) {
+  const [query, setQuery] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [newTier, setNewTier]     = useState('')
-  const [saving, setSaving]       = useState(false)
+  const [newTier, setNewTier] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const filtered = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    if (!keyword) return users
+    return users.filter((user) =>
+      [user.name, user.email, user.tier].some((value) => String(value || '').toLowerCase().includes(keyword)),
+    )
+  }, [query, users])
 
   const handleTierUpdate = async (userId: string) => {
     if (!newTier) return
@@ -219,8 +296,6 @@ function UsersPanel({ users, onRefresh }: { users: AdminUser[]; onRefresh: () =>
       setEditingId(null)
       setNewTier('')
       onRefresh()
-    } catch {
-      // silent
     } finally {
       setSaving(false)
     }
@@ -228,369 +303,230 @@ function UsersPanel({ users, onRefresh }: { users: AdminUser[]; onRefresh: () =>
 
   return (
     <div className="glass-card overflow-hidden">
-      <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
-        <div className="flex items-center gap-2">
-          <Users size={12} style={{ color: 'var(--accent-2)' }} />
-          <span className="label">使用者列表</span>
+      <div className="p-5 border-b" style={{ borderColor: 'var(--bdr-1)' }}>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-base font-bold" style={{ color: 'var(--t1)' }}>用戶名單</h3>
+            <p className="text-sm mt-1" style={{ color: 'var(--t4)' }}>可以快速搜尋、改 tier，看誰已經進來用。</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="admin-search-box">
+              <Search size={14} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜 email / 名稱 / 方案" />
+            </div>
+            <button className="btn-secondary" onClick={onRefresh}><RefreshCw size={14} />更新</button>
+          </div>
         </div>
-        <button
-          onClick={onRefresh}
-          className="p-1.5 rounded hover:bg-[rgba(148,163,184,0.08)] cursor-pointer"
-          style={{ color: 'var(--t4)', background: 'none', border: 'none' }}
-        >
-          <RefreshCw size={12} />
-        </button>
       </div>
-      {users.length > 0 ? (
+
+      {filtered.length === 0 ? (
+        <div className="p-8"><EmptyState icon={Users} title="目前沒有符合條件的使用者" /></div>
+      ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="admin-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--bdr-1)' }}>
-                {['姓名', 'Email', '方案', '註冊日期', '操作'].map(h => (
-                  <th key={h} className="px-4 py-2.5 text-left font-medium" style={{ color: 'var(--t4)' }}>{h}</th>
-                ))}
+              <tr>
+                <th>姓名</th>
+                <th>Email</th>
+                <th>方案</th>
+                <th>註冊日期</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
-              {users.map(u => {
-                const tierColor = u.tier === 'premium' ? 'var(--gold)' : u.tier === 'pro' ? 'var(--accent-2)' : 'var(--t3)'
-                return (
-                  <tr key={u.id} style={{ borderBottom: '1px solid var(--bdr-1)' }}>
-                    <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--t1)' }}>
-                      {u.name || '—'}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--t3)' }}>{u.email}</td>
-                    <td className="px-4 py-2.5">
-                      {editingId === u.id ? (
-                        <div className="flex items-center gap-1.5">
-                          <select
-                            value={newTier}
-                            onChange={e => setNewTier(e.target.value)}
-                            className="input-field text-[11px] py-1 px-2"
-                            style={{ width: 80 }}
-                          >
-                            <option value="">選擇</option>
-                            <option value="free">Free</option>
-                            <option value="pro">Pro</option>
-                            <option value="premium">Premium</option>
-                          </select>
-                          <button
-                            onClick={() => handleTierUpdate(u.id)}
-                            disabled={saving || !newTier}
-                            className="text-[11px] px-2 py-1 rounded cursor-pointer"
-                            style={{
-                              background: 'var(--bull-glow)',
-                              color: 'var(--bull)',
-                              border: '1px solid var(--bull-bdr)',
-                            }}
-                          >
-                            {saving ? <Loader2 size={10} className="animate-spin" /> : '✓'}
-                          </button>
-                          <button
-                            onClick={() => setEditingId(null)}
-                            className="text-[11px] px-2 py-1 rounded cursor-pointer"
-                            style={{
-                              background: 'rgba(148,163,184,0.06)',
-                              color: 'var(--t4)',
-                              border: '1px solid var(--bdr-1)',
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
-                        <span
-                          className="text-[11px] font-semibold px-1.5 py-0.5 rounded cursor-pointer"
-                          style={{ color: tierColor, background: `${tierColor}15` }}
-                          onClick={() => { setEditingId(u.id); setNewTier(u.tier) }}
-                        >
-                          {u.tier}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 font-mono" style={{ color: 'var(--t4)' }}>
-                      {u.created_at?.slice(0, 10) || '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <button
-                        onClick={() => { setEditingId(editingId === u.id ? null : u.id); setNewTier(u.tier) }}
-                        className="text-[11px] cursor-pointer"
-                        style={{ color: 'var(--accent-2)', background: 'none', border: 'none' }}
-                      >
-                        編輯
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
+              {filtered.map((user) => (
+                <tr key={user.id}>
+                  <td>
+                    <div className="font-medium" style={{ color: 'var(--t1)' }}>{user.name || '—'}</div>
+                  </td>
+                  <td><span className="font-mono text-xs" style={{ color: 'var(--t3)' }}>{user.email}</span></td>
+                  <td>
+                    {editingId === user.id ? (
+                      <div className="flex items-center gap-2">
+                        <select className="input-field text-sm py-2 px-3" value={newTier} onChange={(e) => setNewTier(e.target.value)}>
+                          <option value="free">Free</option>
+                          <option value="pro">Pro</option>
+                          <option value="premium">Premium</option>
+                        </select>
+                        <button className="btn-primary !px-3 !py-2" disabled={saving} onClick={() => handleTierUpdate(user.id)}>
+                          {saving ? <Loader2 size={12} className="animate-spin" /> : '儲存'}
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="hero-badge hero-badge--accent">{user.tier}</span>
+                    )}
+                  </td>
+                  <td><span className="font-mono text-xs" style={{ color: 'var(--t4)' }}>{user.created_at?.slice(0, 10) || '—'}</span></td>
+                  <td>
+                    <button className="link-button" onClick={() => { setEditingId(editingId === user.id ? null : user.id); setNewTier(user.tier) }}>
+                      {editingId === user.id ? '取消' : '編輯'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
-      ) : (
-        <EmptyState icon={Users} title="尚無使用者" />
       )}
     </div>
   )
 }
 
-// ── Upgrades Panel ─────────────────────────────────────
-
 function UpgradesPanel({ upgrades, onRefresh }: { upgrades: UpgradeReq[]; onRefresh: () => void }) {
   const [processing, setProcessing] = useState<string | null>(null)
+
+  const pending = upgrades.filter((item) => item.status === 'pending')
+  const resolved = upgrades.filter((item) => item.status !== 'pending')
 
   const handleReview = async (id: string, action: 'approve' | 'reject') => {
     setProcessing(id)
     try {
       await adminPost(`/api/admin/upgrades/${id}`, { action })
       onRefresh()
-    } catch {
-      // silent
     } finally {
       setProcessing(null)
     }
   }
 
-  const pending  = upgrades.filter(u => u.status === 'pending')
-  const resolved = upgrades.filter(u => u.status !== 'pending')
-
   return (
     <div className="space-y-4">
-      {/* Pending */}
-      <div className="glass-card overflow-hidden">
-        <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
-          <div className="flex items-center gap-2">
-            <Clock size={12} style={{ color: 'var(--warn)' }} />
-            <span className="label">待審核</span>
-            {pending.length > 0 && (
-              <span
-                className="text-[10px] font-mono px-1.5 py-0.5 rounded-full"
-                style={{ background: 'var(--warn-glow)', color: 'var(--warn)' }}
-              >
-                {pending.length}
-              </span>
-            )}
-          </div>
-        </div>
-        {pending.length > 0 ? (
-          <div className="divide-y" style={{ borderColor: 'var(--bdr-1)' }}>
-            {pending.map(req => (
-              <div key={req.id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="flex-1 min-w-0">
+      <div className="glass-card p-5 space-y-4">
+        <SectionHeader title="待審名單" action={<button className="link-button" onClick={onRefresh}><RefreshCw size={12} />更新</button>} />
+        {pending.length === 0 ? (
+          <EmptyState icon={CreditCard} title="目前沒有待審核升級" />
+        ) : (
+          <div className="space-y-3">
+            {pending.map((req) => (
+              <div key={req.id} className="upgrade-card">
+                <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-medium text-sm" style={{ color: 'var(--t1)' }}>
-                      {req.user_name || req.user_email}
-                    </span>
-                    <span
-                      className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                      style={{
-                        background: req.plan === 'premium' ? 'var(--gold-glow)' : 'var(--accent-glow)',
-                        color: req.plan === 'premium' ? 'var(--gold)' : 'var(--accent-2)',
-                      }}
-                    >
-                      → {req.plan}
-                    </span>
+                    <strong style={{ color: 'var(--t1)' }}>{req.user_name || req.user_email}</strong>
+                    <span className="hero-badge hero-badge--accent">{req.plan}</span>
+                    <span className="hero-badge">{req.billing_cycle || 'monthly'}</span>
                   </div>
-                  <p className="text-[11px] font-mono mt-0.5" style={{ color: 'var(--t4)' }}>
-                    {req.user_email} · {req.created_at?.slice(0, 10)}
-                  </p>
+                  <div className="text-xs mt-2" style={{ color: 'var(--t4)' }}>{req.user_email} ・ {req.created_at?.slice(0, 10)}</div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleReview(req.id, 'approve')}
-                    disabled={processing === req.id}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium cursor-pointer"
-                    style={{
-                      background: 'var(--bull-glow)',
-                      color: 'var(--bull)',
-                      border: '1px solid var(--bull-bdr)',
-                    }}
-                  >
-                    {processing === req.id ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-                    核准
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button className="btn-primary !px-4 !py-2" disabled={processing === req.id} onClick={() => handleReview(req.id, 'approve')}>
+                    {processing === req.id ? <Loader2 size={12} className="animate-spin" /> : '核准'}
                   </button>
-                  <button
-                    onClick={() => handleReview(req.id, 'reject')}
-                    disabled={processing === req.id}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium cursor-pointer"
-                    style={{
-                      background: 'var(--bear-glow)',
-                      color: 'var(--bear)',
-                      border: '1px solid var(--bear-bdr)',
-                    }}
-                  >
-                    <XCircle size={11} />
+                  <button className="btn-secondary !px-4 !py-2" disabled={processing === req.id} onClick={() => handleReview(req.id, 'reject')}>
                     拒絕
                   </button>
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          <div className="py-10 text-center">
-            <p className="text-xs" style={{ color: 'var(--t4)' }}>沒有待審核的升級申請</p>
-          </div>
         )}
       </div>
 
-      {/* Resolved */}
-      {resolved.length > 0 && (
-        <div className="glass-card overflow-hidden">
-          <div className="section-header" style={{ borderBottom: '1px solid var(--bdr-1)' }}>
-            <span className="label">已處理</span>
-          </div>
-          <div className="divide-y" style={{ borderColor: 'var(--bdr-1)' }}>
-            {resolved.slice(0, 20).map(req => (
-              <div key={req.id} className="px-5 py-3 flex items-center justify-between">
+      <div className="glass-card p-5 space-y-4">
+        <SectionHeader title="最近已處理" />
+        {resolved.length === 0 ? (
+          <EmptyState icon={ShieldCheck} title="還沒有已處理紀錄" />
+        ) : (
+          <div className="space-y-3">
+            {resolved.slice(0, 12).map((req) => (
+              <div key={req.id} className="pricing-summary-row">
                 <div>
-                  <span className="text-xs" style={{ color: 'var(--t2)' }}>
-                    {req.user_name || req.user_email}
-                  </span>
-                  <span className="text-[11px] ml-2 font-mono" style={{ color: 'var(--t4)' }}>
-                    → {req.plan}
-                  </span>
+                  <div className="font-medium" style={{ color: 'var(--t1)' }}>{req.user_name || req.user_email}</div>
+                  <div className="text-xs" style={{ color: 'var(--t4)' }}>{req.plan} ・ {req.created_at?.slice(0, 10)}</div>
                 </div>
-                <span
-                  className="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                  style={{
-                    background: req.status === 'approved' ? 'var(--bull-glow)' : 'var(--bear-glow)',
-                    color: req.status === 'approved' ? 'var(--bull)' : 'var(--bear)',
-                  }}
-                >
-                  {req.status === 'approved' ? '已核准' : '已拒絕'}
-                </span>
+                <span className={`hero-badge ${req.status === 'approved' ? 'hero-badge--accent' : ''}`}>{req.status}</span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
 
-// ── Main Admin Page ────────────────────────────────────
-
 export default function Admin() {
-  const [tab, setTab]           = useState<TabKey>('overview')
-  const [loading, setLoading]   = useState(true)
-  const [error, setError]       = useState<string | null>(null)
-  const [status, setStatus]     = useState<SystemStatus | null>(null)
-  const [users, setUsers]       = useState<AdminUser[]>([])
+  const [tab, setTab] = useState<TabKey>('overview')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [status, setStatus] = useState<SystemStatus | null>(null)
+  const [users, setUsers] = useState<AdminUser[]>([])
   const [upgrades, setUpgrades] = useState<UpgradeReq[]>([])
 
-  const loadData = useCallback(async () => {
+  const loadData = async () => {
     const token = getToken()
     if (!token) {
       setError('請先登入管理員帳號')
       setLoading(false)
       return
     }
+    setLoading(true)
+    setError(null)
     try {
       const [sys, usr, upg] = await Promise.allSettled([
         adminGet<SystemStatus>('/api/admin/system'),
         adminGet<{ users: AdminUser[] }>('/api/admin/users'),
         adminGet<{ upgrades: UpgradeReq[] }>('/api/admin/upgrades'),
       ])
+
       if (sys.status === 'fulfilled') setStatus(sys.value)
       else setError('權限不足，需要管理員帳號')
       if (usr.status === 'fulfilled') setUsers(usr.value.users || [])
       if (upg.status === 'fulfilled') setUpgrades(upg.value.upgrades || [])
-    } catch (e) {
-      setError(String(e))
+    } catch (err) {
+      setError(String(err))
     } finally {
       setLoading(false)
     }
+  }
+
+  useEffect(() => {
+    loadData()
   }, [])
 
-  useEffect(() => { loadData() }, [loadData])
-
-  // Not logged in or not admin
   if (!loading && error) {
     return (
       <div className="max-w-lg mx-auto px-4 py-20">
         <div className="glass-card p-10 text-center space-y-4 animate-fade-in">
-          <div
-            className="w-14 h-14 rounded-xl mx-auto flex items-center justify-center"
-            style={{
-              background: 'rgba(239,68,68,0.08)',
-              border: '1px solid rgba(239,68,68,0.15)',
-            }}
-          >
+          <div className="w-14 h-14 rounded-xl mx-auto flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)' }}>
             <ShieldCheck size={24} style={{ color: '#ef4444' }} />
           </div>
-          <h2 className="text-base font-bold" style={{ color: 'var(--t1)' }}>管理員權限</h2>
-          <p className="text-xs" style={{ color: 'var(--t4)' }}>{error}</p>
-          <a
-            href="/profile"
-            className="inline-block text-xs px-4 py-2 rounded-md"
-            style={{
-              background: 'var(--accent-glow)',
-              color: 'var(--accent-2)',
-              border: '1px solid var(--accent-bdr)',
-            }}
-          >
-            前往登入
-          </a>
+          <h2 className="text-base font-bold" style={{ color: 'var(--t1)' }}>管理員權限不足</h2>
+          <p className="text-sm" style={{ color: 'var(--t4)' }}>{error}</p>
+          <a href="/profile" className="btn-secondary no-underline inline-flex">前往登入</a>
         </div>
       </div>
     )
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-32">
-        <Spinner size={24} />
-      </div>
-    )
+    return <div className="flex items-center justify-center py-32"><Spinner size={24} /></div>
   }
 
-  const pendingCount = upgrades.filter(u => u.status === 'pending').length
+  const pendingCount = upgrades.filter((item) => item.status === 'pending').length
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 space-y-5">
-      {/* Header */}
+    <div className="max-w-7xl mx-auto px-4 sm:px-5 py-6 space-y-5">
       <div>
-        <h1 className="text-xl font-bold flex items-center gap-2.5">
-          <ShieldCheck size={20} style={{ color: 'var(--accent-2)' }} />
+        <h1 className="text-2xl font-bold flex items-center gap-2.5">
+          <ShieldCheck size={22} style={{ color: 'var(--accent-2)' }} />
           <span className="text-gradient">管理後台</span>
         </h1>
-        <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-          系統狀態 · 使用者管理 · 升級審核
-        </p>
+        <p className="text-sm mt-1" style={{ color: 'var(--t4)' }}>我先幫你把營運需要的資訊收在同一頁，之後你看數字就能判斷下一步。</p>
       </div>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-1 p-0.5 rounded-lg" style={{ background: 'rgba(148,163,184,0.04)', border: '1px solid var(--bdr-1)' }}>
-        {TABS.map(t => {
-          const isActive = tab === t.key
-          const Icon = t.icon
+      <div className="admin-tabs">
+        {TABS.map((item) => {
+          const Icon = item.icon
+          const active = tab === item.key
           return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-all flex-1 justify-center"
-              style={{
-                background: isActive ? 'var(--accent-glow)' : 'transparent',
-                color: isActive ? 'var(--accent-2)' : 'var(--t3)',
-                border: isActive ? '1px solid var(--accent-bdr)' : '1px solid transparent',
-              }}
-            >
-              <Icon size={12} />
-              <span>{t.label}</span>
-              {t.key === 'upgrades' && pendingCount > 0 && (
-                <span
-                  className="text-[9px] font-mono px-1 py-0 rounded-full"
-                  style={{ background: 'var(--bear)', color: '#fff', minWidth: 14, textAlign: 'center' }}
-                >
-                  {pendingCount}
-                </span>
-              )}
+            <button key={item.key} className={`admin-tab ${active ? 'active' : ''}`} onClick={() => setTab(item.key)}>
+              <Icon size={14} />
+              <span>{item.label}</span>
+              {item.key === 'upgrades' && pendingCount > 0 && <span className="admin-tab__badge">{pendingCount}</span>}
             </button>
           )
         })}
       </div>
 
-      {/* Content */}
-      {tab === 'overview' && <OverviewPanel status={status} />}
+      {tab === 'overview' && <OverviewPanel status={status} onRefresh={loadData} />}
       {tab === 'users' && <UsersPanel users={users} onRefresh={loadData} />}
       {tab === 'upgrades' && <UpgradesPanel upgrades={upgrades} onRefresh={loadData} />}
     </div>

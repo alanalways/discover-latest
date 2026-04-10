@@ -671,6 +671,104 @@ def get_pending_upgrade(user_id: str) -> Optional[dict]:
 
 
 # ─────────────────────────────────────────────────────────
+# Beta feedback（免費版營運回饋）
+# ─────────────────────────────────────────────────────────
+
+_beta_feedback_mem: list[dict] = []
+_beta_feedback_lock = threading.Lock()
+_beta_feedback_seq = 0
+
+
+def create_beta_feedback(payload: dict) -> Optional[dict]:
+    """建立一筆 Beta 回饋；若 DB 暫時不可用，會清楚標記為 memory fallback。"""
+    global _beta_feedback_seq
+    clean = {
+        "category": str(payload.get("category") or "general").strip().lower() or "general",
+        "message": str(payload.get("message") or "").strip(),
+        "page": str(payload.get("page") or "").strip() or None,
+        "contact_email": str(payload.get("contact_email") or "").strip() or None,
+        "rating": payload.get("rating"),
+        "would_recommend": payload.get("would_recommend"),
+        "user_id": str(payload.get("user_id") or "").strip() or None,
+        "user_email": str(payload.get("user_email") or "").strip() or None,
+        "user_name": str(payload.get("user_name") or "").strip() or None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    row = insert_row("beta_feedback", clean)
+    if row:
+        return {
+            **row,
+            "storage_backend": "database",
+            "persistent": True,
+        }
+
+    with _beta_feedback_lock:
+        _beta_feedback_seq += 1
+        local_row = {
+            "id": f"local-feedback-{_beta_feedback_seq}",
+            **clean,
+            "storage_backend": "memory_fallback",
+            "persistent": False,
+            "warning": "beta_feedback 資料表目前不可寫入，這筆回饋先暫存在記憶體，部署重啟後不會保留。",
+        }
+        _beta_feedback_mem.insert(0, local_row)
+        del _beta_feedback_mem[100:]
+        return local_row
+
+
+def list_beta_feedback(limit: int = 20) -> list[dict]:
+    """列出最近 Beta 回饋。"""
+    rows = select_rows("beta_feedback", limit=limit, order_by="created_at", ascending=False)
+    if rows:
+        return rows
+    with _beta_feedback_lock:
+        return list(_beta_feedback_mem[:limit])
+
+
+def get_beta_feedback_summary() -> dict:
+    """取得免費 Beta 的回饋與簡易營運摘要。"""
+    rows = list_beta_feedback(limit=200)
+    category_counts: dict[str, int] = {}
+    recommend_yes = 0
+    recommend_total = 0
+    ratings: list[float] = []
+    persistent_count = 0
+    storage_backend = "database"
+
+    for row in rows:
+        category = str(row.get("category") or "general").strip().lower() or "general"
+        category_counts[category] = category_counts.get(category, 0) + 1
+
+        recommend = row.get("would_recommend")
+        if recommend is not None:
+            recommend_total += 1
+            if bool(recommend):
+                recommend_yes += 1
+
+        rating = row.get("rating")
+        if isinstance(rating, (int, float)):
+            ratings.append(float(rating))
+
+        if row.get("persistent") is False:
+            storage_backend = "memory_fallback"
+        else:
+            persistent_count += 1
+
+    average_rating = round(sum(ratings) / len(ratings), 2) if ratings else None
+    recommend_pct = round((recommend_yes / recommend_total) * 100, 1) if recommend_total else None
+
+    return {
+        "total_feedback": len(rows),
+        "persistent_feedback": persistent_count,
+        "storage_backend": storage_backend,
+        "category_breakdown": category_counts,
+        "average_rating": average_rating,
+        "recommend_pct": recommend_pct,
+        "recent_feedback": rows[:10],
+    }
+
+
+# ─────────────────────────────────────────────────────────
 # Vault（繼承舊版 get_vault_secret）
 # ─────────────────────────────────────────────────────────
 

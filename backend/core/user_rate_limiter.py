@@ -14,7 +14,11 @@ import time
 from datetime import datetime
 from typing import Optional
 
-from backend.config import TIER_LIMITS
+from backend.config import (
+    TIER_LIMITS,
+    BETA_OPEN_ACCESS,
+    BETA_DEFAULT_EFFECTIVE_TIER,
+)
 from backend.data.storage.supabase_client import (
     get_user_subscription,
     get_user_by_id,
@@ -168,10 +172,19 @@ class UserRateLimiter:
 
     # ─── 限額檢查 ─────────────────────────────────────────
 
+    @staticmethod
+    def _get_effective_tier(actual_tier: str) -> str:
+        tier = (actual_tier or "free").strip().lower()
+        beta_tier = (BETA_DEFAULT_EFFECTIVE_TIER or "premium").strip().lower()
+        if BETA_OPEN_ACCESS and tier == "free" and beta_tier in TIER_LIMITS:
+            return beta_tier
+        return tier if tier in TIER_LIMITS else "free"
+
     def can_make_request(self, user_id: str) -> tuple[bool, str]:
         """檢查是否可發起 AI 請求（不記錄用量）。"""
-        tier = self.check_and_downgrade(user_id)
-        limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+        actual_tier = self.check_and_downgrade(user_id)
+        effective_tier = self._get_effective_tier(actual_tier)
+        limits = TIER_LIMITS.get(effective_tier, TIER_LIMITS["free"])
 
         ensure_public_user_record(user_id)
         today_usage = get_ai_usage_today(user_id)
@@ -210,13 +223,24 @@ class UserRateLimiter:
             self.record_request(user_id)
             return True, ""
 
+    def get_user_tier_info(self, user_id: str) -> dict:
+        """回傳使用者實際 / Beta 生效方案資訊。"""
+        actual_tier = self.check_and_downgrade(user_id)
+        effective_tier = self._get_effective_tier(actual_tier)
+        return {
+            "tier": actual_tier,
+            "actual_tier": actual_tier,
+            "effective_tier": effective_tier,
+            "beta_active": BETA_OPEN_ACCESS and actual_tier != effective_tier,
+        }
+
     def get_user_limits_info(self, user_id: str) -> dict:
         """回傳使用者限額資訊（UI 顯示用）。"""
-        tier = self.check_and_downgrade(user_id)
-        limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+        tier_info = self.get_user_tier_info(user_id)
+        limits = TIER_LIMITS.get(tier_info["effective_tier"], TIER_LIMITS["free"])
         today_usage = get_ai_usage_today(user_id)
         return {
-            "tier": tier,
+            **tier_info,
             "daily_limit": limits["daily_limit"],
             "daily_used": today_usage,
             "daily_remaining": max(0, limits["daily_limit"] - today_usage),
