@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -15,16 +15,15 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { Spinner } from './components/ui'
 
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Analysis = lazy(() => import('./pages/Analysis'))
-const Scanner = lazy(() => import('./pages/Scanner'))
-const Accuracy = lazy(() => import('./pages/Accuracy'))
-const Watchlist = lazy(() => import('./pages/Watchlist'))
-const Profile = lazy(() => import('./pages/Profile'))
-const Backtest = lazy(() => import('./pages/Backtest'))
-const Admin = lazy(() => import('./pages/Admin'))
+import Dashboard from './pages/Dashboard'
+import Analysis from './pages/Analysis'
+import Scanner from './pages/Scanner'
+import Accuracy from './pages/Accuracy'
+import Watchlist from './pages/Watchlist'
+import Profile from './pages/Profile'
+import Backtest from './pages/Backtest'
+import Admin from './pages/Admin'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
 
@@ -70,14 +69,6 @@ function getSavedUser(): SavedUser | null {
   } catch {
     return null
   }
-}
-
-function PageFallback() {
-  return (
-    <div className="flex items-center justify-center py-24">
-      <Spinner size={24} />
-    </div>
-  )
 }
 
 function OAuthCallbackHandler() {
@@ -439,18 +430,16 @@ export default function App() {
       <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-1)' }}>
         <NavBar />
         <main className="flex-1 pb-16">
-          <Suspense fallback={<PageFallback />}>
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/accuracy" element={<Accuracy />} />
-              <Route path="/analysis" element={<Analysis />} />
-              <Route path="/scanner" element={<Scanner />} />
-              <Route path="/backtest" element={<Backtest />} />
-              <Route path="/watchlist" element={<RequireAuth><Watchlist /></RequireAuth>} />
-              <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
-              <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/accuracy" element={<Accuracy />} />
+            <Route path="/analysis" element={<Analysis />} />
+            <Route path="/scanner" element={<Scanner />} />
+            <Route path="/backtest" element={<Backtest />} />
+            <Route path="/watchlist" element={<RequireAuth><Watchlist /></RequireAuth>} />
+            <Route path="/profile" element={<RequireAuth><Profile /></RequireAuth>} />
+            <Route path="/admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
+          </Routes>
         </main>
         <footer className="py-5 text-center" style={{ borderTop: '1px solid var(--bdr-1)' }}>
           <p className="font-mono text-xs" style={{ color: 'var(--t4)' }}>

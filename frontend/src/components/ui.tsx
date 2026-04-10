@@ -51,10 +51,11 @@ export function DirectionIcon({
 // ── Confidence Gauge (SVG arc) ────────────────────────────────────────────────
 
 export function ConfidenceGauge({ value, size = 56 }: { value: number; size?: number }) {
-  const pct = Math.round(value * 100)
+  const normalized = value > 1 ? Math.min(value / 100, 1) : Math.max(value, 0)
+  const pct = Math.round(normalized * 100)
   const radius = (size - 8) / 2
   const circumference = 2 * Math.PI * radius
-  const offset = circumference - value * circumference
+  const offset = circumference - normalized * circumference
   const color =
     pct >= 70 ? 'var(--bull)'
     : pct >= 50 ? 'var(--warn)'

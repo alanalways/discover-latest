@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ScanLine, ArrowUpDown, Search, Sparkles, Target } from 'lucide-react'
+import { ScanLine, ArrowUpDown, Search, Sparkles, Target, TrendingUp } from 'lucide-react'
 import { getScannerResults, ReportSummary } from '../lib/api'
 import {
   RatingBadge, DirectionIcon, ConfidenceGauge,
@@ -10,6 +10,8 @@ import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 type SortField = 'confidence' | 'date' | 'symbol'
 type SortDir   = 'asc' | 'desc'
+
+const SCANNER_HERO = '/flow-assets/mockup-scanner.jpg'
 
 const DEMO_SCANNER: ReportSummary[] = [
   {
@@ -73,7 +75,7 @@ export default function Scanner() {
     else { setSortField(f); setSortDir('desc') }
   }
 
-  const sourceItems = usingDemoData ? DEMO_SCANNER : items
+  const sourceItems = (usingDemoData || items.length === 0) ? DEMO_SCANNER : items
 
   const filtered = sourceItems
     .filter(item => !search || item.symbol.toLowerCase().includes(search.toLowerCase()))
@@ -117,30 +119,37 @@ export default function Scanner() {
     <div className="max-w-7xl mx-auto px-4 sm:px-5 py-6 space-y-5">
 
       {/* Header */}
-      <div className="glass-card p-5 space-y-4">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div className="hero-badge-row mb-3">
-              <span className="hero-badge hero-badge--accent">學生 Beta 常用頁</span>
-              <span className="hero-badge">先找機會，再決定要不要做深度分析</span>
-            </div>
-            <h1 className="text-2xl font-bold flex items-center gap-2.5">
-              <ScanLine size={22} style={{ color: 'var(--accent-2)' }} aria-hidden />
-              <span className="text-gradient">今天值得先看的標的</span>
-            </h1>
-            <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '54ch' }}>
-              這頁不是要你直接無腦買，而是先把今天 AI 覺得值得追蹤的標的排出來，讓你用最少時間決定下一步。
-            </p>
+      <section className="scanner-hero-panel">
+        <div className="scanner-hero-panel__copy">
+          <div className="hero-badge-row mb-3">
+            <span className="hero-badge hero-badge--accent">免費 Beta 核心入口</span>
+            <span className="hero-badge">今日最值得研究 + 最強偏多名單</span>
           </div>
-          <button className="btn-secondary" onClick={load}>重新整理</button>
+          <h1 className="text-2xl font-bold flex items-center gap-2.5">
+            <ScanLine size={22} style={{ color: 'var(--accent-2)' }} aria-hidden />
+            <span className="text-gradient">先把今天的機會排前面</span>
+          </h1>
+          <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
+            Scanner 先幫你排出今天最值得研究與最強偏多名單，下方再給你篩選條件、風險標記、信心度和一鍵進分析入口。
+          </p>
+          <div className="grid md:grid-cols-2 gap-3 mt-4">
+            <div className="admin-metric"><span>上半部</span><strong>推薦區先看</strong></div>
+            <div className="admin-metric"><span>下半部</span><strong>篩選區再細挑</strong></div>
+            <div className="admin-metric"><span>適合情境</span><strong>盤前 / 下班 5 分鐘</strong></div>
+            <div className="admin-metric"><span>下一步</span><strong>一鍵進個股分析</strong></div>
+          </div>
+          <div className="hero-actions mt-4">
+            <button className="btn-primary" onClick={() => highlighted[0] && navigate(`/analysis?symbol=${highlighted[0].symbol}&market=${highlighted[0].market}`)}>
+              <TrendingUp size={14} />
+              直接看 Top 1
+            </button>
+            <button className="btn-secondary" onClick={load}>重新整理清單</button>
+          </div>
         </div>
-
-        <div className="grid md:grid-cols-3 gap-3">
-          <div className="admin-metric"><span>清單用途</span><strong>先篩選</strong></div>
-          <div className="admin-metric"><span>適合情境</span><strong>下課 / 下班 5 分鐘</strong></div>
-          <div className="admin-metric"><span>下一步</span><strong>點進單檔做深度分析</strong></div>
+        <div className="scanner-hero-panel__media">
+          <img src={SCANNER_HERO} alt="Scanner hero mockup" />
         </div>
-      </div>
+      </section>
 
       <section className="scanner-highlight-grid">
         {highlighted.length > 0 ? highlighted.map((item, index) => (

@@ -11,6 +11,7 @@ import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../compone
 import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 const ANALYSIS_TIMEOUT_MS = 180_000
+const ANALYSIS_HERO = '/flow-assets/mockup-analysis.jpg'
 
 function getToken(): string | null {
   return localStorage.getItem('dl_token')
@@ -56,11 +57,11 @@ function Section({
 // ── Analysis Progress ─────────────────────────────────────────────────────────
 
 const STEPS = [
-  { name: '收集市場資料', icon: Activity },
-  { name: '六部門並行分析', icon: Brain },
-  { name: '技術·基本·籌碼·事件·宏觀·情緒', icon: TrendingUp },
-  { name: 'AI 矛盾仲裁', icon: Shield },
-  { name: '首席分析師生成報告', icon: Sparkles },
+  { name: '抓取市場資料與最近事件', icon: Activity },
+  { name: '整理技術面、基本面、風險訊號', icon: Brain },
+  { name: '壓縮成快速結論', icon: TrendingUp },
+  { name: '補上理由與風險提醒', icon: Shield },
+  { name: '輸出完整分析報告', icon: Sparkles },
 ]
 
 function AnalysisProgress({ step, text }: { step: number; text: string }) {
@@ -76,8 +77,8 @@ function AnalysisProgress({ step, text }: { step: number; text: string }) {
           />
         </div>
         <div>
-          <p className="font-semibold text-sm" style={{ color: 'var(--t1)' }}>AI 分析引擎運作中</p>
-          <p className="text-xs" style={{ color: 'var(--t4)' }}>六大部門同步分析 · 約 30–60 秒</p>
+          <p className="font-semibold text-sm" style={{ color: 'var(--t1)' }}>正在整理快速結論</p>
+          <p className="text-xs" style={{ color: 'var(--t4)' }}>先給方向，再補理由與風險 · 約 20–45 秒</p>
         </div>
       </div>
 
@@ -305,42 +306,48 @@ export default function Analysis() {
     <div className="max-w-4xl mx-auto px-4 sm:px-5 py-6 space-y-6">
 
       {/* Header */}
-      <div className="glass-card p-5 space-y-4">
-        <div className="hero-badge-row">
-          <span className="hero-badge hero-badge--accent">最核心的賣點頁</span>
-          <span className="hero-badge">輸入代號後，直接給你白話投資建議摘要</span>
+      <section className="analysis-hero-panel">
+        <div className="analysis-hero-panel__copy">
+          <div className="hero-badge-row">
+            <span className="hero-badge hero-badge--accent">最核心的賣點頁</span>
+            <span className="hero-badge">先結論後理由，弱化 AI agent 感</span>
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2.5">
+              <Search size={22} style={{ color: 'var(--accent-2)' }} aria-hidden />
+              <span className="text-gradient">股票深度分析</span>
+            </h1>
+            <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
+              輸入代號後先看到方向、風險、信心度與目標價，再往下看關鍵原因與完整報告。不是慢慢等 AI 表演，而是更快做判斷。
+            </p>
+          </div>
+          <div className="grid md:grid-cols-2 gap-3">
+            <div className="admin-metric"><span>第一屏要先看到</span><strong>結論 / 風險 / 目標價</strong></div>
+            <div className="admin-metric"><span>預計時間</span><strong>20–45 秒</strong></div>
+            <div className="admin-metric"><span>內容節奏</span><strong>快速結論 → 理由 → 細節</strong></div>
+            <div className="admin-metric"><span>語氣方向</span><strong>像研究工具，不像 agent 團隊</strong></div>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2.5">
-            <Search size={22} style={{ color: 'var(--accent-2)' }} aria-hidden />
-            <span className="text-gradient">股票深度分析</span>
-          </h1>
-          <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
-            這頁負責把技術面、基本面、事件、風險與目標價整理成學生看得懂的結論。不是要你盲目下單，而是讓你更快做判斷。
-          </p>
+        <div className="analysis-hero-panel__media">
+          <img src={ANALYSIS_HERO} alt="Analysis hero mockup" />
         </div>
-        <div className="grid md:grid-cols-3 gap-3">
-          <div className="admin-metric"><span>輸出內容</span><strong>結論 / 理由 / 風險</strong></div>
-          <div className="admin-metric"><span>預計時間</span><strong>30–60 秒</strong></div>
-          <div className="admin-metric"><span>適合用法</span><strong>先看懂再決定</strong></div>
-        </div>
-      </div>
+      </section>
 
       <section className="analysis-quick-grid">
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Brain size={16} /></div>
           <h3>你會先拿到什麼</h3>
-          <p>先給結論，再補理由、風險、目標價，不會一開頭就塞滿術語。</p>
+          <p>快速結論、建議動作、目標價、風險等級與三個關鍵原因，不先塞滿術語。</p>
         </div>
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Shield size={16} /></div>
           <h3>怎麼看比較對</h3>
-          <p>把它當研究助手，不是無腦跟單；先用來縮短做功課時間，再自己判斷。</p>
+          <p>先用第一屏決定要不要繼續研究；若結論普通，就不用把整份報告從頭看到尾。</p>
         </div>
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Target size={16} /></div>
           <h3>最適合的情境</h3>
-          <p>看到新標的、想複習持股、或下課只剩幾分鐘時，先快速抓重點。</p>
+          <p>看到新標的、想複習持股，或盤前只剩幾分鐘時，先抓能不能研究、風險高不高。</p>
         </div>
       </section>
 

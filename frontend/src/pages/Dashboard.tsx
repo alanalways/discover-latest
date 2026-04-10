@@ -5,8 +5,6 @@ import {
   BookOpen,
   Brain,
   Clock3,
-  GraduationCap,
-  HeartPulse,
   LayoutDashboard,
   LockOpen,
   RefreshCw,
@@ -35,12 +33,17 @@ import {
   SectionHeader,
   SignalDot,
   Spinner,
-  StatCard,
   TargetPriceBadge,
 } from '../components/ui'
 import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? ''
+const HERO_VIDEO = '/flow-assets/hero-video-alt.mp4'
+const HERO_DESKTOP = '/flow-assets/hero-desktop-alt.jpg'
+const HERO_MOBILE = '/flow-assets/hero-mobile-primary.jpg'
+const MOCKUP_DASHBOARD = '/flow-assets/mockup-dashboard.jpg'
+const MOCKUP_ANALYSIS = '/flow-assets/mockup-analysis.jpg'
+const MOCKUP_SCANNER = '/flow-assets/mockup-scanner.jpg'
 
 const DEMO_BULLISH: ReportSummary[] = [
   {
@@ -239,9 +242,9 @@ export default function Dashboard() {
 
   const heroHighlights = useMemo(() => {
     return [
-      '3 分鐘先看懂一檔股票值不值得研究',
-      '把結論、理由、風險拆成學生看得懂的白話',
-      '現在先專心做免費版，把體驗和穩定性磨好',
+      '先給快速結論，再補理由與風險，不浪費判斷時間',
+      '全年齡都看得懂的投資研究介面，不靠術語堆滿畫面',
+      '先把免費 Beta 做到穩定、流暢、願意每天打開',
     ]
   }, [])
 
@@ -263,135 +266,130 @@ export default function Dashboard() {
     navigate(`/analysis?symbol=${item.symbol}&market=${item.market}`)
   }
 
-  const displayedBullish = usingDemoData ? DEMO_BULLISH : bullish
-  const displayedLatest = usingDemoData ? DEMO_LATEST : latest
+  const displayedBullish = (usingDemoData || bullish.length === 0) ? DEMO_BULLISH : bullish
+  const displayedLatest = (usingDemoData || latest.length === 0) ? DEMO_LATEST : latest
   const betaNotes = product?.beta_notes?.length ? product.beta_notes : [
     '現階段先把免費 Beta 做穩，先不要急著談收費。',
-    '先讓學生真的每天會打開，再來補更重的功能。',
+    '先讓一般使用者真的每天會打開，再來補更重的功能。',
     '分析內容是輔助判斷，不保證獲利。',
   ]
 
   const betaFocusItems = [
     {
-      title: '現在先免費',
-      description: '完整分析功能先開放體驗，先累積習慣、回饋和使用者。',
+      title: '先看今天值不值得研究',
+      description: '首頁先把市場節奏、機會清單與最近分析整理成一眼就懂的入口。',
     },
     {
-      title: '先看懂再決定',
-      description: '不是丟一堆術語給你，而是先把結論、理由、風險講清楚。',
+      title: '先用結論做判斷',
+      description: 'Analysis 頁第一屏先給你方向、風險、信心度，再決定要不要往下看細節。',
     },
     {
-      title: '先修穩定與流暢',
-      description: 'Beta 期間優先把前端體驗、資料流和管理後台整理好。',
+      title: '先把體驗磨到順手',
+      description: 'Beta 期間優先把速度、流暢度、後台總覽和內容結構一次整理好。',
     },
   ]
 
   const useFlowItems = [
     {
       step: '01',
-      title: '先看掃描器',
-      description: '快速知道今天市場有哪些標的值得先追蹤，不用先自己看一圈新聞。',
+      title: '先看今日機會',
+      description: '先把最值得研究與最強偏多名單排在前面，不用自己先篩一大堆股票。',
     },
     {
       step: '02',
-      title: '再做單檔分析',
-      description: '把技術面、基本面、事件、風險與目標價濃縮成白話版摘要。',
+      title: '再做單檔決策',
+      description: 'Analysis 先給快速結論、風險、目標價與關鍵原因，再決定要不要深入研究。',
     },
     {
       step: '03',
-      title: '留下回饋',
-      description: '哪裡醜、哪裡卡、哪裡最有價值，直接丟回饋，我會優先修。',
+      title: '回報哪裡還不夠好',
+      description: '把畫面、速度、內容理解度的問題直接丟回饋，我會優先修到順。',
     },
   ]
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-5 py-6 space-y-6">
-      <section className="hero-shell">
-        <div className="hero-shell__content">
+      <section className="fintech-hero">
+        <div className="fintech-hero__media">
+          <video className="fintech-hero__video" autoPlay muted loop playsInline poster={HERO_DESKTOP}>
+            <source src={HERO_VIDEO} type="video/mp4" />
+          </video>
+          <picture>
+            <source media="(max-width: 767px)" srcSet={HERO_MOBILE} />
+            <img className="fintech-hero__poster" src={HERO_DESKTOP} alt="DiscoverLatest fintech hero" />
+          </picture>
+          <div className="fintech-hero__overlay" />
+        </div>
+
+        <div className="fintech-hero__content">
           <div className="hero-badge-row">
             <span className="hero-badge hero-badge--accent">
               <Sparkles size={12} />
               {product?.beta_label || '免費 Beta 測試中'}
             </span>
             <span className="hero-badge">
-              <GraduationCap size={12} />
-              {product?.target_audience || '二技護理系學生'}
+              <BookOpen size={12} />
+              {product?.target_audience || '全年齡投資使用者'}
             </span>
           </div>
 
           <div className="space-y-4">
-            <h1 className="hero-title">
-              把 2 小時研究，壓縮成 <span className="text-gradient">3 分鐘看懂</span>
+            <h1 className="fintech-hero__title">
+              幫你更快找到 <span className="text-gradient">值得研究的投資機會</span>
             </h1>
-            <p className="hero-subtitle">
-              給忙課業、忙實習、也忙值班的護理學生。AI 先幫你整理結論、理由、風險和目標價，
-              你再決定值不值得深入研究。
+            <p className="fintech-hero__subtitle">
+              首頁先看市場節奏、機會清單與最新分析，進入個股頁後先看到結論、風險與目標價，再決定要不要深入看細節。
             </p>
           </div>
 
-          <div className="hero-points">
+          <div className="hero-points fintech-hero__points">
             {heroHighlights.map((item) => (
               <div key={item} className="hero-point">
-                <div className="hero-point__icon"><HeartPulse size={14} /></div>
+                <div className="hero-point__icon"><TrendingUp size={14} /></div>
                 <span>{item}</span>
               </div>
             ))}
           </div>
 
           <div className="hero-actions">
-            <button className="btn-primary" onClick={loggedIn ? () => navigate('/analysis') : openLogin}>
+            <button className="btn-primary" onClick={loggedIn ? () => navigate('/scanner') : openLogin}>
               <LockOpen size={14} />
-              {loggedIn ? '直接開始分析' : '免費體驗完整功能'}
+              {loggedIn ? '直接看今日機會' : '免費登入開始使用'}
             </button>
-            <button className="btn-secondary" onClick={() => navigate('/scanner')}>
-              <TrendingUp size={14} />
-              先看今日機會清單
+            <button className="btn-secondary" onClick={() => navigate('/analysis')}>
+              <Target size={14} />
+              看分析頁怎麼給結論
             </button>
           </div>
 
-          <div className="hero-note-card">
-            <div className="flex items-start gap-3">
-              <div className="hero-note-card__icon"><BookOpen size={16} /></div>
-              <div>
-                <div className="font-semibold text-sm" style={{ color: 'var(--t1)' }}>
-                  現在先做免費 Beta
-                </div>
-                <p className="text-sm mt-1" style={{ color: 'var(--t3)' }}>
-                  {product?.beta_message || '目前先把免費版做穩、做順、做得願意每天打開；完整分析功能先開放體驗，等真的有穩定使用者後再評估收費。'}
-                </p>
-              </div>
+          <div className="fintech-hero__trustbar">
+            <div><span>累計報告</span><strong>{stats?.total_reports ?? 300}</strong></div>
+            <div><span>追蹤股票</span><strong>{stats?.total_symbols ?? 80}</strong></div>
+            <div><span>已驗證預測</span><strong>{accuracy?.total_predictions ?? 12}</strong></div>
+            <div><span>Beta 回饋</span><strong>{betaOverview?.feedback?.total_feedback ?? 0}</strong></div>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-showcase-grid">
+        <div className="dashboard-showcase-card dashboard-showcase-card--main">
+          <div className="dashboard-showcase-card__header">
+            <div>
+              <div className="dashboard-showcase-card__eyebrow">首頁先看什麼</div>
+              <h2>像投資平台，不像工程頁</h2>
             </div>
+            <button className="btn-secondary" onClick={() => navigate('/scanner')}>看掃描器</button>
+          </div>
+          <img src={MOCKUP_DASHBOARD} alt="Dashboard mockup" className="dashboard-showcase-card__image" />
+          <div className="dashboard-showcase-card__footer">
+            <span>市場快照</span>
+            <span>今日最值得研究</span>
+            <span>每日摘要預覽</span>
+            <span>Beta 回饋入口</span>
           </div>
         </div>
 
-        <div className="hero-shell__side space-y-4">
-          <div className="glass-card p-5 space-y-4">
-            <SectionHeader title="產品預覽" />
-            <div className="preview-mock-card">
-              <div className="preview-mock-card__top">
-                <div>
-                  <div className="preview-mock-card__eyebrow">AI 報告範例</div>
-                  <div className="preview-mock-card__symbol">2330 · 台積電</div>
-                </div>
-                <RatingBadge rating="bullish" />
-              </div>
-              <div className="preview-mock-card__summary">
-                AI 先幫你整理：需求題材還在、風險點在哪、適不適合現在追、目標價大概落在哪一段。
-              </div>
-              <div className="preview-mock-card__meta">
-                <span>信心度 83</span>
-                <span>目標價 960–1010</span>
-                <span>白話重點 3 段</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard title="累計報告" value={stats?.total_reports ?? 300} icon={LayoutDashboard} color="var(--accent-2)" subtitle="可拿來做社群素材" />
-              <StatCard title="追蹤股票" value={stats?.total_symbols ?? 80} icon={Target} color="var(--sky)" subtitle="先求常用，不求全包" />
-              <StatCard title="已驗證預測" value={accuracy?.total_predictions ?? 12} icon={Brain} color="var(--gold)" subtitle="Beta 逐步累積信任" />
-              <StatCard title="整體準確率" value={`${accuracy?.overall_accuracy_pct ?? 68}%`} icon={TrendingUp} color="var(--bull)" subtitle="正式版再做更完整追蹤" />
-            </div>
-          </div>
-
+        <div className="dashboard-side-stack">
           <div className="glass-card p-5 space-y-4">
             <SectionHeader title="市場快照" action={<button className="link-button" onClick={() => load()}><RefreshCw size={12} />更新</button>} />
             <div className="flex items-center gap-4 flex-wrap">
@@ -405,24 +403,61 @@ export default function Dashboard() {
             </div>
             {error && <div className="soft-status-note">{error}</div>}
           </div>
+
+          <div className="glass-card p-5 space-y-4">
+            <SectionHeader title="用這個節奏看盤" />
+            <div className="beta-flow-grid">
+              {useFlowItems.map((item) => (
+                <div key={item.step} className="beta-flow-card">
+                  <div className="beta-flow-card__step">{item.step}</div>
+                  <h3>{item.title}</h3>
+                  <p>{item.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="dashboard-mockup-strip">
+        <div className="dashboard-mockup-mini">
+          <img src={MOCKUP_ANALYSIS} alt="Analysis mockup" />
+          <div>
+            <span>Analysis</span>
+            <strong>先結論後理由，弱化 agent teams 感</strong>
+          </div>
+        </div>
+        <div className="dashboard-mockup-mini">
+          <img src={MOCKUP_SCANNER} alt="Scanner mockup" />
+          <div>
+            <span>Scanner</span>
+            <strong>上方推薦、下方篩選，一鍵進分析</strong>
+          </div>
+        </div>
+        <div className="dashboard-mockup-mini">
+          <img src={MOCKUP_DASHBOARD} alt="Dashboard mockup secondary" />
+          <div>
+            <span>Overview</span>
+            <strong>深色高級金融科技風，資訊入口更集中</strong>
+          </div>
         </div>
       </section>
 
       <section className="grid lg:grid-cols-3 gap-4">
-        <div className="glass-card p-5 feature-card">
+        <div className="glass-card p-5 feature-card feature-card--fintech">
           <div className="feature-card__icon"><Clock3 size={18} /></div>
-          <h3>先省時間</h3>
-          <p>上完課或值班後，打開就先看到值得看的標的，不用先查一輪新聞與技術線圖。</p>
+          <h3>先看今天有沒有機會</h3>
+          <p>不先丟一大堆新聞給你，而是先整理出今日最值得研究與最強偏多名單。</p>
         </div>
-        <div className="glass-card p-5 feature-card">
+        <div className="glass-card p-5 feature-card feature-card--fintech">
           <div className="feature-card__icon"><Brain size={18} /></div>
-          <h3>先講人話</h3>
-          <p>我把 AI 分析結果拆成結論、理由、風險、目標價，讓不懂代碼的人也能直接看懂。</p>
+          <h3>先給快速結論</h3>
+          <p>分析頁第一屏先告訴你現在該偏多、觀望還是等，理由與細節放在後面補充。</p>
         </div>
-        <div className="glass-card p-5 feature-card">
-          <div className="feature-card__icon"><GraduationCap size={18} /></div>
-          <h3>先把免費版做強</h3>
-          <p>先把免費 Beta 做到穩定、順手、願意天天打開，再根據真實使用情況決定後面的方向。</p>
+        <div className="glass-card p-5 feature-card feature-card--fintech">
+          <div className="feature-card__icon"><LayoutDashboard size={18} /></div>
+          <h3>先把體驗磨到像產品</h3>
+          <p>Beta 期間優先把外觀、速度、管理後台和回饋流程一次補到位，不再像半成品。</p>
         </div>
       </section>
 
@@ -432,7 +467,7 @@ export default function Dashboard() {
         <section className="grid xl:grid-cols-2 gap-4">
           <ReportList
             title="今天先看這幾檔"
-            subtitle="偏向拿來當首頁展示與導流，先讓學生快速知道現在市場最值得關注的標的。"
+            subtitle="偏向拿來當首頁展示與導流，先讓使用者快速知道現在市場最值得關注的標的。"
             items={displayedBullish}
             actionLabel="去掃描器"
             onAction={() => navigate('/scanner')}
@@ -453,7 +488,7 @@ export default function Dashboard() {
         <div className="glass-card p-5 space-y-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>學生版的使用節奏</h2>
+              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>產品使用節奏</h2>
               <p className="text-sm mt-1" style={{ color: 'var(--t3)' }}>
                 先用最少時間找到值得看的標的，再決定要不要深入研究，最後把真實感受回報給我。
               </p>

@@ -98,8 +98,13 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
   const budgetTone = budgetPct >= 80 ? 'var(--bear)' : budgetPct >= 60 ? 'var(--warn)' : 'var(--bull)'
   const tierData = status.overview?.tier_breakdown || {}
   const upgradeData = status.overview?.upgrade_breakdown || {}
-  const studentPricing = status.product?.student_pricing || {}
+  const pricingConfig = status.product?.student_pricing || {}
   const betaFeedback = status.beta_feedback || { total_feedback: 0, category_breakdown: {}, average_rating: null, recommend_pct: null, recent_feedback: [] }
+  const growthCurve = status.growth_curve || { users: [], reports: [], feedback: [] }
+  const chartSeries = growthCurve.reports.length ? growthCurve.reports : [
+    { date: 'D-6', count: 1 }, { date: 'D-5', count: 2 }, { date: 'D-4', count: 3 }, { date: 'D-3', count: 4 }, { date: 'D-2', count: 5 }, { date: 'D-1', count: 6 }, { date: 'D0', count: 7 },
+  ]
+  const chartMax = Math.max(...chartSeries.map((item) => item.count), 1)
 
   return (
     <div className="space-y-5">
@@ -115,9 +120,9 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
               DB {status.database === 'connected' ? '正常' : '異常'}
             </span>
           </div>
-          <h2 className="text-xl font-bold mt-3" style={{ color: 'var(--t1)' }}>這裡就是老闆要看的總控台</h2>
+          <h2 className="text-xl font-bold mt-3" style={{ color: 'var(--t1)' }}>第一屏先看成長、API、分析量與 Beta 回饋</h2>
           <p className="text-sm mt-2" style={{ color: 'var(--t3)' }}>
-            一眼看清楚用戶、報告、升級申請、AI 預算與學生定價，不用再拆三四個頁面找資料。
+            後台先把成長曲線、API 消耗量、分析次數與 Beta 回饋放在最前面，其他資料再往下看，避免一進來就迷路。
           </p>
         </div>
         <button className="btn-secondary" onClick={onRefresh}>
@@ -127,10 +132,37 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
       </div>
 
       <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard title="總用戶數" value={status.overview.users_total} icon={Users} color="var(--accent-2)" subtitle="公測累積名單" />
-        <StatCard title="總報告數" value={status.overview.reports_total} icon={BarChart3} color="var(--sky)" subtitle="可拿來做首頁與社群素材" />
+        <StatCard title="成長曲線" value={status.overview.users_total} icon={Users} color="var(--accent-2)" subtitle="目前累積使用者" />
+        <StatCard title="API 消耗量" value={`${budgetPct.toFixed(0)}%`} icon={Activity} color={budgetTone} subtitle={`${status.budget.used_today}/${status.budget.daily_limit}`} />
+        <StatCard title="分析次數" value={status.overview.reports_total} icon={BarChart3} color="var(--sky)" subtitle="目前累積報告量" />
         <StatCard title="Beta 回饋" value={betaFeedback.total_feedback} icon={Sparkles} color="var(--gold)" subtitle="直接反映現在卡在哪" />
-        <StatCard title="AI 預算" value={`${budgetPct.toFixed(0)}%`} icon={Activity} color={budgetTone} subtitle={`${status.budget.used_today}/${status.budget.daily_limit}`} />
+      </div>
+
+      <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-4">
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="近 7 日分析成長曲線" />
+          <div className="admin-mini-chart">
+            {chartSeries.map((item) => (
+              <div key={item.date} className="admin-mini-chart__bar">
+                <div className="admin-mini-chart__track">
+                  <div className="admin-mini-chart__fill" style={{ height: `${Math.max(14, (item.count / chartMax) * 100)}%` }} />
+                </div>
+                <strong>{item.count}</strong>
+                <span>{item.date.slice(5)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass-card p-5 space-y-4">
+          <SectionHeader title="第一屏重點摘要" />
+          <div className="admin-metric-grid admin-metric-grid--compact">
+            <div className="admin-metric"><span>新增回饋</span><strong>{growthCurve.feedback[growthCurve.feedback.length - 1]?.count ?? 0}</strong></div>
+            <div className="admin-metric"><span>新增報告</span><strong>{growthCurve.reports[growthCurve.reports.length - 1]?.count ?? 0}</strong></div>
+            <div className="admin-metric"><span>新增用戶</span><strong>{growthCurve.users[growthCurve.users.length - 1]?.count ?? 0}</strong></div>
+            <div className="admin-metric"><span>評分均值</span><strong>{betaFeedback.average_rating != null ? betaFeedback.average_rating.toFixed(1) : '—'}</strong></div>
+          </div>
+        </div>
       </div>
 
       <div className="grid xl:grid-cols-[1.2fr_0.8fr] gap-4">
@@ -147,19 +179,24 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
         </div>
 
         <div className="glass-card p-5 space-y-4">
-          <SectionHeader title="學生方案定價" />
+          <SectionHeader title="目前開放策略" />
           <div className="space-y-3">
-            {['free', 'pro', 'premium'].map((key) => (
-              <div key={key} className="pricing-summary-row">
-                <div>
-                  <div className="font-semibold" style={{ color: 'var(--t1)' }}>{studentPricing[key]?.label || key}</div>
-                  <div className="text-xs" style={{ color: 'var(--t4)' }}>{key.toUpperCase()}</div>
-                </div>
-                <div className="font-mono font-bold" style={{ color: 'var(--gold)' }}>
-                  {studentPricing[key]?.monthly ? `NT$${studentPricing[key]?.monthly}/月` : '免費'}
-                </div>
+            <div className="pricing-summary-row">
+              <div>
+                <div className="font-semibold" style={{ color: 'var(--t1)' }}>免費 Beta 全開</div>
+                <div className="text-xs" style={{ color: 'var(--t4)' }}>現在先衝穩定度、留存、真實回饋</div>
               </div>
-            ))}
+              <div className="font-mono font-bold" style={{ color: 'var(--gold)' }}>FREE</div>
+            </div>
+            <div className="pricing-summary-row">
+              <div>
+                <div className="font-semibold" style={{ color: 'var(--t1)' }}>未來方案只保留備註</div>
+                <div className="text-xs" style={{ color: 'var(--t4)' }}>收費功能暫緩，等免費版穩定後再評估</div>
+              </div>
+              <div className="font-mono font-bold" style={{ color: 'var(--t2)' }}>
+                {pricingConfig?.free?.monthly ? `參考 NT$${pricingConfig.free.monthly}` : '暫不收費'}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -250,7 +287,7 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
                   <span>{item.user_name || item.user_email || '匿名 / 未登入'}</span>
                 </div>
               </div>
-            )) : <EmptyState icon={Sparkles} title="還沒有 Beta 回饋" subtitle="等學生開始用之後，這裡會出現真實意見。" />}
+            )) : <EmptyState icon={Sparkles} title="還沒有 Beta 回饋" subtitle="等使用者開始用之後，這裡會出現真實意見。" />}
           </div>
         </div>
       </div>

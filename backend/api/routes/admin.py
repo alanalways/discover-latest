@@ -13,6 +13,7 @@ backend/api/routes/admin.py
 
 import logging
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,6 +51,34 @@ def _safe_table_count(client, table: str, filters: Optional[dict] = None) -> int
         return result.count or 0
     except Exception:
         return 0
+
+
+def _safe_daily_counts(client, table: str, days: int = 7, created_field: str = "created_at") -> list[dict]:
+    start = datetime.now(timezone.utc).date() - timedelta(days=days - 1)
+    buckets = {(start + timedelta(days=offset)).isoformat(): 0 for offset in range(days)}
+    if not client:
+        return [{"date": key, "count": value} for key, value in buckets.items()]
+
+    try:
+        result = (
+            client.table(table)
+            .select(created_field)
+            .gte(created_field, f"{start.isoformat()}T00:00:00+00:00")
+            .order(created_field)
+            .limit(1000)
+            .execute()
+        )
+        for row in result.data or []:
+            raw = row.get(created_field) if isinstance(row, dict) else None
+            if not raw:
+                continue
+            date_key = str(raw)[:10]
+            if date_key in buckets:
+                buckets[date_key] += 1
+    except Exception:
+        pass
+
+    return [{"date": key, "count": value} for key, value in buckets.items()]
 
 
 # ─── Routes ──────────────────────────────────────────────
@@ -225,6 +254,11 @@ async def system_status(admin: UserInfo = Depends(require_admin)):
 
     avg_watchlist_size = round(watchlist_symbols_total / watchlist_users_total, 1) if watchlist_users_total else 0.0
     beta_feedback = get_beta_feedback_summary()
+    growth_curve = {
+        "users": _safe_daily_counts(client, "users", days=7),
+        "reports": _safe_daily_counts(client, "reports", days=7),
+        "feedback": _safe_daily_counts(client, "beta_feedback", days=7),
+    }
 
     return {
         "database": "connected" if db_ok else "unavailable",
@@ -258,6 +292,7 @@ async def system_status(admin: UserInfo = Depends(require_admin)):
             "student_pricing": STUDENT_PRICING,
         },
         "beta_feedback": beta_feedback,
+        "growth_curve": growth_curve,
     }
 
 

@@ -147,7 +147,7 @@ export function BetaFeedbackCard({
           </label>
 
           <label className="beta-input-block">
-            <span>你會推薦同學試用嗎？</span>
+            <span>你會推薦朋友試用嗎？</span>
             <div className="beta-toggle-row">
               <button type="button" className={`beta-toggle-chip ${recommend ? 'is-active' : ''}`} onClick={() => setRecommend(true)}>
                 <ThumbsUp size={13} /> 會

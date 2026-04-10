@@ -3,17 +3,102 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DiscoverLatest Beta｜給護理學生的 AI 投資研究助手</title>
-    <meta name="description" content="DiscoverLatest 免費 Beta：把雜亂市場資訊整理成學生看得懂的白話重點，先看機會、再做分析、最後回饋一起把產品磨好。" />
-    <meta name="theme-color" content="#0b1220" />
+    <title>DiscoverLatest Beta｜更快找到值得研究的投資機會</title>
+    <meta name="description" content="DiscoverLatest 免費 Beta：把雜亂市場資訊整理成看得懂的快速結論、理由與風險，先看機會、再做分析、最後用回饋把產品磨好。" />
+    <meta name="theme-color" content="#07111f" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+TC:wght@400;500;700;800&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        var BUILD = '2026-04-11-fintech-redesign-v2';
+        var buildKey = 'dl-build-version';
+        var refreshKey = 'dl-build-refresh-once';
+        var last = localStorage.getItem(buildKey);
+        if (last && last !== BUILD && !sessionStorage.getItem(refreshKey)) {
+          sessionStorage.setItem(refreshKey, '1');
+          localStorage.setItem(buildKey, BUILD);
+          window.location.replace(window.location.pathname + window.location.search + window.location.hash);
+          return;
+        }
+        localStorage.setItem(buildKey, BUILD);
+        sessionStorage.removeItem(refreshKey);
+        window.__DL_BUILD__ = BUILD;
+      })();
+    </script>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #07111f; }
+      body { font-family: Inter, 'Noto Sans TC', system-ui, sans-serif; color: #e2e8f0; }
+      #boot-splash {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top right, rgba(37, 99, 235, 0.18), transparent 30%),
+          radial-gradient(circle at bottom left, rgba(56, 189, 248, 0.14), transparent 28%),
+          linear-gradient(135deg, #07111f 0%, #081425 40%, #0b1830 100%);
+      }
+      .boot-card {
+        width: min(92vw, 420px);
+        padding: 24px;
+        border-radius: 24px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(7, 17, 31, 0.72);
+        box-shadow: 0 18px 60px rgba(2, 6, 23, 0.42);
+        backdrop-filter: blur(18px);
+      }
+      .boot-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.16);
+        color: #8cc8ff;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .boot-title { margin: 18px 0 8px; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; }
+      .boot-copy { margin: 0; color: #94a3b8; line-height: 1.65; font-size: 14px; }
+      .boot-line {
+        height: 3px;
+        margin-top: 22px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.12);
+      }
+      .boot-line::after {
+        content: '';
+        display: block;
+        width: 42%;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #2563eb 0%, #38bdf8 100%);
+        animation: boot-slide 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-slide {
+        0% { transform: translateX(-110%); }
+        100% { transform: translateX(250%); }
+      }
+    </style>
   </head>
   <body class="bg-bg-base text-text-primary">
+    <div id="boot-splash">
+      <div class="boot-card">
+        <span class="boot-badge">DiscoverLatest Beta</span>
+        <h1 class="boot-title">正在載入最新版本</h1>
+        <p class="boot-copy">如果你剛剛部署過新版，這裡會先幫你切到最新前端資源，避免看到舊版或空白畫面。</p>
+        <div class="boot-line"></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

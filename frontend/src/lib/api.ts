@@ -318,6 +318,11 @@ export interface AdminSystemStatus {
   }
   gemini_rate_limits: Record<string, Record<string, string | number | boolean | null>>
   gemini_key_usage: Record<string, unknown>
+  growth_curve?: {
+    users: { date: string; count: number }[]
+    reports: { date: string; count: number }[]
+    feedback: { date: string; count: number }[]
+  }
   overview: {
     users_total: number
     reports_total: number
