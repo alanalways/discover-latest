@@ -87,7 +87,7 @@ export function BetaFeedbackCard({
           <p className="text-sm mt-1" style={{ color: 'var(--t3)' }}>{subtitle}</p>
         </div>
         <div className="beta-feedback-stats">
-          <div><span>累計</span><strong>{feedbackStats.total}</strong></div>
+          <div><span>累計</span><strong>{feedbackStats.total > 0 ? feedbackStats.total : '等首批回饋'}</strong></div>
           <div><span>平均評分</span><strong>{feedbackStats.avg}</strong></div>
           <div><span>願意推薦</span><strong>{feedbackStats.recommend}</strong></div>
         </div>

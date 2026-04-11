@@ -12,7 +12,7 @@ import {
 
 // ── Overall Accuracy Gauge ────────────────────────────────────────────────────
 
-function BigGauge({ pct }: { pct: number }) {
+function BigGauge({ pct, hasData }: { pct: number; hasData: boolean }) {
   const color =
     pct >= 65 ? 'var(--bull)'
     : pct >= 50 ? 'var(--warn)'
@@ -30,15 +30,24 @@ function BigGauge({ pct }: { pct: number }) {
           <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(148,163,184,0.08)" strokeWidth={8} />
           <circle
             cx={size/2} cy={size/2} r={r}
-            fill="none" stroke={color} strokeWidth={8}
-            strokeDasharray={circ} strokeDashoffset={offset}
+            fill="none" stroke={hasData ? color : 'var(--accent-2)'} strokeWidth={8}
+            strokeDasharray={circ} strokeDashoffset={hasData ? offset : circ * 0.35}
             strokeLinecap="round"
             style={{ transition: 'stroke-dashoffset 1s var(--ease), stroke 0.4s' }}
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="font-mono font-bold text-3xl" style={{ color }}>{pct.toFixed(1)}%</span>
-          <span className="text-xs" style={{ color: 'var(--t4)' }}>整體準確率</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          {hasData ? (
+            <>
+              <span className="font-mono font-bold text-3xl" style={{ color }}>{pct.toFixed(1)}%</span>
+              <span className="text-xs" style={{ color: 'var(--t4)' }}>整體準確率</span>
+            </>
+          ) : (
+            <>
+              <span className="font-mono font-bold text-xl" style={{ color: 'var(--accent-2)' }}>待驗證</span>
+              <span className="text-xs" style={{ color: 'var(--t4)' }}>首批結果累積中</span>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -107,13 +116,18 @@ export default function Accuracy() {
       .finally(() => setLoading(false))
   }, [])
 
-  const trendData = trend?.weeks.map((w, i) => ({
+  const trendWeeks = trend?.weeks ?? []
+  const trendPcts = trend?.accuracy_pcts ?? []
+  const trendData = trendWeeks.map((w, i) => ({
     week: w,
-    accuracy: trend.accuracy_pcts[i],
-  })) ?? []
+    accuracy: trendPcts[i] ?? 0,
+  }))
 
-  const symbolData = stats?.by_symbol
-    ?.filter(s => s.total_predictions >= 3)
+  const statsBySymbol = stats?.by_symbol ?? []
+  const hasVerifiedData = (stats?.total_predictions ?? 0) > 0
+
+  const symbolData = statsBySymbol
+    .filter(s => s.total_predictions >= 3)
     .sort((a, b) => b.accuracy_pct - a.accuracy_pct)
     .slice(0, 10)
     .map(s => ({ name: s.symbol, accuracy: s.accuracy_pct })) ?? []
@@ -151,23 +165,23 @@ export default function Accuracy() {
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
             {/* Gauge */}
             <div className="lg:col-span-1 glass-card p-6 flex items-center justify-center">
-              <BigGauge pct={overallPct} />
+              <BigGauge pct={overallPct} hasData={(stats?.total_predictions ?? 0) > 0} />
             </div>
 
             {/* Stat cards */}
             <div className="lg:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-3 stagger-children">
               <StatCard
                 title="整體準確率"
-                value={`${overallPct.toFixed(1)}%`}
-                subtitle="所有已驗證預測"
+                value={hasVerifiedData ? `${overallPct.toFixed(1)}%` : '待驗證'}
+                subtitle={hasVerifiedData ? '所有已驗證預測' : '首批驗證結果累積中'}
                 icon={Target}
-                color={overallPct >= 65 ? 'var(--bull)' : overallPct >= 50 ? 'var(--warn)' : 'var(--bear)'}
+                color={hasVerifiedData ? (overallPct >= 65 ? 'var(--bull)' : overallPct >= 50 ? 'var(--warn)' : 'var(--accent-2)') : 'var(--accent-2)'}
                 glow
               />
               <StatCard
                 title="總預測數"
                 value={stats?.total_predictions ?? 0}
-                subtitle="自動追蹤中"
+                subtitle={hasVerifiedData ? '自動追蹤中' : '等待市場驗證'}
                 icon={Clock}
                 color="var(--accent-2)"
               />
@@ -228,8 +242,8 @@ export default function Accuracy() {
                 ) : (
                   <EmptyState
                     icon={TrendingUp}
-                    title="尚無趨勢資料"
-                    subtitle="需要至少 2 週預測數據"
+                    title="首批趨勢資料累積中"
+                    subtitle="目前已有預測進入等待驗證階段。第一批結果出來後，這裡會從空白狀態變成可追蹤的趨勢圖。"
                   />
                 )}
               </div>
@@ -295,8 +309,8 @@ export default function Accuracy() {
                 </span>
               }
             />
-            {(stats?.by_symbol?.length ?? 0) === 0 ? (
-              <EmptyState icon={Target} title="尚無數據" subtitle="等待 AI 預測進入驗證期" />
+            {statsBySymbol.length === 0 ? (
+              <EmptyState icon={Target} title="尚無驗證中的個股排行" subtitle="目前預測正在等待市場走完驗證期，首批結果出來後會直接顯示在這裡。" />
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table">

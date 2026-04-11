@@ -811,6 +811,183 @@ body {
   box-shadow: var(--shadow-3);
 }
 
+.fintech-hero {
+  position: relative;
+  min-height: clamp(540px, 72vh, 760px);
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid var(--bdr-2);
+  box-shadow: 0 30px 80px rgba(2, 6, 23, 0.42);
+  background: #020617;
+}
+
+.fintech-hero__media,
+.fintech-hero__overlay,
+.fintech-hero__video,
+.fintech-hero__poster {
+  position: absolute;
+  inset: 0;
+}
+
+.fintech-hero__video,
+.fintech-hero__poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fintech-hero__overlay {
+  background:
+    linear-gradient(90deg, rgba(2,6,23,0.88) 0%, rgba(2,6,23,0.72) 42%, rgba(2,6,23,0.42) 75%, rgba(2,6,23,0.78) 100%),
+    linear-gradient(180deg, rgba(2,6,23,0.22) 0%, rgba(2,6,23,0.74) 100%);
+}
+
+.fintech-hero__content {
+  position: relative;
+  z-index: 1;
+  min-height: inherit;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 18px;
+  max-width: 760px;
+  padding: 36px;
+}
+
+.fintech-hero__title {
+  margin: 0;
+  font-size: clamp(2.2rem, 5vw, 4.4rem);
+  line-height: 0.98;
+  letter-spacing: -0.05em;
+  color: var(--t1);
+}
+
+.fintech-hero__subtitle {
+  margin: 0;
+  max-width: 58ch;
+  font-size: 1rem;
+  line-height: 1.8;
+  color: rgba(226,232,240,0.86);
+}
+
+.fintech-hero__points {
+  max-width: 920px;
+}
+
+.fintech-hero__trustbar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fintech-hero__trustbar > div {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(2,6,23,0.45);
+  border: 1px solid rgba(148,163,184,0.14);
+  backdrop-filter: blur(16px);
+}
+
+.fintech-hero__trustbar span {
+  display: block;
+  color: var(--t4);
+  font-size: 0.74rem;
+}
+
+.fintech-hero__trustbar strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--t1);
+  font-size: 1.1rem;
+}
+
+.dashboard-showcase-grid,
+.analysis-hero-panel,
+.scanner-hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.dashboard-showcase-card,
+.analysis-hero-panel__copy,
+.analysis-hero-panel__media,
+.scanner-hero-panel__copy,
+.scanner-hero-panel__media {
+  border-radius: 24px;
+  border: 1px solid var(--bdr-1);
+  background: linear-gradient(180deg, rgba(7,16,32,0.98), rgba(8,16,31,0.88));
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.28);
+}
+
+.analysis-hero-panel__copy,
+.scanner-hero-panel__copy {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.analysis-hero-panel__media,
+.scanner-hero-panel__media,
+.dashboard-showcase-card {
+  padding: 22px;
+}
+
+.dashboard-showcase-card__image {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(148,163,184,0.12);
+  object-fit: cover;
+}
+
+.dashboard-showcase-card__header,
+.dashboard-showcase-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dashboard-showcase-card__footer span {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(15,31,53,0.52);
+  border: 1px solid var(--bdr-1);
+  color: var(--t3);
+  font-size: 0.76rem;
+}
+
+.dashboard-side-stack,
+.dashboard-mockup-strip {
+  display: grid;
+  gap: 16px;
+}
+
+.dashboard-mockup-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dashboard-mockup-mini {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--bdr-1);
+  background: rgba(7,16,32,0.92);
+}
+
+.dashboard-mockup-mini img {
+  width: 100%;
+  border-radius: 14px;
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+}
+
 .hero-title {
   margin: 0;
   font-size: clamp(2rem, 4vw, 3.25rem);
@@ -1242,18 +1419,33 @@ body {
 }
 
 @media (max-width: 1024px) {
-  .hero-shell {
+  .hero-shell,
+  .dashboard-showcase-grid,
+  .analysis-hero-panel,
+  .scanner-hero-panel,
+  .dashboard-mockup-strip {
     grid-template-columns: 1fr;
   }
 
+  .fintech-hero__trustbar,
   .admin-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 768px) {
-  .hero-shell__content {
+  .hero-shell__content,
+  .fintech-hero__content,
+  .analysis-hero-panel__copy,
+  .scanner-hero-panel__copy,
+  .analysis-hero-panel__media,
+  .scanner-hero-panel__media,
+  .dashboard-showcase-card {
     padding: 20px;
+  }
+
+  .fintech-hero {
+    min-height: 640px;
   }
 
   .admin-tabs,
@@ -1262,6 +1454,7 @@ body {
     align-items: stretch;
   }
 
+  .fintech-hero__trustbar,
   .admin-metric-grid,
   .admin-metric-grid--compact {
     grid-template-columns: 1fr;

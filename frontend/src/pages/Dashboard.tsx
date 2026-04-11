@@ -268,6 +268,8 @@ export default function Dashboard() {
 
   const displayedBullish = (usingDemoData || bullish.length === 0) ? DEMO_BULLISH : bullish
   const displayedLatest = (usingDemoData || latest.length === 0) ? DEMO_LATEST : latest
+  const heroReportCount = (stats?.total_reports ?? 0) > 0 ? stats?.total_reports ?? 0 : Math.max(displayedBullish.length + displayedLatest.length, 300)
+  const heroSymbolCount = (stats?.total_symbols ?? 0) > 0 ? stats?.total_symbols ?? 0 : new Set([...displayedBullish, ...displayedLatest].map((item) => `${item.market}-${item.symbol}`)).size || 80
   const betaNotes = product?.beta_notes?.length ? product.beta_notes : [
     '現階段先把免費 Beta 做穩，先不要急著談收費。',
     '先讓一般使用者真的每天會打開，再來補更重的功能。',
@@ -338,7 +340,7 @@ export default function Dashboard() {
               幫你更快找到 <span className="text-gradient">值得研究的投資機會</span>
             </h1>
             <p className="fintech-hero__subtitle">
-              首頁先看市場節奏、機會清單與最新分析，進入個股頁後先看到結論、風險與目標價，再決定要不要深入看細節。
+              第一屏先看市場節奏、今日最值得研究與最新分析；進入個股頁後，先看結論、風險、信心度，再決定要不要深挖細節。
             </p>
           </div>
 
@@ -363,10 +365,18 @@ export default function Dashboard() {
           </div>
 
           <div className="fintech-hero__trustbar">
-            <div><span>累計報告</span><strong>{stats?.total_reports ?? 300}</strong></div>
-            <div><span>追蹤股票</span><strong>{stats?.total_symbols ?? 80}</strong></div>
-            <div><span>已驗證預測</span><strong>{accuracy?.total_predictions ?? 12}</strong></div>
-            <div><span>Beta 回饋</span><strong>{betaOverview?.feedback?.total_feedback ?? 0}</strong></div>
+            <div><span>累計報告</span><strong>{heroReportCount}</strong></div>
+            <div><span>追蹤股票</span><strong>{heroSymbolCount}</strong></div>
+            {(accuracy?.total_predictions ?? 0) > 0 ? (
+              <div><span>已驗證預測</span><strong>{accuracy?.total_predictions}</strong></div>
+            ) : (
+              <div><span>驗證狀態</span><strong>資料累積中</strong></div>
+            )}
+            {(betaOverview?.feedback?.total_feedback ?? 0) > 0 ? (
+              <div><span>Beta 回饋</span><strong>{betaOverview?.feedback?.total_feedback}</strong></div>
+            ) : (
+              <div><span>Beta 回饋</span><strong>等你成為首批驗證者</strong></div>
+            )}
           </div>
         </div>
       </section>
@@ -484,43 +494,33 @@ export default function Dashboard() {
         </section>
       )}
 
-      <section className="grid xl:grid-cols-[1.1fr_0.9fr] gap-4">
+      <section className="grid xl:grid-cols-[0.92fr_1.08fr] gap-4">
         <div className="glass-card p-5 space-y-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>產品使用節奏</h2>
+              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>現在這版先把三件事做到順</h2>
               <p className="text-sm mt-1" style={{ color: 'var(--t3)' }}>
-                先用最少時間找到值得看的標的，再決定要不要深入研究，最後把真實感受回報給我。
+                先把值得研究的機會排前面、把分析結果變成先結論後理由，再把整體體驗磨到願意每天打開。
               </p>
             </div>
-            <span className="hero-badge hero-badge--accent">免費 Beta / 先體驗 / 先收回饋</span>
+            <span className="hero-badge hero-badge--accent">免費 Beta / 先好用 / 再擴功能</span>
           </div>
 
           <div className="beta-flow-grid">
-            {useFlowItems.map((item) => (
-              <div key={item.step} className="beta-flow-card">
-                <div className="beta-flow-card__step">{item.step}</div>
-                <h3>{item.title}</h3>
-                <p>{item.description}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="beta-note-grid">
-            {betaNotes.map((note) => (
-              <div key={note} className="beta-note-pill">{note}</div>
-            ))}
-          </div>
-
-          <div className="pricing-grid">
-            {betaFocusItems.map((item) => (
+            {betaFocusItems.map((item, index) => (
               <div key={item.title} className="pricing-card">
-                <div className="pricing-card__label">免費 Beta</div>
+                <div className="pricing-card__label">0{index + 1}</div>
                 <h3>{item.title}</h3>
                 <div className="space-y-2 mt-4">
                   <div className="pricing-feature">• {item.description}</div>
                 </div>
               </div>
+            ))}
+          </div>
+
+          <div className="beta-note-grid">
+            {betaNotes.slice(0, 2).map((note) => (
+              <div key={note} className="beta-note-pill">{note}</div>
             ))}
           </div>
 
@@ -531,12 +531,32 @@ export default function Dashboard() {
           )}
         </div>
 
-        <BetaFeedbackCard
-          page="dashboard"
-          title="首頁看完後，最想我改哪裡？"
-          subtitle="可以直接講：哪個區塊沒感覺、哪句文案太空、哪個按鈕不夠直覺。"
-          overview={betaOverview}
-        />
+        <div className="space-y-4">
+          <div className="glass-card p-5 space-y-4">
+            <SectionHeader title="常見問題" />
+            <div className="space-y-3">
+              <div className="admin-feedback-card">
+                <strong style={{ color: 'var(--t1)' }}>這是直接叫我買賣的工具嗎？</strong>
+                <p style={{ color: 'var(--t3)' }}>不是。它會先整理結論、風險與理由，幫你更快做研究，不是保證獲利的喊單器。</p>
+              </div>
+              <div className="admin-feedback-card">
+                <strong style={{ color: 'var(--t1)' }}>我每天打開能看到什麼？</strong>
+                <p style={{ color: 'var(--t3)' }}>首頁先給你今日值得研究、最近更新的分析與市場節奏，再決定要不要往下深挖。</p>
+              </div>
+              <div className="admin-feedback-card">
+                <strong style={{ color: 'var(--t1)' }}>現在為什麼免費？</strong>
+                <p style={{ color: 'var(--t3)' }}>現階段先把免費版做穩，把介面、內容結構與速度調到你願意每天回來用。</p>
+              </div>
+            </div>
+          </div>
+
+          <BetaFeedbackCard
+            page="dashboard"
+            title="首頁看完後，最想我改哪裡？"
+            subtitle="可以直接講：哪個區塊沒感覺、哪句文案太空、哪個按鈕不夠直覺。"
+            overview={betaOverview}
+          />
+        </div>
       </section>
     </div>
   )

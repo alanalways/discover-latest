@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import {
   Search, Loader2, AlertCircle, FileText,
   Shield, Brain, TrendingUp, Activity, Target,
@@ -11,8 +11,6 @@ import { RatingBadge, DirectionIcon, ConfidenceGauge, Spinner } from '../compone
 import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 
 const ANALYSIS_TIMEOUT_MS = 180_000
-const ANALYSIS_HERO = '/flow-assets/mockup-analysis.jpg'
-
 function getToken(): string | null {
   return localStorage.getItem('dl_token')
 }
@@ -178,6 +176,7 @@ const QUICK = [
 
 export default function Analysis() {
   const [searchParams] = useSearchParams()
+  const { symbol: pathSymbol } = useParams()
   const [symbol, setSymbol]   = useState('')
   const [market, setMarket]   = useState('TW')
   const [loading, setLoading] = useState(false)
@@ -188,6 +187,9 @@ export default function Analysis() {
 
   const closeRef   = useRef<(() => void) | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const formRef = useRef<HTMLFormElement | null>(null)
+  const progressRef = useRef<HTMLDivElement | null>(null)
+  const resultRef = useRef<HTMLDivElement | null>(null)
 
   // ── 核心分析函式（可從表單或 URL params 呼叫）────────────
   const startAnalysis = useCallback((sym: string, mkt: string) => {
@@ -203,6 +205,9 @@ export default function Analysis() {
     setResult(null)
     setStreamText('')
     setActiveStep(0)
+    window.requestAnimationFrame(() => {
+      progressRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
 
     // 90 秒超時守衛
     timeoutRef.current = setTimeout(() => {
@@ -245,6 +250,9 @@ export default function Analysis() {
             report_id: data.report_id,
           })
           setLoading(false)
+          window.requestAnimationFrame(() => {
+            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          })
         },
         async () => {
           // SSE 斷線 → fallback POST
@@ -252,6 +260,9 @@ export default function Analysis() {
           try {
             const res = await triggerAnalysis(sym, mkt, token)
             setResult(res)
+            window.requestAnimationFrame(() => {
+              resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            })
           } catch (err) {
             setError(err instanceof Error ? err.message : String(err))
           } finally {
@@ -270,7 +281,12 @@ export default function Analysis() {
     } catch {
       clearGuard()
       triggerAnalysis(sym, mkt, token)
-        .then(res => setResult(res))
+        .then(res => {
+          setResult(res)
+          window.requestAnimationFrame(() => {
+            resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          })
+        })
         .catch(err => setError(err instanceof Error ? err.message : String(err)))
         .finally(() => setLoading(false))
     }
@@ -278,7 +294,7 @@ export default function Analysis() {
 
   // ── 從 URL params 自動填入並觸發 ─────────────────────────
   useEffect(() => {
-    const sym = searchParams.get('symbol')?.toUpperCase() ?? ''
+    const sym = (searchParams.get('symbol') || pathSymbol || '').toUpperCase()
     const mkt = searchParams.get('market')?.toUpperCase() ?? 'TW'
     if (sym) {
       setSymbol(sym)
@@ -309,8 +325,8 @@ export default function Analysis() {
       <section className="analysis-hero-panel">
         <div className="analysis-hero-panel__copy">
           <div className="hero-badge-row">
-            <span className="hero-badge hero-badge--accent">最核心的賣點頁</span>
-            <span className="hero-badge">先結論後理由，弱化 AI agent 感</span>
+            <span className="hero-badge hero-badge--accent">30 秒先看結論</span>
+            <span className="hero-badge">快速結論 → 理由 → 細節</span>
           </div>
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2.5">
@@ -318,114 +334,131 @@ export default function Analysis() {
               <span className="text-gradient">股票深度分析</span>
             </h1>
             <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
-              輸入代號後先看到方向、風險、信心度與目標價，再往下看關鍵原因與完整報告。不是慢慢等 AI 表演，而是更快做判斷。
+              輸入代號後，先拿到快速結論、建議動作、目標價、風險等級與三個關鍵原因；如果第一屏就不值得，就不用浪費時間往下看。
             </p>
           </div>
+
+          <form ref={formRef} onSubmit={handleSubmit} className="glass-card p-4" role="search">
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <Search
+                  size={14}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2"
+                  style={{ color: 'var(--t4)' }}
+                  aria-hidden
+                />
+                <input
+                  type="text"
+                  value={symbol}
+                  onChange={e => setSymbol(e.target.value)}
+                  placeholder="輸入股票代號，例如 2330 或 AAPL"
+                  className="input-field pl-9 font-mono"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  aria-label="股票代號"
+                />
+              </div>
+              <select
+                value={market}
+                onChange={e => setMarket(e.target.value)}
+                className="input-field sm:w-24"
+                aria-label="市場選擇"
+              >
+                <option value="TW">台股</option>
+                <option value="TWO">上櫃</option>
+                <option value="US">美股</option>
+              </select>
+              {loading ? (
+                <button
+                  type="button"
+                  onClick={handleCancel}
+                  className="sm:w-32 flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer"
+                  style={{ background: 'rgba(248,81,73,0.12)', color: 'var(--bear)', border: '1px solid rgba(248,81,73,0.25)' }}
+                >
+                  <X size={14} aria-hidden /> 取消分析
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!symbol.trim()}
+                  className="btn-primary sm:w-32 flex items-center justify-center gap-2"
+                >
+                  <Sparkles size={14} aria-hidden /> AI 分析
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <span className="text-[11px]" style={{ color: 'var(--t4)' }}>快速：</span>
+              {QUICK.map(({ sym, mkt }) => (
+                <button
+                  key={sym}
+                  type="button"
+                  onClick={() => { setSymbol(sym); setMarket(mkt) }}
+                  className="px-2.5 py-0.5 rounded font-mono text-xs cursor-pointer transition-all"
+                  style={{
+                    background: 'rgba(148,163,184,0.06)',
+                    color: 'var(--t3)',
+                    border: '1px solid var(--bdr-1)',
+                  }}
+                >
+                  {sym}
+                </button>
+              ))}
+            </div>
+          </form>
+
           <div className="grid md:grid-cols-2 gap-3">
-            <div className="admin-metric"><span>第一屏要先看到</span><strong>結論 / 風險 / 目標價</strong></div>
+            <div className="admin-metric"><span>第一屏會先看到</span><strong>結論 / 建議動作 / 風險</strong></div>
             <div className="admin-metric"><span>預計時間</span><strong>20–45 秒</strong></div>
-            <div className="admin-metric"><span>內容節奏</span><strong>快速結論 → 理由 → 細節</strong></div>
-            <div className="admin-metric"><span>語氣方向</span><strong>像研究工具，不像 agent 團隊</strong></div>
+            <div className="admin-metric"><span>最常用情境</span><strong>盤前快速判斷 / 複習持股</strong></div>
+            <div className="admin-metric"><span>語氣方向</span><strong>像研究工具，不像一堆 AI 在開會</strong></div>
           </div>
         </div>
         <div className="analysis-hero-panel__media">
-          <img src={ANALYSIS_HERO} alt="Analysis hero mockup" />
+          <div className="preview-mock-card">
+            <div className="preview-mock-card__top">
+              <div>
+                <div className="preview-mock-card__eyebrow">QUICK CONCLUSION</div>
+                <div className="preview-mock-card__symbol">2330.TW ・ 偏多但不追高</div>
+              </div>
+              <RatingBadge rating="bullish" />
+            </div>
+            <p className="preview-mock-card__summary">先看結論：趨勢還在，但現在比較適合等拉回再研究，不是看到紅就追。</p>
+            <div className="preview-mock-card__meta">
+              <span>建議動作：等拉回</span>
+              <span>目標價：960–1010</span>
+              <span>風險：美股科技震盪</span>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="analysis-quick-grid">
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Brain size={16} /></div>
-          <h3>你會先拿到什麼</h3>
-          <p>快速結論、建議動作、目標價、風險等級與三個關鍵原因，不先塞滿術語。</p>
+          <h3>先結論</h3>
+          <p>不是先丟幾百字給你，而是先說現在偏多、觀望還是等，幫你快速過濾不值得看的標的。</p>
         </div>
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Shield size={16} /></div>
-          <h3>怎麼看比較對</h3>
-          <p>先用第一屏決定要不要繼續研究；若結論普通，就不用把整份報告從頭看到尾。</p>
+          <h3>再講風險</h3>
+          <p>把最容易踩雷的點放在前面，像追高風險、財報前波動、外部市場影響，避免結論看起來太夢幻。</p>
         </div>
         <div className="analysis-quick-card">
           <div className="analysis-quick-card__icon"><Target size={16} /></div>
-          <h3>最適合的情境</h3>
-          <p>看到新標的、想複習持股，或盤前只剩幾分鐘時，先抓能不能研究、風險高不高。</p>
+          <h3>最後才看細節</h3>
+          <p>真的有興趣再往下看完整報告；如果第一屏就不適合，你可以立刻回上一頁繼續找下一檔。</p>
         </div>
       </section>
-
-      {/* Search Form */}
-      <form onSubmit={handleSubmit} className="glass-card p-4" role="search">
-        <div className="flex flex-col sm:flex-row gap-2.5">
-          <div className="relative flex-1">
-            <Search
-              size={14}
-              className="absolute left-3.5 top-1/2 -translate-y-1/2"
-              style={{ color: 'var(--t4)' }}
-              aria-hidden
-            />
-            <input
-              type="text"
-              value={symbol}
-              onChange={e => setSymbol(e.target.value)}
-              placeholder="輸入股票代號，例如 2330 或 AAPL"
-              className="input-field pl-9 font-mono"
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              aria-label="股票代號"
-            />
-          </div>
-          <select
-            value={market}
-            onChange={e => setMarket(e.target.value)}
-            className="input-field sm:w-24"
-            aria-label="市場選擇"
-          >
-            <option value="TW">台股</option>
-            <option value="TWO">上櫃</option>
-            <option value="US">美股</option>
-          </select>
-          {loading ? (
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="sm:w-32 flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-all cursor-pointer"
-              style={{ background: 'rgba(248,81,73,0.12)', color: 'var(--bear)', border: '1px solid rgba(248,81,73,0.25)' }}
-            >
-              <X size={14} aria-hidden /> 取消分析
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!symbol.trim()}
-              className="btn-primary sm:w-32 flex items-center justify-center gap-2"
-            >
-              <Sparkles size={14} aria-hidden /> AI 分析
-            </button>
-          )}
-        </div>
-
-        {/* Quick picks */}
-        <div className="flex items-center gap-2 mt-3 flex-wrap">
-          <span className="text-[11px]" style={{ color: 'var(--t4)' }}>快速：</span>
-          {QUICK.map(({ sym, mkt }) => (
-            <button
-              key={sym}
-              type="button"
-              onClick={() => { setSymbol(sym); setMarket(mkt) }}
-              className="px-2.5 py-0.5 rounded font-mono text-xs cursor-pointer transition-all"
-              style={{
-                background: 'rgba(148,163,184,0.06)',
-                color: 'var(--t3)',
-                border: '1px solid var(--bdr-1)',
-              }}
-            >
-              {sym}
-            </button>
-          ))}
-        </div>
-      </form>
-
       {/* Progress */}
-      {loading && <AnalysisProgress step={activeStep} text={streamText} />}
+      {loading && (
+        <div ref={progressRef} className="space-y-3">
+          <div className="soft-status-note">分析中，畫面會自動帶你往下看目前進度。</div>
+          <AnalysisProgress step={activeStep} text={streamText} />
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -452,7 +485,7 @@ export default function Analysis() {
 
       {/* Result */}
       {(result?.status === 'completed' || displayReport) && (
-        <div className="space-y-4 animate-slide-up">
+        <div ref={resultRef} className="space-y-4 animate-slide-up">
 
           {/* Rating Summary */}
           <div className="glass-card p-5">

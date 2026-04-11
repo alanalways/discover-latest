@@ -11,8 +11,6 @@ import { BetaFeedbackCard } from '../components/BetaFeedbackCard'
 type SortField = 'confidence' | 'date' | 'symbol'
 type SortDir   = 'asc' | 'desc'
 
-const SCANNER_HERO = '/flow-assets/mockup-scanner.jpg'
-
 const DEMO_SCANNER: ReportSummary[] = [
   {
     id: 'scanner-demo-2330',
@@ -50,7 +48,7 @@ export default function Scanner() {
   const navigate = useNavigate()
   const [items, setItems]     = useState<ReportSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [market, setMarket]   = useState('')
+  const [market, setMarket]   = useState('TW')
   const [search, setSearch]   = useState('')
   const [sortField, setSortField] = useState<SortField>('confidence')
   const [sortDir, setSortDir]     = useState<SortDir>('desc')
@@ -80,10 +78,11 @@ export default function Scanner() {
   const filtered = sourceItems
     .filter(item => !search || item.symbol.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
-      const mul = sortDir === 'asc' ? 1 : -1
-      if (sortField === 'confidence') return ((b.confidence_score ?? 0) - (a.confidence_score ?? 0)) * mul
-      if (sortField === 'date')       return a.created_at.localeCompare(b.created_at) * mul
-      return a.symbol.localeCompare(b.symbol) * mul
+      const confidenceDiff = (a.confidence_score ?? 0) - (b.confidence_score ?? 0)
+      const dateDiff = a.created_at.localeCompare(b.created_at)
+      const symbolDiff = a.symbol.localeCompare(b.symbol)
+      const base = sortField === 'confidence' ? confidenceDiff : sortField === 'date' ? dateDiff : symbolDiff
+      return sortDir === 'asc' ? base : -base
     })
 
   const highlighted = filtered.slice(0, 3)
@@ -130,12 +129,12 @@ export default function Scanner() {
             <span className="text-gradient">先把今天的機會排前面</span>
           </h1>
           <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
-            Scanner 先幫你排出今天最值得研究與最強偏多名單，下方再給你篩選條件、風險標記、信心度和一鍵進分析入口。
+            上半部先看 AI 幫你排好的台股機會與最強偏多名單，下半部再依市場、風險與條件細挑；不是一打開就丟整張表給你自己找。
           </p>
           <div className="grid md:grid-cols-2 gap-3 mt-4">
             <div className="admin-metric"><span>上半部</span><strong>推薦區先看</strong></div>
             <div className="admin-metric"><span>下半部</span><strong>篩選區再細挑</strong></div>
-            <div className="admin-metric"><span>適合情境</span><strong>盤前 / 下班 5 分鐘</strong></div>
+            <div className="admin-metric"><span>預設市場</span><strong>先給台股，比較有貼近感</strong></div>
             <div className="admin-metric"><span>下一步</span><strong>一鍵進個股分析</strong></div>
           </div>
           <div className="hero-actions mt-4">
@@ -147,7 +146,21 @@ export default function Scanner() {
           </div>
         </div>
         <div className="scanner-hero-panel__media">
-          <img src={SCANNER_HERO} alt="Scanner hero mockup" />
+          <div className="preview-mock-card">
+            <div className="preview-mock-card__top">
+              <div>
+                <div className="preview-mock-card__eyebrow">今日最值得研究</div>
+                <div className="preview-mock-card__symbol">2330 / 2454 / 2303</div>
+              </div>
+              <span className="hero-badge hero-badge--accent">台股優先</span>
+            </div>
+            <p className="preview-mock-card__summary">先推薦最值得研究的清單，再用台股 / 上櫃 / 美股、風險、信心度繼續縮小範圍。</p>
+            <div className="preview-mock-card__meta">
+              <span>推薦理由</span>
+              <span>風險標記</span>
+              <span>一鍵進分析</span>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -186,7 +199,17 @@ export default function Scanner() {
       </section>
 
       {/* Filter Bar */}
-      <div className="glass-card p-4">
+      <div className="glass-card p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {[
+            '產業：半導體 / 金融 / ETF',
+            '市值：大型股優先',
+            '策略：短線 / 波段 / 觀察',
+            '風險：先避開高波動',
+          ].map((hint) => (
+            <span key={hint} className="hero-badge">{hint}</span>
+          ))}
+        </div>
         <div className="flex flex-col sm:flex-row gap-2.5">
           {/* Search */}
           <div className="relative flex-1">

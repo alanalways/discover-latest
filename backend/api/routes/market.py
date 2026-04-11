@@ -38,7 +38,7 @@ async def product_config():
         "beta_message": BETA_MESSAGE,
         "beta_notes": BETA_NOTES,
         "target_audience": BETA_TARGET_AUDIENCE,
-        "future_pricing_note": "現階段不收費，先以免費版累積穩定使用者與回饋；student_pricing 只保留作為未來規劃參考。",
+        "future_pricing_note": "現階段不收費，先用免費版累積穩定使用者與回饋；正式商業化與方案規劃等免費版穩定後再評估。",
         "student_pricing": STUDENT_PRICING,
     }
 

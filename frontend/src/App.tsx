@@ -434,6 +434,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/accuracy" element={<Accuracy />} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/analysis/:symbol" element={<Analysis />} />
             <Route path="/scanner" element={<Scanner />} />
             <Route path="/backtest" element={<Backtest />} />
             <Route path="/watchlist" element={<RequireAuth><Watchlist /></RequireAuth>} />

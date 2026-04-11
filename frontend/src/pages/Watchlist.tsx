@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Star, Plus, Trash2, RefreshCw,
-  Search, AlertCircle, Eye, ExternalLink
+  Search, AlertCircle, Eye, ExternalLink, TrendingUp, ShieldAlert
 } from 'lucide-react'
 import { getWatchlist, addToWatchlist, removeFromWatchlist, WatchlistItem } from '../lib/api'
 import { LoadingSkeleton, EmptyState, SectionHeader, Spinner } from '../components/ui'
@@ -9,6 +9,15 @@ import { LoadingSkeleton, EmptyState, SectionHeader, Spinner } from '../componen
 // 統一用 localStorage 取 token（與 App.tsx 登入流程一致）
 function getToken(): string | null {
   return localStorage.getItem('dl_token')
+}
+
+const SYMBOL_META: Record<string, { name: string; stance: string; tone: 'bull' | 'neutral' | 'risk' }> = {
+  '2330': { name: '台積電', stance: '偏多，等拉回再看', tone: 'bull' },
+  '2454': { name: '聯發科', stance: '偏多，留意波動', tone: 'bull' },
+  '00878': { name: '國泰永續高股息', stance: '穩健觀察', tone: 'neutral' },
+  '4142': { name: '國光生', stance: '題材波動高', tone: 'risk' },
+  AAPL: { name: 'Apple', stance: '觀察財報前節奏', tone: 'neutral' },
+  NVDA: { name: 'NVIDIA', stance: '偏多但不追價', tone: 'bull' },
 }
 
 export default function Watchlist() {
@@ -96,7 +105,7 @@ export default function Watchlist() {
           aria-label="重新整理"
         >
           <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
-          重新整理
+          更新 AI 評估
         </button>
       </div>
 
@@ -180,46 +189,53 @@ export default function Watchlist() {
             {items.map((item, i) => {
               const key = `${item.symbol}-${item.market}`
               const isRemoving = removing === key
+              const meta = SYMBOL_META[item.symbol] || { name: '待補公司名稱', stance: '尚未產生最新摘要', tone: 'neutral' as const }
               return (
                 <div
                   key={key}
-                  className="flex items-center justify-between px-5 py-3.5 transition-colors"
+                  className="flex items-center justify-between px-5 py-3.5 transition-colors gap-4"
                   style={{
                     borderBottom: i < items.length - 1 ? '1px solid var(--bdr-1)' : 'none',
                     opacity: isRemoving ? 0.5 : 1,
                   }}
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <Star
                       size={14}
                       style={{ color: 'var(--gold)', fill: 'var(--gold)' }}
                       aria-hidden
                     />
-                    <div>
-                      <span className="font-mono font-semibold text-sm" style={{ color: 'var(--t1)' }}>
-                        {item.symbol}
-                      </span>
-                      <span
-                        className="font-mono text-xs ml-2 px-1.5 py-0.5 rounded"
-                        style={{
-                          background: 'rgba(148,163,184,0.06)',
-                          color: 'var(--t4)',
-                          border: '1px solid var(--bdr-1)',
-                        }}
-                      >
-                        {item.market}
-                      </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono font-semibold text-sm" style={{ color: 'var(--t1)' }}>
+                          {item.symbol}
+                        </span>
+                        <span style={{ color: 'var(--t3)', fontSize: '0.85rem' }}>{meta.name}</span>
+                        <span
+                          className="font-mono text-xs px-1.5 py-0.5 rounded"
+                          style={{
+                            background: 'rgba(148,163,184,0.06)',
+                            color: 'var(--t4)',
+                            border: '1px solid var(--bdr-1)',
+                          }}
+                        >
+                          {item.market}
+                        </span>
+                        <span className="hero-badge" style={{ color: meta.tone === 'bull' ? 'var(--bull)' : meta.tone === 'risk' ? 'var(--bear)' : 'var(--t2)' }}>
+                          {meta.stance}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
                     <a
                       href={`/analysis?symbol=${item.symbol}&market=${item.market}`}
                       className="btn-ghost text-xs flex items-center gap-1.5 no-underline"
                       aria-label={`分析 ${item.symbol}`}
                     >
                       <Search size={11} aria-hidden />
-                      分析
+                      看分析
                       <ExternalLink size={10} aria-hidden />
                     </a>
                     <button
@@ -258,7 +274,22 @@ export default function Watchlist() {
         )}
       </div>
 
-      {/* 此頁已在 RequireAuth 內，不需要額外登入提示 */}
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="glass-card p-5 space-y-3">
+          <div className="flex items-center gap-2" style={{ color: 'var(--accent-2)' }}>
+            <TrendingUp size={14} />
+            <strong style={{ color: 'var(--t1)' }}>回來看自選股時，最好先知道什麼？</strong>
+          </div>
+          <p style={{ color: 'var(--t3)' }}>下一版會把最新分析狀態、目標價區間與最近更新時間直接塞進清單，而不是每次都要點進分析頁才知道狀態。</p>
+        </div>
+        <div className="glass-card p-5 space-y-3">
+          <div className="flex items-center gap-2" style={{ color: 'var(--gold)' }}>
+            <ShieldAlert size={14} />
+            <strong style={{ color: 'var(--t1)' }}>目前按鈕已改名成「更新 AI 評估」</strong>
+          </div>
+          <p style={{ color: 'var(--t3)' }}>避免你看到「重新整理」卻不知道是刷新畫面，還是要重新抓 AI 判斷。後面會再補 tooltip 與最近更新時間。</p>
+        </div>
+      </div>
     </div>
   )
 }

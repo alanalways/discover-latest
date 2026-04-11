@@ -334,8 +334,12 @@ export default function Backtest() {
   }
 
   const totalPredictions = (stats?.total_predictions ?? 0) + pendingCount
+  const statsBySymbol = stats?.by_symbol ?? []
+  const trendWeeks = trend?.weeks ?? []
+  const trendPcts = trend?.accuracy_pcts ?? []
   const pendingPreds = predictions.filter(p => !p.is_verified)
   const verifiedPreds = predictions.filter(p => p.is_verified)
+  const primaryPendingPreds = pendingPreds.slice(0, 40)
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 space-y-5">
@@ -384,22 +388,22 @@ export default function Backtest() {
                 label: '整體準確率',
                 value: stats?.total_predictions
                   ? `${stats.overall_accuracy_pct}%`
-                  : '累積中',
+                  : '待驗證',
                 color: (stats?.overall_accuracy_pct ?? 0) >= 55 ? 'var(--bull)' : 'var(--accent-2)',
               },
               {
                 label: '已驗證預測',
-                value: stats?.total_predictions ?? 0,
+                value: (stats?.total_predictions ?? 0) > 0 ? stats?.total_predictions ?? 0 : '累積中',
                 color: 'var(--accent-2)',
               },
               {
                 label: '待驗證預測',
-                value: pendingCount,
+                value: pendingCount > 0 ? pendingCount : '累積中',
                 color: 'var(--warn)',
               },
               {
                 label: '追蹤股數',
-                value: stats?.by_symbol?.length ?? 0,
+                value: statsBySymbol.length > 0 ? statsBySymbol.length : '累積中',
                 color: 'var(--gold)',
               },
             ].map((s, i) => (
@@ -413,22 +417,35 @@ export default function Backtest() {
           </div>
 
           {/* Weekly Chart */}
-          {trend && trend.weeks.length > 0 && (
-            <WeeklyChart weeks={trend.weeks} pcts={trend.accuracy_pcts} />
+          {trendWeeks.length > 0 ? (
+            <WeeklyChart weeks={trendWeeks} pcts={trendPcts} />
+          ) : (
+            <div className="glass-card p-5 space-y-3">
+              <div className="label">回測進度說明</div>
+              <p className="text-sm" style={{ color: 'var(--t3)' }}>
+                目前有 {pendingCount} 筆預測正在等市場驗證。最快會在各自的驗證日開始轉成可看的準確率，不是 AI 沒算，而是市場時間還沒走完。
+              </p>
+            </div>
           )}
 
           {/* By Symbol Table (verified) */}
-          {stats?.by_symbol && stats.by_symbol.length > 0 && (
-            <AccuracyTable data={stats.by_symbol} />
+          {statsBySymbol.length > 0 && (
+            <AccuracyTable data={statsBySymbol} />
           )}
 
           {/* Pending Predictions */}
-          {activeTab === 'overview' && pendingPreds.length > 0 && (
-            <PendingPredictions predictions={pendingPreds} />
+          {activeTab === 'overview' && primaryPendingPreds.length > 0 && (
+            <PendingPredictions predictions={primaryPendingPreds} />
+          )}
+
+          {activeTab === 'overview' && pendingPreds.length > primaryPendingPreds.length && (
+            <div className="soft-status-note">
+              目前待驗證預測共 {pendingPreds.length} 筆，畫面先顯示最新 {primaryPendingPreds.length} 筆，避免單頁過長；剩餘資料會在驗證完成後回流到歷史記錄。
+            </div>
           )}
 
           {/* Empty state when nothing at all */}
-          {activeTab === 'overview' && !stats?.by_symbol?.length && pendingPreds.length === 0 && (
+          {activeTab === 'overview' && !statsBySymbol.length && pendingPreds.length === 0 && (
             <div className="glass-card p-10 text-center animate-fade-in">
               <div className="flex flex-col items-center gap-3">
                 <div className="relative">
