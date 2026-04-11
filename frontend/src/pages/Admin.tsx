@@ -98,7 +98,6 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
   const budgetTone = budgetPct >= 80 ? 'var(--bear)' : budgetPct >= 60 ? 'var(--warn)' : 'var(--bull)'
   const tierData = status.overview?.tier_breakdown || {}
   const upgradeData = status.overview?.upgrade_breakdown || {}
-  const pricingConfig = status.product?.student_pricing || {}
   const betaFeedback = status.beta_feedback || { total_feedback: 0, category_breakdown: {}, average_rating: null, recommend_pct: null, recent_feedback: [] }
   const growthCurve = status.growth_curve || { users: [], reports: [], feedback: [] }
   const chartSeries = growthCurve.reports.length ? growthCurve.reports : [
@@ -179,23 +178,21 @@ function OverviewPanel({ status, onRefresh }: { status: SystemStatus | null; onR
         </div>
 
         <div className="glass-card p-5 space-y-4">
-          <SectionHeader title="目前開放策略" />
+          <SectionHeader title="目前營運模式" />
           <div className="space-y-3">
             <div className="pricing-summary-row">
               <div>
                 <div className="font-semibold" style={{ color: 'var(--t1)' }}>免費 Beta 全開</div>
-                <div className="text-xs" style={{ color: 'var(--t4)' }}>現在先衝穩定度、留存、真實回饋</div>
+                <div className="text-xs" style={{ color: 'var(--t4)' }}>現階段先衝穩定度、留存、真實回饋與每日使用習慣</div>
               </div>
               <div className="font-mono font-bold" style={{ color: 'var(--gold)' }}>FREE</div>
             </div>
             <div className="pricing-summary-row">
               <div>
-                <div className="font-semibold" style={{ color: 'var(--t1)' }}>未來方案只保留備註</div>
-                <div className="text-xs" style={{ color: 'var(--t4)' }}>收費功能暫緩，等免費版穩定後再評估</div>
+                <div className="font-semibold" style={{ color: 'var(--t1)' }}>收費功能先暫緩</div>
+                <div className="text-xs" style={{ color: 'var(--t4)' }}>先把免費版穩定、流暢與資料可信度做好，再決定何時商業化</div>
               </div>
-              <div className="font-mono font-bold" style={{ color: 'var(--t2)' }}>
-                {pricingConfig?.free?.monthly ? `參考 NT$${pricingConfig.free.monthly}` : '暫不收費'}
-              </div>
+              <div className="font-mono font-bold" style={{ color: 'var(--t2)' }}>觀察中</div>
             </div>
           </div>
         </div>

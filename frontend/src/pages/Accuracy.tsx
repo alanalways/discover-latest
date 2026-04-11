@@ -153,7 +153,7 @@ export default function Accuracy() {
           </span>
         </div>
         <p className="text-xs mt-1" style={{ color: 'var(--t4)' }}>
-          每筆 AI 預測自動驗證 · 100% 透明 · 無需登入
+          每筆 AI 預測自動驗證 · 100% 透明 · 無需登入。若目前還沒看到準確率，代表市場還在等待走完第一批驗證期。
         </p>
       </div>
 

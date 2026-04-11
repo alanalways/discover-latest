@@ -326,7 +326,7 @@ export default function Analysis() {
         <div className="analysis-hero-panel__copy">
           <div className="hero-badge-row">
             <span className="hero-badge hero-badge--accent">30 秒先看結論</span>
-            <span className="hero-badge">快速結論 → 理由 → 細節</span>
+            <span className="hero-badge">先結論後理由</span>
           </div>
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2.5">
@@ -334,7 +334,7 @@ export default function Analysis() {
               <span className="text-gradient">股票深度分析</span>
             </h1>
             <p className="text-sm mt-2" style={{ color: 'var(--t3)', maxWidth: '56ch' }}>
-              輸入代號後，先拿到快速結論、建議動作、目標價、風險等級與三個關鍵原因；如果第一屏就不值得，就不用浪費時間往下看。
+              輸入代號後，先拿到快速結論、建議動作、風險等級、信心度與三個關鍵原因；如果第一屏就不值得，就不用浪費時間往下看。
             </p>
           </div>
 
@@ -409,47 +409,45 @@ export default function Analysis() {
             </div>
           </form>
 
-          <div className="grid md:grid-cols-2 gap-3">
-            <div className="admin-metric"><span>第一屏會先看到</span><strong>結論 / 建議動作 / 風險</strong></div>
-            <div className="admin-metric"><span>預計時間</span><strong>20–45 秒</strong></div>
-            <div className="admin-metric"><span>最常用情境</span><strong>盤前快速判斷 / 複習持股</strong></div>
-            <div className="admin-metric"><span>語氣方向</span><strong>像研究工具，不像一堆 AI 在開會</strong></div>
+          <div className="analysis-quick-grid analysis-quick-grid--compact">
+            <div className="analysis-quick-card">
+              <div className="analysis-quick-card__icon"><Brain size={16} /></div>
+              <h3>先結論</h3>
+              <p>先告訴你現在偏多、觀望還是等，幫你快速過濾不值得看的標的。</p>
+            </div>
+            <div className="analysis-quick-card">
+              <div className="analysis-quick-card__icon"><Shield size={16} /></div>
+              <h3>再講風險</h3>
+              <p>把追高風險、財報前波動與外部市場影響放前面，不讓結論看起來太夢幻。</p>
+            </div>
+            <div className="analysis-quick-card">
+              <div className="analysis-quick-card__icon"><Target size={16} /></div>
+              <h3>最後才看細節</h3>
+              <p>真的有興趣再往下看完整報告；第一屏不適合就直接換下一檔。</p>
+            </div>
           </div>
+          {pathSymbol && !loading && !result && !error && !streamText && (
+            <div className="soft-status-note">
+              目前還沒有 {pathSymbol.toUpperCase()} 的現成報告，已幫你把代號帶進來；直接按 AI 分析就能開始。
+            </div>
+          )}
         </div>
         <div className="analysis-hero-panel__media">
           <div className="preview-mock-card">
             <div className="preview-mock-card__top">
               <div>
-                <div className="preview-mock-card__eyebrow">QUICK CONCLUSION</div>
-                <div className="preview-mock-card__symbol">2330.TW ・ 偏多但不追高</div>
+                <div className="preview-mock-card__eyebrow">快速結論範例</div>
+                <div className="preview-mock-card__symbol">2330 ・ 偏多，但不追高</div>
               </div>
               <RatingBadge rating="bullish" />
             </div>
             <p className="preview-mock-card__summary">先看結論：趨勢還在，但現在比較適合等拉回再研究，不是看到紅就追。</p>
             <div className="preview-mock-card__meta">
               <span>建議動作：等拉回</span>
-              <span>目標價：960–1010</span>
+              <span>信心度：78%</span>
               <span>風險：美股科技震盪</span>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="analysis-quick-grid">
-        <div className="analysis-quick-card">
-          <div className="analysis-quick-card__icon"><Brain size={16} /></div>
-          <h3>先結論</h3>
-          <p>不是先丟幾百字給你，而是先說現在偏多、觀望還是等，幫你快速過濾不值得看的標的。</p>
-        </div>
-        <div className="analysis-quick-card">
-          <div className="analysis-quick-card__icon"><Shield size={16} /></div>
-          <h3>再講風險</h3>
-          <p>把最容易踩雷的點放在前面，像追高風險、財報前波動、外部市場影響，避免結論看起來太夢幻。</p>
-        </div>
-        <div className="analysis-quick-card">
-          <div className="analysis-quick-card__icon"><Target size={16} /></div>
-          <h3>最後才看細節</h3>
-          <p>真的有興趣再往下看完整報告；如果第一屏就不適合，你可以立刻回上一頁繼續找下一檔。</p>
         </div>
       </section>
       {/* Progress */}

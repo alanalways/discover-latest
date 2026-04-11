@@ -33,13 +33,13 @@ const DEMO_SCANNER: ReportSummary[] = [
     created_at: '2026-04-10',
   },
   {
-    id: 'scanner-demo-nvda',
-    symbol: 'NVDA',
-    market: 'US',
+    id: 'scanner-demo-2303',
+    symbol: '2303',
+    market: 'TW',
     rating: 'bullish',
-    confidence_score: 80,
-    target_price_low: 118,
-    target_price_high: 126,
+    confidence_score: 76,
+    target_price_low: 54,
+    target_price_high: 58,
     created_at: '2026-04-10',
   },
 ]
@@ -132,8 +132,8 @@ export default function Scanner() {
             上半部先看 AI 幫你排好的台股機會與最強偏多名單，下半部再依市場、風險與條件細挑；不是一打開就丟整張表給你自己找。
           </p>
           <div className="grid md:grid-cols-2 gap-3 mt-4">
-            <div className="admin-metric"><span>上半部</span><strong>推薦區先看</strong></div>
-            <div className="admin-metric"><span>下半部</span><strong>篩選區再細挑</strong></div>
+            <div className="admin-metric"><span>第一屏</span><strong>今日最值得研究</strong></div>
+            <div className="admin-metric"><span>第二列</span><strong>最強偏多名單</strong></div>
             <div className="admin-metric"><span>預設市場</span><strong>先給台股，比較有貼近感</strong></div>
             <div className="admin-metric"><span>下一步</span><strong>一鍵進個股分析</strong></div>
           </div>

@@ -3,9 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
   BookOpen,
-  Brain,
-  Clock3,
-  LayoutDashboard,
   LockOpen,
   RefreshCw,
   Sparkles,
@@ -242,9 +239,9 @@ export default function Dashboard() {
 
   const heroHighlights = useMemo(() => {
     return [
-      '先給快速結論，再補理由與風險，不浪費判斷時間',
-      '全年齡都看得懂的投資研究介面，不靠術語堆滿畫面',
-      '先把免費 Beta 做到穩定、流暢、願意每天打開',
+      '先把今天值得研究的標的排前面，再決定要不要深挖。',
+      '深度分析先給結論、風險與信心度，不把時間花在雜訊上。',
+      '整體介面走深色金融科技感，先把質感、速度與穩定度做到位。',
     ]
   }, [])
 
@@ -283,7 +280,7 @@ export default function Dashboard() {
     },
     {
       title: '先用結論做判斷',
-      description: 'Analysis 頁第一屏先給你方向、風險、信心度，再決定要不要往下看細節。',
+      description: 'Analysis 第一屏先給方向、風險與信心度，再決定要不要往下看。',
     },
     {
       title: '先把體驗磨到順手',
@@ -340,7 +337,7 @@ export default function Dashboard() {
               幫你更快找到 <span className="text-gradient">值得研究的投資機會</span>
             </h1>
             <p className="fintech-hero__subtitle">
-              第一屏先看市場節奏、今日最值得研究與最新分析；進入個股頁後，先看結論、風險、信心度，再決定要不要深挖細節。
+              把原本 2 小時的研究流程，壓縮成第一屏可理解的市場節奏、今日最值得研究與最新分析；進到個股頁後，再用快速結論決定要不要深入。
             </p>
           </div>
 
@@ -356,11 +353,11 @@ export default function Dashboard() {
           <div className="hero-actions">
             <button className="btn-primary" onClick={loggedIn ? () => navigate('/scanner') : openLogin}>
               <LockOpen size={14} />
-              {loggedIn ? '直接看今日機會' : '免費登入開始使用'}
+              {loggedIn ? '直接看今日最值得研究' : '免費登入體驗完整功能'}
             </button>
             <button className="btn-secondary" onClick={() => navigate('/analysis')}>
               <Target size={14} />
-              看分析頁怎麼給結論
+              先看 30 秒快速結論
             </button>
           </div>
 
@@ -385,17 +382,17 @@ export default function Dashboard() {
         <div className="dashboard-showcase-card dashboard-showcase-card--main">
           <div className="dashboard-showcase-card__header">
             <div>
-              <div className="dashboard-showcase-card__eyebrow">首頁先看什麼</div>
-              <h2>像投資平台，不像工程頁</h2>
+              <div className="dashboard-showcase-card__eyebrow">首頁第一屏要做到什麼</div>
+              <h2>先建立信任，再把今天值得看的東西排前面</h2>
             </div>
-            <button className="btn-secondary" onClick={() => navigate('/scanner')}>看掃描器</button>
+            <button className="btn-secondary" onClick={() => navigate('/scanner')}>看今日機會清單</button>
           </div>
           <img src={MOCKUP_DASHBOARD} alt="Dashboard mockup" className="dashboard-showcase-card__image" />
           <div className="dashboard-showcase-card__footer">
             <span>市場快照</span>
             <span>今日最值得研究</span>
-            <span>每日摘要預覽</span>
-            <span>Beta 回饋入口</span>
+            <span>最近更新分析</span>
+            <span>自選股提醒預覽</span>
           </div>
         </div>
 
@@ -415,7 +412,7 @@ export default function Dashboard() {
           </div>
 
           <div className="glass-card p-5 space-y-4">
-            <SectionHeader title="用這個節奏看盤" />
+            <SectionHeader title="用這個節奏快速做研究" />
             <div className="beta-flow-grid">
               {useFlowItems.map((item) => (
                 <div key={item.step} className="beta-flow-card">
@@ -434,7 +431,7 @@ export default function Dashboard() {
           <img src={MOCKUP_ANALYSIS} alt="Analysis mockup" />
           <div>
             <span>Analysis</span>
-            <strong>先結論後理由，弱化 agent teams 感</strong>
+            <strong>第一屏先給結論、風險、信心度，再決定要不要往下看</strong>
           </div>
         </div>
         <div className="dashboard-mockup-mini">
@@ -448,26 +445,8 @@ export default function Dashboard() {
           <img src={MOCKUP_DASHBOARD} alt="Dashboard mockup secondary" />
           <div>
             <span>Overview</span>
-            <strong>深色高級金融科技風，資訊入口更集中</strong>
+            <strong>深色高級金融科技風，資訊入口集中而不雜亂</strong>
           </div>
-        </div>
-      </section>
-
-      <section className="grid lg:grid-cols-3 gap-4">
-        <div className="glass-card p-5 feature-card feature-card--fintech">
-          <div className="feature-card__icon"><Clock3 size={18} /></div>
-          <h3>先看今天有沒有機會</h3>
-          <p>不先丟一大堆新聞給你，而是先整理出今日最值得研究與最強偏多名單。</p>
-        </div>
-        <div className="glass-card p-5 feature-card feature-card--fintech">
-          <div className="feature-card__icon"><Brain size={18} /></div>
-          <h3>先給快速結論</h3>
-          <p>分析頁第一屏先告訴你現在該偏多、觀望還是等，理由與細節放在後面補充。</p>
-        </div>
-        <div className="glass-card p-5 feature-card feature-card--fintech">
-          <div className="feature-card__icon"><LayoutDashboard size={18} /></div>
-          <h3>先把體驗磨到像產品</h3>
-          <p>Beta 期間優先把外觀、速度、管理後台和回饋流程一次補到位，不再像半成品。</p>
         </div>
       </section>
 
@@ -498,9 +477,9 @@ export default function Dashboard() {
         <div className="glass-card p-5 space-y-5">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
-              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>現在這版先把三件事做到順</h2>
+              <h2 className="text-lg font-bold" style={{ color: 'var(--t1)' }}>這版首頁先把三件事做到位</h2>
               <p className="text-sm mt-1" style={{ color: 'var(--t3)' }}>
-                先把值得研究的機會排前面、把分析結果變成先結論後理由，再把整體體驗磨到願意每天打開。
+                先建立信任、再排今日機會、最後把分析入口放在最順手的位置；不要一頁塞滿重複說明，讓人越看越累。
               </p>
             </div>
             <span className="hero-badge hero-badge--accent">免費 Beta / 先好用 / 再擴功能</span>
@@ -523,12 +502,6 @@ export default function Dashboard() {
               <div key={note} className="beta-note-pill">{note}</div>
             ))}
           </div>
-
-          {product?.future_pricing_note && (
-            <div className="soft-status-note">
-              {product.future_pricing_note}
-            </div>
-          )}
         </div>
 
         <div className="space-y-4">
@@ -544,8 +517,8 @@ export default function Dashboard() {
                 <p style={{ color: 'var(--t3)' }}>首頁先給你今日值得研究、最近更新的分析與市場節奏，再決定要不要往下深挖。</p>
               </div>
               <div className="admin-feedback-card">
-                <strong style={{ color: 'var(--t1)' }}>現在為什麼免費？</strong>
-                <p style={{ color: 'var(--t3)' }}>現階段先把免費版做穩，把介面、內容結構與速度調到你願意每天回來用。</p>
+                <strong style={{ color: 'var(--t1)' }}>數據還在累積，現在看什麼最有價值？</strong>
+                <p style={{ color: 'var(--t3)' }}>先看最近更新的分析、AI 對個股的快速結論、以及你自己的自選股是否需要重新研究。</p>
               </div>
             </div>
           </div>

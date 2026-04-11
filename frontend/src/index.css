@@ -848,10 +848,10 @@ body {
   min-height: inherit;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 18px;
   max-width: 760px;
-  padding: 36px;
+  padding: 40px 36px;
 }
 
 .fintech-hero__title {
@@ -1534,6 +1534,10 @@ body {
 
 .analysis-quick-card {
   padding: 18px;
+}
+
+.analysis-quick-grid--compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .analysis-quick-card__icon {

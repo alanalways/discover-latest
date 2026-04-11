@@ -338,8 +338,11 @@ export default function Backtest() {
   const trendWeeks = trend?.weeks ?? []
   const trendPcts = trend?.accuracy_pcts ?? []
   const pendingPreds = predictions.filter(p => !p.is_verified)
-  const verifiedPreds = predictions.filter(p => p.is_verified)
   const primaryPendingPreds = pendingPreds.slice(0, 40)
+  const earliestVerifyDate = pendingPreds
+    .map((item) => item.verify_date)
+    .filter(Boolean)
+    .sort()[0]
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-5 py-6 space-y-5">
@@ -423,7 +426,7 @@ export default function Backtest() {
             <div className="glass-card p-5 space-y-3">
               <div className="label">回測進度說明</div>
               <p className="text-sm" style={{ color: 'var(--t3)' }}>
-                目前有 {pendingCount} 筆預測正在等市場驗證。最快會在各自的驗證日開始轉成可看的準確率，不是 AI 沒算，而是市場時間還沒走完。
+                目前有 {pendingCount} 筆預測正在等市場驗證。最快預計會在 {earliestVerifyDate || '下一個驗證日'} 開始轉成可看的準確率，不是 AI 沒算，而是市場時間還沒走完。
               </p>
             </div>
           )}
